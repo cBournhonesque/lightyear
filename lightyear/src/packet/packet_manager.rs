@@ -88,7 +88,7 @@ impl PacketBuilder {
         // self.try_write_buffer
         //     .serialize(packet.header())
         //     .expect("Failed to serialize header, this should never happen");
-        // TODO: need to reserver HEADER_BYTES bits?
+        // TODO: need to reserve HEADER_BYTES bits?
         let header = self
             .header_manager
             .prepare_send_packet_header(PacketType::Data);
@@ -615,7 +615,7 @@ mod tests {
 
     use lightyear_macros::ChannelInternal;
 
-    use crate::_reexport::*;
+    use crate::_internal::*;
     use crate::channel::senders::fragment_sender::FragmentSender;
     use crate::packet::message::MessageId;
     use crate::prelude::*;
@@ -636,10 +636,10 @@ mod tests {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         };
-        let mut c = ChannelRegistry::new();
-        c.add::<Channel1>(settings.clone());
-        c.add::<Channel2>(settings.clone());
-        c.add::<Channel3>(settings.clone());
+        let mut c = ChannelRegistry::default();
+        c.add_channel::<Channel1>(settings.clone());
+        c.add_channel::<Channel2>(settings.clone());
+        c.add_channel::<Channel3>(settings.clone());
         c
     }
 

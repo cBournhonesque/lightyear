@@ -1,6 +1,6 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
-use crate::_reexport::ClientMarker;
+use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
@@ -10,23 +10,14 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
-use crate::prelude::{NetworkTarget, Protocol, ShouldBePredicted};
+use crate::prelude::{NetworkTarget, ShouldBePredicted, Tick};
 use crate::shared::replication::components::{PrePredicted, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 use bevy::prelude::*;
 use tracing::{debug, error, trace, warn};
 
-pub(crate) struct PrePredictionPlugin<P> {
-    marker: std::marker::PhantomData<P>,
-}
-
-impl<P> Default for PrePredictionPlugin<P> {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub(crate) struct PrePredictionPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PrePredictionSet {
@@ -40,7 +31,7 @@ pub enum PrePredictionSet {
     Clean,
 }
 
-impl<P: Protocol> Plugin for PrePredictionPlugin<P> {
+impl Plugin for PrePredictionPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PreUpdate,
@@ -54,7 +45,7 @@ impl<P: Protocol> Plugin for PrePredictionPlugin<P> {
                 PrePredictionSet::Clean,
             )
                 .chain()
-                .run_if(client_is_synced::<P>),
+                .run_if(client_is_synced),
         );
         app.add_systems(
             PreUpdate,
@@ -74,13 +65,13 @@ impl<P: Protocol> Plugin for PrePredictionPlugin<P> {
     }
 }
 
-impl<P: Protocol> PrePredictionPlugin<P> {
+impl PrePredictionPlugin {
     /// For `PrePredicted` entities, find the corresponding `Confirmed` entity. and add the `Confirmed` component to it.
     /// Also update the `Predicted` component on the pre-predicted entity.
     // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
     //  instead panic if we find an entity that is both predicted and interpolated?)
     pub(crate) fn spawn_pre_predicted_entity(
-        connection: Res<ConnectionManager<P>>,
+        connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
         mut commands: Commands,
         // get the list of entities who get PrePredicted replicated from server
@@ -175,7 +166,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
             debug!(?entity, "removing replicate from pre-predicted entity");
             commands
                 .entity(entity)
-                .remove::<Replicate<P>>()
+                .remove::<Replicate>()
                 .insert((Predicted {
                     confirmed_entity: None,
                 },));

@@ -29,6 +29,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
         if app.is_plugin_added::<RenderPlugin>() {
             if !app.is_plugin_added::<EguiPlugin>() {
                 app.add_plugins(EguiPlugin);

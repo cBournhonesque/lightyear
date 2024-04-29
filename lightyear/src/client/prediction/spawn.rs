@@ -6,7 +6,7 @@ use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::connection::client::ClientConnection;
-use crate::prelude::{Protocol, ShouldBePredicted};
+use crate::prelude::{ShouldBePredicted, Tick};
 use crate::shared::replication::components::PrePredicted;
 use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut, With, Without};
 use tracing::{debug, error, info, trace, warn};
@@ -15,8 +15,8 @@ use tracing::{debug, error, info, trace, warn};
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
 // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
 //  instead panic if we find an entity that is both predicted and interpolated?)
-pub(crate) fn spawn_predicted_entity<P: Protocol>(
-    connection: Res<ConnectionManager<P>>,
+pub(crate) fn spawn_predicted_entity(
+    connection: Res<ConnectionManager>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
     // get the list of entities who get ShouldBePredicted replicated from server
@@ -35,7 +35,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     confirmed_entity: Some(confirmed_entity),
                 })
                 .id();
-            info!(
+            debug!(
                 "Spawning predicted entity {:?} for confirmed: {:?}",
                 predicted_entity, confirmed_entity
             );
@@ -61,6 +61,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                 //  and they are applied simultaneously
                 // get the confirmed tick for the entity
                 // if we don't have it, something has gone very wrong
+
                 let confirmed_tick = connection
                     .replication_receiver
                     .get_confirmed_tick(confirmed_entity)

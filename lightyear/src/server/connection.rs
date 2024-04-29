@@ -2,15 +2,17 @@
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{Entity, Resource, World};
+use bevy::prelude::{Entity, Mut, Resource, World};
 use bevy::utils::{HashMap, HashSet};
+use bitcode::__private::Fixed;
+use bytes::Bytes;
 use hashbrown::hash_map::Entry;
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span, warn};
+use tracing::{debug, error, info, trace, trace_span, warn};
 
-use crate::_reexport::{
-    EntityUpdatesChannel, FromType, InputMessageKind, MessageProtocol, PingChannel,
-    ReplicationSend, ServerMarker, ShouldBeInterpolated,
+use crate::_internal::{
+    BitSerializable, EntityUpdatesChannel, MessageKind, PingChannel, ServerMarker,
+    ShouldBeInterpolated, WriteBuffer, WriteWordBuffer,
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
@@ -18,24 +20,30 @@ use crate::connection::id::ClientId;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
-use crate::packet::packet_manager::Payload;
+use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::{
     Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::Protocol;
+use crate::protocol::component::{ComponentNetId, ComponentRegistry};
+use crate::protocol::message::{MessageRegistry, MessageType};
+use crate::protocol::registry::NetId;
+
 use crate::serialize::reader::ReadBuffer;
+use crate::serialize::wordbuffer::reader::BufferPool;
+use crate::serialize::RawData;
 use crate::server::config::PacketConfig;
 use crate::server::events::ServerEvents;
 use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
-use crate::shared::ping::message::SyncMessage;
+use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{NetworkTarget, Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::ReplicationMessage;
+use crate::shared::replication::systems::DespawnMetadata;
 use crate::shared::replication::ReplicationMessageData;
+use crate::shared::replication::{ReplicationMessage, ReplicationSend};
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -43,36 +51,45 @@ use crate::shared::time_manager::TimeManager;
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 #[derive(Resource)]
-pub struct ConnectionManager<P: Protocol> {
-    pub(crate) connections: HashMap<ClientId, Connection<P>>,
+pub struct ConnectionManager {
+    pub(crate) connections: HashMap<ClientId, Connection>,
+    pub(crate) component_registry: ComponentRegistry,
+    pub(crate) message_registry: MessageRegistry,
     channel_registry: ChannelRegistry,
-    pub(crate) events: ServerEvents<P>,
+    pub(crate) events: ServerEvents,
 
     // NOTE: we put this here because we only need one per world, not one per connection
-    /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
-    /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
+    /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
+    /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
+    replicate_component_cache: EntityHashMap<Entity, DespawnMetadata>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
-
+    pub(crate) writer: WriteWordBuffer,
+    pub(crate) reader_pool: BufferPool,
     packet_config: PacketConfig,
     ping_config: PingConfig,
 }
 
-impl<P: Protocol> ConnectionManager<P> {
+impl ConnectionManager {
     pub(crate) fn new(
+        component_registry: ComponentRegistry,
+        message_registry: MessageRegistry,
         channel_registry: ChannelRegistry,
         packet_config: PacketConfig,
         ping_config: PingConfig,
     ) -> Self {
         Self {
             connections: HashMap::default(),
+            component_registry,
+            message_registry,
             channel_registry,
             events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
+            writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            reader_pool: BufferPool::new(1),
             packet_config,
             ping_config,
         }
@@ -118,13 +135,13 @@ impl<P: Protocol> ConnectionManager<P> {
         }
     }
 
-    pub(crate) fn connection(&self, client_id: ClientId) -> Result<&Connection<P>> {
+    pub(crate) fn connection(&self, client_id: ClientId) -> Result<&Connection> {
         self.connections
             .get(&client_id)
             .context("client id not found")
     }
 
-    pub(crate) fn connection_mut(&mut self, client_id: ClientId) -> Result<&mut Connection<P>> {
+    pub(crate) fn connection_mut(&mut self, client_id: ClientId) -> Result<&mut Connection> {
         self.connections
             .get_mut(&client_id)
             .context("client id not found")
@@ -165,83 +182,48 @@ impl<P: Protocol> ConnectionManager<P> {
         self.connections.remove(&client_id);
     }
 
-    /// Get the inputs for all clients for the given tick
-    pub(crate) fn pop_inputs(
-        &mut self,
-        tick: Tick,
-    ) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
-        self.connections
-            .iter_mut()
-            .map(move |(client_id, connection)| {
-                trace!(input_buffer = ?connection.input_buffer, ?tick, ?client_id, "input buffer for client");
-                let received_input = connection.input_buffer.pop(tick);
-                let fallback = received_input.is_none();
-
-                // NOTE: if there is no input for this tick, we should use the last input that we have
-                //  as a best-effort fallback.
-                let input = match received_input {
-                    None => connection.last_input.clone(),
-                    Some(i) => {
-                        connection.last_input = Some(i.clone());
-                        Some(i)
-                    }
-                };
-                if fallback {
-                    // TODO: do not log this while clients are syncing..
-                    debug!(
-                    ?client_id,
-                    ?tick,
-                    fallback_input = ?&input,
-                    "Missed client input!"
-                    )
-                }
-                // TODO: We should also let the user know that it needs to send inputs a bit earlier so that
-                //  we have more of a buffer. Send a SyncMessage to tell the user to speed up?
-                //  See Overwatch GDC video
-                (input, *client_id)
-            })
-    }
-
     pub(crate) fn buffer_message(
         &mut self,
-        message: P::Message,
+        message: RawData,
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<()> {
-        // Rc is fine because the copies are all created on the same thread
-        // let message = Rc::new(message);
         self.connections
             .iter_mut()
             .filter(|(id, _)| target.should_send_to(id))
-            // TODO: here we should avoid the clone, it's the same message.. just use Rc?
-            //  need to update the ServerMessage enum to use Rc<P::Message>!
-            //  or serialize first, so we can use Bytes? where would the buffer be?
+            // TODO: is it worth it to use Arc<Vec<u8>> or Bytes to have a free clone?
+            //  at some point the bytes will have to be copied into the final message, so maybe do it now?
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
     }
 
     /// Queues up a message to be sent to all clients matching the specific [`NetworkTarget`]
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: M,
+        message: &M,
         target: NetworkTarget,
-    ) -> Result<()>
-    where
-        M: Clone,
-        P::Message: From<M>,
-    {
-        self.buffer_message(message.into(), ChannelKind::of::<C>(), target)
+    ) -> Result<()> {
+        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
+    }
+
+    pub(crate) fn erased_send_message_to_target<M: Message>(
+        &mut self,
+        message: &M,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        let message_bytes = self
+            .message_registry
+            .serialize(message, &mut self.writer)
+            .context("could not serialize message")?;
+        self.buffer_message(message_bytes, channel_kind, target)
     }
 
     /// Queues up a message to be sent to a client
     pub fn send_message<C: Channel, M: Message>(
         &mut self,
         client_id: ClientId,
-        message: M,
-    ) -> Result<()>
-    where
-        M: Clone,
-        P::Message: From<M>,
-    {
+        message: &M,
+    ) -> Result<()> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
     }
 
@@ -271,10 +253,17 @@ impl<P: Protocol> ConnectionManager<P> {
             .iter_mut()
             .for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
-                // receive events on the connection
-                let events = connection.receive(world, time_manager, tick_manager);
-                // move the events from the connection to the connection manager
-                self.events.push_events(*client_id, events);
+                world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
+                    // receive events on the connection
+                    let events = connection.receive(
+                        world,
+                        component_registry.as_ref(),
+                        time_manager,
+                        tick_manager,
+                    );
+                    // move the events from the connection to the connection manager
+                    self.events.push_events(*client_id, events);
+                });
 
                 // rebroadcast messages
                 messages_to_rebroadcast
@@ -288,25 +277,27 @@ impl<P: Protocol> ConnectionManager<P> {
 }
 
 /// Wrapper that handles the connection between the server and a client
-pub struct Connection<P: Protocol> {
+pub struct Connection {
     pub message_manager: MessageManager,
-    pub(crate) replication_sender: ReplicationSender<P>,
-    pub(crate) replication_receiver: ReplicationReceiver<P>,
-    pub(crate) events: ConnectionEvents<P>,
-
+    pub(crate) replication_sender: ReplicationSender,
+    pub(crate) replication_receiver: ReplicationReceiver,
+    pub(crate) events: ConnectionEvents,
     pub(crate) ping_manager: PingManager,
-    /// Stores the inputs that we have received from the client.
-    pub(crate) input_buffer: InputBuffer<P::Input>,
-    /// Stores the last input we have received from the client.
-    /// In case we are missing the client input for a tick, we will fallback to using this.
-    pub(crate) last_input: Option<P::Input>,
-    // TODO: maybe don't do any replication until connection is synced?
 
+    // TODO: maybe don't do any replication until connection is synced?
+    /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
+    pub(crate) received_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
+    pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
+    #[cfg(feature = "leafwing")]
+    pub(crate) received_leafwing_input_messages:
+        HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
+    writer: WriteWordBuffer,
+    pub(crate) reader_pool: BufferPool,
     // messages that we have received that need to be rebroadcasted to other clients
-    pub(crate) messages_to_rebroadcast: Vec<(P::Message, NetworkTarget, ChannelKind)>,
+    pub(crate) messages_to_rebroadcast: Vec<(RawData, NetworkTarget, ChannelKind)>,
 }
 
-impl<P: Protocol> Connection<P> {
+impl Connection {
     pub(crate) fn new(
         channel_registry: &ChannelRegistry,
         packet_config: PacketConfig,
@@ -332,9 +323,14 @@ impl<P: Protocol> Connection<P> {
             replication_sender,
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
-            input_buffer: InputBuffer::default(),
-            last_input: None,
             events: ConnectionEvents::default(),
+            received_messages: HashMap::default(),
+            received_input_messages: HashMap::default(),
+            #[cfg(feature = "leafwing")]
+            received_leafwing_input_messages: HashMap::default(),
+            writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
+            reader_pool: BufferPool::new(1),
             messages_to_rebroadcast: vec![],
         }
     }
@@ -345,11 +341,7 @@ impl<P: Protocol> Connection<P> {
         self.ping_manager.update(time_manager);
     }
 
-    pub(crate) fn buffer_message(
-        &mut self,
-        message: P::Message,
-        channel: ChannelKind,
-    ) -> Result<()> {
+    pub(crate) fn buffer_message(&mut self, message: Vec<u8>, channel: ChannelKind) -> Result<()> {
         // TODO: i know channel names never change so i should be able to get them as static
         // TODO: just have a channel registry enum as well?
         let channel_name = self
@@ -358,9 +350,13 @@ impl<P: Protocol> Connection<P> {
             .name(&channel)
             .unwrap_or("unknown")
             .to_string();
-        let message = ServerMessage::<P>::Message(message);
-        message.emit_send_logs(&channel_name);
-        self.message_manager.buffer_send(message, channel)?;
+        let message = ServerMessage::Message(message);
+        self.writer.start_write();
+        message.encode(&mut self.writer)?;
+        // TODO: doesn't this serialize the bytes twice?
+        let message_bytes = self.writer.finish_write().to_vec();
+        // message.emit_send_logs(&channel_name);
+        self.message_manager.buffer_send(message_bytes, channel)?;
         Ok(())
     }
 
@@ -380,14 +376,18 @@ impl<P: Protocol> Connection<P> {
                     .name(&channel)
                     .unwrap_or("unknown")
                     .to_string();
-                let message = ClientMessage::<P>::Replication(ReplicationMessage {
+                let message = ClientMessage::Replication(ReplicationMessage {
                     group_id,
                     data: message_data,
                 });
-                message.emit_send_logs(&channel_name);
+                self.writer.start_write();
+                message.encode(&mut self.writer)?;
+                // TODO: doesn't this serialize the bytes twice?
+                let message_bytes = self.writer.finish_write().to_vec();
+                // message.emit_send_logs(&channel_name);
                 let message_id = self
                     .message_manager
-                    .buffer_send_with_priority(message, channel, priority)?
+                    .buffer_send_with_priority(message_bytes, channel, priority)?
                     .expect("The replication channels should always return a message_id");
 
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
@@ -398,6 +398,26 @@ impl<P: Protocol> Connection<P> {
                 }
                 Ok(())
             })
+    }
+
+    fn send_ping(&mut self, ping: Ping) -> Result<()> {
+        trace!("Sending ping {:?}", ping);
+        self.writer.start_write();
+        ServerMessage::Ping(ping).encode(&mut self.writer)?;
+        let message_bytes = self.writer.finish_write().to_vec();
+        self.message_manager
+            .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
+        Ok(())
+    }
+
+    fn send_pong(&mut self, pong: Pong) -> Result<()> {
+        trace!("Sending pong {:?}", pong);
+        self.writer.start_write();
+        ServerMessage::Pong(pong).encode(&mut self.writer)?;
+        let message_bytes = self.writer.finish_write().to_vec();
+        self.message_manager
+            .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
+        Ok(())
     }
 
     /// Send packets that are ready to be sent
@@ -417,10 +437,7 @@ impl<P: Protocol> Connection<P> {
             // same thing, we want the correct send time for the ping
             // (and not have the delay between when we prepare the ping and when we send the packet)
             if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
-                trace!("Sending ping {:?}", ping);
-                let message = ServerMessage::<P>::Sync(SyncMessage::Ping(ping));
-                let channel = ChannelKind::of::<PingChannel>();
-                self.message_manager.buffer_send(message, channel)?;
+                self.send_ping(ping)?;
             }
 
             // prepare the pong messages with the correct send time
@@ -431,9 +448,7 @@ impl<P: Protocol> Connection<P> {
                     trace!("Sending pong {:?}", pong);
                     // update the send time of the pong
                     pong.pong_sent_time = time_manager.current_time();
-                    let message = ServerMessage::<P>::Sync(SyncMessage::Pong(pong));
-                    let channel = ChannelKind::of::<PingChannel>();
-                    self.message_manager.buffer_send(message, channel)?;
+                    self.send_pong(pong)?;
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
@@ -447,11 +462,13 @@ impl<P: Protocol> Connection<P> {
     pub fn receive(
         &mut self,
         world: &mut World,
+        component_registry: &ComponentRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> ConnectionEvents<P> {
+    ) -> ConnectionEvents {
         let _span = trace_span!("receive").entered();
-        for (channel_kind, messages) in self.message_manager.read_messages::<ClientMessage<P>>() {
+        let message_registry = world.resource::<MessageRegistry>();
+        for (channel_kind, messages) in self.message_manager.read_messages() {
             let channel_name = self
                 .message_manager
                 .channel_registry
@@ -461,37 +478,48 @@ impl<P: Protocol> Connection<P> {
 
             if !messages.is_empty() {
                 trace!(?channel_name, ?messages, "Received messages");
-                for (tick, message) in messages.into_iter() {
+                for (tick, single_data) in messages.into_iter() {
+                    trace!(?tick, ?single_data, "received message");
+                    // TODO: in this case, it looks like we might not need the pool?
+                    //  we can just have a single buffer, and keep re-using that buffer
+                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
+                    // TODO: maybe just decode a single bit to know if it's message vs replication?
+                    let message = ClientMessage::decode(&mut reader)
+                        .expect("Could not decode server message");
+                    self.reader_pool.attach(reader);
+
                     match message {
                         ClientMessage::Message(mut message, target) => {
-                            trace!(
-                                "remote entity map: {:?}",
-                                self.replication_receiver.remote_entity_map
-                            );
-                            // map any entities inside the message
-                            message.map_entities(&mut self.replication_receiver.remote_entity_map);
-                            if target != NetworkTarget::None {
-                                self.messages_to_rebroadcast.push((
-                                    message.clone(),
-                                    target,
-                                    channel_kind,
-                                ));
-                            }
-                            // don't put InputMessage into events else the events won't be classified as empty
-                            match message.input_message_kind() {
+                            let mut reader = self.reader_pool.start_read(message.as_slice());
+                            let net_id = reader
+                                .decode::<NetId>(Fixed)
+                                .expect("could not decode MessageKind");
+                            self.reader_pool.attach(reader);
+
+                            // we are also sending target and channel kind so the message can be
+                            // rebroadcasted to other clients after we have converted the entities from the
+                            // client World to the server World
+                            // TODO: but do we have data to convert the entities from the client to the server?
+                            //  I don't think so... maybe the sender should map_entities themselves?
+                            //  or it matters for input messages?
+                            // TODO: avoid clone with Arc<[u8]>?
+                            let data = (message.clone().into(), target.clone(), channel_kind);
+
+                            match message_registry.message_type(net_id) {
                                 #[cfg(feature = "leafwing")]
-                                InputMessageKind::Leafwing => {
-                                    trace!("received input message, pushing it to events");
-                                    self.events.push_input_message(message);
+                                MessageType::LeafwingInput => self
+                                    .received_leafwing_input_messages
+                                    .entry(net_id)
+                                    .or_default()
+                                    .push(data),
+                                MessageType::NativeInput => {
+                                    self.received_input_messages
+                                        .entry(net_id)
+                                        .or_default()
+                                        .push(data);
                                 }
-                                InputMessageKind::Native => {
-                                    let input_message = message.try_into().unwrap();
-                                    debug!("Received input message: {:?}", input_message.end_tick);
-                                    self.input_buffer.update_from_message(input_message);
-                                }
-                                InputMessageKind::None => {
-                                    // buffer the message
-                                    self.events.push_message(channel_kind, message);
+                                MessageType::Normal => {
+                                    self.received_messages.entry(net_id).or_default().push(data);
                                 }
                             }
                         }
@@ -499,19 +527,17 @@ impl<P: Protocol> Connection<P> {
                             // buffer the replication message
                             self.replication_receiver.recv_message(replication, tick);
                         }
-                        ClientMessage::Sync(ref sync) => {
-                            match sync {
-                                SyncMessage::Ping(ping) => {
-                                    // prepare a pong in response (but do not send yet, because we need
-                                    // to set the correct send time)
-                                    self.ping_manager.buffer_pending_pong(ping, time_manager);
-                                    trace!("buffer pong");
-                                }
-                                SyncMessage::Pong(pong) => {
-                                    // process the pong
-                                    self.ping_manager.process_pong(pong, time_manager);
-                                }
-                            }
+                        ClientMessage::Ping(ping) => {
+                            // prepare a pong in response (but do not send yet, because we need
+                            // to set the correct send time)
+                            self.ping_manager
+                                .buffer_pending_pong(&ping, time_manager.current_time());
+                            trace!("buffer pong");
+                        }
+                        ClientMessage::Pong(pong) => {
+                            // process the pong
+                            self.ping_manager
+                                .process_pong(&pong, time_manager.current_time());
                         }
                     }
                 }
@@ -530,6 +556,7 @@ impl<P: Protocol> Connection<P> {
                     // TODO: we could include the server tick when this replication_message was sent.
                     self.replication_receiver.apply_world(
                         world,
+                        component_registry,
                         tick,
                         replication,
                         group,
@@ -554,8 +581,22 @@ impl<P: Protocol> Connection<P> {
     }
 }
 
-impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
+impl ReplicationSend for ConnectionManager {
+    type Events = ServerEvents;
+    type EventContext = ClientId;
     type SetMarker = ServerMarker;
+
+    fn events(&mut self) -> &mut Self::Events {
+        &mut self.events
+    }
+
+    fn writer(&mut self) -> &mut WriteWordBuffer {
+        &mut self.writer
+    }
+
+    fn component_registry(&self) -> &ComponentRegistry {
+        &self.component_registry
+    }
 
     fn update_priority(
         &mut self,
@@ -581,14 +622,51 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate<P>,
+        replicate: &Replicate,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
         trace!(?entity, "Prepare entity spawn to client");
         let group_id = replicate.replication_group.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+
         self.apply_replication(target).try_for_each(|client_id| {
+            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
+            if replicate.prediction_target.should_send_to(&client_id) {
+                // TODO: the serialized data is always the same; cache it somehow?
+                let should_be_predicted_kind = self
+                    .component_registry()
+                    .get_net_id::<ShouldBePredicted>()
+                    .context("ShouldBePredicted is not registered")?;
+                let should_be_predicted_data = self
+                    .component_registry
+                    .serialize(&ShouldBePredicted, &mut self.writer)?;
+                self.connection_mut(client_id)?
+                    .replication_sender
+                    .prepare_component_insert(
+                        entity,
+                        group_id,
+                        should_be_predicted_kind,
+                        should_be_predicted_data,
+                    );
+            }
+            if replicate.interpolation_target.should_send_to(&client_id) {
+                let should_be_interpolated_kind = self
+                    .component_registry()
+                    .get_net_id::<ShouldBeInterpolated>()
+                    .context("ShouldBeInterpolated is not registered")?;
+                let should_be_interpolated_data = self
+                    .component_registry
+                    .serialize(&ShouldBeInterpolated, &mut self.writer)?;
+                self.connection_mut(client_id)?
+                    .replication_sender
+                    .prepare_component_insert(
+                        entity,
+                        group_id,
+                        should_be_interpolated_kind,
+                        should_be_interpolated_data,
+                    );
+            }
             // trace!(
             //     ?client_id,
             //     ?entity,
@@ -603,24 +681,8 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
             //     .or_default()
             //     .update_collect_changes_since_this_tick(system_current_tick);
             replication_sender.prepare_entity_spawn(entity, group_id);
-            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
-            if replicate.prediction_target.should_send_to(&client_id) {
-                replication_sender.prepare_component_insert(
-                    entity,
-                    group_id,
-                    P::Components::from(ShouldBePredicted),
-                );
-            }
-            if replicate.interpolation_target.should_send_to(&client_id) {
-                replication_sender.prepare_component_insert(
-                    entity,
-                    group_id,
-                    P::Components::from(ShouldBeInterpolated),
-                );
-            }
             // also set the priority for the group when we spawn it
             self.update_priority(group_id, client_id, replicate.replication_group.priority())?;
-
             Ok(())
         })
     }
@@ -628,11 +690,10 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate<P>,
+        replication_group_id: ReplicationGroupId,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        let group_id = replicate.replication_group.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // trace!(
             //     ?entity,
@@ -647,7 +708,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
             //     .entry(group)
             //     .or_default()
             //     .update_collect_changes_since_this_tick(system_current_tick);
-            replication_sender.prepare_entity_despawn(entity, group_id);
+            replication_sender.prepare_entity_despawn(entity, replication_group_id);
             Ok(())
         })
     }
@@ -656,13 +717,13 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     fn prepare_component_insert(
         &mut self,
         entity: Entity,
-        component: P::Components,
-        replicate: &Replicate<P>,
+        kind: ComponentNetId,
+        component: RawData,
+        replicate: &Replicate,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let group_id = replicate.replication_group.group_id(Some(entity));
-        let kind: P::ComponentKinds = (&component).into();
 
         // TODO: think about this. this feels a bit clumsy
         // TODO: this might not be required anymore since we separated ShouldBePredicted from PrePredicted
@@ -680,9 +741,15 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
 
         // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
         let mut actual_target = target;
-        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
-            || kind == <P::ComponentKinds as FromType<PreSpawnedPlayerObject>>::from_type()
-        {
+        let should_be_predicted_kind = self
+            .component_registry()
+            .get_net_id::<ShouldBePredicted>()
+            .context("ShouldBePredicted is not registered")?;
+        let pre_spawned_player_object_kind = self
+            .component_registry()
+            .get_net_id::<PreSpawnedPlayerObject>()
+            .context("PreSpawnedPlayerObject is not registered")?;
+        if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
             actual_target = replicate.prediction_target.clone();
         }
 
@@ -701,7 +768,12 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
                 //     .entry(group)
                 //     .or_default()
                 //     .update_collect_changes_since_this_tick(system_current_tick);
-                replication_sender.prepare_component_insert(entity, group_id, component.clone());
+                replication_sender.prepare_component_insert(
+                    entity,
+                    group_id,
+                    kind,
+                    component.clone(),
+                );
                 Ok(())
             })
     }
@@ -709,13 +781,13 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     fn prepare_component_remove(
         &mut self,
         entity: Entity,
-        component_kind: P::ComponentKinds,
-        replicate: &Replicate<P>,
+        kind: ComponentNetId,
+        replicate: &Replicate,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let group_id = replicate.replication_group.group_id(Some(entity));
-        debug!(?entity, ?component_kind, "Sending RemoveComponent");
+        debug!(?entity, ?kind, "Sending RemoveComponent");
         self.apply_replication(target).try_for_each(|client_id| {
             let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
             // TODO: I don't think it's actually correct to only correct the changes since that action.
@@ -730,7 +802,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
             //     .entry(group)
             //     .or_default()
             //     .update_collect_changes_since_this_tick(system_current_tick);
-            replication_sender.prepare_component_remove(entity, group_id, component_kind);
+            replication_sender.prepare_component_remove(entity, group_id, kind);
             Ok(())
         })
     }
@@ -738,13 +810,13 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     fn prepare_component_update(
         &mut self,
         entity: Entity,
-        component: P::Components,
-        replicate: &Replicate<P>,
+        kind: ComponentNetId,
+        component: RawData,
+        replicate: &Replicate,
         target: NetworkTarget,
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        let kind: P::ComponentKinds = (&component).into();
         trace!(
             ?kind,
             ?entity,
@@ -785,7 +857,8 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
                 //     tick = ?self.tick_manager.tick(),
                 //     "Updating single component"
                 // );
-                replication_sender.prepare_entity_update(entity, group_id, component.clone());
+                // TODO: avoid component clone with Arc<[u8]>
+                replication_sender.prepare_entity_update(entity, group_id, kind, component.clone());
             }
             Ok(())
         })
@@ -796,9 +869,9 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         self.buffer_replication_messages(tick, bevy_tick)
     }
 
-    fn get_mut_replicate_component_cache(
+    fn get_mut_replicate_despawn_cache(
         &mut self,
-    ) -> &mut bevy::ecs::entity::EntityHashMap<Replicate<P>> {
+    ) -> &mut bevy::ecs::entity::EntityHashMap<DespawnMetadata> {
         &mut self.replicate_component_cache
     }
 

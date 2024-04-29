@@ -1,3 +1,4 @@
+use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect, Resource};
 use cfg_if::cfg_if;
@@ -6,7 +7,8 @@ use std::ops::Mul;
 
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::*;
+use crate::_internal::*;
+use crate::client::components::ComponentSyncMode;
 use crate::prelude::*;
 
 // Messages
@@ -15,12 +17,6 @@ pub struct Message1(pub String);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct Message2(pub u32);
-
-#[message_protocol_internal(protocol = "MyProtocol")]
-pub enum MyMessageProtocol {
-    Message1(Message1),
-    Message2(Message2),
-}
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul, Reflect)]
@@ -48,19 +44,6 @@ impl MapEntities for Component4 {
     }
 }
 
-#[component_protocol_internal(protocol = "MyProtocol")]
-pub enum MyComponentsProtocol {
-    #[protocol(sync(mode = "full"))]
-    Component1(Component1),
-    #[protocol(sync(mode = "simple"))]
-    Component2(Component2),
-    #[protocol(sync(mode = "once"))]
-    Component3(Component3),
-    #[protocol(sync(mode = "simple"), map_entities)]
-    Component4(Component4),
-    Resource1(ReplicateResource<Resource1>),
-}
-
 // Resources
 #[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
 pub struct Resource1(pub f32);
@@ -70,8 +53,6 @@ pub struct Resource1(pub f32);
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
 pub struct MyInput(pub i16);
 
-impl UserAction for MyInput {}
-
 // Protocol
 cfg_if! {
     if #[cfg(feature = "leafwing")] {
@@ -80,30 +61,10 @@ cfg_if! {
         pub enum LeafwingInput1 {
             Jump,
         }
-        impl LeafwingUserAction for LeafwingInput1 {}
 
         #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
         pub enum LeafwingInput2 {
             Crouch,
-        }
-        impl LeafwingUserAction for LeafwingInput2 {}
-
-        protocolize! {
-            Self = MyProtocol,
-            Message = MyMessageProtocol,
-            Component = MyComponentsProtocol,
-            Input = MyInput,
-            LeafwingInput1 = LeafwingInput1,
-            LeafwingInput2 = LeafwingInput2,
-            Crate = crate,
-        }
-    } else {
-        protocolize! {
-            Self = MyProtocol,
-            Message = MyMessageProtocol,
-            Component = MyComponentsProtocol,
-            Input = MyInput,
-            Crate = crate,
         }
     }
 }
@@ -115,15 +76,40 @@ pub struct Channel1;
 #[derive(ChannelInternal, Reflect)]
 pub struct Channel2;
 
-pub fn protocol() -> MyProtocol {
-    let mut p = MyProtocol::default();
-    p.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::UnorderedUnreliable,
-        ..default()
-    });
-    p.add_channel::<Channel2>(ChannelSettings {
-        mode: ChannelMode::UnorderedUnreliableWithAcks,
-        ..default()
-    });
-    p
+// Protocol
+
+pub(crate) struct ProtocolPlugin;
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.add_message::<Message2>(ChannelDirection::Bidirectional);
+        // inputs
+        app.add_plugins(InputPlugin::<MyInput>::default());
+        // components
+        app.register_component::<Component1>(ChannelDirection::ServerToClient);
+        app.add_prediction::<Component1>(ComponentSyncMode::Full);
+        app.add_linear_interpolation_fn::<Component1>();
+
+        app.register_component::<Component2>(ChannelDirection::ServerToClient);
+        app.add_prediction::<Component2>(ComponentSyncMode::Simple);
+
+        app.register_component::<Component3>(ChannelDirection::ServerToClient);
+        app.add_prediction::<Component3>(ComponentSyncMode::Once);
+
+        app.register_component::<Component4>(ChannelDirection::ServerToClient);
+        app.add_prediction::<Component4>(ComponentSyncMode::Simple);
+        app.add_component_map_entities::<Component4>();
+
+        app.register_resource::<Resource1>(ChannelDirection::ServerToClient);
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            ..default()
+        });
+        app.add_channel::<Channel2>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
+            ..default()
+        });
+    }
 }

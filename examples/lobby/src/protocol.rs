@@ -4,6 +4,7 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
+use bevy::app::{App, Plugin};
 use std::net::SocketAddr;
 use std::ops::Mul;
 
@@ -14,6 +15,7 @@ use bevy::prelude::{
 use bevy::prelude::{Parent, Resource};
 use bevy::utils::HashMap;
 use derive_more::{Add, Mul};
+use lightyear::client::components::ComponentSyncMode;
 use serde::{Deserialize, Serialize};
 
 use lightyear::prelude::*;
@@ -125,17 +127,6 @@ impl MapEntities for PlayerParent {
     }
 }
 
-#[component_protocol(protocol = "MyProtocol")]
-pub enum Components {
-    #[protocol(sync(mode = "once"))]
-    PlayerId(PlayerId),
-    #[protocol(sync(mode = "full"))]
-    PlayerPosition(PlayerPosition),
-    #[protocol(sync(mode = "once"))]
-    PlayerColor(PlayerColor),
-    Lobby(ReplicateResource<Lobbies>),
-}
-
 // Channels
 
 #[derive(Channel)]
@@ -157,13 +148,6 @@ pub struct ExitLobby {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct JoinLobby {
     pub(crate) lobby_id: usize,
-}
-
-#[message_protocol(protocol = "MyProtocol")]
-pub enum Messages {
-    StartGame(StartGame),
-    ExitLobby(ExitLobby),
-    JoinLobby(JoinLobby),
 }
 
 // Inputs
@@ -190,22 +174,36 @@ pub enum Inputs {
     None,
 }
 
-impl UserAction for Inputs {}
-
 // Protocol
+pub(crate) struct ProtocolPlugin;
 
-protocolize! {
-    Self = MyProtocol,
-    Message = Messages,
-    Component = Components,
-    Input = Inputs,
-}
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<StartGame>(ChannelDirection::Bidirectional);
+        app.add_message::<JoinLobby>(ChannelDirection::ClientToServer);
+        app.add_message::<ExitLobby>(ChannelDirection::ClientToServer);
+        // inputs
+        app.add_plugins(InputPlugin::<Inputs>::default());
+        // components
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
-pub(crate) fn protocol() -> MyProtocol {
-    let mut protocol = MyProtocol::default();
-    protocol.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        ..default()
-    });
-    protocol
+        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerPosition>(ComponentSyncMode::Full);
+        app.add_interpolation::<PlayerPosition>(ComponentSyncMode::Full);
+        app.add_linear_interpolation_fn::<PlayerPosition>();
+
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+        // resources
+        app.register_resource::<Lobbies>(ChannelDirection::ServerToClient);
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+    }
 }

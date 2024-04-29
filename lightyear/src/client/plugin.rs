@@ -13,9 +13,8 @@ use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::ClientReplicationPlugin;
 use crate::connection::client::{ClientConnection, NetConfig};
-use crate::protocol::component::ComponentProtocol;
-use crate::protocol::message::MessageProtocol;
-use crate::protocol::Protocol;
+use crate::prelude::MessageRegistry;
+
 use crate::server::plugin::ServerPlugin;
 use crate::shared::config::Mode;
 use crate::shared::events::connection::ConnectionEvents;
@@ -26,64 +25,42 @@ use crate::transport::PacketSender;
 
 use super::config::ClientConfig;
 
-pub struct PluginConfig<P: Protocol> {
-    client_config: ClientConfig,
-    protocol: P,
+pub struct ClientPlugin {
+    pub config: ClientConfig,
 }
 
-impl<P: Protocol> PluginConfig<P> {
-    pub fn new(client_config: ClientConfig, protocol: P) -> Self {
-        PluginConfig {
-            client_config,
-            protocol,
-        }
-    }
-}
-
-pub struct ClientPlugin<P: Protocol> {
-    // we add Mutex<Option> so that we can get ownership of the inner from an immutable reference in build()
-    config: Mutex<Option<PluginConfig<P>>>,
-}
-
-impl<P: Protocol> ClientPlugin<P> {
-    pub fn new(config: PluginConfig<P>) -> Self {
-        Self {
-            config: Mutex::new(Some(config)),
-        }
+impl ClientPlugin {
+    pub fn new(config: ClientConfig) -> Self {
+        Self { config }
     }
 }
 
 // TODO: create this as PluginGroup so that users can easily disable sub plugins?
 // TODO: override `ready` and `finish` to make sure that the transport/backend is connected
 //  before the plugin is ready
-impl<P: Protocol> Plugin for ClientPlugin<P> {
+impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
-        let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-
         app
             // RESOURCES //
-            .insert_resource(config.client_config.clone())
-            .insert_resource(config.protocol.clone())
-            // PLUGINS //
-            .add_plugins(ClientNetworkingPlugin::<P>::default())
-            .add_plugins(ClientEventsPlugin::<P>::default())
-            .add_plugins(InputPlugin::<P>::default())
-            .add_plugins(ClientDiagnosticsPlugin::<P>::default())
-            .add_plugins(ClientReplicationPlugin::<P>::default())
-            .add_plugins(PredictionPlugin::<P>::default())
-            .add_plugins(InterpolationPlugin::<P>::new(
-                config.client_config.interpolation.clone(),
-            ));
+            .insert_resource(self.config.clone());
 
         // TODO: how do we make sure that SharedPlugin is only added once if we want to switch between
         //  HostServer and Separate mode?
-        if config.client_config.shared.mode == Mode::Separate {
+        if self.config.shared.mode == Mode::Separate {
             app
                 // PLUGINS
-                .add_plugins(SharedPlugin::<P> {
-                    config: config.client_config.shared.clone(),
-                    ..default()
+                .add_plugins(SharedPlugin {
+                    config: self.config.shared.clone(),
                 });
         }
+
+        app
+            // PLUGINS //
+            .add_plugins(ClientNetworkingPlugin)
+            .add_plugins(ClientEventsPlugin)
+            .add_plugins(ClientDiagnosticsPlugin)
+            .add_plugins(ClientReplicationPlugin)
+            .add_plugins(PredictionPlugin)
+            .add_plugins(InterpolationPlugin::new(self.config.interpolation.clone()));
     }
 }

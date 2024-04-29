@@ -6,7 +6,6 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::_reexport::ServerMarker;
 
 use lightyear::prelude::client::{Confirmed, Predicted};
 pub use lightyear::prelude::server::*;
@@ -28,11 +27,6 @@ pub struct Global {
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        // add leafwing plugins to handle inputs
-        app.add_plugins((
-            LeafwingInputPlugin::<MyProtocol, PlayerActions>::default(),
-            // LeafwingInputPlugin::<MyProtocol, AdminActions>::default(),
-        ));
         app.insert_resource(Global {
             predict_all: self.predict_all,
         });
@@ -116,7 +110,7 @@ pub(crate) fn movement(
             // NOTE: be careful to directly pass Mut<PlayerPosition>
             // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
             shared_movement_behaviour(velocity, action);
-            info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
+            trace!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
         }
     }
 }

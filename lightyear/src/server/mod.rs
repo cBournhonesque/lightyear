@@ -9,7 +9,7 @@ pub mod connection;
 
 pub mod events;
 
-mod input;
+pub mod input;
 
 pub mod plugin;
 

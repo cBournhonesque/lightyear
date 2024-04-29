@@ -10,7 +10,6 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -18,8 +17,7 @@ use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::client::SyncMetadata;
-use crate::prelude::{PreSpawnedPlayerObject, Tick, TickManager};
-use crate::protocol::Protocol;
+use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, Tick, TickManager};
 
 use super::predicted_history::PredictionHistory;
 use super::Predicted;
@@ -46,27 +44,21 @@ pub enum RollbackState {
     },
 }
 
+/// Check if there is mismatch so we need to do a rollback
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
+pub(crate) fn check_rollback<C: SyncComponent>(
     // TODO: have a way to only get the updates of entities that are predicted?
     tick_manager: Res<TickManager>,
-    connection: Res<ConnectionManager<P>>,
+    connection: Res<ConnectionManager>,
 
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<&mut PredictionHistory<C>, (With<Predicted>, Without<Confirmed>)>,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     mut rollback: ResMut<Rollback>,
-) where
-    <P as Protocol>::ComponentKinds: FromType<C>,
-    P::Components: SyncMetadata<C>,
-{
-    let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    // TODO: maybe change this into a run condition so that we don't even run the system (reduces parallelism)
-    if P::Components::mode() != ComponentSyncMode::Full {
-        return;
-    }
+) {
+    let kind = std::any::type_name::<C>();
 
     // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
     if !connection.is_synced() || !connection.received_new_server_tick() {
@@ -159,9 +151,11 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
     }
 }
 
+/// If there is a mismatch, prepare rollback for all components
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
+pub(crate) fn prepare_rollback<C: SyncComponent>(
+    component_registry: Res<ComponentRegistry>,
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
     config: Res<ClientConfig>,
@@ -183,16 +177,9 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     rollback: Res<Rollback>,
-) where
-    <P as Protocol>::ComponentKinds: FromType<C>,
-    P::Components: SyncMetadata<C>,
-{
-    let kind = <P::ComponentKinds as FromType<C>>::from_type();
+) {
+    let kind = std::any::type_name::<C>();
 
-    // TODO: maybe change this into a run condition so that we don't even run the system (reduces parallelism)
-    if P::Components::mode() != ComponentSyncMode::Full {
-        return;
-    }
     let _span = trace_span!("client rollback prepare");
     debug!("in prepare rollback");
 
@@ -259,7 +246,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
                             .round() as i16;
 
                         // no need to add the Correction if the correction is instant
-                        if correction_ticks != 0 && P::Components::has_correction() {
+                        if correction_ticks != 0 && component_registry.has_correction::<C>() {
                             let final_correction_tick = current_tick + correction_ticks;
                             if let Some(correction) = correction.as_mut() {
                                 debug!("updating existing correction");
@@ -303,7 +290,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
 /// - TODO: do we need any correction?
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback_prespawn<C: SyncComponent, P: Protocol>(
+pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
+    component_registry: Res<ComponentRegistry>,
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
     config: Res<ClientConfig>,
@@ -325,16 +313,8 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent, P: Protocol>(
         ),
     >,
     rollback: Res<Rollback>,
-) where
-    <P as Protocol>::ComponentKinds: FromType<C>,
-    P::Components: SyncMetadata<C>,
-{
-    let kind = <P::ComponentKinds as FromType<C>>::from_type();
-
-    // TODO: maybe change this into a run condition so that we don't even run the system (reduces parallelism)
-    // if P::Components::mode() != ComponentSyncMode::Full {
-    //     return;
-    // }
+) {
+    let kind = std::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for pre-spawned entities");
 
     let current_tick = tick_manager.tick();
@@ -399,7 +379,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent, P: Protocol>(
                         .round() as i16;
 
                     // no need to add the Correction if the correction is instant
-                    if correction_ticks != 0 && P::Components::has_correction() {
+                    if correction_ticks != 0 && component_registry.has_correction::<C>() {
                         let final_correction_tick = current_tick + correction_ticks;
                         if let Some(correction) = correction.as_mut() {
                             debug!("updating existing correction");

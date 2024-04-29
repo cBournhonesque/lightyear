@@ -4,59 +4,66 @@ use bevy::prelude::*;
 use bevy::utils::HashMap;
 use tracing::trace;
 
-use crate::_reexport::{
-    FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-    ServerMarker,
+use crate::_internal::{
+    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, ServerMarker,
 };
 use crate::connection::id::ClientId;
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
-use crate::protocol::Protocol;
+use crate::prelude::{server, ComponentRegistry};
+
 use crate::server::connection::ConnectionManager;
-use crate::server::networking::{clear_events, is_started};
-#[cfg(feature = "leafwing")]
-use crate::shared::events::connection::IterInputMessageEvent;
 use crate::shared::events::connection::{
-    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
+    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
 use crate::shared::events::plugin::EventsPlugin;
+use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::InternalMainSet;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 /// Plugin that handles generating bevy [`Events`] related to networking and replication
-pub struct ServerEventsPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
-}
+#[derive(Default)]
+pub struct ServerEventsPlugin;
 
-impl<P: Protocol> Default for ServerEventsPlugin<P> {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<P: Protocol> Plugin for ServerEventsPlugin<P> {
+impl Plugin for ServerEventsPlugin {
     fn build(&self, app: &mut App) {
         app
             // PLUGIN
-            .add_plugins(EventsPlugin::<P, ClientId>::default())
-            // SYSTEM_SET
-            .add_systems(PostUpdate, clear_events::<P>.run_if(is_started));
+            .add_plugins(EventsPlugin::<ConnectionManager>::default());
     }
 }
 
 #[derive(Debug)]
-pub struct ServerEvents<P: Protocol> {
+pub struct ServerEvents {
     pub connections: Vec<ClientId>,
     pub disconnections: Vec<ClientId>,
-    pub events: HashMap<ClientId, ConnectionEvents<P>>,
+    pub events: HashMap<ClientId, ConnectionEvents>,
     pub empty: bool,
 }
 
-impl<P: Protocol> ServerEvents<P> {
+pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
+    app.add_event::<ComponentUpdateEvent<C>>();
+    app.add_event::<ComponentInsertEvent<C>>();
+    app.add_event::<ComponentRemoveEvent<C>>();
+    app.add_systems(
+        PreUpdate,
+        push_component_events::<C, ConnectionManager>
+            .in_set(InternalMainSet::<ServerMarker>::EmitEvents),
+    );
+}
+
+impl crate::shared::events::connection::ClearEvents for ServerEvents {
+    fn clear(&mut self) {
+        self.connections = Vec::new();
+        self.disconnections = Vec::new();
+        self.empty = true;
+        self.events = HashMap::default();
+    }
+}
+
+impl ServerEvents {
     pub(crate) fn new() -> Self {
         Self {
             connections: Vec::new(),
@@ -64,14 +71,6 @@ impl<P: Protocol> ServerEvents<P> {
             events: HashMap::default(),
             empty: true,
         }
-    }
-
-    /// Clear all events except for the input buffer which we want to keep around
-    pub(crate) fn clear(&mut self) {
-        self.connections = Vec::new();
-        self.disconnections = Vec::new();
-        self.empty = true;
-        self.events = HashMap::default();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -128,7 +127,7 @@ impl<P: Protocol> ServerEvents<P> {
         self.empty = false;
     }
 
-    pub(crate) fn push_events(&mut self, client_id: ClientId, events: ConnectionEvents<P>) {
+    pub(crate) fn push_events(&mut self, client_id: ClientId, events: ConnectionEvents) {
         if !events.is_empty() {
             self.events.insert(client_id, events);
             self.empty = false;
@@ -136,52 +135,7 @@ impl<P: Protocol> ServerEvents<P> {
     }
 }
 
-#[cfg(feature = "leafwing")]
-impl<P: Protocol> IterInputMessageEvent<P, ClientId> for ServerEvents<P> {
-    fn into_iter_input_messages<A: LeafwingUserAction>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (InputMessage<A>, ClientId)> + '_>
-    where
-        P::Message: TryInto<InputMessage<A>, Error = ()>,
-    {
-        trace!("num client events: {:?}", self.events.len());
-        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
-            trace!("reading all input messages for client: {:?}", client_id);
-            let messages = events
-                .into_iter_input_messages::<A>()
-                .map(|(message, _)| message);
-            let client_ids = std::iter::once(*client_id).cycle();
-            messages.zip(client_ids)
-        }))
-    }
-
-    fn has_input_messages<A: LeafwingUserAction>(&self) -> bool {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_input_messages::<A>())
-    }
-}
-
-impl<P: Protocol> IterMessageEvent<P, ClientId> for ServerEvents<P> {
-    fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, ClientId)> + '_>
-    where
-        P::Message: TryInto<M, Error = ()>,
-    {
-        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
-            let messages = events.into_iter_messages::<M>().map(|(message, _)| message);
-            let client_ids = std::iter::once(*client_id).cycle();
-            messages.zip(client_ids)
-        }))
-    }
-
-    fn has_messages<M: Message>(&self) -> bool {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_messages::<M>())
-    }
-}
-
-impl<P: Protocol> IterEntitySpawnEvent<ClientId> for ServerEvents<P> {
+impl IterEntitySpawnEvent<ClientId> for ServerEvents {
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let entities = events.into_iter_entity_spawn().map(|(entity, _)| entity);
@@ -197,7 +151,7 @@ impl<P: Protocol> IterEntitySpawnEvent<ClientId> for ServerEvents<P> {
     }
 }
 
-impl<P: Protocol> IterEntityDespawnEvent<ClientId> for ServerEvents<P> {
+impl IterEntityDespawnEvent<ClientId> for ServerEvents {
     fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let entities = events.into_iter_entity_despawn().map(|(entity, _)| entity);
@@ -213,81 +167,48 @@ impl<P: Protocol> IterEntityDespawnEvent<ClientId> for ServerEvents<P> {
     }
 }
 
-impl<P: Protocol> IterComponentUpdateEvent<P, ClientId> for ServerEvents<P> {
-    fn iter_component_update<C: Component>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
-    where
-        P::ComponentKinds: FromType<C>,
-    {
+impl IterComponentUpdateEvent<ClientId> for ServerEvents {
+    fn iter_component_update<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + 'a> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
-                .iter_component_update::<C>()
+                .iter_component_update::<C>(component_registry)
                 .map(|(entity, _)| entity);
             let client_ids = std::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
-    }
-
-    fn has_component_update<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_component_update::<C>())
     }
 }
 
-impl<P: Protocol> IterComponentRemoveEvent<P, ClientId> for ServerEvents<P> {
-    fn iter_component_remove<C: Component>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
-    where
-        P::ComponentKinds: FromType<C>,
-    {
+impl IterComponentRemoveEvent<ClientId> for ServerEvents {
+    fn iter_component_remove<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + 'a> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
-                .iter_component_remove::<C>()
+                .iter_component_remove::<C>(component_registry)
                 .map(|(entity, _)| entity);
             let client_ids = std::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
-    }
-
-    fn has_component_remove<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_component_remove::<C>())
     }
 }
 
-impl<P: Protocol> IterComponentInsertEvent<P, ClientId> for ServerEvents<P> {
-    fn iter_component_insert<C: Component>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
-    where
-        P::ComponentKinds: FromType<C>,
-    {
+impl IterComponentInsertEvent<ClientId> for ServerEvents {
+    fn iter_component_insert<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + 'a> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
-                .iter_component_insert::<C>()
+                .iter_component_insert::<C>(component_registry)
                 .map(|(entity, _)| entity);
             let client_ids = std::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
-    }
-
-    fn has_component_insert<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_component_insert::<C>())
     }
 }
 
@@ -311,78 +232,56 @@ pub type ComponentInsertEvent<C> =
 pub type ComponentRemoveEvent<C> =
     crate::shared::events::components::ComponentRemoveEvent<C, ClientId>;
 
-#[cfg(feature = "leafwing")]
-/// Bevy [`Event`] emitted on the server on the frame where an input message from a client is received
-pub(crate) type InputMessageEvent<A> =
-    crate::shared::events::components::InputMessageEvent<A, ClientId>;
 /// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
 pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, ClientId>;
 
 #[cfg(test)]
 mod tests {
+    use crate::prelude::Tick;
     use crate::protocol::channel::ChannelKind;
-    use crate::tests::protocol::{
-        Channel1, Channel2, Message1, Message2, MyMessageProtocol, MyProtocol,
-    };
+    use crate::tests::protocol::{Channel1, Channel2, Component1, Component2, Message1, Message2};
 
     use super::*;
 
     #[test]
-    fn test_iter_messages() {
+    fn test_iter_component_removes() {
         let client_1 = ClientId::Netcode(1);
         let client_2 = ClientId::Netcode(2);
-        let mut events_1 = ConnectionEvents::<MyProtocol>::new();
+        let entity_1 = Entity::from_raw(0);
+        let entity_2 = Entity::from_raw(1);
+        let mut events_1 = ConnectionEvents::new();
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         let message1_a = Message1("hello".to_string());
         let message1_b = Message1("world".to_string());
-        events_1.push_message(
-            channel_kind_1,
-            MyMessageProtocol::Message1(message1_a.clone()),
-        );
-        events_1.push_message(
-            channel_kind_2,
-            MyMessageProtocol::Message1(message1_b.clone()),
-        );
-        events_1.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(1)));
-
-        let mut server_events = ServerEvents::<MyProtocol>::new();
+        let mut component_registry = ComponentRegistry::default();
+        component_registry.register_component::<Component1>();
+        component_registry.register_component::<Component2>();
+        let net_id_1 = component_registry.net_id::<Component1>();
+        let net_id_2 = component_registry.net_id::<Component2>();
+        events_1.push_remove_component(entity_1, net_id_1, Tick(0));
+        events_1.push_remove_component(entity_1, net_id_2, Tick(0));
+        events_1.push_remove_component(entity_2, net_id_1, Tick(0));
+        let mut server_events = ServerEvents::new();
         server_events.push_events(client_1, events_1);
 
-        let mut events_2 = ConnectionEvents::<MyProtocol>::new();
-        let message1_c = Message1("test".to_string());
-        events_2.push_message(
-            channel_kind_1,
-            MyMessageProtocol::Message1(message1_c.clone()),
-        );
-        events_2.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(2)));
-
+        let mut events_2 = ConnectionEvents::new();
+        events_2.push_remove_component(entity_2, net_id_2, Tick(0));
         server_events.push_events(client_2, events_2);
 
         // check that we have the correct messages
-        let messages: Vec<(Message1, ClientId)> = server_events.into_iter_messages().collect();
-        assert_eq!(messages.len(), 3);
-        assert!(messages.contains(&(message1_a, client_1)));
-        assert!(messages.contains(&(message1_b, client_1)));
-        assert!(messages.contains(&(message1_c, client_2)));
+        let data: Vec<(Entity, ClientId)> = server_events
+            .iter_component_remove::<Component1>(&component_registry)
+            .collect();
+        assert_eq!(data.len(), 2);
+        assert!(data.contains(&(entity_1, client_1)));
+        assert!(data.contains(&(entity_2, client_1)));
 
-        // check that there are no more message of that kind in the events
-        assert!(!server_events
-            .events
-            .get(&client_1)
-            .unwrap()
-            .has_messages::<Message1>());
-        assert!(!server_events
-            .events
-            .get(&client_2)
-            .unwrap()
-            .has_messages::<Message1>());
-
-        // check that we still have the other message kinds
-        assert!(server_events
-            .events
-            .get(&client_2)
-            .unwrap()
-            .has_messages::<Message2>());
+        let data: Vec<(Entity, ClientId)> = server_events
+            .iter_component_remove::<Component2>(&component_registry)
+            .collect();
+        assert_eq!(data.len(), 2);
+        assert!(data.contains(&(entity_1, client_1)));
+        assert!(data.contains(&(entity_2, client_2)));
     }
 }

@@ -4,14 +4,14 @@ use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_reexport::{ComponentProtocol, ServerMarker};
+use crate::_internal::ServerMarker;
 use crate::client::config::ClientConfig;
 use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
-use crate::prelude::{MainSet, Mode, TickManager, TimeManager};
-use crate::protocol::message::MessageProtocol;
-use crate::protocol::Protocol;
+use crate::prelude::{ChannelRegistry, MainSet, MessageRegistry, Mode, TickManager, TimeManager};
+use crate::protocol::component::ComponentRegistry;
+
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
@@ -22,24 +22,8 @@ use crate::shared::sets::InternalMainSet;
 use crate::shared::time_manager::is_server_ready_to_send;
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
-pub(crate) struct ServerNetworkingPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
-}
-
-impl<P: Protocol> Default for ServerNetworkingPlugin<P> {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-impl<P: Protocol> ServerNetworkingPlugin<P> {
-    pub(crate) fn new(config: Vec<NetConfig>) -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub(crate) struct ServerNetworkingPlugin;
 
 // TODO: have more parallelism here
 // - receive/send packets in parallel
@@ -47,7 +31,7 @@ impl<P: Protocol> ServerNetworkingPlugin<P> {
 // - update multiple transports in parallel
 // maybe by having each connection or each transport be a separate entity? and then use par_iter?
 
-impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
+impl Plugin for ServerNetworkingPlugin {
     fn build(&self, app: &mut App) {
         app
             // STATE
@@ -55,7 +39,12 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                InternalMainSet::<ServerMarker>::Receive.run_if(is_started),
+                (
+                    InternalMainSet::<ServerMarker>::Receive.in_set(MainSet::Receive),
+                    InternalMainSet::<ServerMarker>::EmitEvents.in_set(MainSet::EmitEvents),
+                )
+                    .chain()
+                    .run_if(is_started),
             )
             .configure_sets(
                 PostUpdate,
@@ -72,29 +61,29 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
             // SYSTEMS //
             .add_systems(
                 PreUpdate,
-                receive::<P>.in_set(InternalMainSet::<ServerMarker>::Receive),
+                receive.in_set(InternalMainSet::<ServerMarker>::Receive),
             )
             .add_systems(
                 PostUpdate,
-                send::<P>.in_set(InternalMainSet::<ServerMarker>::SendPackets),
+                send.in_set(InternalMainSet::<ServerMarker>::SendPackets),
             );
 
         // STARTUP
         // create the server connection resources to avoid some systems panicking
         // TODO: remove this when possible?
-        app.world.run_system_once(rebuild_server_connections::<P>);
+        app.world.run_system_once(rebuild_server_connections);
 
         // ON_START
-        app.add_systems(OnEnter(NetworkingState::Started), on_start::<P>);
+        app.add_systems(OnEnter(NetworkingState::Started), on_start);
 
         // ON_STOP
         app.add_systems(OnEnter(NetworkingState::Stopped), on_stop);
     }
 }
 
-pub(crate) fn receive<P: Protocol>(world: &mut World) {
+pub(crate) fn receive(world: &mut World) {
     trace!("Receive client packets");
-    world.resource_scope(|world: &mut World, mut connection_manager: Mut<ConnectionManager<P>>| {
+    world.resource_scope(|world: &mut World, mut connection_manager: Mut<ConnectionManager>| {
         world.resource_scope(
             |world: &mut World, mut netservers: Mut<ServerConnections>| {
                     world.resource_scope(
@@ -168,13 +157,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 
                                             // EVENTS: Write the received events into bevy events
                                             if !connection_manager.events.is_empty() {
-                                                // TODO: write these as systems? might be easier to also add the events to the app
-                                                //  it might just be less efficient? + maybe tricky to
-                                                // Input events
-                                                // Update the input buffers with any InputMessage received:
-
-                                                // ADD A FUNCTION THAT ITERATES THROUGH EACH CONNECTION AND RETURNS InputEvent for THE CURRENT TICK
-
                                                 // Connection / Disconnection events
                                                 if connection_manager.events.has_connections() {
                                                     let mut connect_event_writer =
@@ -193,31 +175,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                         connect_event_writer.send(DisconnectEvent::new(client_id));
                                                     }
                                                 }
-
-                                                // Message Events
-                                                P::Message::push_message_events(world, &mut connection_manager.events);
-
-                                                // EntitySpawn Events
-                                                if connection_manager.events.has_entity_spawn() {
-                                                    let mut entity_spawn_event_writer = world
-                                                        .get_resource_mut::<Events<EntitySpawnEvent>>()
-                                                        .unwrap();
-                                                    for (entity, client_id) in connection_manager.events.into_iter_entity_spawn() {
-                                                        entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, client_id));
-                                                    }
-                                                }
-                                                // EntityDespawn Events
-                                                if connection_manager.events.has_entity_despawn() {
-                                                    let mut entity_despawn_event_writer = world
-                                                        .get_resource_mut::<Events<EntityDespawnEvent>>()
-                                                        .unwrap();
-                                                    for (entity, client_id) in connection_manager.events.into_iter_entity_spawn() {
-                                                        entity_despawn_event_writer.send(EntityDespawnEvent::new(entity, client_id));
-                                                    }
-                                                }
-
-                                                // Update component events (updates, inserts, removes)
-                                                P::Components::push_component_events(world, &mut connection_manager.events);
                                             }
                                         });
                                 });
@@ -227,10 +184,10 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 }
 
 // or do additional send stuff here
-pub(crate) fn send<P: Protocol>(
+pub(crate) fn send(
     change_tick: SystemChangeTick,
     mut netservers: ResMut<ServerConnections>,
-    mut connection_manager: ResMut<ConnectionManager<P>>,
+    mut connection_manager: ResMut<ConnectionManager>,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
 ) {
@@ -272,13 +229,6 @@ pub(crate) fn send<P: Protocol>(
     connection_manager.new_clients.clear();
 }
 
-/// Clear the received events
-/// We put this in a separate system as send because we want to run this every frame, and
-/// Send only runs every send_interval
-pub(crate) fn clear_events<P: Protocol>(mut connection_manager: ResMut<ConnectionManager<P>>) {
-    connection_manager.events.clear();
-}
-
 /// Run condition to check that the server is ready to send packets
 ///
 /// We check the status of the `ServerConnections` directly instead of using the `State<NetworkingState>`
@@ -313,12 +263,14 @@ pub enum NetworkingState {
 /// This has several benefits:
 /// - the server connection's internal time is up-to-date (otherwise it might not be, since we don't run any server systems while the server is stopped)
 /// - we can take into account any changes to the server config
-fn rebuild_server_connections<P: Protocol>(world: &mut World) {
+fn rebuild_server_connections(world: &mut World) {
     let server_config = world.resource::<ServerConfig>().clone();
 
     // insert a new connection manager (to reset message numbers, ping manager, etc.)
-    let connection_manager = ConnectionManager::<P>::new(
-        world.resource::<P>().channel_registry().clone(),
+    let connection_manager = ConnectionManager::new(
+        world.resource::<ComponentRegistry>().clone(),
+        world.resource::<MessageRegistry>().clone(),
+        world.resource::<ChannelRegistry>().clone(),
         server_config.packet,
         server_config.ping,
     );
@@ -333,12 +285,12 @@ fn rebuild_server_connections<P: Protocol>(world: &mut World) {
 /// - rebuild the server connections resource from the latest `ServerConfig`
 /// - rebuild the server connection manager
 /// - start listening on the server connections
-fn on_start<P: Protocol>(world: &mut World) {
+fn on_start(world: &mut World) {
     if world.resource::<ServerConnections>().is_listening() {
         error!("The server is already started. The server can only be started when it is stopped.");
         return;
     }
-    rebuild_server_connections::<P>(world);
+    rebuild_server_connections(world);
     let _ = world
         .resource_mut::<ServerConnections>()
         .start()

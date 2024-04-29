@@ -79,6 +79,19 @@ self_cell!(
     }
 );
 
+impl ReadWordBuffer {
+    /// Copies the bytes into the internal buffer without allocating a new buffer
+    pub(crate) fn reset_read(&mut self, bytes: &[u8]) {
+        self.with_dependent_mut(|buffer, reader| {
+            // SAFETY: we have mut access to the entire ReadWordBuffer
+            unsafe {
+                let (new_reader, context) = buffer.deref_mut().start_read(bytes);
+                reader.0 = Some((new_reader, context));
+            }
+        });
+    }
+}
+
 impl ReadBuffer for ReadWordBuffer {
     // fn deserialize<T: DeserializeOwned>(&mut self) -> anyhow::Result<T> {
     //     let with_gamma =

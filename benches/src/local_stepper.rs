@@ -1,27 +1,26 @@
 //! Helpers to setup a bevy app where I can just step the world easily.
 //! Uses crossbeam channels to mock the network
 use bevy::core::TaskPoolThreadAssignmentPolicy;
+use bevy::ecs::system::RunSystemOnce;
+use bevy::log::error;
 use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::prelude::{
-    default, App, Mut, PluginGroup, Real, Resource, TaskPoolOptions, TaskPoolPlugin, Time,
+    default, App, Commands, Mut, Plugin, PluginGroup, Real, Resource, TaskPoolOptions,
+    TaskPoolPlugin, Time,
 };
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::HashMap;
 use bevy::MinimalPlugins;
 
-use lightyear::client as lightyear_client;
 use lightyear::connection::netcode::generate_key;
-use lightyear::prelude::client::{
-    Authentication, ClientConfig, ClientConnection, InputConfig, InterpolationConfig, NetClient,
-    NetConfig, PredictionConfig, SyncConfig,
-};
-use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
+use lightyear::prelude::client::*;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::server as lightyear_server;
+use lightyear::prelude::{client, server};
 use lightyear::transport::LOCAL_SOCKET;
 
 use crate::protocol::*;
@@ -66,7 +65,7 @@ impl LocalBevyStepper {
         let mut client_apps = HashMap::new();
         for i in 0..num_clients {
             // Setup io
-            let client_id = i as ClientId;
+            let client_id = i as u64;
             let port = 1234 + i;
             let addr = SocketAddr::from_str(&*format!("127.0.0.1:{:?}", port)).unwrap();
             // channels to receive a message from/to server
@@ -102,7 +101,7 @@ impl LocalBevyStepper {
             };
             let config = ClientConfig {
                 shared: shared_config.clone(),
-                net: NetConfig::Netcode {
+                net: client::NetConfig::Netcode {
                     auth,
                     config: client::NetcodeConfig::default(),
                     io: client_io,
@@ -112,16 +111,14 @@ impl LocalBevyStepper {
                 interpolation: interpolation_config.clone(),
                 ..default()
             };
-            let plugin_config = client::PluginConfig::new(config, protocol());
-            let plugin = client::ClientPlugin::new(plugin_config);
-            client_app.add_plugins(plugin);
+            client_app.add_plugins((ClientPlugin::new(config), ProtocolPlugin));
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
                 .world
                 .get_resource_mut::<Time<Real>>()
                 .unwrap()
                 .update_with_instant(now);
-            client_apps.insert(client_id, client_app);
+            client_apps.insert(ClientId::Netcode(client_id), client_app);
         }
 
         // Setup server
@@ -144,20 +141,17 @@ impl LocalBevyStepper {
                 })
                 .build(),
         );
-        let netcode_config = NetcodeConfig::default()
-            .with_protocol_id(protocol_id)
-            .with_key(private_key);
         let config = ServerConfig {
             shared: shared_config.clone(),
             net: vec![server::NetConfig::Netcode {
-                config: netcode_config,
+                config: server::NetcodeConfig::default()
+                    .with_protocol_id(protocol_id)
+                    .with_key(private_key),
                 io: server_io,
             }],
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, protocol());
-        let plugin = server::ServerPlugin::new(plugin_config);
-        server_app.add_plugins(plugin);
+        server_app.add_plugins((ServerPlugin::new(config), ProtocolPlugin));
 
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app
@@ -191,11 +185,15 @@ impl LocalBevyStepper {
     }
 
     pub fn init(&mut self) {
+        self.server_app.finish();
+        self.server_app
+            .world
+            .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_apps.values_mut().for_each(|client_app| {
+            client_app.finish();
             let _ = client_app
                 .world
-                .resource_mut::<ClientConnection>()
-                .connect();
+                .run_system_once(|mut commands: Commands| commands.connect_client());
         });
 
         // Advance the world to let the connection process complete
@@ -203,7 +201,7 @@ impl LocalBevyStepper {
             if self
                 .client_apps
                 .values()
-                .all(|c| c.world.resource::<ClientConnectionManager>().is_synced())
+                .all(|c| c.world.resource::<client::ConnectionManager>().is_synced())
             {
                 return;
             }

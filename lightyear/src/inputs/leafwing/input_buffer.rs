@@ -506,8 +506,6 @@ mod tests {
         Jump,
     }
 
-    impl LeafwingUserAction for Action {}
-
     #[test]
     fn test_get_set_pop() {
         let mut input_buffer = InputBuffer::default();

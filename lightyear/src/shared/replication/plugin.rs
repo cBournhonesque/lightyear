@@ -1,11 +1,11 @@
+use crate::_internal::ShouldBeInterpolated;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
-use crate::_reexport::{ComponentProtocol, ReplicationSend, ShouldBeInterpolated};
 use crate::prelude::{
-    NetworkTarget, PrePredicted, Protocol, RemoteEntityMap, ReplicationGroup, ReplicationMode,
-    ShouldBePredicted,
+    AppComponentExt, ChannelDirection, NetworkTarget, ParentSync, PrePredicted,
+    PreSpawnedPlayerObject, RemoteEntityMap, ReplicationGroup, ReplicationMode, ShouldBePredicted,
 };
 use crate::shared::replication::components::{
     PerComponentReplicationMetadata, Replicate, ReplicationGroupId, ReplicationGroupIdBuilder,
@@ -16,16 +16,17 @@ use crate::shared::replication::resources::{
     receive::ResourceReceivePlugin, send::ResourceSendPlugin,
 };
 use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
+use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
 
-pub(crate) struct ReplicationPlugin<P: Protocol, R: ReplicationSend<P>> {
+pub(crate) struct ReplicationPlugin<R: ReplicationSend> {
     tick_duration: Duration,
     enable_send: bool,
     enable_receive: bool,
-    _marker: std::marker::PhantomData<(P, R)>,
+    _marker: std::marker::PhantomData<R>,
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> ReplicationPlugin<P, R> {
+impl<R: ReplicationSend> ReplicationPlugin<R> {
     pub(crate) fn new(tick_duration: Duration, enable_send: bool, enable_receive: bool) -> Self {
         Self {
             tick_duration,
@@ -36,14 +37,13 @@ impl<P: Protocol, R: ReplicationSend<P>> ReplicationPlugin<P, R> {
     }
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
+impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
     fn build(&self, app: &mut App) {
         // TODO: have a better constant for clean_interval?
         let clean_interval = self.tick_duration * (i16::MAX as u32 / 3);
 
         // REFLECTION
-        app.register_type::<Replicate<P>>()
-            .register_type::<P::ComponentKinds>()
+        app.register_type::<Replicate>()
             .register_type::<PerComponentReplicationMetadata>()
             .register_type::<ReplicationGroupIdBuilder>()
             .register_type::<ReplicationGroup>()
@@ -60,8 +60,8 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
         // SYSTEM SETS //
         if self.enable_receive {
             // PLUGINS
-            app.add_plugins(HierarchyReceivePlugin::<P, R>::default());
-            app.add_plugins(ResourceReceivePlugin::<P, R>::default());
+            app.add_plugins(HierarchyReceivePlugin::<R>::default());
+            app.add_plugins(ResourceReceivePlugin::<R>::default());
         }
         if self.enable_send {
             app.configure_sets(
@@ -77,36 +77,41 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
                 PostUpdate,
                 (
                     (
-                        InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendResourceUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals,
+                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::Buffer,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::All),
                     (
-                        InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendResourceUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
-                        // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
+                        InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals,
+                    )
+                        .in_set(InternalReplicationSet::<R::SetMarker>::Buffer),
+                    (
+                        InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
+                        // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                     )
                         .in_set(InternalMainSet::<R::SetMarker>::Send),
                     (
-                        InternalReplicationSet::<R::SetMarker>::All,
+                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::Buffer,
                         InternalMainSet::<R::SetMarker>::SendPackets,
                     )
                         .chain(),
                 ),
             );
             // SYSTEMS
-            add_replication_send_systems::<P, R>(app);
-            P::Components::add_per_component_replication_send_systems::<R>(app);
+            add_replication_send_systems::<R>(app);
             // PLUGINS
-            app.add_plugins(HierarchySendPlugin::<P, R>::default());
-            app.add_plugins(ResourceSendPlugin::<P, R>::default());
+            app.add_plugins(HierarchySendPlugin::<R>::default());
+            app.add_plugins(ResourceSendPlugin::<R>::default());
         }
 
         // TODO: split receive cleanup from send cleanup
         // cleanup is for both receive and send
-        app.add_systems(Last, cleanup::<P, R>.run_if(on_timer(clean_interval)));
+        app.add_systems(Last, cleanup::<R>.run_if(on_timer(clean_interval)));
     }
 }

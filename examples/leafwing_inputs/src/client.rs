@@ -8,10 +8,8 @@ use bevy::utils::Duration;
 use bevy_xpbd_2d::parry::shape::ShapeType::Ball;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::_reexport::ClientMarker;
 
 use lightyear::inputs::native::input_buffer::InputBuffer;
-use lightyear::prelude::client::LeafwingInputPlugin;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -23,19 +21,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // add the LeafwingInputPlugin to be able to send leafwing ActionStates to the server
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
-            LeafwingInputConfig::<PlayerActions> {
-                send_diffs_only: true,
-                ..default()
-            },
-        ));
-        // .add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
-        //     LeafwingInputConfig::<AdminActions> {
-        //         send_diffs_only: true,
-        //         ..default()
-        //     },
-        // ));
         // To send global inputs, insert the ActionState and the InputMap as Resources
         // app.init_resource::<ActionState<AdminActions>>();
         // app.insert_resource(InputMap::<AdminActions>::new([
@@ -185,7 +170,7 @@ fn player_movement(
 ) {
     for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
         if !action_state.get_pressed().is_empty() {
-            info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
+            trace!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
             // note that we also apply the input to the other predicted clients! even though
             //  their inputs are only replicated with a delay!
             // TODO: add input decay?
@@ -193,13 +178,6 @@ fn player_movement(
         }
     }
 }
-
-// // System to send messages on the client
-// pub(crate) fn send_message(action_state: Res<ActionState<AdminActions>>) {
-//     if action_state.just_pressed(&AdminActions::SendMessage) {
-//         info!("Send message");
-//     }
-// }
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation

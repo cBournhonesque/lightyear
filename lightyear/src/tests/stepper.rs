@@ -120,9 +120,8 @@ impl BevyStepper {
             ping: PingConfig::default(),
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, protocol());
-        let plugin = server::ServerPlugin::new(plugin_config);
-        server_app.add_plugins(plugin);
+        let plugin = server::ServerPlugin::new(config);
+        server_app.add_plugins((plugin, ProtocolPlugin));
 
         // Setup client
         let mut client_app = App::new();
@@ -145,9 +144,8 @@ impl BevyStepper {
             interpolation: interpolation_config,
             ..default()
         };
-        let plugin_config = client::PluginConfig::new(config, protocol());
-        let plugin = client::ClientPlugin::new(plugin_config);
-        client_app.add_plugins(plugin);
+        let plugin = client::ClientPlugin::new(config);
+        client_app.add_plugins((plugin, ProtocolPlugin));
 
         // Initialize Real time (needed only for the first TimeSystem run)
         let now = bevy::utils::Instant::now();
@@ -173,7 +171,7 @@ impl BevyStepper {
 
     pub(crate) fn interpolation_tick(&mut self) -> Tick {
         self.client_app.world.resource_scope(
-            |world: &mut World, manager: Mut<ClientConnectionManager>| {
+            |world: &mut World, manager: Mut<client::ConnectionManager>| {
                 manager
                     .sync_manager
                     .interpolation_tick(world.resource::<TickManager>())
@@ -188,9 +186,11 @@ impl BevyStepper {
         self.server_app.world.resource::<TickManager>().tick()
     }
     pub(crate) fn init(&mut self) {
+        self.server_app.finish();
         self.server_app
             .world
             .run_system_once(|mut commands: Commands| commands.start_server());
+        self.client_app.finish();
         self.client_app
             .world
             .run_system_once(|mut commands: Commands| commands.connect_client());
@@ -200,7 +200,7 @@ impl BevyStepper {
             if self
                 .client_app
                 .world
-                .resource::<ClientConnectionManager>()
+                .resource::<client::ConnectionManager>()
                 .is_synced()
             {
                 break;

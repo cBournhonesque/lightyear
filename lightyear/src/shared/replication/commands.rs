@@ -1,24 +1,23 @@
 use bevy::ecs::system::{Command, EntityCommands};
 use bevy::prelude::{Entity, World};
 
-use crate::_reexport::ReplicationSend;
-use crate::prelude::Protocol;
 use crate::shared::replication::components::Replicate;
+use crate::shared::replication::ReplicationSend;
 
 pub struct RemoveReplicate;
 
-fn remove_replicate<P: Protocol, R: ReplicationSend<P>>(entity: Entity, world: &mut World) {
+fn remove_replicate<R: ReplicationSend>(entity: Entity, world: &mut World) {
     let mut sender = world.resource_mut::<R>();
     // remove the entity from the cache of entities that are being replicated
     // so that if it gets despawned, the despawn won't be replicated
-    sender.get_mut_replicate_component_cache().remove(&entity);
+    sender.get_mut_replicate_despawn_cache().remove(&entity);
     // remove the replicate component
     if let Some(mut entity) = world.get_entity_mut(entity) {
-        entity.remove::<Replicate<P>>();
+        entity.remove::<Replicate>();
     }
 }
 
-pub trait RemoveReplicateCommandsExt<P: Protocol, R: ReplicationSend<P>> {
+pub trait RemoveReplicateCommandsExt<R: ReplicationSend> {
     /// Remove the replicate component from the entity.
     /// This also makes sure that if you despawn the entity right after, the despawn won't be replicated.
     ///
@@ -26,9 +25,9 @@ pub trait RemoveReplicateCommandsExt<P: Protocol, R: ReplicationSend<P>> {
     /// immediately to clients (for example because clients are playing a despawn animation)/
     fn remove_replicate(&mut self);
 }
-impl<P: Protocol, R: ReplicationSend<P>> RemoveReplicateCommandsExt<P, R> for EntityCommands<'_> {
+impl<R: ReplicationSend> RemoveReplicateCommandsExt<R> for EntityCommands<'_> {
     fn remove_replicate(&mut self) {
-        self.add(remove_replicate::<P, R>);
+        self.add(remove_replicate::<R>);
     }
 }
 
@@ -38,8 +37,7 @@ mod tests {
 
     use crate::client::sync::SyncConfig;
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
-    use crate::tests::protocol::Replicate;
+    use crate::prelude::{server, LinkConditionerConfig, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
@@ -120,10 +118,7 @@ mod tests {
             .is_ok());
 
         // apply the command to remove replicate
-        remove_replicate::<MyProtocol, ServerConnectionManager>(
-            entity,
-            &mut stepper.server_app.world,
-        );
+        remove_replicate::<server::ConnectionManager>(entity, &mut stepper.server_app.world);
         stepper.server_app.world.entity_mut(entity).despawn();
         stepper.frame_step();
         stepper.frame_step();

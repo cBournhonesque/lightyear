@@ -1,4 +1,4 @@
-use crate::_reexport::{ReadBuffer, ReadWordBuffer};
+use crate::_internal::{ReadBuffer, ReadWordBuffer};
 use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;

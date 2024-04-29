@@ -40,6 +40,7 @@ impl Plugin for ExampleClientPlugin {
                 receive_message1,
                 receive_entity_spawn,
                 receive_entity_despawn,
+                receive_player_id_insert,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
                 button_system,
@@ -118,13 +119,9 @@ pub(crate) fn buffer_input(
 /// This works because we only predict the user's controlled entity.
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    // TODO: maybe make prediction mode a separate component!!!
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
-    if <Components as SyncMetadata<PlayerPosition>>::mode() != ComponentSyncMode::Full {
-        return;
-    }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             for position in position_query.iter_mut() {
@@ -152,6 +149,16 @@ pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
 pub(crate) fn receive_entity_despawn(mut reader: EventReader<EntityDespawnEvent>) {
     for event in reader.read() {
         info!("Received entity despawn: {:?}", event.entity());
+    }
+}
+
+/// Example system to handle ComponentInsertEvent events
+pub(crate) fn receive_player_id_insert(mut reader: EventReader<ComponentInsertEvent<PlayerId>>) {
+    for event in reader.read() {
+        info!(
+            "Received component PlayerId insert for entity: {:?}",
+            event.entity()
+        );
     }
 }
 

@@ -1,13 +1,15 @@
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 
-use crate::_reexport::ServerMarker;
+use crate::_internal::{ClientMarker, ServerMarker};
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
+use crate::client::networking::is_connected;
 use crate::client::prediction::Predicted;
+use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{Mode, PrePredicted, Protocol, SharedConfig};
+use crate::prelude::{Mode, PrePredicted, SharedConfig};
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::is_started;
@@ -33,17 +35,8 @@ impl Default for ReplicationConfig {
     }
 }
 
-pub struct ServerReplicationPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
-}
-
-impl<P: Protocol> Default for ServerReplicationPlugin<P> {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub struct ServerReplicationPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ServerReplicationSet {
@@ -51,13 +44,13 @@ pub enum ServerReplicationSet {
     ClientReplication,
 }
 
-impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
+impl Plugin for ServerReplicationPlugin {
     fn build(&self, app: &mut App) {
         let config = app.world.resource::<ServerConfig>();
 
         app
             // PLUGIN
-            .add_plugins(ReplicationPlugin::<P, ConnectionManager<P>>::new(
+            .add_plugins(ReplicationPlugin::<ConnectionManager>::new(
                 config.shared.tick.tick_duration,
                 config.replication.enable_send,
                 config.replication.enable_receive,
@@ -73,19 +66,23 @@ impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
                 PostUpdate,
                 // on server: we need to set the hash value before replicating the component
                 InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash
-                    .before(InternalReplicationSet::<ServerMarker>::SendComponentUpdates)
+                    .before(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates)
                     .in_set(InternalReplicationSet::<ServerMarker>::All),
+            )
+            .configure_sets(
+                PostUpdate,
+                InternalReplicationSet::<ServerMarker>::All.run_if(is_started),
             )
             // SYSTEMS
             .add_systems(
                 PostUpdate,
-                compute_hash::<P>.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
+                compute_hash.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
             );
 
         // HOST-SERVER
         app.add_systems(
             PostUpdate,
-            add_prediction_interpolation_components::<P>
+            add_prediction_interpolation_components
                 .after(InternalMainSet::<ServerMarker>::Send)
                 .run_if(SharedConfig::is_host_server_condition),
         );
@@ -104,9 +101,9 @@ pub struct ServerFilter {
 
 /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities
 /// So that client code can still query for them
-fn add_prediction_interpolation_components<P: Protocol>(
+fn add_prediction_interpolation_components(
     mut commands: Commands,
-    query: Query<(Entity, Ref<Replicate<P>>, Option<&PrePredicted>)>,
+    query: Query<(Entity, Ref<Replicate>, Option<&PrePredicted>)>,
     connection: Res<ClientConnection>,
 ) {
     let local_client = connection.id();

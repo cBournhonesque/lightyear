@@ -106,7 +106,7 @@ mod game {
     /// to join the lobby list)
     pub(crate) fn handle_connections(
         mut connections: EventReader<ConnectEvent>,
-        server: ResMut<ServerConnectionManager>,
+        server: ResMut<ConnectionManager>,
         mut global: ResMut<Global>,
         mut commands: Commands,
     ) {
@@ -119,7 +119,7 @@ mod game {
     /// Delete the player's entity when the client disconnects
     pub(crate) fn handle_disconnections(
         mut disconnections: EventReader<DisconnectEvent>,
-        server: ResMut<ServerConnectionManager>,
+        server: ResMut<ConnectionManager>,
         mut global: ResMut<Global>,
         mut commands: Commands,
         mut lobbies: Option<ResMut<Lobbies>>,
@@ -217,7 +217,7 @@ mod lobby {
     /// The game starts; if the host of the game is the dedicated server, we will spawn a cube
     /// for each player in the lobby
     pub(super) fn handle_start_game(
-        mut connection_manager: ResMut<ServerConnectionManager>,
+        mut connection_manager: ResMut<ConnectionManager>,
         mut events: EventReader<MessageEvent<StartGame>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
@@ -250,7 +250,7 @@ mod lobby {
                 // send the StartGame message to the client who is trying to join the game
                 let _ = connection_manager.send_message::<Channel1, _>(
                     *client_id,
-                    StartGame {
+                    &StartGame {
                         lobby_id,
                         host: lobby.host,
                     },
@@ -266,7 +266,7 @@ mod lobby {
                 }
                 // redirect the StartGame message to all other clients in the lobby
                 let _ = connection_manager.send_message_to_target::<Channel1, _>(
-                    StartGame {
+                    &StartGame {
                         lobby_id,
                         host: lobby.host,
                     },

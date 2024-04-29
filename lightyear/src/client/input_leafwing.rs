@@ -36,9 +36,9 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use crate::_reexport::ClientMarker;
+use crate::_internal::ClientMarker;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
+use bevy::utils::{HashMap, HashSet};
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use tracing::{error, trace};
@@ -55,7 +55,7 @@ use crate::inputs::leafwing::input_buffer::{
 };
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{Mode, SharedConfig, TickManager};
-use crate::protocol::Protocol;
+
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
@@ -86,7 +86,7 @@ impl<A> Default for ToggleActions<A> {
 }
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
-#[derive(Debug, Clone, Resource)]
+#[derive(Debug, Copy, Clone, Resource)]
 pub struct LeafwingInputConfig<A> {
     // TODO: right now the input-delay causes the client timeline to be more in the past than it should be
     //  I'm not sure if we can have different input_delay_ticks per ActionType
@@ -106,7 +106,7 @@ pub struct LeafwingInputConfig<A> {
     /// Turn this on if you want to optimize the bandwidth that the client sends to the server.
     pub send_diffs_only: bool,
     // TODO: add an option where we send all diffs vs send only just-pressed diffs
-    pub _marker: PhantomData<A>,
+    pub(crate) _marker: PhantomData<A>,
 }
 
 impl<A> Default for LeafwingInputConfig<A> {
@@ -128,29 +128,19 @@ impl<A> LeafwingInputConfig<A> {
 }
 
 /// Adds a plugin to handle inputs using the LeafwingInputManager
-pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
+pub struct LeafwingInputPlugin<A> {
     config: LeafwingInputConfig<A>,
-    _protocol_marker: PhantomData<P>,
-    _action_marker: PhantomData<A>,
 }
 
-impl<P: Protocol, A: LeafwingUserAction> LeafwingInputPlugin<P, A> {
+impl<A> LeafwingInputPlugin<A> {
     pub fn new(config: LeafwingInputConfig<A>) -> Self {
-        Self {
-            config,
-            _protocol_marker: PhantomData,
-            _action_marker: PhantomData,
-        }
+        Self { config }
     }
 }
 
-impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
+impl<A> Default for LeafwingInputPlugin<A> {
     fn default() -> Self {
-        Self {
-            config: LeafwingInputConfig::default(),
-            _protocol_marker: PhantomData,
-            _action_marker: PhantomData,
-        }
+        Self::new(LeafwingInputConfig::default())
     }
 }
 
@@ -163,17 +153,15 @@ fn is_input_delay(config: Res<ClientConfig>) -> bool {
     config.prediction.input_delay_ticks > 0
 }
 
-impl<P: Protocol, A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<P, A>
-where
-    P::Message: From<InputMessage<A>>,
-    // FLOW WITH INPUT DELAY
-    // - pre-update: run leafwing to update ActionState
-    //   this is the action-state for tick T + delay
+impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
+// FLOW WITH INPUT DELAY
+// - pre-update: run leafwing to update ActionState
+//   this is the action-state for tick T + delay
 
-    // - fixed-update:
-    //   - ONLY IF INPUT-DELAY IS NON ZERO. store the action-state in the buffer for tick T + delay
-    //   - generate the action-diffs for tick T + delay (using the ActionState)
-    //   - ONLY IF INPUT-DELAY IS NON ZERO. restore the action-state from the buffer for tick T
+// - fixed-update:
+//   - ONLY IF INPUT-DELAY IS NON ZERO. store the action-state in the buffer for tick T + delay
+//   - generate the action-diffs for tick T + delay (using the ActionState)
+//   - ONLY IF INPUT-DELAY IS NON ZERO. restore the action-state from the buffer for tick T
 {
     fn build(&self, app: &mut App) {
         // PLUGINS
@@ -204,11 +192,11 @@ where
                 SyncSet,
                 // handle tick events from sync before sending the message
                 InputSystemSet::ReceiveTickEvents
-                    .run_if(should_run.clone().and_then(client_is_synced::<P>)),
+                    .run_if(should_run.clone().and_then(client_is_synced)),
                 InputSystemSet::SendInputMessage
-                    .run_if(should_run.clone().and_then(client_is_synced::<P>))
+                    .run_if(should_run.clone().and_then(client_is_synced))
                     .in_set(InternalMainSet::<ClientMarker>::Send),
-                InputSystemSet::CleanUp.run_if(should_run.clone().and_then(client_is_synced::<P>)),
+                InputSystemSet::CleanUp.run_if(should_run.clone().and_then(client_is_synced)),
                 InternalMainSet::<ClientMarker>::SendPackets,
             )
                 .chain(),
@@ -238,7 +226,7 @@ where
             FixedPreUpdate,
             (
                 (
-                    (write_action_diffs::<A>, buffer_action_state::<P, A>),
+                    (write_action_diffs::<A>, buffer_action_state::<A>),
                     // get the action-state corresponding to the current tick (which we need to get from the buffer
                     //  because it was added to the buffer input_delay ticks ago)
                     get_non_rollback_action_state::<A>.run_if(is_input_delay),
@@ -265,7 +253,7 @@ where
 
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
         // TODO: should we also write the events at PreUpdate?
-        // app.add_systems(PostUpdate, clear_input_events::<P>);
+        // app.add_systems(PostUpdate, clear_input_events::);
 
         // NOTE:
         // - maybe don't include the InputManagerPlugin for all ActionLike, but only for those that need to be replicated.
@@ -274,7 +262,7 @@ where
         //   we want to add the input value computed during F1 to the buffer for tick TA, because the tick will use this value
         app.add_systems(
             PostUpdate,
-            prepare_input_message::<P, A>.in_set(InputSystemSet::SendInputMessage),
+            prepare_input_message::<A>.in_set(InputSystemSet::SendInputMessage),
         );
 
         // NOTE: we run the buffer_action_state system in the Update for several reasons:
@@ -290,7 +278,7 @@ where
             PostUpdate,
             (
                 receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
-                clean_buffers::<P, A>.in_set(InputSystemSet::CleanUp),
+                clean_buffers::<A>.in_set(InputSystemSet::CleanUp),
                 add_action_state_buffer_added_input_map::<A>.run_if(should_run.clone()),
                 toggle_actions::<A>,
             ),
@@ -415,7 +403,7 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
 
 /// Write the value of the ActionStates for the current tick in the InputBuffer
 /// We do not need to buffer inputs during rollback, as they have already been buffered
-fn buffer_action_state<P: Protocol, A: LeafwingUserAction>(
+fn buffer_action_state<A: LeafwingUserAction>(
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     mut global_input_buffer: ResMut<InputBuffer<A>>,
@@ -556,8 +544,8 @@ fn write_action_diffs<A: LeafwingUserAction>(
 }
 
 /// System that removes old entries from the ActionDiffBuffer and the InputBuffer
-fn clean_buffers<P: Protocol, A: LeafwingUserAction>(
-    connection: Res<ConnectionManager<P>>,
+fn clean_buffers<A: LeafwingUserAction>(
+    connection: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
     global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     mut action_diff_buffer_query: Query<(Entity, &mut ActionDiffBuffer<A>), With<InputMap<A>>>,
@@ -587,8 +575,8 @@ fn clean_buffers<P: Protocol, A: LeafwingUserAction>(
 
 /// Send a message to the server containing the ActionDiffs for the last few ticks
 /// Also clear the ActionDiffBuffers and InputBuffers
-fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
-    mut connection: ResMut<ConnectionManager<P>>,
+fn prepare_input_message<A: LeafwingUserAction>(
+    mut connection: ResMut<ConnectionManager>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     global_action_diff_buffer: Option<Res<ActionDiffBuffer<A>>>,
@@ -601,9 +589,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         ),
         With<InputMap<A>>,
     >,
-) where
-    P::Message: From<InputMessage<A>>,
-{
+) {
     let tick = tick_manager.tick() + config.prediction.input_delay_ticks as i16;
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?tick, "prepare_input_message");
@@ -671,6 +657,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
                     );
                 }
             } else {
+                // TODO: entity is not predicted or not confirmed? also need to do the conversion, no?
                 debug!("not sending inputs because couldnt find server entity");
             }
         }
@@ -759,10 +746,11 @@ fn receive_tick_events<A: LeafwingUserAction>(
 /// We run this in the PreUpdate stage so that we generate diffs even if the frame has no fixed-update schedule
 pub fn generate_action_diffs<A: LeafwingUserAction>(
     config: Res<LeafwingInputConfig<A>>,
-    action_state: Option<ResMut<ActionState<A>>>,
+    action_state: Option<Res<ActionState<A>>>,
     // only generate diffs for entities that have an InputMap (i.e. client-side entities)
     action_state_query: Query<(Entity, &ActionState<A>), With<InputMap<A>>>,
     mut action_diffs: EventWriter<ActionDiffEvent<A>>,
+    // mut already_consumed: Local<HashMap<A, HashSet<Option<Entity>>>>,
     mut previous_values: Local<HashMap<A, HashMap<Option<Entity>, f32>>>,
     mut previous_axis_pairs: Local<HashMap<A, HashMap<Option<Entity>, Vec2>>>,
 ) {
@@ -874,18 +862,52 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
         for action in action_state
             .get_released()
-            .iter()
+            .into_iter()
             // If we only send diffs, just keep the JustReleased keys.
             // Consumed keys are marked as 'Release' so we need to handle them separately
             // (see https://github.com/Leafwing-Studios/leafwing-input-manager/issues/443)
             .filter(|action| {
                 !config.send_diffs_only
-                    || action_state.just_released(*action)
-                    || action_state.consumed(*action)
+                    || action_state.just_released(action)
+                    || action_state.consumed(action)
             })
         {
-            let just_released = action_state.just_released(action);
-            let consumed = action_state.consumed(action);
+            let just_released = action_state.just_released(&action);
+            let consumed = action_state.consumed(&action);
+
+            // TODO: figure this out to avoid sending many "release" diffs when the action is consumed
+            // // if the action was consumed in the past, no need to re-send the release
+            // // at every tick that the action is consumed
+            // if config.send_diffs_only {
+            //     // if the action is not consumed anymore, remove from the hash_map
+            //     if !consumed {
+            //         error!("action not consumed anymore");
+            //         already_consumed
+            //             .entry(action)
+            //             .or_default()
+            //             .remove(&maybe_entity);
+            //         if !just_released {
+            //             continue;
+            //         }
+            //     } else {
+            //         if already_consumed
+            //             .entry(action)
+            //             .or_default()
+            //             .contains(&maybe_entity)
+            //         {
+            //             if !just_released {
+            //                 // do not send a diff
+            //                 continue;
+            //             }
+            //         }
+            //         error!("action added to already consumed");
+            //         // track the fact that the action was consumed
+            //         already_consumed
+            //             .entry(action)
+            //             .or_default()
+            //             .insert(maybe_entity);
+            //     }
+            // }
             trace!(
                 send_diffs=?config.send_diffs_only,
                 ?just_released,
@@ -896,10 +918,10 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                 action: action.clone(),
             });
             if config.send_diffs_only {
-                if let Some(previous_axes) = previous_axis_pairs.get_mut(action) {
+                if let Some(previous_axes) = previous_axis_pairs.get_mut(&action) {
                     previous_axes.remove(&maybe_entity);
                 }
-                if let Some(previous_values) = previous_values.get_mut(action) {
+                if let Some(previous_values) = previous_values.get_mut(&action) {
                     previous_values.remove(&maybe_entity);
                 }
             }
@@ -927,8 +949,7 @@ mod tests {
     use crate::client::sync::SyncConfig;
     use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::server::LeafwingInputPlugin;
-    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::prelude::{client, LinkConditionerConfig, Replicate, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
@@ -957,17 +978,22 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper
-            .client_app
-            .add_plugins((crate::client::input_leafwing::LeafwingInputPlugin::<
-                MyProtocol,
-                LeafwingInput1,
-            >::default(), InputPlugin));
-        // let press_action_id = stepper.client_app.world.register_system(press_action);
-        stepper.server_app.add_plugins((
-            LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default(),
-            InputPlugin,
-        ));
+        #[cfg(feature = "leafwing")]
+        {
+            stepper
+                .client_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1>::default());
+            stepper
+                .client_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
+            stepper
+                .server_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1>::default());
+            stepper
+                .server_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
+        }
+        stepper.client_app.add_plugins(InputPlugin);
         stepper.init();
 
         // create an entity on server
@@ -995,7 +1021,7 @@ mod tests {
         let client_entity = *stepper
             .client_app
             .world
-            .resource::<ClientConnectionManager>()
+            .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -1013,7 +1039,7 @@ mod tests {
             .world
             .entity(client_entity)
             .get::<ActionState<LeafwingInput1>>()
-            .is_some(),);
+            .is_some());
         stepper.frame_step();
         (stepper, server_entity, client_entity)
     }

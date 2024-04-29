@@ -5,7 +5,8 @@ use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
-use lightyear::client::components::LerpFn;
+use lightyear::client::components::{ComponentSyncMode, LerpFn};
+use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
 
@@ -126,42 +127,6 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
-#[component_protocol(protocol = "MyProtocol")]
-pub enum Components {
-    #[protocol(sync(mode = "once"))]
-    PlayerId(PlayerId),
-    #[protocol(sync(mode = "once"))]
-    ColorComponent(ColorComponent),
-    #[protocol(sync(mode = "once"))]
-    BallMarker(BallMarker),
-    // You need to specify how to do interpolation for the component
-    // Normally LinearInterpolation is fine, but it's not possible for xpbd's components
-    // as they do not implement Mul<f32> and Add<Self>
-    // Instead, lightyear already implemented the interpolation for xpbd's components (although you could also implement it yourself)
-    //
-    // Then you can also specify how to correct the component when there is a mispredictions
-    // The default is `InstantCorrector` which just snaps to the corrected value
-    // You can also use `InterpolatedCorrector` which will re-use your interpolation function to
-    // interpolate smoothly from the previously predicted value to the newly corrected value
-    #[protocol(sync(
-        mode = "full",
-        lerp = "PositionLinearInterpolation",
-        corrector = "InterpolatedCorrector"
-    ))]
-    Position(Position),
-    #[protocol(sync(
-        mode = "full",
-        lerp = "RotationLinearInterpolation",
-        corrector = "InterpolatedCorrector"
-    ))]
-    Rotation(Rotation),
-    // NOTE: correction is only needed for components that are visually displayed!
-    #[protocol(sync(mode = "full", lerp = "LinearVelocityLinearInterpolation"))]
-    LinearVelocity(LinearVelocity),
-    #[protocol(sync(mode = "full", lerp = "AngularVelocityLinearInterpolation"))]
-    AngularVelocity(AngularVelocity),
-}
-
 // Channels
 
 #[derive(Channel)]
@@ -171,11 +136,6 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
-
-#[message_protocol(protocol = "MyProtocol")]
-pub enum Messages {
-    Message1(Message1),
-}
 
 // Inputs
 
@@ -193,25 +153,53 @@ pub enum AdminActions {
     Reset,
 }
 
-impl LeafwingUserAction for PlayerActions {}
-impl LeafwingUserAction for AdminActions {}
-
 // Protocol
+pub(crate) struct ProtocolPlugin;
 
-protocolize! {
-    Self = MyProtocol,
-    Message = Messages,
-    Component = Components,
-    Input = (),
-    LeafwingInput1 = PlayerActions,
-    LeafwingInput2 = AdminActions,
-}
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        // inputs
+        app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
+        // components
+        app.register_component::<PlayerId>(ChannelDirection::Bidirectional);
+        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
-pub(crate) fn protocol() -> MyProtocol {
-    let mut protocol = MyProtocol::default();
-    protocol.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        ..default()
-    });
-    protocol
+        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional);
+        app.add_prediction::<ColorComponent>(ComponentSyncMode::Once);
+        app.add_interpolation::<ColorComponent>(ComponentSyncMode::Once);
+
+        app.register_component::<BallMarker>(ChannelDirection::Bidirectional);
+        app.add_prediction::<BallMarker>(ComponentSyncMode::Once);
+        app.add_interpolation::<BallMarker>(ComponentSyncMode::Once);
+
+        app.register_component::<Position>(ChannelDirection::Bidirectional);
+        app.add_prediction::<Position>(ComponentSyncMode::Full);
+        app.add_interpolation::<Position>(ComponentSyncMode::Full);
+        app.add_interpolation_fn::<Position>(position::lerp);
+        app.add_correction_fn::<Position>(position::lerp);
+
+        app.register_component::<Rotation>(ChannelDirection::Bidirectional);
+        app.add_prediction::<Rotation>(ComponentSyncMode::Full);
+        app.add_interpolation::<Rotation>(ComponentSyncMode::Full);
+        app.add_interpolation_fn::<Rotation>(rotation::lerp);
+        app.add_correction_fn::<Rotation>(rotation::lerp);
+
+        // NOTE: interpolation/correction is only needed for components that are visually displayed!
+        // we still need prediction to be able to correctly predict the physics on the client
+        app.register_component::<LinearVelocity>(ChannelDirection::Bidirectional);
+        app.add_prediction::<LinearVelocity>(ComponentSyncMode::Full);
+
+        app.register_component::<AngularVelocity>(ChannelDirection::Bidirectional);
+        app.add_prediction::<AngularVelocity>(ComponentSyncMode::Full);
+
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+    }
 }

@@ -1,7 +1,9 @@
+use bevy::app::{App, Plugin};
 use std::ops::Mul;
 
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
 use derive_more::{Add, Mul};
+use lightyear::client::components::ComponentSyncMode;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
@@ -76,7 +78,7 @@ impl Mul<f32> for &PlayerPosition {
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add)]
 pub struct CursorPosition(pub Vec2);
 
 impl Mul<f32> for &CursorPosition {
@@ -85,18 +87,6 @@ impl Mul<f32> for &CursorPosition {
     fn mul(self, rhs: f32) -> Self::Output {
         CursorPosition(self.0 * rhs)
     }
-}
-
-#[component_protocol(protocol = "MyProtocol")]
-pub enum Components {
-    #[protocol(sync(mode = "once"))]
-    PlayerId(PlayerId),
-    #[protocol(sync(mode = "full"))]
-    PlayerPosition(PlayerPosition),
-    #[protocol(sync(mode = "once"))]
-    PlayerColor(PlayerColor),
-    #[protocol(sync(mode = "full"))]
-    CursorPosition(CursorPosition),
 }
 
 // Channels
@@ -108,11 +98,6 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
-
-#[message_protocol(protocol = "MyProtocol")]
-pub enum Messages {
-    Message1(Message1),
-}
 
 // Inputs
 
@@ -138,22 +123,37 @@ pub enum Inputs {
     None,
 }
 
-impl UserAction for Inputs {}
-
 // Protocol
+pub(crate) struct ProtocolPlugin;
 
-protocolize! {
-    Self = MyProtocol,
-    Message = Messages,
-    Component = Components,
-    Input = Inputs,
-}
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        // inputs
+        app.add_plugins(InputPlugin::<Inputs>::default());
+        // components
+        app.register_component::<PlayerId>(ChannelDirection::Bidirectional);
+        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
-pub(crate) fn protocol() -> MyProtocol {
-    let mut protocol = MyProtocol::default();
-    protocol.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        ..default()
-    });
-    protocol
+        app.register_component::<PlayerPosition>(ChannelDirection::Bidirectional);
+        app.add_prediction::<PlayerPosition>(ComponentSyncMode::Full);
+        app.add_interpolation::<PlayerPosition>(ComponentSyncMode::Full);
+        app.add_linear_interpolation_fn::<PlayerPosition>();
+
+        app.register_component::<PlayerColor>(ChannelDirection::Bidirectional);
+        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+
+        app.register_component::<CursorPosition>(ChannelDirection::Bidirectional);
+        app.add_prediction::<CursorPosition>(ComponentSyncMode::Full);
+        app.add_interpolation::<CursorPosition>(ComponentSyncMode::Full);
+        app.add_linear_interpolation_fn::<CursorPosition>();
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+    }
 }

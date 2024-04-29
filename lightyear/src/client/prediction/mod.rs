@@ -12,7 +12,7 @@ use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
-use crate::protocol::Protocol;
+
 use crate::shared::replication::components::{PrePredicted, Replicate, ShouldBePredicted};
 use crate::shared::tick_manager::Tick;
 

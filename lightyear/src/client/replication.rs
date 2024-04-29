@@ -1,12 +1,13 @@
-use crate::_reexport::ClientMarker;
+use crate::_internal::ClientMarker;
 use crate::client::config::ClientConfig;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::client::connection::ConnectionManager;
+use crate::client::networking::is_connected;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::InterpolationDelay;
-use crate::prelude::{Protocol, SharedConfig};
+use crate::prelude::SharedConfig;
 use crate::shared::replication::plugin::ReplicationPlugin;
 use crate::shared::sets::InternalReplicationSet;
 
@@ -27,24 +28,15 @@ impl Default for ReplicationConfig {
     }
 }
 
-pub struct ClientReplicationPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
-}
+#[derive(Default)]
+pub struct ClientReplicationPlugin;
 
-impl<P: Protocol> Default for ClientReplicationPlugin<P> {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<P: Protocol> Plugin for ClientReplicationPlugin<P> {
+impl Plugin for ClientReplicationPlugin {
     fn build(&self, app: &mut App) {
         let config = app.world.resource::<ClientConfig>();
         app
             // PLUGIN
-            .add_plugins(ReplicationPlugin::<P, ConnectionManager<P>>::new(
+            .add_plugins(ReplicationPlugin::<ConnectionManager>::new(
                 config.shared.tick.tick_duration,
                 config.replication.enable_send,
                 config.replication.enable_receive,
@@ -64,7 +56,9 @@ impl<P: Protocol> Plugin for ClientReplicationPlugin<P> {
                 //  But then pre-predicted entities that are spawned right away will not be replicated?
                 // NOTE: we always need to add this condition if we don't enable replication, because
                 InternalReplicationSet::<ClientMarker>::All.run_if(
-                    client_is_synced::<P>.and_then(not(SharedConfig::is_host_server_condition)),
+                    is_connected
+                        .and_then(client_is_synced)
+                        .and_then(not(SharedConfig::is_host_server_condition)),
                 ),
             );
     }

@@ -8,7 +8,6 @@ use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
 
-use lightyear::_reexport::ShouldBeInterpolated;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -21,7 +20,6 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActionState<Inputs>>();
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.add_systems(Startup, init);
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         app.add_systems(

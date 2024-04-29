@@ -34,27 +34,6 @@ impl<Ctx> DisconnectEvent<Ctx> {
     }
 }
 
-/// This event is emitted whenever we receive a message containing a user action
-#[cfg(feature = "leafwing")]
-#[derive(Event)]
-pub(crate) struct InputMessageEvent<A: crate::inputs::leafwing::LeafwingUserAction, Ctx = ()> {
-    pub(crate) message: InputMessage<A>,
-    pub(crate) context: Ctx,
-}
-
-#[cfg(feature = "leafwing")]
-impl<A: crate::inputs::leafwing::LeafwingUserAction, Ctx> InputMessageEvent<A, Ctx> {
-    pub fn new(message: InputMessage<A>, context: Ctx) -> Self {
-        Self { message, context }
-    }
-    pub fn message(&self) -> &InputMessage<A> {
-        &self.message
-    }
-    pub fn context(&self) -> &Ctx {
-        &self.context
-    }
-}
-
 /// This event is emitted whenever we receive a message from the remote
 #[derive(Event)]
 pub struct MessageEvent<M: Message, Ctx = ()> {

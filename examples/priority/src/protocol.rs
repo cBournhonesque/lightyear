@@ -6,6 +6,7 @@ use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::Actionlike;
 use leafwing_input_manager::InputManagerBundle;
+use lightyear::client::components::ComponentSyncMode;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -92,17 +93,6 @@ pub enum Shape {
     Square,
 }
 
-#[component_protocol(protocol = "MyProtocol")]
-pub enum Components {
-    #[protocol(sync(mode = "once"))]
-    PlayerId(PlayerId),
-    #[protocol(sync(mode = "full"))]
-    PlayerPosition(Position),
-    #[protocol(sync(mode = "once"))]
-    PlayerColor(PlayerColor),
-    Shape(Shape),
-}
-
 // Channels
 
 #[derive(Channel)]
@@ -112,11 +102,6 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
-
-#[message_protocol(protocol = "MyProtocol")]
-pub enum Messages {
-    Message1(Message1),
-}
 
 // Inputs
 
@@ -135,22 +120,34 @@ pub enum Inputs {
     None,
 }
 
-impl LeafwingUserAction for Inputs {}
-
 // Protocol
+pub(crate) struct ProtocolPlugin;
 
-protocolize! {
-    Self = MyProtocol,
-    Message = Messages,
-    Component = Components,
-    LeafwingInput1 = Inputs,
-}
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        // inputs
+        app.add_plugins(LeafwingInputPlugin::<Inputs>::default());
+        // components
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
-pub(crate) fn protocol() -> MyProtocol {
-    let mut protocol = MyProtocol::default();
-    protocol.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        ..default()
-    });
-    protocol
+        app.register_component::<Position>(ChannelDirection::ServerToClient);
+        app.add_prediction::<Position>(ComponentSyncMode::Full);
+        app.add_interpolation::<Position>(ComponentSyncMode::Full);
+        app.add_linear_interpolation_fn::<Position>();
+
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+
+        app.register_component::<Shape>(ChannelDirection::ServerToClient);
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+    }
 }

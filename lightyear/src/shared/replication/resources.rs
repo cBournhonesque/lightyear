@@ -1,16 +1,19 @@
 //! Module to handle the replication of bevy [`Resource`]s
 
-use crate::_reexport::{ComponentProtocol, ReplicationSend};
-use crate::prelude::{Message, Protocol};
+use crate::prelude::Message;
 use crate::shared::replication::components::Replicate;
+use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 use async_compat::CompatExt;
 use bevy::app::App;
+use bevy::ecs::entity::MapEntities;
 use bevy::ecs::system::Command;
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    PostUpdate, PreUpdate, Query, Ref, Res, ResMut, Resource, SystemSet, With, World,
+    Commands, Component, DetectChanges, Entity, EntityMapper, IntoSystemConfigs,
+    IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate, Query, Ref, Res, ResMut, Resource,
+    SystemSet, With, World,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use tracing::error;
@@ -18,12 +21,12 @@ use tracing::error;
 mod command {
     use super::*;
 
-    pub struct StartReplicateCommand<R, P: Protocol> {
-        replicate: Replicate<P>,
-        _marker: PhantomData<(R, P)>,
+    pub struct StartReplicateCommand<R> {
+        replicate: Replicate,
+        _marker: PhantomData<R>,
     }
 
-    impl<R: Resource + Clone, P: Protocol> Command for StartReplicateCommand<R, P> {
+    impl<R: Resource + Clone> Command for StartReplicateCommand<R> {
         fn apply(self, world: &mut World) {
             if let Ok(entity) = world
                 .query_filtered::<Entity, With<ReplicateResource<R>>>()
@@ -37,30 +40,30 @@ mod command {
     }
 
     /// Extension trait to be able to replicate a resource to remote clients via [`Commands`].
-    pub trait ReplicateResourceExt<P: Protocol> {
+    pub trait ReplicateResourceExt {
         /// Start replicating a resource to remote clients.
         ///
         /// Any change to the resource will be replicated to the clients.
-        // TODO: we use `Replicate<P>` as argument instead of the simpler `NetworkTarget`
+        // TODO: we use `Replicate` as argument instead of the simpler `NetworkTarget`
         //  because it helps with type-inference when calling this method.
         //  We can switch to `NetworkTarget` if we remove the `P` bound of `Replicate`.
-        fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate<P>);
+        fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate);
     }
 
-    impl<P: Protocol> ReplicateResourceExt<P> for Commands<'_, '_> {
-        fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate<P>) {
-            self.add(StartReplicateCommand::<R, P> {
+    impl ReplicateResourceExt for Commands<'_, '_> {
+        fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate) {
+            self.add(StartReplicateCommand::<R> {
                 replicate,
                 _marker: PhantomData,
             });
         }
     }
 
-    pub struct StopReplicateCommand<R, P> {
-        _marker: PhantomData<(R, P)>,
+    pub struct StopReplicateCommand<R> {
+        _marker: PhantomData<R>,
     }
 
-    impl<R, P> Default for StopReplicateCommand<R, P> {
+    impl<R> Default for StopReplicateCommand<R> {
         fn default() -> Self {
             Self {
                 _marker: PhantomData,
@@ -68,24 +71,31 @@ mod command {
         }
     }
 
-    impl<R: Resource + Clone, P: Protocol> Command for StopReplicateCommand<R, P> {
+    impl<R: Resource + Clone> Command for StopReplicateCommand<R> {
         fn apply(self, world: &mut World) {
             if let Ok(entity) = world
                 .query_filtered::<Entity, With<ReplicateResource<R>>>()
                 .get_single(world)
             {
                 // we do not despawn the entity, because that would delete the resource
-                world.entity_mut(entity).remove::<Replicate<P>>();
+                world.entity_mut(entity).remove::<Replicate>();
             }
         }
     }
 
     /// Extension trait to be able to stop replicating a resource to remote clients via [`Commands`].
-    pub trait StopReplicateResourceExt<P: Protocol> {
+    pub trait StopReplicateResourceExt {
         /// Stop replicating a resource to remote clients.
         fn stop_replicate_resource<R: Resource + Clone>(&mut self);
     }
+
+    impl StopReplicateResourceExt for Commands<'_, '_> {
+        fn stop_replicate_resource<R: Resource + Clone>(&mut self) {
+            self.add(StopReplicateCommand::<R>::default());
+        }
+    }
 }
+use crate::protocol::BitSerializable;
 pub use command::{ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt};
 
 /// This component can be added to an entity to start replicating a [`Resource`] to remote clients.
@@ -99,6 +109,14 @@ pub struct ReplicateResource<R> {
     resource: Option<R>,
 }
 
+impl<R: MapEntities> MapEntities for ReplicateResource<R> {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        if let Some(r) = self.resource.as_mut() {
+            r.map_entities(entity_mapper);
+        }
+    }
+}
+
 impl<R> Default for ReplicateResource<R> {
     fn default() -> Self {
         Self { resource: None }
@@ -107,11 +125,11 @@ impl<R> Default for ReplicateResource<R> {
 
 pub(crate) mod send {
     use super::*;
-    pub(crate) struct ResourceSendPlugin<P, R> {
-        _marker: PhantomData<(P, R)>,
+    pub(crate) struct ResourceSendPlugin<R> {
+        _marker: PhantomData<R>,
     }
 
-    impl<P, R> Default for ResourceSendPlugin<P, R> {
+    impl<R> Default for ResourceSendPlugin<R> {
         fn default() -> Self {
             Self {
                 _marker: PhantomData,
@@ -119,32 +137,31 @@ pub(crate) mod send {
         }
     }
 
-    impl<P: Protocol, R: ReplicationSend<P>> Plugin for ResourceSendPlugin<P, R> {
+    impl<R: ReplicationSend> Plugin for ResourceSendPlugin<R> {
         fn build(&self, app: &mut App) {
             app.configure_sets(
                 PostUpdate,
                 // we need to make sure that the resource data is copied to the component before
                 // we send the component update
-                InternalReplicationSet::<R::SetMarker>::SendResourceUpdates
-                    .before(InternalReplicationSet::<R::SetMarker>::SendComponentUpdates),
+                InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates
+                    .before(InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates),
             );
-            P::Components::add_resource_send_systems::<R>(app);
         }
     }
 
-    pub fn add_resource_send_systems<P: Protocol, S: ReplicationSend<P>, R: Resource + Clone>(
+    pub(crate) fn add_resource_send_systems<S: ReplicationSend, R: Resource + Clone>(
         app: &mut App,
     ) {
         app.add_systems(
             PostUpdate,
-            copy_send_resource::<P, R>
-                .in_set(InternalReplicationSet::<S::SetMarker>::SendResourceUpdates),
+            copy_send_resource::<R>
+                .in_set(InternalReplicationSet::<S::SetMarker>::BufferResourceUpdates),
         );
     }
 
-    fn copy_send_resource<P: Protocol, R: Resource + Clone>(
+    fn copy_send_resource<R: Resource + Clone>(
         resource: Option<Res<R>>,
-        mut replicating_entity: Query<&mut ReplicateResource<R>, With<Replicate<P>>>,
+        mut replicating_entity: Query<&mut ReplicateResource<R>, With<Replicate>>,
     ) {
         if replicating_entity.iter().len() > 1 {
             error!(
@@ -177,11 +194,11 @@ pub(crate) mod send {
 pub(crate) mod receive {
     use super::*;
     use bevy::prelude::RemovedComponents;
-    pub(crate) struct ResourceReceivePlugin<P, R> {
-        _marker: PhantomData<(P, R)>,
+    pub(crate) struct ResourceReceivePlugin<R> {
+        _marker: PhantomData<R>,
     }
 
-    impl<P, R> Default for ResourceReceivePlugin<P, R> {
+    impl<R> Default for ResourceReceivePlugin<R> {
         fn default() -> Self {
             Self {
                 _marker: PhantomData,
@@ -189,18 +206,17 @@ pub(crate) mod receive {
         }
     }
 
-    impl<P: Protocol, R: ReplicationSend<P>> Plugin for ResourceReceivePlugin<P, R> {
+    impl<R: ReplicationSend> Plugin for ResourceReceivePlugin<R> {
         fn build(&self, app: &mut App) {
             app.configure_sets(
                 PreUpdate,
                 InternalReplicationSet::<R::SetMarker>::ReceiveResourceUpdates
                     .after(InternalMainSet::<R::SetMarker>::Receive),
             );
-            P::Components::add_resource_receive_systems::<R>(app);
         }
     }
 
-    pub fn add_resource_receive_systems<P: Protocol, S: ReplicationSend<P>, R: Resource + Clone>(
+    pub(crate) fn add_resource_receive_systems<S: ReplicationSend, R: Resource + Clone>(
         app: &mut App,
     ) {
         app.add_systems(
@@ -253,9 +269,9 @@ pub(crate) mod receive {
 mod tests {
     use super::{ReplicateResource, StopReplicateResourceExt};
     use crate::prelude::client::NetworkingState;
-    use crate::prelude::NetworkTarget;
+    use crate::prelude::{NetworkTarget, Replicate};
     use crate::shared::replication::resources::ReplicateResourceExt;
-    use crate::tests::protocol::{Component1, MyProtocol, Replicate, Resource1};
+    use crate::tests::protocol::{Component1, Resource1};
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::prelude::{Commands, Entity, OnEnter, With};
 

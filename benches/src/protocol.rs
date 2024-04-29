@@ -1,26 +1,22 @@
+use bevy::app::{App, Plugin};
 use bevy::prelude::Component;
 use bevy::utils::default;
 use derive_more::{Add, Mul};
+use lightyear::client::components::ComponentSyncMode;
 use serde::{Deserialize, Serialize};
 use std::ops::Mul;
 
 use lightyear::prelude::*;
 
 // Messages
-#[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message1(pub String);
 
-#[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message2(pub u32);
 
-#[message_protocol(protocol = "MyProtocol")]
-pub enum MyMessageProtocol {
-    Message1(Message1),
-    Message2(Message2),
-}
-
 // Components
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add)]
 pub struct Component1(pub f32);
 
 impl Mul<f32> for &Component1 {
@@ -31,36 +27,16 @@ impl Mul<f32> for &Component1 {
     }
 }
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Component2(pub f32);
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Component3(pub f32);
-
-#[component_protocol(protocol = "MyProtocol")]
-pub enum MyComponentsProtocol {
-    #[sync(full)]
-    Component1(Component1),
-    #[sync(simple)]
-    Component2(Component2),
-    #[sync(once)]
-    Component3(Component3),
-}
 
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MyInput(pub i16);
-impl UserAction for MyInput {}
-
-// Protocol
-
-protocolize! {
-    Self = MyProtocol,
-    Message = MyMessageProtocol,
-    Component = MyComponentsProtocol,
-    Input = MyInput,
-}
 
 // Channels
 #[derive(Channel)]
@@ -69,15 +45,31 @@ pub struct Channel1;
 #[derive(Channel)]
 pub struct Channel2;
 
-pub fn protocol() -> MyProtocol {
-    let mut p = MyProtocol::default();
-    p.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        ..default()
-    });
-    p.add_channel::<Channel2>(ChannelSettings {
-        mode: ChannelMode::UnorderedUnreliable,
-        ..default()
-    });
-    p
+// Protocol
+pub(crate) struct ProtocolPlugin;
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.add_message::<Message2>(ChannelDirection::Bidirectional);
+        // inputs
+        app.add_plugins(InputPlugin::<MyInput>::default());
+        // components
+        app.register_component::<Component1>(ChannelDirection::ServerToClient);
+        app.add_prediction::<Component1>(ComponentSyncMode::Full);
+        app.add_linear_interpolation_fn::<Component1>();
+        app.register_component::<Component2>(ChannelDirection::ServerToClient);
+        app.add_prediction::<Component2>(ComponentSyncMode::Simple);
+        app.register_component::<Component3>(ChannelDirection::ServerToClient);
+        app.add_prediction::<Component3>(ComponentSyncMode::Once);
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+        app.add_channel::<Channel2>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            ..default()
+        });
+    }
 }

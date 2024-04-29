@@ -1,4 +1,4 @@
-use crate::_reexport::WrappedTime;
+use crate::_internal::WrappedTime;
 use crate::client::input::InputManager;
 use crate::prelude::client::{InputSystemSet, SyncConfig};
 use crate::prelude::server::InputEvent;
@@ -96,7 +96,7 @@ fn test_sync_after_tick_wrap() {
     let client_entity = *stepper
         .client_app
         .world
-        .resource::<ClientConnectionManager>()
+        .resource::<client::ConnectionManager>()
         .replication_receiver
         .remote_entity_map
         .get_local(server_entity)
@@ -191,7 +191,7 @@ fn test_sync_after_tick_half_wrap() {
     let client_entity = *stepper
         .client_app
         .world
-        .resource::<ClientConnectionManager>()
+        .resource::<client::ConnectionManager>()
         .replication_receiver
         .remote_entity_map
         .get_local(server_entity)

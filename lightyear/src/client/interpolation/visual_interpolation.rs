@@ -1,5 +1,5 @@
 //! This module is not related to the interpolating between server updates.
-//! Instead it is responsible for interpolating between FixedUpdate ticks during the Update state.
+//! Instead, it is responsible for interpolating between FixedUpdate ticks during the Update state.
 //!
 //! Usually, the simulation is run during the FixedUpdate schedule so that it doesn't depend on frame rate.
 //! This can cause some visual inconsistencies (jitter) because the frames (Update schedule) don't correspond exactly to
@@ -11,15 +11,14 @@
 //!
 //! Another way to solve this would to run an extra 'partial' simulation step with 0.7 dt and use this for the visual state.
 //!
-//! This module currently has some caveats:
-//! - the systems are only compatible with components that are present in the protocol and have a SyncMetadata implementation
-//!   (because the InterpolatorFn is associated with the protocol, not the component itself, to circumvent the orphan rule)
+//! To enable VisualInterpolation:
+//! - you will have to register an interpolation function for the component in the protocol
 //! - VisualInterpolation is not enabled by default, you have to add the plugin manually
 //! ```rust,no_run,ignore
 //! # use crate::tests::protocol::*;
 //! use lightyear::prelude::client::VisualInterpolationPlugin;
 //! let mut app = bevy::app::App::new();
-//! app.add_plugins(VisualInterpolationPlugin::<Component1, MyProtocol>::default());
+//! app.add_plugins(VisualInterpolationPlugin::<Component1>::default());
 //! ```
 //! - To enable VisualInterpolation on a given entity, you need to add the `VisualInterpolateStatus` component to it manually
 //! ```rust,no_run,ignore
@@ -35,22 +34,15 @@
 
 use bevy::prelude::*;
 
-use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::prelude::client::InterpolationSet;
-use crate::prelude::{Protocol, TickManager, TimeManager};
+use crate::prelude::{ComponentRegistry, TickManager, TimeManager};
 
-pub struct VisualInterpolationPlugin<C: SyncComponent, P: Protocol>
-where
-    P::Components: SyncMetadata<C>,
-{
-    _marker: std::marker::PhantomData<(C, P)>,
+pub struct VisualInterpolationPlugin<C: SyncComponent> {
+    _marker: std::marker::PhantomData<C>,
 }
 
-impl<C: SyncComponent, P: Protocol> Default for VisualInterpolationPlugin<C, P>
-where
-    P::Components: SyncMetadata<C>,
-{
+impl<C: SyncComponent> Default for VisualInterpolationPlugin<C> {
     fn default() -> Self {
         Self {
             _marker: std::marker::PhantomData,
@@ -58,12 +50,9 @@ where
     }
 }
 
-impl<C: SyncComponent, P: Protocol> Plugin for VisualInterpolationPlugin<C, P>
-where
-    P::Components: SyncMetadata<C>,
-    P::ComponentKinds: FromType<C>,
-{
+impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
+        // TODO: put the non-component specific stuff in a different plugin
         // REFLECTION
         app.register_type::<VisualInterpolateMarker>();
         // SETS
@@ -75,22 +64,20 @@ where
         app.configure_sets(PostUpdate, InterpolationSet::VisualInterpolation);
 
         // SYSTEMS
-        if P::Components::mode() == ComponentSyncMode::Full {
-            app.add_systems(
-                PreUpdate,
-                restore_from_visual_interpolation::<C, P>
-                    .in_set(InterpolationSet::RestoreVisualInterpolation),
-            );
-            app.add_systems(
-                FixedPostUpdate,
-                update_visual_interpolation_status::<C>
-                    .in_set(InterpolationSet::UpdateVisualInterpolationState),
-            );
-            app.add_systems(
-                PostUpdate,
-                visual_interpolation::<C, P>.in_set(InterpolationSet::VisualInterpolation),
-            );
-        }
+        app.add_systems(
+            PreUpdate,
+            restore_from_visual_interpolation::<C>
+                .in_set(InterpolationSet::RestoreVisualInterpolation),
+        );
+        app.add_systems(
+            FixedPostUpdate,
+            update_visual_interpolation_status::<C>
+                .in_set(InterpolationSet::UpdateVisualInterpolationState),
+        );
+        app.add_systems(
+            PostUpdate,
+            visual_interpolation::<C>.in_set(InterpolationSet::VisualInterpolation),
+        );
     }
 }
 
@@ -128,15 +115,13 @@ pub struct VisualInterpolateMarker;
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
 //  (to avoid orphan rule)
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
-pub(crate) fn visual_interpolation<C: SyncComponent, P: Protocol>(
+pub(crate) fn visual_interpolation<C: SyncComponent>(
+    component_registry: Res<ComponentRegistry>,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
     mut query: Query<(&mut C, &VisualInterpolateStatus<C>)>,
-) where
-    P::Components: SyncMetadata<C>,
-    P::ComponentKinds: FromType<C>,
-{
-    let kind = P::ComponentKinds::from_type();
+) {
+    let kind = std::any::type_name::<C>();
     let tick = tick_manager.tick();
     let overstep = time_manager.overstep();
     for (mut component, interpolate_status) in query.iter_mut() {
@@ -155,7 +140,7 @@ pub(crate) fn visual_interpolation<C: SyncComponent, P: Protocol>(
             "Visual interpolation of fixed-update component!"
         );
         *component.bypass_change_detection() =
-            P::Components::lerp(previous_value, current_value, overstep);
+            component_registry.interpolate(previous_value, current_value, overstep);
     }
 }
 
@@ -180,12 +165,10 @@ pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
 }
 
 /// Restore the component value to the non-interpolated value
-pub(crate) fn restore_from_visual_interpolation<C: SyncComponent, P: Protocol>(
+pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
     mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>)>,
-) where
-    P::ComponentKinds: FromType<C>,
-{
-    let kind = P::ComponentKinds::from_type();
+) {
+    let kind = std::any::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {
         if let Some(current_value) = &interpolate_status.current_value {
             trace!(?kind, "Restoring visual interpolation");
@@ -238,7 +221,7 @@ mod tests {
         stepper.client_app.world.insert_resource(Toggle(true));
         stepper
             .client_app
-            .add_plugins(VisualInterpolationPlugin::<Component1, MyProtocol>::default());
+            .add_plugins(VisualInterpolationPlugin::<Component1>::default());
         let entity = stepper
             .client_app
             .world

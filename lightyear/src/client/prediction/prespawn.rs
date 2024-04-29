@@ -6,7 +6,7 @@ use std::any::{Any, TypeId};
 use std::hash::{BuildHasher, Hash, Hasher};
 use tracing::{debug, info, trace, warn};
 
-use crate::_reexport::{ClientMarker, ComponentProtocol};
+use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
@@ -17,22 +17,15 @@ use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{ShouldBePredicted, TickManager};
-use crate::protocol::Protocol;
+use crate::prelude::{ComponentRegistry, ParentSync, ShouldBePredicted, Tick, TickManager};
+use crate::protocol::component::ComponentKind;
+use crate::server::prediction::compute_hash;
+
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 
-pub(crate) struct PreSpawnedPlayerObjectPlugin<P> {
-    marker: std::marker::PhantomData<P>,
-}
-
-impl<P> Default for PreSpawnedPlayerObjectPlugin<P> {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub(crate) struct PreSpawnedPlayerObjectPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PreSpawnedPlayerObjectSet {
@@ -47,7 +40,7 @@ pub enum PreSpawnedPlayerObjectSet {
     CleanUp,
 }
 
-impl<P: Protocol> Plugin for PreSpawnedPlayerObjectPlugin<P> {
+impl Plugin for PreSpawnedPlayerObjectPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PreUpdate,
@@ -92,13 +85,14 @@ impl<P: Protocol> Plugin for PreSpawnedPlayerObjectPlugin<P> {
                 // TODO: right now we only support pre-spawning during FixedUpdate::Main because we need the exact
                 //  tick to compute the hash
                 // compute hashes for all pre-spawned player objects
-                // compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
+                // Self::compute_prespawn_hash
+                //     .in_set(InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash),
             ),
         );
     }
 }
 
-impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
+impl PreSpawnedPlayerObjectPlugin {
     /// Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
     pub(crate) fn compute_prespawn_hash(world: &mut World) {
         // get the rollback tick if the pre-spawned entity is being recreated during rollback!
@@ -109,19 +103,21 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
         };
 
         world.resource_scope(|world: &mut World, mut manager: Mut<PredictionManager>| {
-            let components = world.components();
+            world.resource_scope(
+                |world: &mut World, mut component_registry: Mut<ComponentRegistry>| {
+                    let components = world.components();
 
-            // ignore confirmed entities just in case we somehow didn't remove their hash during PreUpdate
-            let mut pre_spawned_query = world
+                    // ignore confirmed entities just in case we somehow didn't remove their hash during PreUpdate
+                    let mut pre_spawned_query = world
                 .query_filtered::<(EntityRef, Ref<PreSpawnedPlayerObject>), Without<Confirmed>>();
-            // let mut predicted_entities = vec![];
-            for (entity_ref, prespawn) in pre_spawned_query.iter(world) {
-                // we only care about newly-added PreSpawnedPlayerObject components
-                if !prespawn.is_added() {
-                    continue;
-                }
-                let entity = entity_ref.id();
-                let hash = prespawn.hash.map_or_else(
+                    // let mut predicted_entities = vec![];
+                    for (entity_ref, prespawn) in pre_spawned_query.iter(world) {
+                        // we only care about newly-added PreSpawnedPlayerObject components
+                        if !prespawn.is_added() {
+                            continue;
+                        }
+                        let entity = entity_ref.id();
+                        let hash = prespawn.hash.map_or_else(
                     || {
                         // TODO: try EntityHasher instead since we only hash the 64 lower bits of TypeId
                         // TODO: should I create the hasher once outside?
@@ -145,8 +141,6 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                         // // TODO: we only want to use components from the protocol, because server/client might use a lot of different stuff...
                         // entity_ref.contains_type_id()
 
-                        let protocol_component_types = P::Components::type_ids();
-
                         // NOTE: we cannot call hash() multiple times because the components in the archetype
                         //  might get iterated in any order!
                         //  Instead we will get the sorted list of types to hash first, sorted by type_id
@@ -158,12 +152,13 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                                     world.components().get_info(component_id).unwrap().type_id()
                                 {
                                     // ignore some book-keeping components
-                                    if type_id != TypeId::of::<Replicate<P>>()
+                                    if type_id != TypeId::of::<Replicate>()
                                         && type_id != TypeId::of::<PreSpawnedPlayerObject>()
                                         && type_id != TypeId::of::<ShouldBePredicted>()
                                         && type_id != TypeId::of::<DespawnTracker>()
+                                        && type_id != TypeId::of::<ParentSync>()
                                     {
-                                        return protocol_component_types.get(&type_id).copied();
+                                        return component_registry.kind_map.net_id(&ComponentKind::from(type_id)).copied();
                                     }
                                 }
                                 None
@@ -179,7 +174,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                         // prespawn.hash = Some(hasher.finish());
 
                         let new_hash = hasher.finish();
-                        trace!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                        debug!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
                         new_hash
                     },
                     |hash| {
@@ -193,29 +188,31 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                     },
                 );
 
-                // TODO: what to do in multiple entities share the same hash?
-                //  just match a random one of them? or should the user have a more precise hash?
-                manager
-                    .prespawn_hash_to_entities
-                    .entry(hash)
-                    .or_default()
-                    .push(entity);
-                // add a timer on the entity so that it gets despawned if the interpolation tick
-                // reaches it without matching with any server entity
-                manager.prespawn_tick_to_hash.add_item(tick, hash);
-                // predicted_entities.push(entity);
-            }
+                        // TODO: what to do in multiple entities share the same hash?
+                        //  just match a random one of them? or should the user have a more precise hash?
+                        manager
+                            .prespawn_hash_to_entities
+                            .entry(hash)
+                            .or_default()
+                            .push(entity);
+                        // add a timer on the entity so that it gets despawned if the interpolation tick
+                        // reaches it without matching with any server entity
+                        manager.prespawn_tick_to_hash.add_item(tick, hash);
+                        // predicted_entities.push(entity);
+                    }
 
-            // NOTE: originally I wanted to remove PreSpawnedPlayerObject here because I wanted to call `compute_hash`
-            // at PostUpdate, which would run twice (at the end of FixedUpdate and at PostUpdate)
-            // But actually we need the component to be present so that we spawn a ComponentHistory
+                    // NOTE: originally I wanted to remove PreSpawnedPlayerObject here because I wanted to call `compute_hash`
+                    // at PostUpdate, which would run twice (at the end of FixedUpdate and at PostUpdate)
+                    // But actually we need the component to be present so that we spawn a ComponentHistory
 
-            // for entity in predicted_entities {
-            //     info!("remove PreSpawnedPlayerObject");
-            //     // we stored the relevant information in the PredictionManager resource
-            //     // so we can remove the component here
-            //     world.entity_mut(entity).remove::<PreSpawnedPlayerObject>();
-            // }
+                    // for entity in predicted_entities {
+                    //     info!("remove PreSpawnedPlayerObject");
+                    //     // we stored the relevant information in the PredictionManager resource
+                    //     // so we can remove the component here
+                    //     world.entity_mut(entity).remove::<PreSpawnedPlayerObject>();
+                    // }
+                },
+            );
         });
     }
 
@@ -225,7 +222,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
     /// Try to match which client entity it is and take authority over it.
     pub(crate) fn spawn_pre_spawned_player_object(
         mut commands: Commands,
-        connection: Res<ConnectionManager<P>>,
+        connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
         mut events: EventReader<ComponentInsertEvent<PreSpawnedPlayerObject>>,
         query: Query<&PreSpawnedPlayerObject>,
@@ -313,7 +310,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
     pub(crate) fn pre_spawned_player_object_cleanup(
         mut commands: Commands,
         tick_manager: Res<TickManager>,
-        connection: Res<ConnectionManager<P>>,
+        connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
     ) {
         let tick = tick_manager.tick();
@@ -394,27 +391,27 @@ pub struct PreSpawnedPlayerObject {
 // /// This command must be used to spawn predicted entities
 // /// - It will insert the
 // /// - If the entity is confirmed, we despawn both the predicted and confirmed entities
-// pub struct PredictionSpawnCommand<P: Protocol> {
+// pub struct PredictionSpawnCommand {
 //     entity: Entity,
-//     _marker: PhantomData<P>,
+//     _marker: PhantomData,
 // }
 //
-// impl<P: Protocol> Command for PredictionSpawnCommand<P> {
+// impl Command for PredictionSpawnCommand {
 //     fn apply(self, world: &mut World) {
 //         todo!()
 //     }
 // }
 //
 // pub trait PredictionSpawnCommandsExt {
-//     fn prediction_spawn<P: Protocol>(&mut self);
+//     fn prediction_spawn(&mut self);
 //
 // }
 // impl PredictionSpawnCommandsExt for EntityCommands<'_, '_, '_> {
-//     fn prediction_spawn<P: Protocol>(&mut self, pre) {
+//     fn prediction_spawn(&mut self, pre) {
 //         let entity = self.id();
 //         self.commands().add(PredictionDespawnCommand {
 //             entity,
-//             _marker: PhantomData::<P>,
+//             _marker: PhantomData::,
 //         })
 //     }
 // }
@@ -453,7 +450,7 @@ mod tests {
     use bevy::utils::Duration;
     use hashbrown::HashMap;
 
-    use crate::_reexport::ItemWithReadyKey;
+    use crate::_internal::ItemWithReadyKey;
     use crate::client::prediction::resource::PredictionManager;
     use crate::prelude::client::*;
     use crate::prelude::*;
@@ -477,8 +474,7 @@ mod tests {
 
         let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
-        let expected_hash: u64 = 16099262544408252231;
-        dbg!(&prediction_manager.prespawn_hash_to_entities);
+        let expected_hash: u64 = 2725794787191662762;
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,
             HashMap::from_iter(vec![(

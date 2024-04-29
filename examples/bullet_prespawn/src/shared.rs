@@ -36,6 +36,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Startup, init);
             // draw after interpolation is done
@@ -69,6 +70,7 @@ impl Plugin for SharedPlugin {
             (
                 player_movement,
                 shoot_bullet,
+                // avoid re-shooting bullets during rollbacks
                 // shoot_bullet.run_if(not(is_in_rollback)),
                 move_bullet,
             )
@@ -263,7 +265,7 @@ pub(crate) fn shoot_bullet(
         if action.pressed(&PlayerActions::Shoot) {
             action.consume(&PlayerActions::Shoot);
 
-            info!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
+            error!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
 
             for delta in &[-0.2, 0.2] {
                 // for delta in &[0.0] {

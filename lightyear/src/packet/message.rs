@@ -4,6 +4,7 @@ use bytes::Bytes;
 
 use bitcode::encoding::{Fixed, Gamma};
 
+use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::reader::ReadBuffer;
@@ -11,6 +12,8 @@ use crate::serialize::writer::WriteBuffer;
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
 use bevy::ecs::entity::MapEntities;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 // strategies to avoid copying:
 // - have a net_id for each message or component
@@ -26,8 +29,8 @@ wrapping_id!(MessageId);
 ///
 /// Every type that can be sent over the network must implement this trait.
 ///
-pub trait Message: EventContext + BitSerializable {}
-impl<T: EventContext + BitSerializable> Message for T {}
+pub trait Message: EventContext + BitSerializable + DeserializeOwned + Serialize {}
+impl<T: EventContext + BitSerializable + DeserializeOwned + Serialize> Message for T {}
 
 pub type FragmentIndex = u8;
 
@@ -104,7 +107,7 @@ impl SingleData {
         }
     }
 
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
+    pub(crate) fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.id, Fixed)?;
         writer.encode(&self.tick, Fixed)?;
@@ -120,7 +123,7 @@ impl SingleData {
     }
 
     // TODO: are we doing an extra copy here?
-    pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
+    pub(crate) fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self> {
         let id = reader.decode::<Option<MessageId>>(Fixed)?;
         let tick = reader.decode::<Option<Tick>>(Fixed)?;
 
@@ -177,7 +180,7 @@ pub struct FragmentData {
 }
 
 impl FragmentData {
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
+    pub(crate) fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.message_id, Fixed)?;
         writer.encode(&self.tick, Fixed)?;
@@ -198,7 +201,7 @@ impl FragmentData {
         Ok(num_bits_written)
     }
 
-    pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    pub(crate) fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -250,7 +253,7 @@ impl MessageContainer {
 
     /// Serialize the message into a bytes buffer
     /// Returns the number of bits written
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
+    pub(crate) fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<usize> {
         match &self {
             MessageContainer::Single(data) => data.encode(writer),
             MessageContainer::Fragment(data) => data.encode(writer),
@@ -296,7 +299,7 @@ impl MessageContainer {
 
 #[cfg(test)]
 mod tests {
-    use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
+    use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
 
     use super::*;
 

@@ -13,7 +13,7 @@ use crate::client::components::{Confirmed, LerpFn, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
-use crate::protocol::Protocol;
+
 use crate::shared::replication::components::ShouldBeInterpolated;
 
 mod despawn;
@@ -33,15 +33,6 @@ where
 {
     fn lerp(start: &C, other: &C, t: f32) -> C {
         start * (1.0 - t) + other * t
-    }
-}
-
-/// Use this if you don't want to use an interpolation function for this component.
-/// (For example if you are running your own interpolation logic)
-pub struct NullInterpolator;
-impl<C: Clone> LerpFn<C> for NullInterpolator {
-    fn lerp(start: &C, _other: &C, _t: f32) -> C {
-        start.clone()
     }
 }
 
