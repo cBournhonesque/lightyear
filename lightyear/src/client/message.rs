@@ -5,8 +5,8 @@ use bevy::utils::HashMap;
 use bytes::Bytes;
 use tracing::{error, info_span, trace};
 
-use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
+use bitcode::encoding::Fixed;
 
 use crate::_internal::{
     BitSerializable, ClientMarker, MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker,
@@ -19,7 +19,6 @@ use crate::packet::message::SingleData;
 use crate::prelude::{ChannelDirection, ChannelKind, MainSet, Message, NetworkTarget};
 use crate::protocol::message::MessageRegistry;
 use crate::protocol::registry::NetId;
-
 use crate::serialize::RawData;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};

@@ -4,8 +4,6 @@ use std::marker::PhantomData;
 
 use bevy::prelude::{Component, Entity, Event};
 
-#[cfg(feature = "leafwing")]
-use crate::inputs::leafwing::InputMessage;
 use crate::packet::message::Message;
 
 /// This event is emitted whenever a client connects to the server

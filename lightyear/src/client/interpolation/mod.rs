@@ -13,7 +13,6 @@ use crate::client::components::{Confirmed, LerpFn, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
-
 use crate::shared::replication::components::ShouldBeInterpolated;
 
 mod despawn;

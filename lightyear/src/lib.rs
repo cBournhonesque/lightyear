@@ -23,14 +23,14 @@ pub(crate) mod _internal {
 
     pub use lightyear_macros::ChannelInternal;
 
-    pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
         EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
     };
+    pub use crate::channel::builder::TickBufferChannel;
     pub use crate::client::interpolation::LinearInterpolator;
     pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
-    pub use crate::protocol::message::MessageKind;
     pub use crate::protocol::{BitSerializable, EventContext};
+    pub use crate::protocol::message::MessageKind;
     pub use crate::serialize::reader::ReadBuffer;
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     pub use crate::serialize::wordbuffer::writer::WriteWordBuffer;
@@ -52,11 +52,11 @@ pub(crate) mod _internal {
 pub mod prelude {
     pub use lightyear_macros::Channel;
 
-    pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         DefaultUnorderedUnreliableChannel, ReliableSettings,
     };
+    pub use crate::channel::builder::TickBufferChannel;
     pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
     pub use crate::connection::id::ClientId;
     pub use crate::connection::netcode::{generate_key, Key};
@@ -83,8 +83,8 @@ pub mod prelude {
         ReplicateResource, ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt,
     };
     pub use crate::shared::sets::{FixedUpdateSet, MainSet};
-    pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
+    pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::time_manager::TimeManager;
     pub use crate::transport::config::{IoConfig, TransportConfig};
     pub use crate::transport::io::Io;
@@ -103,21 +103,21 @@ pub mod prelude {
         pub use crate::client::input::{InputConfig, InputManager, InputSystemSet};
         #[cfg(feature = "leafwing")]
         pub use crate::client::input_leafwing::{LeafwingInputConfig, ToggleActions};
+        pub use crate::client::interpolation::{
+            Interpolated, InterpolateStatus, VisualInterpolateStatus, VisualInterpolationPlugin,
+        };
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{
             InterpolationConfig, InterpolationDelay, InterpolationSet,
         };
-        pub use crate::client::interpolation::{
-            InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
-        };
         pub use crate::client::networking::{ClientCommands, NetworkingState};
         pub use crate::client::plugin::ClientPlugin;
+        pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
         pub use crate::client::prediction::correction::Correction;
-        pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
+        pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
         pub use crate::client::prediction::rollback::{Rollback, RollbackState};
-        pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
         pub use crate::client::replication::ReplicationConfig;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
@@ -127,6 +127,14 @@ pub mod prelude {
         pub use crate::connection::steam::client::SteamConfig;
     }
     pub mod server {
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+        pub use wtransport::tls::Certificate;
+
+        pub use crate::connection::server::{
+            NetConfig, NetServer, ServerConnection, ServerConnections,
+        };
+        #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+        pub use crate::connection::steam::server::SteamConfig;
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
         pub use crate::server::connection::ConnectionManager;
         pub use crate::server::events::{
@@ -139,14 +147,6 @@ pub mod prelude {
             ReplicationConfig, ServerFilter, ServerReplicationSet,
         };
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
-
-        pub use crate::connection::server::{
-            NetConfig, NetServer, ServerConnection, ServerConnections,
-        };
-        #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-        pub use crate::connection::steam::server::SteamConfig;
-        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-        pub use wtransport::tls::Certificate;
     }
 }
 

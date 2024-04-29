@@ -1,14 +1,14 @@
 //! Defines the plugin related to the client networking (sending and receiving packets).
-use anyhow::{anyhow, Context, Result};
-use async_channel::TryRecvError;
 use std::ops::DerefMut;
 
-use crate::_internal::ClientMarker;
+use anyhow::{anyhow, Context, Result};
+use async_channel::TryRecvError;
 use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
-use bevy::prelude::ResMut;
 use bevy::prelude::*;
+use bevy::prelude::ResMut;
 use tracing::{error, trace};
 
+use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -23,7 +23,6 @@ use crate::prelude::{
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::server::networking::is_started;
-
 use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::components::Replicated;

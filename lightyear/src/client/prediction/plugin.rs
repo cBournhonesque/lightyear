@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use bevy::prelude::{
-    apply_deferred, not, App, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
+    App, apply_deferred, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, not,
     Plugin, PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::reflect::Reflect;
@@ -14,9 +14,10 @@ use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
 use crate::client::prediction::despawn::{
-    despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
-    restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
+    despawn_confirmed, PredictionDespawnMarker, remove_component_for_despawn_predicted,
+    remove_despawn_marker, restore_components_if_despawn_rolled_back,
 };
+use crate::client::prediction::Predicted;
 use crate::client::prediction::predicted_history::{
     add_prespawned_component_history, update_prediction_history,
 };
@@ -24,18 +25,16 @@ use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject, SharedConfig};
-
 use crate::shared::sets::InternalMainSet;
 
 use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_prespawn,
-    run_rollback, Rollback, RollbackState,
+    Rollback, RollbackState, run_rollback,
 };
 use super::spawn::spawn_predicted_entity;
 

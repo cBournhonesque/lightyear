@@ -36,26 +36,25 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use crate::_internal::ClientMarker;
 use bevy::prelude::*;
 use bevy::utils::{HashMap, HashSet};
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use tracing::{error, trace};
 
+use crate::_internal::ClientMarker;
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
-use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
+use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::sync::{client_is_synced, SyncSet};
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{Mode, SharedConfig, TickManager};
-
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
@@ -948,8 +947,8 @@ mod tests {
 
     use crate::client::sync::SyncConfig;
     use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
-    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
     use crate::prelude::{client, LinkConditionerConfig, Replicate, SharedConfig, TickConfig};
+    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

@@ -129,8 +129,8 @@ impl RemoteEntityMap {
 mod tests {
     use bevy::utils::Duration;
 
-    use crate::prelude::client::*;
     use crate::prelude::*;
+    use crate::prelude::client::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

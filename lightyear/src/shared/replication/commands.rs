@@ -36,8 +36,8 @@ mod tests {
     use bevy::utils::Duration;
 
     use crate::client::sync::SyncConfig;
+    use crate::prelude::{LinkConditionerConfig, server, SharedConfig, TickConfig};
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::{server, LinkConditionerConfig, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

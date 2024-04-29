@@ -1,8 +1,8 @@
 //! NOTE: This does not work anymore since we don't serialize the tick in SingleData anymore!.
 use anyhow::Context;
 
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
+use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::packet::message::{MessageContainer, SingleData};
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
@@ -88,7 +88,6 @@ impl ChannelReceive for TickUnreliableReceiver {
 #[cfg(test)]
 mod tests {
     use bevy::utils::Duration;
-
     use bytes::Bytes;
 
     use crate::channel::receivers::ChannelReceive;

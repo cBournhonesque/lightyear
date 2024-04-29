@@ -9,9 +9,9 @@ use crate::client::interpolation::despawn::{despawn_interpolated, removed_compon
 use crate::client::interpolation::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
+use crate::client::interpolation::Interpolated;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
-use crate::client::interpolation::Interpolated;
 use crate::client::sync::client_is_synced;
 use crate::prelude::{ExternalMapper, Mode, SharedConfig};
 

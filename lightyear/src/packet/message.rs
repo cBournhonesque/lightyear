@@ -1,6 +1,9 @@
 use std::fmt::Debug;
 
+use bevy::ecs::entity::MapEntities;
 use bytes::Bytes;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use bitcode::encoding::{Fixed, Gamma};
 
@@ -11,9 +14,6 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
-use bevy::ecs::entity::MapEntities;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 
 // strategies to avoid copying:
 // - have a net_id for each message or component

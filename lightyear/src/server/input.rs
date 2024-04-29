@@ -1,19 +1,20 @@
 //! Handles client-generated inputs
-use crate::_internal::{MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker};
-use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::InputMessage;
 use anyhow::Context;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
+
 use bitcode::__private::Fixed;
 
-use crate::prelude::server::MessageEvent;
+use crate::_internal::{MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker};
+use crate::inputs::native::input_buffer::InputBuffer;
+use crate::inputs::native::InputMessage;
 use crate::prelude::{
     AppMessageExt, ChannelDirection, ClientId, Message, MessageRegistry, NetworkTarget,
     TickManager, UserAction,
 };
-use crate::protocol::registry::NetId;
+use crate::prelude::server::MessageEvent;
 use crate::protocol::BitSerializable;
+use crate::protocol::registry::NetId;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputEvent;
 use crate::server::networking::is_started;

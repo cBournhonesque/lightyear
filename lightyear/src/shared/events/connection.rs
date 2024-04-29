@@ -10,8 +10,8 @@ use crate::packet::message::Message;
 use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentNetId;
-use crate::protocol::message::MessageKind;
 use crate::protocol::EventContext;
+use crate::protocol::message::MessageKind;
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug, Resource)]
@@ -286,10 +286,6 @@ impl IterComponentInsertEvent for ConnectionEvents {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::protocol::*;
-
-    use super::*;
-
     // #[test]
     // fn test_iter_messages() {
     //     let mut events = ConnectionEvents::<MyProtocol>::new();

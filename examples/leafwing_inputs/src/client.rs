@@ -10,12 +10,12 @@ use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use lightyear::inputs::native::input_buffer::InputBuffer;
-pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+pub use lightyear::prelude::client::*;
 
+use crate::{ClientTransports, shared, SharedSettings};
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
-use crate::{shared, ClientTransports, SharedSettings};
+use crate::shared::{color_from_id, FixedSet, shared_config, shared_movement_behaviour};
 
 pub struct ExampleClientPlugin;
 

@@ -4,20 +4,18 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
-use bevy::app::{App, Plugin};
-use std::net::SocketAddr;
 use std::ops::Mul;
 
+use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
+    Bundle, Color, Component, default, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
-use bevy::prelude::{Parent, Resource};
-use bevy::utils::HashMap;
+use bevy::prelude::Resource;
 use derive_more::{Add, Mul};
-use lightyear::client::components::ComponentSyncMode;
 use serde::{Deserialize, Serialize};
 
+use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::*;
 
 // Player

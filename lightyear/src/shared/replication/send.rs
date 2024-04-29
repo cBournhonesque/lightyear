@@ -5,8 +5,8 @@ use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Reflect};
-use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{hashbrown, HashMap, HashSet};
+use bevy::utils::petgraph::data::ElementIterator;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, warn};
 
@@ -16,7 +16,6 @@ use crate::prelude::{ShouldBePredicted, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentNetId;
 use crate::protocol::registry::NetId;
-
 use crate::serialize::RawData;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 use crate::shared::replication::systems::DespawnMetadata;
@@ -397,8 +396,6 @@ impl GroupChannel {
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;
-
-    use crate::tests::protocol::*;
 
     use super::*;
 

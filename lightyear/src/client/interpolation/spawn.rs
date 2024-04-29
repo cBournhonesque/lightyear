@@ -1,12 +1,13 @@
+use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
+use tracing::trace;
+
 use crate::_internal::ShouldBeInterpolated;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
+use crate::client::interpolation::resource::InterpolationManager;
 use crate::prelude::Tick;
-use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
-use tracing::trace;
 
 pub fn spawn_interpolated_entity(
     config: Res<ClientConfig>,

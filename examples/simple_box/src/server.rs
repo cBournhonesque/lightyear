@@ -13,12 +13,12 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+pub use lightyear::prelude::server::*;
 
+use crate::{ServerTransports, shared, SharedSettings};
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, ServerTransports, SharedSettings};
 
 pub struct ExampleServerPlugin;
 

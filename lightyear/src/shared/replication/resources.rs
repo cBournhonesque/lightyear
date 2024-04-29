@@ -1,9 +1,7 @@
 //! Module to handle the replication of bevy [`Resource`]s
 
-use crate::prelude::Message;
-use crate::shared::replication::components::Replicate;
-use crate::shared::replication::ReplicationSend;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
+use std::marker::PhantomData;
+
 use async_compat::CompatExt;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
@@ -13,10 +11,17 @@ use bevy::prelude::{
     IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate, Query, Ref, Res, ResMut, Resource,
     SystemSet, With, World,
 };
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::marker::PhantomData;
+use serde::de::DeserializeOwned;
 use tracing::error;
+
+pub use command::{ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt};
+
+use crate::prelude::Message;
+use crate::protocol::BitSerializable;
+use crate::shared::replication::components::Replicate;
+use crate::shared::replication::ReplicationSend;
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 mod command {
     use super::*;
@@ -95,8 +100,6 @@ mod command {
         }
     }
 }
-use crate::protocol::BitSerializable;
-pub use command::{ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt};
 
 /// This component can be added to an entity to start replicating a [`Resource`] to remote clients.
 ///
@@ -125,6 +128,7 @@ impl<R> Default for ReplicateResource<R> {
 
 pub(crate) mod send {
     use super::*;
+
     pub(crate) struct ResourceSendPlugin<R> {
         _marker: PhantomData<R>,
     }
@@ -192,8 +196,10 @@ pub(crate) mod send {
 }
 
 pub(crate) mod receive {
-    use super::*;
     use bevy::prelude::RemovedComponents;
+
+    use super::*;
+
     pub(crate) struct ResourceReceivePlugin<R> {
         _marker: PhantomData<R>,
     }
@@ -267,13 +273,15 @@ pub(crate) mod receive {
 
 #[cfg(test)]
 mod tests {
-    use super::{ReplicateResource, StopReplicateResourceExt};
+    use bevy::prelude::{Commands, OnEnter};
+
     use crate::prelude::client::NetworkingState;
-    use crate::prelude::{NetworkTarget, Replicate};
+    use crate::prelude::Replicate;
     use crate::shared::replication::resources::ReplicateResourceExt;
     use crate::tests::protocol::{Component1, Resource1};
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::prelude::{Commands, Entity, OnEnter, With};
+
+    use super::{ReplicateResource, StopReplicateResourceExt};
 
     #[test]
     fn test_resource_replication_manually() {

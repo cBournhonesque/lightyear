@@ -8,8 +8,9 @@ use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
 use bevy::utils::HashSet;
-use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+
+use bitcode::{Decode, Encode};
 
 use crate::_internal::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, WriteWordBuffer,
@@ -19,8 +20,8 @@ use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::{NetworkTarget, Tick};
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
-use crate::protocol::registry::NetId;
 use crate::protocol::EventContext;
+use crate::protocol::registry::NetId;
 use crate::serialize::RawData;
 use crate::shared::events::connection::{
     ClearEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
@@ -208,8 +209,8 @@ pub(crate) trait ReplicationSend: Resource {
 mod tests {
     use bevy::utils::Duration;
 
-    use crate::prelude::client::*;
     use crate::prelude::*;
+    use crate::prelude::client::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

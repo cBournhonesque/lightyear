@@ -1,19 +1,12 @@
-use bevy::utils::Duration;
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 
-use bevy::app::PluginGroupBuilder;
-use bevy::ecs::archetype::Archetype;
 use bevy::prelude::*;
-use leafwing_input_manager::prelude::ActionState;
 
-pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+pub use lightyear::prelude::server::*;
 
 use crate::protocol::*;
-use crate::shared::shared_config;
-use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;

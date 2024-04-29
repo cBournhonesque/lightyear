@@ -1,13 +1,14 @@
+use std::ops::DerefMut;
+
 use anyhow::Context;
 use bevy::app::{App, PreUpdate};
 use bevy::prelude::{EventWriter, IntoSystemConfigs, Res, ResMut, Resource};
 use bevy::utils::HashMap;
 use bytes::Bytes;
-use std::ops::DerefMut;
 use tracing::{error, info_span, trace};
 
-use bitcode::__private::Fixed;
 use bitcode::{Decode, Encode};
+use bitcode::__private::Fixed;
 
 use crate::_internal::{
     BitSerializable, MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker, WriteBuffer,

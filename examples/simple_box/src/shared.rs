@@ -8,7 +8,6 @@ use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use bevy_mod_picking::DefaultPickingPlugins;
 
-use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use lightyear::shared::config::Mode;
 

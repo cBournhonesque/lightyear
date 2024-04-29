@@ -1,33 +1,24 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
 use bevy::core::TaskPoolThreadAssignmentPolicy;
-use bevy::utils::Duration;
-use std::net::SocketAddr;
-use std::str::FromStr;
-
+use bevy::MinimalPlugins;
 use bevy::prelude::{
-    default, App, Mut, PluginGroup, Real, Resource, TaskPoolOptions, TaskPoolPlugin, Time,
+    App, default, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time,
 };
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
-use bevy::utils::HashMap;
-use bevy::MinimalPlugins;
+use bevy::utils::Duration;
 
-use crate::client as crate_client;
 use crate::connection::netcode::generate_key;
 use crate::connection::server::{NetServer, ServerConnections};
+use crate::prelude::*;
 use crate::prelude::client::{
-    Authentication, ClientConfig, ClientConnection, InputConfig, InterpolationConfig, NetClient,
+    Authentication, ClientConfig, ClientConnection, InterpolationConfig, NetClient,
     NetConfig, PredictionConfig, SyncConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerConfig};
-use crate::prelude::*;
-use crate::server as crate_server;
-use crate::transport::LOCAL_SOCKET;
-
-use crate::protocol::*;
-use crate::shared::replication::components::Replicate;
 use crate::tests::protocol::*;
-use crate::tests::stepper::{BevyStepper, Step};
+use crate::tests::stepper::Step;
+use crate::transport::LOCAL_SOCKET;
 
 pub struct MultiBevyStepper {
     // first client will use local channels

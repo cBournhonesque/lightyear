@@ -14,12 +14,12 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+pub use lightyear::prelude::server::*;
 
+use crate::{ServerTransports, shared, SharedSettings};
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, ServerTransports, SharedSettings};
 
 pub struct ExampleServerPlugin;
 
@@ -166,8 +166,9 @@ mod game {
 }
 
 mod lobby {
-    use super::*;
     use lightyear::server::connection::ConnectionManager;
+
+    use super::*;
 
     /// A client has joined a lobby:
     /// - update the `Lobbies` resource

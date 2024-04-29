@@ -9,10 +9,9 @@ use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::components::{Confirmed, SyncMetadata};
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolate::InterpolateStatus;
-use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
+use crate::client::interpolation::resource::InterpolationManager;
 use crate::prelude::{ComponentRegistry, ExternalMapper, TickManager};
-
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
 

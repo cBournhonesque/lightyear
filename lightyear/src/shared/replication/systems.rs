@@ -14,7 +14,6 @@ use crate::_internal::{ShouldBeInterpolated, WriteBuffer};
 use crate::client::replication::ClientReplicationPlugin;
 use crate::prelude::{ClientId, NetworkTarget, ReplicationGroup, ShouldBePredicted, TickManager};
 use crate::protocol::component::ComponentRegistry;
-
 use crate::server::replication::ServerReplicationSet;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{
@@ -514,12 +513,6 @@ pub(crate) fn cleanup<R: ReplicationSend>(mut sender: ResMut<R>, tick_manager: R
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::server::{RoomId, RoomManager};
-    use crate::prelude::{ClientId, Replicate, ReplicationMode};
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
-    use bevy::prelude::{default, Entity, With};
-
     // TODO: how to check that no despawn message is sent?
     // /// Check that when replicated entities in other rooms than the current client are despawned,
     // /// the despawn is not sent to the client

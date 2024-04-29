@@ -1,11 +1,9 @@
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
-use lightyear::client::interpolation::Interpolated;
-use lightyear::client::prediction::Predicted;
 
-use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
+use lightyear::prelude::client::Confirmed;
 
 use crate::protocol::*;
 

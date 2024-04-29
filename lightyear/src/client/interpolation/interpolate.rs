@@ -4,10 +4,9 @@ use tracing::{debug, info, trace};
 use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::interpolation::Interpolated;
+use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::prelude::{ComponentRegistry, TickManager};
-
 use crate::shared::tick_manager::Tick;
 
 // if we haven't received updates since UPDATE_INTERPOLATION_START_TICK_FACTOR * send_interval

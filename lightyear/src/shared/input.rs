@@ -1,13 +1,12 @@
 //! Plugin to register and handle user inputs.
 
-use crate::_internal::ClientMarker;
+use bevy::app::{App, Plugin};
+
 use crate::client::config::ClientConfig;
 use crate::inputs::native::InputMessage;
 use crate::prelude::{MessageRegistry, UserAction};
 use crate::protocol::message::MessageType;
 use crate::server::config::ServerConfig;
-use bevy::app::{App, Plugin};
-use tracing::error;
 
 pub struct InputPlugin<A> {
     _marker: std::marker::PhantomData<A>,
