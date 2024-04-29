@@ -4,9 +4,10 @@ use std::ops::DerefMut;
 use anyhow::{anyhow, Context, Result};
 use async_channel::TryRecvError;
 use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
-use bevy::prelude::*;
 use bevy::prelude::ResMut;
+use bevy::prelude::*;
 use tracing::{error, trace};
+use wtransport::error::ConnectingError;
 
 use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
@@ -333,6 +334,7 @@ fn on_connect(
 /// System that runs when we enter the Disconnected state
 /// Updates the DisconnectEvent events
 fn on_disconnect(
+    mut connection_manager: ResMut<ConnectionManager>,
     mut disconnect_event_writer: EventWriter<DisconnectEvent>,
     mut netcode: ResMut<ClientConnection>,
     config: Res<ClientConfig>,
@@ -347,6 +349,9 @@ fn on_disconnect(
     received_entities
         .iter()
         .for_each(|e| commands.entity(e).despawn_recursive());
+
+    // set synced to false
+    connection_manager.sync_manager.synced = false;
 
     // try to disconnect again to close io tasks (in case the disconnection is from the io)
     let _ = netcode.disconnect();
