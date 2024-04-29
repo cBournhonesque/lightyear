@@ -292,8 +292,8 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient);
         app.add_prediction::<PlayerPosition>(ComponentSyncMode::Full);
-        app.add_interpolation::<PlayerPosition>(ComponentSyncMode::Full);
-        app.add_linear_interpolation_fn::<PlayerPosition>();
+        app.add_custom_interpolation::<PlayerPosition>(ComponentSyncMode::Full);
+        // we do not register an interpolation function because we will use a custom interpolation system
 
         app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
         app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
@@ -301,7 +301,7 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<TailPoints>(ChannelDirection::ServerToClient);
         app.add_prediction::<TailPoints>(ComponentSyncMode::Full);
-        app.add_interpolation::<TailPoints>(ComponentSyncMode::Full);
+        app.add_custom_interpolation::<TailPoints>(ComponentSyncMode::Full);
         // we do not register an interpolation function because we will use a custom interpolation system
 
         app.register_component::<TailLength>(ChannelDirection::ServerToClient);

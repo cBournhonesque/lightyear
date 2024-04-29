@@ -468,6 +468,10 @@ pub trait AppComponentExt {
     fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self);
 
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>);
+
+    /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
+    /// themselves (the interpolation_fn will not be used)
+    fn add_custom_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode);
     fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode);
     fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self);
 
@@ -527,6 +531,19 @@ impl AppComponentExt for App {
                 // TODO: handle custom interpolation
                 add_interpolation_systems::<C>(self);
             }
+        }
+    }
+
+    fn add_custom_interpolation<C: SyncComponent>(
+        &mut self,
+        interpolation_mode: ComponentSyncMode,
+    ) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_interpolation_mode::<C>(interpolation_mode);
+        // TODO: make prediction/interpolation possible on server?
+        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        if is_client {
+            add_prepare_interpolation_systems::<C>(self, interpolation_mode);
         }
     }
 
