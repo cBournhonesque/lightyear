@@ -7,7 +7,6 @@ use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, S
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
-use wtransport::error::ConnectingError;
 
 use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;

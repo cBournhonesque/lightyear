@@ -2,20 +2,17 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::ecs::system::RunSystemOnce;
-use bevy::MinimalPlugins;
-use bevy::prelude::{
-    App, Commands, default, Mut, PluginGroup, Real, Time, World,
-};
+use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::Duration;
+use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
-use crate::prelude::*;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, InterpolationConfig
-    , PredictionConfig, SyncConfig,
+    Authentication, ClientCommands, ClientConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig};
+use crate::prelude::*;
 use crate::tests::protocol::*;
 
 pub const TEST_CLIENT_ID: u64 = 111;

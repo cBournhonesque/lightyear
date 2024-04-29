@@ -10,8 +10,8 @@ use crate::packet::message::Message;
 use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentNetId;
-use crate::protocol::EventContext;
 use crate::protocol::message::MessageKind;
+use crate::protocol::EventContext;
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug, Resource)]

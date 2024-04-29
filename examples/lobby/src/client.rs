@@ -9,9 +9,9 @@ use std::net::SocketAddr;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
-use lightyear::prelude::*;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::server::ServerCommands;
+use lightyear::prelude::*;
 
 use crate::protocol::*;
 use crate::settings::{get_client_net_config, Settings};
@@ -200,14 +200,14 @@ mod lobby {
     use std::net::SocketAddr;
 
     use bevy::utils::HashMap;
-    use bevy_egui::{egui, EguiContexts};
     use bevy_egui::egui::Separator;
+    use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};
     use tracing::{error, info};
 
     use lightyear::server::config::ServerConfig;
 
-    use crate::client::{AppState, lobby};
+    use crate::client::{lobby, AppState};
 
     use super::*;
 

@@ -8,13 +8,13 @@ use bevy::utils::Duration;
 
 use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::connection::netcode::NetcodeServer;
-use lightyear::prelude::*;
 pub use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 
-use crate::{ClientTransports, shared, SharedSettings};
-use crate::protocol::*;
 use crate::protocol::Direction;
+use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
+use crate::{shared, ClientTransports, SharedSettings};
 
 pub struct ExampleClientPlugin;
 

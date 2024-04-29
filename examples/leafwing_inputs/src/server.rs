@@ -7,13 +7,13 @@ use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use lightyear::prelude::*;
 use lightyear::prelude::client::{Confirmed, Predicted};
 pub use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 
-use crate::{ServerTransports, shared, SharedSettings};
 use crate::protocol::*;
-use crate::shared::{color_from_id, FixedSet, shared_config, shared_movement_behaviour};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
+use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {

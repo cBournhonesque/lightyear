@@ -580,8 +580,8 @@ mod tests {
     use bevy::prelude::Events;
     use bevy::utils::HashMap;
 
-    use crate::prelude::*;
     use crate::prelude::client::*;
+    use crate::prelude::*;
     use crate::shared::replication::components::ReplicationMode;
     use crate::shared::replication::systems::handle_replicate_add;
     use crate::tests::stepper::{BevyStepper, Step};

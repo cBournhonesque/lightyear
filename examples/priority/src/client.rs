@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use lightyear::prelude::*;
 pub use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 
 use crate::protocol::*;
 

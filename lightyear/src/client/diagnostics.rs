@@ -1,6 +1,6 @@
 use bevy::app::{App, Plugin, PostUpdate};
 use bevy::diagnostic::Diagnostics;
-use bevy::prelude::{Condition, IntoSystemConfigs, not, Real, Res, ResMut, Time};
+use bevy::prelude::{not, Condition, IntoSystemConfigs, Real, Res, ResMut, Time};
 
 use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};

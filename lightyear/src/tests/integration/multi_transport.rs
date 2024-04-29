@@ -1,21 +1,19 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
 use bevy::core::TaskPoolThreadAssignmentPolicy;
-use bevy::MinimalPlugins;
-use bevy::prelude::{
-    App, default, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time,
-};
+use bevy::prelude::{default, App, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time};
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::Duration;
+use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
 use crate::connection::server::{NetServer, ServerConnections};
-use crate::prelude::*;
 use crate::prelude::client::{
-    Authentication, ClientConfig, ClientConnection, InterpolationConfig, NetClient,
-    NetConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientConfig, ClientConnection, InterpolationConfig, NetClient, NetConfig,
+    PredictionConfig, SyncConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerConfig};
+use crate::prelude::*;
 use crate::tests::protocol::*;
 use crate::tests::stepper::Step;
 use crate::transport::LOCAL_SOCKET;

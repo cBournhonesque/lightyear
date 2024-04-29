@@ -8,12 +8,12 @@ use bevy::utils::Duration;
 use lightyear::client::components::Confirmed;
 use lightyear::client::interpolation::Interpolated;
 use lightyear::client::prediction::Predicted;
-use lightyear::prelude::*;
 pub use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 
-use crate::{ServerTransports, shared, SharedSettings};
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
+use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;

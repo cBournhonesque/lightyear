@@ -5,8 +5,8 @@ use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Reflect};
-use bevy::utils::{hashbrown, HashMap, HashSet};
 use bevy::utils::petgraph::data::ElementIterator;
+use bevy::utils::{hashbrown, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, warn};
 

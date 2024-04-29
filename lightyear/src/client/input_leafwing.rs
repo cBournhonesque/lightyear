@@ -47,8 +47,8 @@ use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
-use crate::client::prediction::Predicted;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::Predicted;
 use crate::client::sync::{client_is_synced, SyncSet};
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
@@ -947,8 +947,8 @@ mod tests {
 
     use crate::client::sync::SyncConfig;
     use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
-    use crate::prelude::{client, LinkConditionerConfig, Replicate, SharedConfig, TickConfig};
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
+    use crate::prelude::{client, LinkConditionerConfig, Replicate, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

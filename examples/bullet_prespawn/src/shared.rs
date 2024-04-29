@@ -8,9 +8,9 @@ use leafwing_input_manager::prelude::ActionState;
 use tracing::Level;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
-use lightyear::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
+use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;

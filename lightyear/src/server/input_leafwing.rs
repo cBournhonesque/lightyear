@@ -12,15 +12,15 @@ use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;
 use crate::connection::client::NetClient;
-use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::inputs::leafwing::input_buffer::{
     ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputTarget,
 };
-use crate::prelude::{client, MessageRegistry, Mode, NetworkTarget, SharedConfig, TickManager};
+use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::client::is_in_rollback;
 use crate::prelude::server::MessageEvent;
-use crate::protocol::BitSerializable;
+use crate::prelude::{client, MessageRegistry, Mode, NetworkTarget, SharedConfig, TickManager};
 use crate::protocol::registry::NetId;
+use crate::protocol::BitSerializable;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::is_started;
@@ -243,12 +243,12 @@ mod tests {
     use leafwing_input_manager::prelude::ActionState;
 
     use crate::inputs::leafwing::input_buffer::ActionDiff;
-    use crate::prelude::*;
     use crate::prelude::client;
     use crate::prelude::client::{
         InterpolationConfig, LeafwingInputConfig, PredictionConfig, SyncConfig,
     };
     use crate::prelude::server::*;
+    use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

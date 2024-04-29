@@ -6,14 +6,14 @@ use bevy::tasks::IoTaskPool;
 use bevy::utils::Duration;
 use serde::{Deserialize, Serialize};
 
-use lightyear::prelude::{IoConfig, LinkConditionerConfig, TransportConfig};
 use lightyear::prelude::client::Authentication;
 #[cfg(not(target_family = "wasm"))]
 use lightyear::prelude::client::SteamConfig;
+use lightyear::prelude::{IoConfig, LinkConditionerConfig, TransportConfig};
 
-use crate::{client, server};
 #[cfg(not(target_family = "wasm"))]
 use crate::server::Certificate;
+use crate::{client, server};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ClientTransports {

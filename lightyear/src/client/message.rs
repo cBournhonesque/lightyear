@@ -5,8 +5,8 @@ use bevy::utils::HashMap;
 use bytes::Bytes;
 use tracing::{error, info_span, trace};
 
-use bitcode::{Decode, Encode};
 use bitcode::encoding::Fixed;
+use bitcode::{Decode, Encode};
 
 use crate::_internal::{
     BitSerializable, ClientMarker, MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker,

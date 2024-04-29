@@ -11,8 +11,8 @@ use bevy::prelude::{
     IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate, Query, Ref, Res, ResMut, Resource,
     SystemSet, With, World,
 };
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use tracing::error;
 
 pub use command::{ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt};

@@ -2,8 +2,8 @@ use std::collections::{btree_map, BTreeMap};
 
 use anyhow::anyhow;
 
-use crate::channel::receivers::ChannelReceive;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
+use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageContainer, MessageId, SingleData};
 pub use crate::shared::tick_manager::TickManager;
 pub use crate::shared::time_manager::TimeManager;
@@ -83,8 +83,8 @@ impl ChannelReceive for OrderedReliableReceiver {
 mod tests {
     use bytes::Bytes;
 
-    use crate::channel::receivers::ChannelReceive;
     use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
+    use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::{MessageId, SingleData};
 
     #[test]
