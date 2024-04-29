@@ -36,15 +36,6 @@ where
     }
 }
 
-/// Use this if you don't want to use an interpolation function for this component.
-/// (For example if you are running your own interpolation logic)
-pub struct NullInterpolator;
-impl<C: Clone> LerpFn<C> for NullInterpolator {
-    fn lerp(start: &C, _other: &C, _t: f32) -> C {
-        start.clone()
-    }
-}
-
 /// Marker component for an entity that is being interpolated by the client
 #[derive(Component, Debug, Reflect)]
 pub struct Interpolated {

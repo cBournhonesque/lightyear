@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use crate::_internal::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
 use crate::client::config::ClientConfig;
 use crate::client::message::add_server_to_client_message;
-use crate::prelude::{client, server, Channel, RemoteEntityMap};
+use crate::prelude::{client, server, AppComponentExt, Channel, RemoteEntityMap};
 use bevy::prelude::{
     App, Component, EntityMapper, EventWriter, IntoSystemConfigs, ResMut, Resource, TypePath, World,
 };
@@ -70,11 +70,28 @@ fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection)
     }
 }
 
+pub struct MessageRegistration<'a> {
+    app: &'a mut App,
+}
+
+impl MessageRegistration<'_> {
+    /// Specify that the message contains entities which should be mapped from the remote world to the local world
+    /// upon deserialization
+    pub fn add_map_entities<M: MapEntities + 'static>(self) -> Self {
+        self.app.add_message_map_entities::<M>();
+        self
+    }
+}
+
 /// Add a message to the list of messages that can be sent
 pub trait AppMessageExt {
+    /// Registers the message in the Registry
+    /// This message can now be sent over the network.
     fn add_message<M: Message>(&mut self, direction: ChannelDirection);
 
-    fn add_message_map_entities<M: Message + MapEntities + 'static>(&mut self);
+    /// Specify that the message contains entities which should be mapped from the remote world to the local world
+    /// upon deserialization
+    fn add_message_map_entities<M: MapEntities + 'static>(&mut self);
 }
 
 impl AppMessageExt for App {
@@ -87,7 +104,9 @@ impl AppMessageExt for App {
         register_message_send::<M>(self, direction);
     }
 
-    fn add_message_map_entities<M: Message + MapEntities + 'static>(&mut self) {
+    /// Specify that the message contains entities which should be mapped from the remote world to the local world
+    /// upon deserialization
+    fn add_message_map_entities<M: MapEntities + 'static>(&mut self) {
         let mut registry = self.world.resource_mut::<MessageRegistry>();
         registry.add_map_entities::<M>();
     }

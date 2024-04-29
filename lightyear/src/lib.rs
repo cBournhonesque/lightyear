@@ -27,13 +27,8 @@ pub(crate) mod _internal {
     pub use crate::channel::builder::{
         EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
     };
-    pub use crate::client::interpolation::{
-        add_interpolation_systems, add_prepare_interpolation_systems,
-    };
-    pub use crate::client::interpolation::{LinearInterpolator, NullInterpolator};
-    pub use crate::client::prediction::add_prediction_systems;
+    pub use crate::client::interpolation::LinearInterpolator;
     pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
-    pub use crate::protocol::component::FromType;
     pub use crate::protocol::message::MessageKind;
     pub use crate::protocol::{BitSerializable, EventContext};
     pub use crate::serialize::reader::ReadBuffer;
@@ -47,7 +42,6 @@ pub(crate) mod _internal {
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     };
     pub use crate::shared::replication::components::ShouldBeInterpolated;
-    // pub(crate) use crate::shared::replication::ReplicationSend;
     pub use crate::shared::sets::{ClientMarker, ServerMarker};
     pub use crate::shared::time_manager::WrappedTime;
     pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};
@@ -71,7 +65,7 @@ pub mod prelude {
     pub use crate::inputs::native::UserAction;
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
-    pub use crate::protocol::component::{AppComponentExt, ComponentRegistry};
+    pub use crate::protocol::component::{AppComponentExt, ComponentRegistry, Linear};
     pub use crate::protocol::message::{AppMessageExt, MessageRegistry};
     pub use crate::shared::config::{Mode, SharedConfig};
     pub use crate::shared::input::InputPlugin;

@@ -298,7 +298,7 @@ pub(crate) fn interpolate(
                             debug!("ADD POINT");
                         }
                         // the path is straight! just move the head and adjust the tail
-                        *parent_position = LinearInterpolator::lerp(pos_start, pos_end, t);
+                        *parent_position = Linear::lerp(pos_start, pos_end, t);
                         tail.shorten_back(parent_position.0, tail_length.0);
                         debug!(
                             ?tail,

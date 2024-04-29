@@ -75,8 +75,7 @@ fn main() {
 ///
 /// To build a lightyear app you will need to add either the [`client::ClientPlugin`] or [`server::ServerPlugin`]
 /// They can be created by providing a [`client::ClientConfig`] or [`server::ServerConfig`] struct, along with a
-/// shared [`Protocol`](lightyear::prelude::Protocol) which defines the messages (Messages, Components, Inputs) that
-/// can be sent between client and server.
+/// shared protocol which defines the messages (Messages, Components, Inputs) that can be sent between client and server.
 fn run(mut settings: Settings, cli: Cli) {
     match cli {
         #[cfg(not(target_family = "wasm"))]

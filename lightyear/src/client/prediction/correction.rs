@@ -9,7 +9,6 @@
 use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
 use tracing::debug;
 
-use crate::_internal::FromType;
 use crate::client::components::{LerpFn, SyncComponent, SyncMetadata};
 use crate::client::easings::ease_out_quad;
 use crate::prelude::{ComponentRegistry, Tick, TickManager};

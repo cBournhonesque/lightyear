@@ -29,14 +29,31 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
 
 *Lightyear* provides a simple API for sending and receiving messages, and for replicating entities and components:
 
-- the user needs to define a `Protocol` that defines all the `Messages`, `Components`, `Inputs` that can be sent over
-  the
-  network; as well as the `Channels` to be used
-- I provide a certain number of bevy `Resources` to interact with the library (`InputManager`, `ConnectionManager`,
+- the user needs to define a shared protocol that defines all the `Messages`, `Components`, `Inputs` that can be sent over
+  the network; as well as the `Channels` to be used:
+```rust,ignore
+// messages
+app.add_message::<Message1>(ChannelDirection::Bidirectional);
+
+// inputs
+app.add_plugins(InputPlugin::<Inputs>::default());
+
+// components
+app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
+    .add_prediction::<PlayerId>(ComponentSyncMode::Once)
+    .add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+    
+// channels
+app.add_channel::<Channel1>(ChannelSettings {
+    mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+    ..default()
+});
+```
+- to enable replication, the user just needs to add a `Replicate` component to entities that need to be replicated.
+- all network-related events are accessible via bevy `Events`: `EventReader<MessageEvent<MyMessage>>` or `EventReader<EntitySpawnEvent>`
+- I provide a certain number of bevy `Resources` to interact with the library (`InputManager`, `ConnectionManager`, `TickManager`,
   etc.)
-- all network-related events are accessible via bevy `Events`: `EventReader<MessageEvent<MyMessage>>`
-  or `EventReader<EntitySpawnEvent>`
-- for replication, the user just needs to add a `Replicate` component to entities that need to be replicated.
+
 
 ### Batteries-included
 

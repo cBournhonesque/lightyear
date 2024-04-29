@@ -5,8 +5,7 @@ use bevy::utils::HashMap;
 use tracing::trace;
 
 use crate::_internal::{
-    FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-    ServerMarker,
+    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, ServerMarker,
 };
 use crate::connection::id::ClientId;
 #[cfg(feature = "leafwing")]

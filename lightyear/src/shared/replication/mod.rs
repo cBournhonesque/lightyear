@@ -43,12 +43,10 @@ pub(crate) mod systems;
 pub struct EntityActions {
     pub(crate) spawn: bool,
     pub(crate) despawn: bool,
-    // Cannot use HashSet because we would need ComponentProtocol to implement Hash + Eq
     pub(crate) insert: Vec<RawData>,
     #[bitcode(with_serde)]
     // TODO: use a ComponentNetId instead of NetId?
     pub(crate) remove: HashSet<NetId>,
-    // We also include the updates for the current tick in the actions, if there are any
     pub(crate) updates: Vec<RawData>,
 }
 

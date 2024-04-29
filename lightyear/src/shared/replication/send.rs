@@ -10,7 +10,7 @@ use bevy::utils::{hashbrown, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::_internal::{EntityActionsChannel, EntityUpdatesChannel, FromType};
+use crate::_internal::{EntityActionsChannel, EntityUpdatesChannel};
 use crate::packet::message::MessageId;
 use crate::prelude::{ShouldBePredicted, Tick};
 use crate::protocol::channel::ChannelKind;

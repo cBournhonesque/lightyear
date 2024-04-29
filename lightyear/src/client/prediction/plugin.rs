@@ -7,7 +7,7 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 
-use crate::_internal::{ClientMarker, FromType};
+use crate::_internal::ClientMarker;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::prediction::correction::{

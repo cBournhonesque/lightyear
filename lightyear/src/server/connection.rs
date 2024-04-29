@@ -11,7 +11,7 @@ use serde::Serialize;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::_internal::{
-    BitSerializable, EntityUpdatesChannel, FromType, MessageKind, PingChannel, ServerMarker,
+    BitSerializable, EntityUpdatesChannel, MessageKind, PingChannel, ServerMarker,
     ShouldBeInterpolated, WriteBuffer, WriteWordBuffer,
 };
 use crate::channel::senders::ChannelSend;

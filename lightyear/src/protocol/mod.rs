@@ -1,9 +1,11 @@
 //! The Protocol is used to define all the types that can be sent over the network
-//! # Protocol
 //!
-//! Protocol is the main struct that defines the various channels, inputs, messages and components that will be used in the game.
-//! Inputs, Messages and Components are all data structures that can be serialized and sent over the network.
-//! Channels are an abstraction over how the data will be sent over the network (reliability, ordering, etc.)
+//! A protocol is composed of a few main parts:
+//! - a [`MessageRegistry`] that contains the list of all the messages that can be sent over the network, along with how to serialize and deserialize them
+//! - a [`ComponentRegistry`] that contains the list of all the components that can be sent over the network, along with how to serialize and deserialize them.
+//! You can also define additional behaviour for each component (such as how to run interpolation for them, etc.)
+//! - a list of inputs that can be sent from client to server
+//! - a list of channels that define how the data will be sent over the network (reliability, ordering, etc.)
 
 use anyhow::Context;
 

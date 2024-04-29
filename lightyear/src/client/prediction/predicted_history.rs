@@ -1,6 +1,5 @@
 use std::ops::Deref;
 
-use crate::_internal::FromType;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, ResMut,
     With, Without,

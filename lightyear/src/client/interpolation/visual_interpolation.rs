@@ -11,15 +11,14 @@
 //!
 //! Another way to solve this would to run an extra 'partial' simulation step with 0.7 dt and use this for the visual state.
 //!
-//! This module currently has some caveats:
-//! - the systems are only compatible with components that are present in the protocol and have a SyncMetadata implementation
-//!   (because the InterpolatorFn is associated with the protocol, not the component itself, to circumvent the orphan rule)
+//! To enable VisualInterpolation:
+//! - you will have to register an interpolation function for the component in the protocol
 //! - VisualInterpolation is not enabled by default, you have to add the plugin manually
 //! ```rust,no_run,ignore
 //! # use crate::tests::protocol::*;
 //! use lightyear::prelude::client::VisualInterpolationPlugin;
 //! let mut app = bevy::app::App::new();
-//! app.add_plugins(VisualInterpolationPlugin::<Component1, MyProtocol>::default());
+//! app.add_plugins(VisualInterpolationPlugin::<Component1>::default());
 //! ```
 //! - To enable VisualInterpolation on a given entity, you need to add the `VisualInterpolateStatus` component to it manually
 //! ```rust,no_run,ignore
@@ -35,7 +34,6 @@
 
 use bevy::prelude::*;
 
-use crate::_internal::FromType;
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::prelude::client::InterpolationSet;
 use crate::prelude::{ComponentRegistry, TickManager, TimeManager};

@@ -120,8 +120,6 @@ pub enum AdminActions {
 }
 
 // Protocol
-
-// Protocol
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {

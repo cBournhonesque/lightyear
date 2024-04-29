@@ -28,9 +28,6 @@ pub struct Confirmed {
 pub trait SyncComponent: Component + Clone + PartialEq + Message {}
 impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message {}
 
-// NOTE: we use these traits that the Protocol will implement so that we don't implement
-// external traits on external types and break the orphan rule
-
 /// Function that will interpolated between two values
 pub trait LerpFn<C> {
     fn lerp(start: &C, other: &C, t: f32) -> C;

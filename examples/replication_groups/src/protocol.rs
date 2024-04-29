@@ -309,10 +309,11 @@ impl Plugin for ProtocolPlugin {
         app.add_prediction::<TailLength>(ComponentSyncMode::Once);
         app.add_interpolation::<TailLength>(ComponentSyncMode::Once);
 
-        app.register_component::<PlayerParent>(ChannelDirection::ServerToClient);
+        app.register_component::<PlayerParent>(ChannelDirection::ServerToClient)
+            .add_map_entities::<PlayerParent>();
         app.add_prediction::<PlayerParent>(ComponentSyncMode::Once);
         app.add_interpolation::<PlayerParent>(ComponentSyncMode::Once);
-        app.add_component_map_entities::<PlayerParent>();
+        // app.add_component_map_entities::<PlayerParent>();
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

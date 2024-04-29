@@ -7,7 +7,7 @@ use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::_internal::{ClientMarker, FromType, ServerMarker};
+use crate::_internal::{ClientMarker, ServerMarker};
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
@@ -65,7 +65,7 @@ pub(crate) struct ReplicateVisibility {
 #[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct PerComponentReplicationMetadata {
     /// If true, do not replicate the component. (By default, all components of this entity that are present in the
-    /// ComponentProtocol) will be replicated.
+    /// [`ComponentRegistry`] will be replicated.
     disabled: bool,
     /// If true, replicate only inserts/removals of the component, not the updates.
     /// (i.e. the component will only get replicated once at spawn)

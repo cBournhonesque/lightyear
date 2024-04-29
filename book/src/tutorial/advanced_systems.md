@@ -40,19 +40,9 @@ There are 3 different modes:
 - Simple: the server-updates are copied from Confirmed to Predicted whenever we have an update
 - Once: the components are copied only once from the Confirmed entity to the Predicted entity
   
-You will need to modify your `ComponentProtocol` to specify the `ComponentSyncMode` for each component:
-(if you don't specify one, the component won't be copied from the `Confirmed` to the `Predicted` entity)
-```rust,noplayground
-#[component_protocol(protocol = "MyProtocol")]
-pub enum Components {
-    #[protocol(sync(mode="once")]
-    PlayerId(PlayerId),
-    #[protocol(sync(mode="full")]
-    PlayerPosition(PlayerPosition),
-    #[protocol(sync(mode="once")]
-    PlayerColor(PlayerColor),
-}
-```
+You will need to modify your `ComponentProtocol` to specify the prediction behaviour for each component;
+if you don't specify one, the component won't be copied from the `Confirmed` to the `Predicted` entity.
+
 
 On the server, we will update our entity-spawning system to add client-prediction:
 ```rust,noplayground
@@ -119,8 +109,9 @@ There are two solutions to make updates smooth for those entities:
 
 The second approach is called 'interpolation', and is the one we will use in this tutorial. You can read this Valve [article](https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking#Entity_interpolation) that explains it pretty well.
 
-In lightyear, this is enabled by setting an `interpolation_target` on the `Replicate` component, which lets you specify
-which clients will predict the entity.
+You will need to modify your `ComponentProtocol` to specify the interpolation behaviour for each component;
+if you don't specify one, the component won't be copied from the `Confirmed` to the `Interpolated` entity.
+You will also need to provide an interpolation function; or you can use the default linear interpolation.
 
 On the server, we will update our entity-spawning system to add entity-interpolation:
 ```rust,noplayground

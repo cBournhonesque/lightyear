@@ -1,7 +1,6 @@
 use bevy::prelude::{Commands, Component, DetectChanges, Entity, Query, Ref, Res, With, Without};
 use tracing::{debug, info, trace};
 
-use crate::_internal::FromType;
 use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;

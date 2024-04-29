@@ -15,9 +15,8 @@ use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 
 use crate::_internal::{
-    add_interpolation_systems, add_prediction_systems, add_prepare_interpolation_systems,
-    InstantCorrector, LinearInterpolator, MessageKind, NullInterpolator, ReadBuffer,
-    ReadWordBuffer, ServerMarker, WriteBuffer, WriteWordBuffer,
+    InstantCorrector, LinearInterpolator, MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker,
+    WriteBuffer, WriteWordBuffer,
 };
 use bitcode::Encode;
 use bitcode::__private::Fixed;
@@ -27,6 +26,8 @@ use tracing::{debug, error, trace, warn};
 
 use crate::client::components::{ComponentSyncMode, SyncMetadata};
 use crate::client::config::ClientConfig;
+use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
+use crate::client::prediction::add_prediction_systems;
 use crate::prelude::client::SyncComponent;
 use crate::prelude::server::{ServerConfig, ServerPlugin};
 use crate::prelude::{
@@ -459,33 +460,122 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
 
 /// Add a component to the list of components that can be sent
 pub trait AppComponentExt {
-    fn register_component<C: Component + Message>(&mut self, direction: ChannelDirection);
+    /// Registers the component in the Registry
+    /// This component can now be sent over the network.
+    fn register_component<C: Component + Message>(
+        &mut self,
+        direction: ChannelDirection,
+    ) -> ComponentRegistration<'_>;
 
+    /// Registers the resource in the Registry
+    /// This resource can now be sent over the network.
     fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection);
 
+    /// Specify that the component contains entities which should be mapped from the remote world to the local world
+    /// upon deserialization
     fn add_component_map_entities<C: MapEntities + 'static>(&mut self);
+
+    /// Enable prediction systems for this component.
+    /// You can specify the prediction [`ComponentSyncMode`]
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode);
+
+    /// Add a `Correction` behaviour to this component by using a linear interpolation function.
     fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self);
 
+    /// Add a `Correction` behaviour to this component.
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>);
 
     /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
     /// themselves (the interpolation_fn will not be used)
     fn add_custom_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode);
+
+    /// Enable interpolation systems for this component.
+    /// You can specify the interpolation [`ComponentSyncMode`]
     fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode);
+
+    /// Add a `Interpolation` behaviour to this component by using a linear interpolation function.
     fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self);
 
+    /// Add a `Interpolation` behaviour to this component.
     fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>);
 }
 
+pub struct ComponentRegistration<'a> {
+    app: &'a mut App,
+}
+
+impl ComponentRegistration<'_> {
+    /// Specify that the component contains entities which should be mapped from the remote world to the local world
+    /// upon deserialization
+    pub fn add_map_entities<C: MapEntities + 'static>(self) -> Self {
+        self.app.add_component_map_entities::<C>();
+        self
+    }
+
+    /// Enable prediction systems for this component.
+    /// You can specify the prediction [`ComponentSyncMode`]
+    pub fn add_prediction<C: SyncComponent>(self, prediction_mode: ComponentSyncMode) -> Self {
+        self.app.add_prediction::<C>(prediction_mode);
+        self
+    }
+
+    /// Add a `Correction` behaviour to this component by using a linear interpolation function.
+    pub fn add_linear_correction_fn<C: SyncComponent + Linear>(self) -> Self {
+        self.app.add_linear_correction_fn::<C>();
+        self
+    }
+
+    /// Add a `Correction` behaviour to this component.
+    pub fn add_correction_fn<C: SyncComponent>(self, correction_fn: LerpFn<C>) -> Self {
+        self.app.add_correction_fn::<C>(correction_fn);
+        self
+    }
+
+    /// Enable interpolation systems for this component.
+    /// You can specify the interpolation [`ComponentSyncMode`]
+    pub fn add_interpolation<C: SyncComponent>(
+        self,
+        interpolation_mode: ComponentSyncMode,
+    ) -> Self {
+        self.app.add_interpolation::<C>(interpolation_mode);
+        self
+    }
+
+    /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
+    /// themselves (the interpolation_fn will not be used)
+    pub fn add_custom_interpolation<C: SyncComponent>(
+        self,
+        interpolation_mode: ComponentSyncMode,
+    ) -> Self {
+        self.app.add_custom_interpolation::<C>(interpolation_mode);
+        self
+    }
+
+    /// Add a `Interpolation` behaviour to this component by using a linear interpolation function.
+    pub fn add_linear_interpolation_fn<C: SyncComponent + Linear>(self) -> Self {
+        self.app.add_linear_interpolation_fn::<C>();
+        self
+    }
+
+    /// Add a `Interpolation` behaviour to this component.
+    pub fn add_interpolation_fn<C: SyncComponent>(self, interpolation_fn: LerpFn<C>) -> Self {
+        self.app.add_interpolation_fn::<C>(interpolation_fn);
+        self
+    }
+}
+
 impl AppComponentExt for App {
-    fn register_component<C: Component + Message>(&mut self, direction: ChannelDirection) {
+    fn register_component<C: Component + Message>(
+        &mut self,
+        direction: ChannelDirection,
+    ) -> ComponentRegistration {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         if !registry.is_registered::<C>() {
             registry.register_component::<C>();
         }
         debug!("register component {}", std::any::type_name::<C>());
         register_component_send::<C>(self, direction);
+        ComponentRegistration { app: self }
     }
 
     fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection) {
@@ -520,6 +610,19 @@ impl AppComponentExt for App {
         registry.set_correction::<C>(correction_fn);
     }
 
+    fn add_custom_interpolation<C: SyncComponent>(
+        &mut self,
+        interpolation_mode: ComponentSyncMode,
+    ) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_interpolation_mode::<C>(interpolation_mode);
+        // TODO: make prediction/interpolation possible on server?
+        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        if is_client {
+            add_prepare_interpolation_systems::<C>(self, interpolation_mode);
+        }
+    }
+
     fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
@@ -534,19 +637,6 @@ impl AppComponentExt for App {
         }
     }
 
-    fn add_custom_interpolation<C: SyncComponent>(
-        &mut self,
-        interpolation_mode: ComponentSyncMode,
-    ) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
-        registry.set_interpolation_mode::<C>(interpolation_mode);
-        // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
-        if is_client {
-            add_prepare_interpolation_systems::<C>(self, interpolation_mode);
-        }
-    }
-
     fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         registry.set_linear_interpolation::<C>();
@@ -556,14 +646,6 @@ impl AppComponentExt for App {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         registry.set_interpolation::<C>(interpolation_fn);
     }
-}
-
-// TODO: prefer FromType to IntoKind because IntoKind requires adding an additional bound to the component type,
-//  which is not possible for external components.
-//  (e.g. impl IntoKind for ActionState both the trait and the type are external to the user's crate)
-/// Trait to convert a component type into the corresponding ComponentProtocolKind
-pub trait FromType<T> {
-    fn from_type() -> Self;
 }
 
 /// [`ComponentKind`] is an internal wrapper around the type of the component

@@ -10,7 +10,6 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_internal::FromType;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;

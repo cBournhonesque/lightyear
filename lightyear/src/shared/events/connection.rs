@@ -6,7 +6,6 @@ use bevy::prelude::{Component, Entity, Resource};
 use bevy::utils::HashMap;
 use tracing::trace;
 
-use crate::_internal::FromType;
 use crate::packet::message::Message;
 use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::channel::ChannelKind;

@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::_internal::FromType;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
