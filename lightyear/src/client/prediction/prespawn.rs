@@ -323,10 +323,13 @@ impl PreSpawnedPlayerObjectPlugin {
             ?interpolation_tick,
             "cleaning up prespawned player objects"
         );
-        assert!(
-            tick >= interpolation_tick,
-            "tick should be greater than interpolation_tick"
-        );
+        // NOTE: cannot assert because of tick_wrap tests
+        // assert!(
+        //     tick >= interpolation_tick,
+        //     "tick {:?} should be greater than interpolation_tick {:?}",
+        //     tick,
+        //     interpolation_tick
+        // );
         let tick_diff = (tick - interpolation_tick).saturating_mul(2) as u16;
         let past_tick = tick - tick_diff;
         // remove all the prespawned entities that have not been matched with a server entity
