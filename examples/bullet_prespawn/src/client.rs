@@ -13,12 +13,12 @@ use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 
 use lightyear::inputs::native::input_buffer::InputBuffer;
-pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+pub use lightyear::prelude::client::*;
 
+use crate::{ClientTransports, shared, SharedSettings};
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_player_movement};
-use crate::{shared, ClientTransports, SharedSettings};
 
 pub struct ExampleClientPlugin;
 

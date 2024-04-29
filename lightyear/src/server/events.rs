@@ -2,17 +2,15 @@
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
-use tracing::trace;
 
 use crate::_internal::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, ServerMarker,
 };
 use crate::connection::id::ClientId;
 #[cfg(feature = "leafwing")]
-use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
+use crate::inputs::leafwing::LeafwingUserAction;
 use crate::packet::message::Message;
-use crate::prelude::{server, ComponentRegistry};
-
+use crate::prelude::ComponentRegistry;
 use crate::server::connection::ConnectionManager;
 use crate::shared::events::connection::{
     ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
@@ -239,7 +237,7 @@ pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, Cl
 mod tests {
     use crate::prelude::Tick;
     use crate::protocol::channel::ChannelKind;
-    use crate::tests::protocol::{Channel1, Channel2, Component1, Component2, Message1, Message2};
+    use crate::tests::protocol::{Channel1, Channel2, Component1, Component2, Message1};
 
     use super::*;
 

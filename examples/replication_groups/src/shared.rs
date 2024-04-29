@@ -1,14 +1,14 @@
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
-use lightyear::client::prediction::Predicted;
 use tracing::Level;
 
-use lightyear::prelude::client::{Confirmed, Interpolated};
+use lightyear::client::prediction::Predicted;
 use lightyear::prelude::*;
+use lightyear::prelude::client::{Confirmed, Interpolated};
 
-use crate::protocol::Direction;
 use crate::protocol::*;
+use crate::protocol::Direction;
 
 pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {

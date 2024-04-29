@@ -4,11 +4,12 @@ use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::color_from_id;
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
+
+use crate::shared::color_from_id;
 
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;

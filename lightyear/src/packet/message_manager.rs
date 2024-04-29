@@ -3,25 +3,26 @@ use std::collections::{HashMap, VecDeque};
 use anyhow::{anyhow, Context};
 use bevy::ptr::UnsafeCellDeref;
 use bevy::reflect::Reflect;
-use bitcode::buffer::BufferTrait;
-use bitcode::word_buffer::WordBuffer;
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use tracing::{info, trace};
+
+use bitcode::buffer::BufferTrait;
+use bitcode::word_buffer::WordBuffer;
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
-use crate::packet::packet::{Packet, PacketId, MTU_PAYLOAD_BYTES};
-use crate::packet::packet_manager::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet::{MTU_PAYLOAD_BYTES, Packet, PacketId};
+use crate::packet::packet_manager::{PACKET_BUFFER_CAPACITY, PacketBuilder, Payload};
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
+use crate::protocol::BitSerializable;
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
+use crate::serialize::RawData;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
-use crate::serialize::RawData;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
@@ -295,10 +296,9 @@ impl MessageManager {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::default;
     use std::collections::HashMap;
 
-    use bevy::utils::Duration;
+    use bevy::prelude::default;
 
     use crate::_internal::*;
     use crate::packet::message::MessageId;

@@ -5,17 +5,18 @@ use bevy::prelude::EntityMapper;
 use bevy_xpbd_2d::components::*;
 use tracing::trace;
 
+use crate::client::components::{LerpFn, SyncComponent};
+use crate::prelude::Message;
+
 // pub use angular_velocity::*;
 // pub use linear_velocity::*;
 // pub use position::*;
 // pub use rotation::*;
 
-use crate::client::components::{LerpFn, SyncComponent};
-use crate::prelude::Message;
-
 pub mod position {
-    use super::*;
     use crate::_internal::LinearInterpolator;
+
+    use super::*;
 
     pub fn lerp(start: &Position, other: &Position, t: f32) -> Position {
         let res = Position::new(start.0 * (1.0 - t) + other.0 * t);
@@ -31,8 +32,9 @@ pub mod position {
 }
 
 pub mod rotation {
-    use super::*;
     use crate::_internal::LinearInterpolator;
+
+    use super::*;
 
     pub fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {
         let shortest_angle =
@@ -56,8 +58,10 @@ pub mod rotation {
 }
 
 pub mod linear_velocity {
-    use super::*;
     use crate::_internal::LinearInterpolator;
+
+    use super::*;
+
     pub fn lerp(start: &LinearVelocity, other: &LinearVelocity, t: f32) -> LinearVelocity {
         let res = LinearVelocity(start.0 * (1.0 - t) + other.0 * t);
         trace!(
@@ -72,8 +76,9 @@ pub mod linear_velocity {
 }
 
 pub mod angular_velocity {
-    use super::*;
     use crate::_internal::LinearInterpolator;
+
+    use super::*;
 
     pub fn lerp(start: &AngularVelocity, other: &AngularVelocity, t: f32) -> AngularVelocity {
         let res = AngularVelocity(start.0 * (1.0 - t) + other.0 * t);

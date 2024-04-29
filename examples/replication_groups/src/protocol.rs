@@ -1,18 +1,18 @@
-use bevy::app::{App, Plugin};
-use bevy::ecs::entity::MapEntities;
 use std::collections::VecDeque;
 use std::ops::Mul;
 
+use bevy::app::{App, Plugin};
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Reflect, Vec2,
+    Bundle, Color, Component, default, Deref, DerefMut, Entity, EntityMapper, Reflect, Vec2,
 };
 use derive_more::{Add, Mul};
-use lightyear::client::components::ComponentSyncMode;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace};
 
-use lightyear::prelude::client::LerpFn;
+use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::*;
+use lightyear::prelude::client::LerpFn;
 use lightyear::shared::replication::components::ReplicationGroup;
 
 // Player

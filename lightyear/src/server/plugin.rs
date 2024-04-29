@@ -1,13 +1,7 @@
 //! Defines the server bevy plugin
-use std::ops::DerefMut;
-use std::sync::Mutex;
-
-use crate::prelude::MessageRegistry;
 use bevy::prelude::*;
 
-use crate::server::connection::ConnectionManager;
 use crate::server::events::ServerEventsPlugin;
-use crate::server::input::InputPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::replication::ServerReplicationPlugin;
 use crate::server::room::RoomPlugin;

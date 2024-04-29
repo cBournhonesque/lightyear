@@ -4,11 +4,12 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{Entity, Mut, Resource, World};
 use bevy::utils::{HashMap, HashSet};
-use bitcode::__private::Fixed;
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
 use serde::Serialize;
 use tracing::{debug, error, info, trace, trace_span, warn};
+
+use bitcode::__private::Fixed;
 
 use crate::_internal::{
     BitSerializable, EntityUpdatesChannel, MessageKind, PingChannel, ServerMarker,
@@ -20,7 +21,7 @@ use crate::connection::id::ClientId;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
-use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_manager::{PACKET_BUFFER_CAPACITY, Payload};
 use crate::prelude::{
     Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ShouldBePredicted,
 };
@@ -28,22 +29,21 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
-
+use crate::serialize::RawData;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::BufferPool;
-use crate::serialize::RawData;
 use crate::server::config::PacketConfig;
 use crate::server::events::ServerEvents;
 use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
+use crate::shared::replication::{ReplicationMessage, ReplicationSend};
 use crate::shared::replication::components::{NetworkTarget, Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
+use crate::shared::replication::ReplicationMessageData;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::systems::DespawnMetadata;
-use crate::shared::replication::ReplicationMessageData;
-use crate::shared::replication::{ReplicationMessage, ReplicationSend};
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;

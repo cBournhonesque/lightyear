@@ -1,21 +1,22 @@
-use bevy::ecs::entity::MapEntities;
 use std::ops::Mul;
 
+use bevy::ecs::entity::MapEntities;
 use bevy::math::Vec2;
 use bevy::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
-use leafwing_input_manager::prelude::Actionlike;
 use leafwing_input_manager::InputManagerBundle;
-use lightyear::client::components::ComponentSyncMode;
+use leafwing_input_manager::prelude::Actionlike;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::shared::color_from_id;
+use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
 use UserAction;
+
+use crate::shared::color_from_id;
 
 // Player
 #[derive(Bundle)]

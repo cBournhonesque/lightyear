@@ -15,7 +15,6 @@ use tracing::{error, info, trace};
 use crate::_internal::ServerMarker;
 use crate::connection::id::ClientId;
 use crate::server::connection::ConnectionManager;
-
 use crate::server::networking::is_started;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicateVisibility};
 use crate::shared::replication::ReplicationSend;
@@ -581,11 +580,10 @@ mod tests {
     use bevy::prelude::Events;
     use bevy::utils::HashMap;
 
-    use crate::prelude::client::*;
     use crate::prelude::*;
+    use crate::prelude::client::*;
     use crate::shared::replication::components::ReplicationMode;
     use crate::shared::replication::systems::handle_replicate_add;
-    use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
     use super::*;

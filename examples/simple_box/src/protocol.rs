@@ -8,13 +8,13 @@ use std::ops::Mul;
 
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
+    Bundle, Color, Component, default, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
-use bevy::prelude::{App, Parent, Plugin};
-use derive_more::{Add, Mul};
-use lightyear::client::components::ComponentSyncMode;
+use bevy::prelude::{App, Plugin};
+use derive_more::Add;
 use serde::{Deserialize, Serialize};
 
+use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::*;
 
 // Player

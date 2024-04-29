@@ -16,11 +16,11 @@ use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::client::SyncMetadata;
 use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, Tick, TickManager};
+use crate::prelude::client::SyncMetadata;
 
-use super::predicted_history::PredictionHistory;
 use super::Predicted;
+use super::predicted_history::PredictionHistory;
 
 /// Resource that indicates whether we are in a rollback state or not
 #[derive(Default, Resource, Reflect)]

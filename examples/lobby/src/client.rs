@@ -4,14 +4,17 @@
 //! - sending inputs to the server
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
-use crate::protocol::*;
-use crate::settings::{build_client_netcode_config, get_client_net_config, Settings};
+use std::net::SocketAddr;
+
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
+
+use lightyear::prelude::*;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::server::ServerCommands;
-use lightyear::prelude::*;
-use std::net::SocketAddr;
+
+use crate::protocol::*;
+use crate::settings::{get_client_net_config, Settings};
 
 pub struct ExampleClientPlugin {
     pub(crate) settings: Settings,
@@ -112,9 +115,10 @@ fn on_disconnect(
 }
 
 mod game {
-    use super::*;
     use crate::protocol::Direction;
     use crate::shared::shared_movement_behaviour;
+
+    use super::*;
 
     /// System that reads from peripherals and adds inputs to the buffer
     /// This system must be run in the
@@ -193,15 +197,19 @@ mod game {
 }
 
 mod lobby {
-    use super::*;
-    use crate::client::{lobby, AppState};
-    use bevy::utils::HashMap;
-    use bevy_egui::egui::Separator;
-    use bevy_egui::{egui, EguiContexts};
-    use egui_extras::{Column, TableBuilder};
-    use lightyear::server::config::ServerConfig;
     use std::net::SocketAddr;
+
+    use bevy::utils::HashMap;
+    use bevy_egui::{egui, EguiContexts};
+    use bevy_egui::egui::Separator;
+    use egui_extras::{Column, TableBuilder};
     use tracing::{error, info};
+
+    use lightyear::server::config::ServerConfig;
+
+    use crate::client::{AppState, lobby};
+
+    use super::*;
 
     #[derive(Resource, Default, Debug)]
     pub(crate) struct LobbyTable {

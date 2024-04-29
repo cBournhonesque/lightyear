@@ -1,17 +1,16 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use bitcode::encoding::Gamma;
-use bitcode::word_buffer::WordBuffer;
 
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::packet::{
-    FragmentedPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES,
+    FRAGMENT_SIZE, FragmentedPacket, MTU_PAYLOAD_BYTES, Packet, PacketData, SinglePacket,
 };
 use crate::packet::packet_type::PacketType;
-use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
+use crate::protocol::registry::NetId;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;

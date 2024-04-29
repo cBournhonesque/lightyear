@@ -1,9 +1,9 @@
 //! Configuration that has to be the same between the server and the client.
-use crate::connection::server::ServerConnections;
 use bevy::prelude::Res;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 
+use crate::connection::server::ServerConnections;
 use crate::server::config::ServerConfig;
 use crate::shared::tick_manager::TickConfig;
 

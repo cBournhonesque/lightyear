@@ -9,23 +9,21 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::asset::ron;
+use bevy::DefaultPlugins;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
-use lightyear::prelude::client::{
-    InterpolationConfig, InterpolationDelay, NetConfig, ReplicationConfig,
-};
-use lightyear::prelude::server::PacketConfig;
 use serde::{Deserialize, Serialize};
 
 use lightyear::prelude::{Mode, TransportConfig};
+use lightyear::prelude::client::{
+    InterpolationConfig, InterpolationDelay, NetConfig, ReplicationConfig,
+};
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
 use crate::client::ExampleClientPlugin;
-use crate::protocol::Inputs;
 use crate::server::ExampleServerPlugin;
 use crate::settings::*;
 use crate::shared::{shared_config, SharedPlugin};

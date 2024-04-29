@@ -1,20 +1,21 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
+use bevy::prelude::*;
+use tracing::{debug, error, trace, warn};
+
 use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
+use crate::client::prediction::Predicted;
 use crate::client::prediction::prespawn::PreSpawnedPlayerObjectSet;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
-use crate::prelude::client::{ClientConnection, PredictionSet};
 use crate::prelude::{NetworkTarget, ShouldBePredicted, Tick};
+use crate::prelude::client::{ClientConnection, PredictionSet};
 use crate::shared::replication::components::{PrePredicted, Replicate};
 use crate::shared::sets::InternalReplicationSet;
-use bevy::prelude::*;
-use tracing::{debug, error, trace, warn};
 
 #[derive(Default)]
 pub(crate) struct PrePredictionPlugin;

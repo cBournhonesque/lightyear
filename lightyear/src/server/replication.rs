@@ -1,15 +1,13 @@
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 
-use crate::_internal::{ClientMarker, ServerMarker};
+use crate::_internal::ServerMarker;
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
-use crate::client::networking::is_connected;
 use crate::client::prediction::Predicted;
-use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
+use crate::prelude::{PrePredicted, SharedConfig};
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{Mode, PrePredicted, SharedConfig};
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::is_started;

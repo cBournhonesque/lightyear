@@ -1,8 +1,8 @@
-use crate::_internal::ClientMarker;
-use crate::client::config::ClientConfig;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
+use crate::_internal::ClientMarker;
+use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::networking::is_connected;
 use crate::client::sync::client_is_synced;

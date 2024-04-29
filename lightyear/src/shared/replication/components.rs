@@ -3,9 +3,10 @@ use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::{Component, Entity, EntityMapper, Or, Reflect, With};
 use bevy::utils::{HashMap, HashSet};
-use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
+
+use bitcode::{Decode, Encode};
 
 use crate::_internal::{ClientMarker, ServerMarker};
 use crate::channel::builder::Channel;
@@ -13,7 +14,6 @@ use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
 use crate::prelude::ParentSync;
 use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
-
 use crate::server::room::ClientVisibility;
 
 /// Marker component that indicates that the entity was spawned via replication

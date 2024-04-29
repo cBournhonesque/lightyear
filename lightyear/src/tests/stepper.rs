@@ -1,24 +1,21 @@
-use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use crate::connection::client::{ClientConnection, NetClient};
-use bevy::ecs::system::{RunSystemOnce, SystemState};
+use bevy::ecs::system::RunSystemOnce;
+use bevy::MinimalPlugins;
 use bevy::prelude::{
-    default, App, Commands, Mut, NextState, PluginGroup, Real, State, Time, World,
+    App, Commands, default, Mut, PluginGroup, Real, Time, World,
 };
 use bevy::time::TimeUpdateStrategy;
-use bevy::{DefaultPlugins, MinimalPlugins};
-use tracing_subscriber::fmt::format::FmtSpan;
+use bevy::utils::Duration;
 
 use crate::connection::netcode::generate_key;
-use crate::connection::server::{NetServer, ServerConnection, ServerConnections};
+use crate::prelude::*;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, InputConfig, InterpolationConfig,
-    NetworkingState, PredictionConfig, SyncConfig,
+    Authentication, ClientCommands, ClientConfig, InterpolationConfig
+    , PredictionConfig, SyncConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig};
-use crate::prelude::*;
 use crate::tests::protocol::*;
 
 pub const TEST_CLIENT_ID: u64 = 111;

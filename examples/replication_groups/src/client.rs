@@ -5,16 +5,16 @@ use std::str::FromStr;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
+
 use lightyear::client::interpolation::LinearInterpolator;
-
 use lightyear::connection::netcode::NetcodeServer;
-pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+pub use lightyear::prelude::client::*;
 
-use crate::protocol::Direction;
+use crate::{ClientTransports, shared, SharedSettings};
 use crate::protocol::*;
+use crate::protocol::Direction;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
-use crate::{shared, ClientTransports, SharedSettings};
 
 pub struct ExampleClientPlugin;
 

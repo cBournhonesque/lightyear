@@ -1,6 +1,8 @@
 //! Plugin to register and handle user inputs.
 
-use crate::_internal::ClientMarker;
+use bevy::app::{App, Plugin};
+use leafwing_input_manager::prelude::ActionState;
+
 use crate::client::config::ClientConfig;
 use crate::client::input_leafwing::LeafwingInputConfig;
 use crate::inputs::leafwing::InputMessage;
@@ -9,9 +11,6 @@ use crate::prelude::{
 };
 use crate::protocol::message::MessageType;
 use crate::server::config::ServerConfig;
-use bevy::app::{App, Plugin};
-use leafwing_input_manager::prelude::ActionState;
-use tracing::error;
 
 pub struct LeafwingInputPlugin<A> {
     pub config: LeafwingInputConfig<A>,

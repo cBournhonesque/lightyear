@@ -1,9 +1,10 @@
 //! Handles spawning entities that are predicted
 
-use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
 use std::hash::{BuildHasher, Hash, Hasher};
+
+use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace, warn};
 
 use crate::_internal::ClientMarker;
@@ -12,15 +13,14 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
 use crate::client::networking::{is_connected, NetworkingState};
 use crate::client::prediction::pre_prediction::PrePredictionPlugin;
+use crate::client::prediction::Predicted;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
-use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
-use crate::prelude::client::PredictionSet;
 use crate::prelude::{ComponentRegistry, ParentSync, ShouldBePredicted, Tick, TickManager};
+use crate::prelude::client::PredictionSet;
 use crate::protocol::component::ComponentKind;
 use crate::server::prediction::compute_hash;
-
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 
@@ -447,13 +447,12 @@ pub struct PreSpawnedPlayerObject {
 #[cfg(test)]
 mod tests {
     use bevy::prelude::Entity;
-    use bevy::utils::Duration;
     use hashbrown::HashMap;
 
     use crate::_internal::ItemWithReadyKey;
     use crate::client::prediction::resource::PredictionManager;
-    use crate::prelude::client::*;
     use crate::prelude::*;
+    use crate::prelude::client::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

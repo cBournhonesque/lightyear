@@ -2,7 +2,6 @@
 use std::collections::BTreeMap;
 use std::iter::Extend;
 
-use crate::_internal::{ReadBuffer, ReadWordBuffer};
 use anyhow::Context;
 use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
@@ -10,18 +9,18 @@ use bevy::reflect::Reflect;
 use bevy::utils::HashSet;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
+use crate::_internal::{ReadBuffer, ReadWordBuffer};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::Tick;
 use crate::protocol::component::ComponentRegistry;
-
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 
-use super::entity_map::RemoteEntityMap;
 use super::{
     EntityActionMessage, EntityUpdatesMessage, ReplicationMessage, ReplicationMessageData,
 };
+use super::entity_map::RemoteEntityMap;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -507,8 +506,6 @@ impl GroupChannel {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::protocol::*;
-
     use super::*;
 
     #[allow(clippy::get_first)]

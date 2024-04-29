@@ -1,27 +1,14 @@
 //! Defines the client bevy plugin
-use std::ops::DerefMut;
-use std::sync::Mutex;
-
 use bevy::prelude::*;
 
-use crate::client::connection::ConnectionManager;
 use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use crate::client::events::ClientEventsPlugin;
-use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::ClientReplicationPlugin;
-use crate::connection::client::{ClientConnection, NetConfig};
-use crate::prelude::MessageRegistry;
-
-use crate::server::plugin::ServerPlugin;
 use crate::shared::config::Mode;
-use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::plugin::SharedPlugin;
-use crate::shared::time_manager::TimePlugin;
-use crate::transport::PacketSender;
 
 use super::config::ClientConfig;
 

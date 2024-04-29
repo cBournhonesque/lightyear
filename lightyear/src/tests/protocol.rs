@@ -1,10 +1,10 @@
-use bevy::app::{App, Plugin};
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect, Resource};
-use cfg_if::cfg_if;
-use derive_more::{Add, Mul};
 use std::ops::Mul;
 
+use bevy::app::{App, Plugin};
+use bevy::ecs::entity::MapEntities;
+use bevy::prelude::{Component, default, Entity, EntityMapper, Reflect, Resource};
+use cfg_if::cfg_if;
+use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
 use crate::_internal::*;

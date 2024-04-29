@@ -12,7 +12,6 @@ use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::prelude::{
     ComponentRegistry, ExternalMapper, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
 };
-
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
 
