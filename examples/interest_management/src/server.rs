@@ -6,12 +6,12 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 
-use lightyear::prelude::*;
 pub use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 
-use crate::{ServerTransports, shared, SharedSettings};
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
+use crate::{shared, ServerTransports, SharedSettings};
 
 const GRID_SIZE: f32 = 200.0;
 const NUM_CIRCLES: i32 = 10;

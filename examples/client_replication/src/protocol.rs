@@ -1,7 +1,7 @@
 use std::ops::Mul;
 
 use bevy::app::{App, Plugin};
-use bevy::prelude::{Bundle, Color, Component, default, Deref, DerefMut, Vec2};
+use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 

@@ -17,10 +17,10 @@ use crate::protocol::component::ComponentRegistry;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 
+use super::entity_map::RemoteEntityMap;
 use super::{
     EntityActionMessage, EntityUpdatesMessage, ReplicationMessage, ReplicationMessageData,
 };
-use super::entity_map::RemoteEntityMap;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 

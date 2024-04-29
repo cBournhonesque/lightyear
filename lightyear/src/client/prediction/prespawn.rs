@@ -13,12 +13,12 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
 use crate::client::networking::{is_connected, NetworkingState};
 use crate::client::prediction::pre_prediction::PrePredictionPlugin;
-use crate::client::prediction::Predicted;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
-use crate::prelude::{ComponentRegistry, ParentSync, ShouldBePredicted, Tick, TickManager};
 use crate::prelude::client::PredictionSet;
+use crate::prelude::{ComponentRegistry, ParentSync, ShouldBePredicted, Tick, TickManager};
 use crate::protocol::component::ComponentKind;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
@@ -323,7 +323,11 @@ impl PreSpawnedPlayerObjectPlugin {
             ?interpolation_tick,
             "cleaning up prespawned player objects"
         );
-        let tick_diff = ((tick - interpolation_tick) * 2) as u16;
+        assert!(
+            tick >= interpolation_tick,
+            "tick should be greater than interpolation_tick"
+        );
+        let tick_diff = (tick - interpolation_tick).saturating_mul(2) as u16;
         let past_tick = tick - tick_diff;
         // remove all the prespawned entities that have not been matched with a server entity
         for (_, hash) in manager.prespawn_tick_to_hash.drain_until(&past_tick) {
@@ -451,8 +455,8 @@ mod tests {
 
     use crate::_internal::ItemWithReadyKey;
     use crate::client::prediction::resource::PredictionManager;
-    use crate::prelude::*;
     use crate::prelude::client::*;
+    use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

@@ -20,8 +20,8 @@ use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::{NetworkTarget, Tick};
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
-use crate::protocol::EventContext;
 use crate::protocol::registry::NetId;
+use crate::protocol::EventContext;
 use crate::serialize::RawData;
 use crate::shared::events::connection::{
     ClearEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
@@ -209,8 +209,8 @@ pub(crate) trait ReplicationSend: Resource {
 mod tests {
     use bevy::utils::Duration;
 
-    use crate::prelude::*;
     use crate::prelude::client::*;
+    use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

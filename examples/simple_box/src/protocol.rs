@@ -8,7 +8,7 @@ use std::ops::Mul;
 
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
-    Bundle, Color, Component, default, Deref, DerefMut, Entity, EntityMapper, Vec2,
+    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
 use bevy::prelude::{App, Plugin};
 use derive_more::Add;

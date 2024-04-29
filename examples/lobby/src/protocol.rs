@@ -8,10 +8,10 @@ use std::ops::Mul;
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{
-    Bundle, Color, Component, default, Deref, DerefMut, Entity, EntityMapper, Vec2,
-};
 use bevy::prelude::Resource;
+use bevy::prelude::{
+    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
+};
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 

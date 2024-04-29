@@ -6,11 +6,11 @@ use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::packet::{
-    FRAGMENT_SIZE, FragmentedPacket, MTU_PAYLOAD_BYTES, Packet, PacketData, SinglePacket,
+    FragmentedPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES,
 };
 use crate::packet::packet_type::PacketType;
-use crate::protocol::BitSerializable;
 use crate::protocol::registry::NetId;
+use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;

@@ -5,13 +5,13 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use lightyear::prelude::*;
 pub use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 
-use crate::{ClientTransports, shared, SharedSettings};
-use crate::protocol::*;
 use crate::protocol::Direction;
+use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
+use crate::{shared, ClientTransports, SharedSettings};
 
 pub struct ExampleClientPlugin;
 

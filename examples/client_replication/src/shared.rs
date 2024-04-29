@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 
-use lightyear::prelude::*;
 use lightyear::prelude::client::Confirmed;
+use lightyear::prelude::*;
 
 use crate::protocol::*;
 

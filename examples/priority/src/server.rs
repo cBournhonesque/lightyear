@@ -3,8 +3,8 @@ use std::ops::Deref;
 
 use bevy::prelude::*;
 
-use lightyear::prelude::*;
 pub use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 
 use crate::protocol::*;
 

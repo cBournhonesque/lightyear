@@ -24,8 +24,8 @@
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
 use bevy::prelude::{
-    App, Condition, EventReader, Events, EventWriter, FixedPostUpdate, FixedPreUpdate, In, IntoSystemConfigs,
-    IntoSystemSetConfigs, not, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
+    not, App, Condition, EventReader, EventWriter, Events, FixedPostUpdate, FixedPreUpdate, In,
+    IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
 };
 use bevy::reflect::Reflect;
 use tracing::{debug, error, info, trace};
@@ -39,10 +39,10 @@ use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::sync::{client_is_synced, SyncSet};
 use crate::connection::client::NetClient;
-use crate::inputs::native::{InputMessage, UserAction};
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::prelude::{AppMessageExt, ChannelDirection, server, SharedConfig, Tick, TickManager};
+use crate::inputs::native::{InputMessage, UserAction};
 use crate::prelude::client::ClientConnection;
+use crate::prelude::{server, AppMessageExt, ChannelDirection, SharedConfig, Tick, TickManager};
 use crate::shared::config::Mode;
 use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;

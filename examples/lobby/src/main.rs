@@ -15,9 +15,9 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::asset::ron;
-use bevy::DefaultPlugins;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};

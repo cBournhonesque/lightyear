@@ -5,8 +5,8 @@ use crate::_internal::ShouldBeInterpolated;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::Interpolated;
 use crate::client::interpolation::resource::InterpolationManager;
+use crate::client::interpolation::Interpolated;
 use crate::prelude::Tick;
 
 pub fn spawn_interpolated_entity(

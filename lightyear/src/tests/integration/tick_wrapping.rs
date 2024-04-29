@@ -3,9 +3,9 @@ use bevy::utils::Duration;
 
 use crate::_internal::WrappedTime;
 use crate::client::input::InputManager;
-use crate::prelude::*;
 use crate::prelude::client::{InputSystemSet, SyncConfig};
 use crate::prelude::server::InputEvent;
+use crate::prelude::*;
 use crate::tests::protocol::*;
 use crate::tests::stepper::{BevyStepper, Step};
 

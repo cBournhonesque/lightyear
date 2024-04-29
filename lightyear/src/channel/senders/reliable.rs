@@ -1,5 +1,5 @@
-use std::collections::{BTreeMap, HashSet};
 use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashSet};
 
 use bevy::utils::Duration;
 use bytes::Bytes;
@@ -7,8 +7,8 @@ use crossbeam_channel::Receiver;
 use tracing::{info, trace};
 
 use crate::channel::builder::ReliableSettings;
-use crate::channel::senders::ChannelSend;
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;

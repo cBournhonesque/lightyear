@@ -8,8 +8,8 @@ use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use bevy_egui::EguiPlugin;
 
-use lightyear::prelude::*;
 use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 use lightyear::shared::config::Mode;
 
 use crate::protocol::*;

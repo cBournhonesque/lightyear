@@ -8,13 +8,13 @@ use bitcode::__private::Fixed;
 use crate::_internal::{MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
+use crate::prelude::server::MessageEvent;
 use crate::prelude::{
     AppMessageExt, ChannelDirection, ClientId, Message, MessageRegistry, NetworkTarget,
     TickManager, UserAction,
 };
-use crate::prelude::server::MessageEvent;
-use crate::protocol::BitSerializable;
 use crate::protocol::registry::NetId;
+use crate::protocol::BitSerializable;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputEvent;
 use crate::server::networking::is_started;

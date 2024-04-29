@@ -6,8 +6,8 @@ use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::action_state::ActionState;
 
-use lightyear::prelude::*;
 use lightyear::prelude::client::Confirmed;
+use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;

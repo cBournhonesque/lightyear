@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use bevy::prelude::{
-    App, apply_deferred, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, not,
+    apply_deferred, not, App, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::reflect::Reflect;
@@ -10,14 +10,14 @@ use bevy::transform::TransformSystem;
 use crate::_internal::ClientMarker;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
+use crate::client::networking::is_connected;
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
 use crate::client::prediction::despawn::{
-    despawn_confirmed, PredictionDespawnMarker, remove_component_for_despawn_predicted,
-    remove_despawn_marker, restore_components_if_despawn_rolled_back,
+    despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
+    restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
-use crate::client::prediction::Predicted;
 use crate::client::prediction::predicted_history::{
     add_prespawned_component_history, update_prediction_history,
 };
@@ -25,6 +25,7 @@ use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
 use crate::client::prediction::resource::PredictionManager;
+use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject, SharedConfig};
@@ -34,7 +35,7 @@ use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_prespawn,
-    Rollback, RollbackState, run_rollback,
+    run_rollback, Rollback, RollbackState,
 };
 use super::spawn::spawn_predicted_entity;
 
@@ -210,6 +211,7 @@ impl Plugin for PredictionPlugin {
         let should_prediction_run =
             not(SharedConfig::is_host_server_condition
                 .or_else(PredictionConfig::is_disabled_condition))
+            .and_then(is_connected)
             .and_then(client_is_synced);
 
         // REFLECTION

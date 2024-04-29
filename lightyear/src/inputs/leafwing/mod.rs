@@ -5,8 +5,8 @@ use std::fmt::Debug;
 use bevy::prelude::{FromReflect, TypePath};
 use bevy::reflect::Reflect;
 use leafwing_input_manager::Actionlike;
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 pub use input_buffer::InputMessage;
 

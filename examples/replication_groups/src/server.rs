@@ -5,12 +5,12 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use lightyear::prelude::*;
 pub use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 
-use crate::{ServerTransports, shared, SharedSettings};
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
+use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;

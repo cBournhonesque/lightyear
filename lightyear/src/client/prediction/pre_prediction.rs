@@ -7,13 +7,13 @@ use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
-use crate::client::prediction::Predicted;
 use crate::client::prediction::prespawn::PreSpawnedPlayerObjectSet;
 use crate::client::prediction::resource::PredictionManager;
+use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
-use crate::prelude::{NetworkTarget, ShouldBePredicted, Tick};
 use crate::prelude::client::{ClientConnection, PredictionSet};
+use crate::prelude::{NetworkTarget, ShouldBePredicted, Tick};
 use crate::shared::replication::components::{PrePredicted, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 
