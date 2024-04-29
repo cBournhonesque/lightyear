@@ -66,7 +66,7 @@ impl Plugin for ServerReplicationPlugin {
                 PostUpdate,
                 // on server: we need to set the hash value before replicating the component
                 InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash
-                    .before(InternalReplicationSet::<ServerMarker>::SendComponentUpdates)
+                    .before(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates)
                     .in_set(InternalReplicationSet::<ServerMarker>::All),
             )
             .configure_sets(

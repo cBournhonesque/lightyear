@@ -26,6 +26,7 @@ use crate::shared::events::connection::{
     ClearEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
+use crate::shared::replication::systems::DespawnMetadata;
 
 pub mod components;
 
@@ -36,7 +37,7 @@ pub(crate) mod plugin;
 pub(crate) mod receive;
 pub(crate) mod resources;
 pub(crate) mod send;
-pub mod systems;
+pub(crate) mod systems;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
 pub struct EntityActions {
@@ -148,7 +149,7 @@ pub(crate) trait ReplicationSend: Resource {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replication_group_id: ReplicationGroupId,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
@@ -198,7 +199,7 @@ pub(crate) trait ReplicationSend: Resource {
     /// But the receiving systems might expect both components to be present at the same time.
     fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
 
-    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Replicate>;
+    fn get_mut_replicate_despawn_cache(&mut self) -> &mut EntityHashMap<DespawnMetadata>;
 
     /// Do some regular cleanup on the internals of replication
     /// - account for tick wrapping by resetting some internal ticks for each replication group

@@ -19,6 +19,7 @@ use crate::protocol::registry::NetId;
 
 use crate::serialize::RawData;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
+use crate::shared::replication::systems::DespawnMetadata;
 
 use super::{EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData};
 
@@ -27,11 +28,6 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 pub(crate) struct ReplicationSender {
-    // TODO: this is unused by server-send, should we just move it to client-connection?
-    //  in general, we should have some parts of replication-sender/receiver that are shared across all connections!
-    /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
-    /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    pub replicate_component_cache: EntityHashMap<Entity, Replicate>,
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub updates_ack_tracker: Receiver<MessageId>,
 
@@ -63,7 +59,6 @@ impl ReplicationSender {
     ) -> Self {
         Self {
             // SEND
-            replicate_component_cache: EntityHashMap::default(),
             updates_ack_tracker,
             updates_message_id_to_group_id: Default::default(),
             pending_actions: EntityHashMap::default(),

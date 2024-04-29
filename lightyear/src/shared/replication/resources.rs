@@ -143,8 +143,8 @@ pub(crate) mod send {
                 PostUpdate,
                 // we need to make sure that the resource data is copied to the component before
                 // we send the component update
-                InternalReplicationSet::<R::SetMarker>::SendResourceUpdates
-                    .before(InternalReplicationSet::<R::SetMarker>::SendComponentUpdates),
+                InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates
+                    .before(InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates),
             );
         }
     }
@@ -155,7 +155,7 @@ pub(crate) mod send {
         app.add_systems(
             PostUpdate,
             copy_send_resource::<R>
-                .in_set(InternalReplicationSet::<S::SetMarker>::SendResourceUpdates),
+                .in_set(InternalReplicationSet::<S::SetMarker>::BufferResourceUpdates),
         );
     }
 

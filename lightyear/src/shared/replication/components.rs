@@ -35,15 +35,10 @@ pub struct Replicate {
     pub prediction_target: NetworkTarget,
     /// Which clients should interpolated this entity
     pub interpolation_target: NetworkTarget,
-
-    // TODO: this should not be public, but replicate is public... how to fix that?
-    //  have a separate component ReplicateVisibility?
-    //  or force users to use `Replicate::default().with...`?
-    /// List of clients that the entity is currently replicated to.
-    /// Will be updated before the other replication systems
-    #[doc(hidden)]
-    pub replication_clients_cache: HashMap<ClientId, ClientVisibility>,
+    /// How do we find the list of clients to replicate to?
     pub replication_mode: ReplicationMode,
+    /// The replication group defines how entities are grouped (sent as a single message) for replication.
+    /// This should not be modified after the Replicate component is created
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
     pub replication_group: ReplicationGroup,
@@ -57,6 +52,13 @@ pub struct Replicate {
     /// Lets you override the replication modalities for a specific component
     #[reflect(ignore)]
     pub per_component_metadata: HashMap<ComponentKind, PerComponentReplicationMetadata>,
+}
+
+#[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
+pub(crate) struct ReplicateVisibility {
+    /// List of clients that the entity is currently replicated to.
+    /// Will be updated before the other replication systems
+    pub(crate) clients_cache: HashMap<ClientId, ClientVisibility>,
 }
 
 /// This lets you specify how to customize the replication behaviour for a given component
@@ -279,7 +281,6 @@ impl Default for Replicate {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
             interpolation_target: NetworkTarget::None,
-            replication_clients_cache: HashMap::new(),
             replication_mode: ReplicationMode::default(),
             replication_group: Default::default(),
             replicate_hierarchy: true,

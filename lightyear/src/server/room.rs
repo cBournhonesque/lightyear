@@ -5,8 +5,8 @@
 use bevy::app::App;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{
-    Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query, RemovedComponents,
-    Res, ResMut, Resource, SystemSet,
+    DetectChanges, Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query,
+    RemovedComponents, Res, ResMut, Resource, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
@@ -17,8 +17,9 @@ use crate::connection::id::ClientId;
 use crate::server::connection::ConnectionManager;
 
 use crate::server::networking::is_started;
-use crate::shared::replication::components::{DespawnTracker, Replicate};
-use crate::shared::sets::InternalReplicationSet;
+use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicateVisibility};
+use crate::shared::replication::ReplicationSend;
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 use crate::shared::time_manager::is_server_ready_to_send;
 use crate::utils::wrapping_id::wrapping_id;
 
@@ -110,9 +111,10 @@ impl Plugin for RoomPlugin {
             PostUpdate,
             (
                 (
-                    // update replication caches must happen before replication
+                    // update replication caches must happen before replication, but after we add ReplicateVisibility
+                    InternalReplicationSet::<ServerMarker>::HandleReplicateUpdate,
                     RoomSystemSets::UpdateReplicationCaches,
-                    InternalReplicationSet::<ServerMarker>::All,
+                    InternalReplicationSet::<ServerMarker>::Buffer,
                     RoomSystemSets::RoomBookkeeping,
                 )
                     .run_if(is_started)
@@ -122,14 +124,19 @@ impl Plugin for RoomPlugin {
                     RoomSystemSets::UpdateReplicationCaches,
                     RoomSystemSets::RoomBookkeeping,
                 )
-                    .run_if(is_server_ready_to_send),
+                    .in_set(InternalMainSet::<ServerMarker>::Send), // .run_if(is_server_ready_to_send),
             ),
         );
         // SYSTEMS
         app.add_systems(
             PostUpdate,
             (
-                update_entity_replication_cache.in_set(RoomSystemSets::UpdateReplicationCaches),
+                (
+                    update_entity_replication_cache,
+                    update_despawn_metadata_cache,
+                )
+                    .chain()
+                    .in_set(RoomSystemSets::UpdateReplicationCaches),
                 (clear_entity_replication_cache, clean_entity_despawns)
                     .in_set(RoomSystemSets::RoomBookkeeping),
             ),
@@ -429,7 +436,7 @@ pub enum ClientVisibility {
 /// Note that the rooms' entities/clients have already been updated at this point
 fn update_entity_replication_cache(
     mut room_manager: ResMut<RoomManager>,
-    mut query: Query<&mut Replicate>,
+    mut query: Query<&mut ReplicateVisibility>,
 ) {
     if !room_manager.events.is_empty() {
         trace!(?room_manager.events, "Room events");
@@ -447,8 +454,7 @@ fn update_entity_replication_cache(
             let room = room_manager.data.rooms.get(&room_id).unwrap();
             room.clients.iter().for_each(|client_id| {
                 if let Ok(mut replicate) = query.get_mut(entity) {
-                    if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
-                    {
+                    if let Some(visibility) = replicate.clients_cache.get_mut(client_id) {
                         *visibility = ClientVisibility::Lost;
                     }
                 }
@@ -463,7 +469,7 @@ fn update_entity_replication_cache(
             room.clients.iter().for_each(|client_id| {
                 if let Ok(mut replicate) = query.get_mut(entity) {
                     replicate
-                        .replication_clients_cache
+                        .clients_cache
                         .entry(*client_id)
                         .and_modify(|vis| {
                             // if the visibility was lost above, then that means that the entity was visible
@@ -484,9 +490,7 @@ fn update_entity_replication_cache(
             let room = room_manager.data.rooms.get(&room_id).unwrap();
             room.entities.iter().for_each(|entity| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
-                    if let Some(visibility) =
-                        replicate.replication_clients_cache.get_mut(&client_id)
-                    {
+                    if let Some(visibility) = replicate.clients_cache.get_mut(&client_id) {
                         *visibility = ClientVisibility::Lost;
                     }
                 }
@@ -500,7 +504,7 @@ fn update_entity_replication_cache(
             room.entities.iter().for_each(|entity| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     replicate
-                        .replication_clients_cache
+                        .clients_cache
                         .entry(client_id)
                         .and_modify(|vis| {
                             // if the visibility was lost above, then that means that the entity was visible
@@ -517,16 +521,35 @@ fn update_entity_replication_cache(
     }
 }
 
+/// Whenever the visibility of an entity changes, update the despawn metadata cache
+/// so that we can correctly replicate the despawn to the correct clients
+fn update_despawn_metadata_cache(
+    mut connection_manager: ResMut<ConnectionManager>,
+    mut query: Query<(Entity, &mut ReplicateVisibility)>,
+) {
+    for (entity, visibility) in query.iter_mut() {
+        if visibility.is_changed() {
+            if let Some(despawn_metadata) = connection_manager
+                .get_mut_replicate_despawn_cache()
+                .get_mut(&entity)
+            {
+                let new_cache = visibility.clients_cache.keys().copied().collect();
+                despawn_metadata.replication_clients_cache = new_cache;
+            }
+        }
+    }
+}
+
 /// After replication, update the Replication Cache:
 /// - Visibility Gained becomes Visibility Maintained
 /// - Visibility Lost gets removed from the cache
 fn clear_entity_replication_cache(
-    mut query: Query<&mut Replicate>,
+    mut query: Query<&mut ReplicateVisibility>,
     mut connection_manager: ResMut<ConnectionManager>,
 ) {
     for mut replicate in query.iter_mut() {
         replicate
-            .replication_clients_cache
+            .clients_cache
             .retain(|_, visibility| match visibility {
                 ClientVisibility::Gained => {
                     trace!("Visibility goes from gained to maintained");
@@ -561,6 +584,7 @@ mod tests {
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::shared::replication::components::ReplicationMode;
+    use crate::shared::replication::systems::handle_replicate_add;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
@@ -591,6 +615,10 @@ mod tests {
                 ..Default::default()
             })
             .id();
+        stepper
+            .server_app
+            .world
+            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
 
         stepper.frame_step();
         stepper.frame_step();
@@ -628,9 +656,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Gained)])
         );
 
@@ -647,9 +675,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Maintained)])
         );
 
@@ -697,9 +725,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Lost)])
         );
         stepper.frame_step();
@@ -708,9 +736,9 @@ mod tests {
             .server_app
             .world
             .entity(server_entity)
-            .get::<Replicate>()
+            .get::<ReplicateVisibility>()
             .unwrap()
-            .replication_clients_cache
+            .clients_cache
             .is_empty());
 
         stepper.frame_step();
@@ -745,6 +773,10 @@ mod tests {
                 ..Default::default()
             })
             .id();
+        stepper
+            .server_app
+            .world
+            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
         stepper
             .server_app
             .world
@@ -788,9 +820,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Gained)])
         );
 
@@ -807,9 +839,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Maintained)])
         );
 
@@ -857,9 +889,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Lost)])
         );
         stepper.frame_step();
@@ -868,9 +900,9 @@ mod tests {
             .server_app
             .world
             .entity(server_entity)
-            .get::<Replicate>()
+            .get::<ReplicateVisibility>()
             .unwrap()
-            .replication_clients_cache
+            .clients_cache
             .is_empty());
 
         stepper.frame_step();
@@ -901,6 +933,7 @@ mod tests {
             .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .add_client(client_id);
+
         // Spawn an entity on server, in the same room
         let server_entity = stepper
             .server_app
@@ -910,6 +943,10 @@ mod tests {
                 ..Default::default()
             })
             .id();
+        stepper
+            .server_app
+            .world
+            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
         stepper
             .server_app
             .world
@@ -926,9 +963,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Gained)])
         );
         // apply bookkeeping
@@ -938,9 +975,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Maintained)])
         );
 
@@ -977,9 +1014,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Maintained)])
         );
     }
@@ -1016,6 +1053,10 @@ mod tests {
         stepper
             .server_app
             .world
+            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
+        stepper
+            .server_app
+            .world
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         // Run update replication cache once
@@ -1028,9 +1069,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Gained)])
         );
         // apply bookkeeping
@@ -1040,9 +1081,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Maintained)])
         );
 
@@ -1067,9 +1108,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Maintained)])
         );
     }
@@ -1101,6 +1142,10 @@ mod tests {
         stepper
             .server_app
             .world
+            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
+        stepper
+            .server_app
+            .world
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         stepper
@@ -1118,9 +1163,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Gained)])
         );
         // apply bookkeeping
@@ -1130,9 +1175,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Maintained)])
         );
 
@@ -1157,9 +1202,9 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<Replicate>()
+                .get::<ReplicateVisibility>()
                 .unwrap()
-                .replication_clients_cache,
+                .clients_cache,
             HashMap::from([(client_id, ClientVisibility::Maintained)])
         );
     }

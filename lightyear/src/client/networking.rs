@@ -345,10 +345,9 @@ fn on_disconnect(
 ) {
     info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
-    received_entities.iter().for_each(|e| {
-        error!("trying to despawn Replicated entity {e:?}");
-        commands.entity(e).despawn_recursive()
-    });
+    received_entities
+        .iter()
+        .for_each(|e| commands.entity(e).despawn_recursive());
 
     // try to disconnect again to close io tasks (in case the disconnection is from the io)
     let _ = netcode.disconnect();

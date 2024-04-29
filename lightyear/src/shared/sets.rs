@@ -10,23 +10,30 @@ pub struct ServerMarker;
 /// System sets related to Replication
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum InternalReplicationSet<M> {
+    // RECEIVE
     /// System that copies the resource data from the entity to the resource in the receiving world
     ReceiveResourceUpdates,
+
+    // SEND
     /// Set the hash for each entity that is pre-spawned on the client
     /// (has a PreSpawnedPlayerObject component)
     SetPreSpawnedHash,
+    /// System that handles the addition/removal of the `Replicate` component
+    HandleReplicateUpdate,
     /// Gathers entity despawns and component removals
     /// Needs to run once per frame instead of once per send_interval
     /// because they rely on bevy events that are cleared every frame
-    SendDespawnsAndRemovals,
+    BufferDespawnsAndRemovals,
 
     /// System Set to gather all the replication updates to send
     /// These systems only run once every send_interval
-    SendEntityUpdates,
-    SendComponentUpdates,
-    SendResourceUpdates,
+    BufferEntityUpdates,
+    BufferComponentUpdates,
+    BufferResourceUpdates,
 
-    // SystemSet that encompasses all send replication systems
+    /// All systems that buffer replication messages
+    Buffer,
+    /// SystemSet that encompasses all send replication systems
     All,
     _Marker(std::marker::PhantomData<M>),
 }

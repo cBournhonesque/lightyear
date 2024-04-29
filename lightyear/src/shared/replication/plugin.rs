@@ -77,21 +77,27 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                 PostUpdate,
                 (
                     (
-                        InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendResourceUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals,
+                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::Buffer,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::All),
                     (
-                        InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendResourceUpdates,
-                        InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
-                        // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
+                        InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals,
+                    )
+                        .in_set(InternalReplicationSet::<R::SetMarker>::Buffer),
+                    (
+                        InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
+                        InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
+                        // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                     )
                         .in_set(InternalMainSet::<R::SetMarker>::Send),
                     (
-                        InternalReplicationSet::<R::SetMarker>::All,
+                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::Buffer,
                         InternalMainSet::<R::SetMarker>::SendPackets,
                     )
                         .chain(),

@@ -41,6 +41,7 @@ use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{NetworkTarget, Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
+use crate::shared::replication::systems::DespawnMetadata;
 use crate::shared::replication::ReplicationMessageData;
 use crate::shared::replication::{ReplicationMessage, ReplicationSend};
 use crate::shared::tick_manager::Tick;
@@ -58,9 +59,9 @@ pub struct ConnectionManager {
     pub(crate) events: ServerEvents,
 
     // NOTE: we put this here because we only need one per world, not one per connection
-    /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
-    /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    replicate_component_cache: EntityHashMap<Entity, Replicate>,
+    /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
+    /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
+    replicate_component_cache: EntityHashMap<Entity, DespawnMetadata>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
@@ -689,11 +690,10 @@ impl ReplicationSend for ConnectionManager {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replication_group_id: ReplicationGroupId,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        let group_id = replicate.replication_group.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // trace!(
             //     ?entity,
@@ -708,7 +708,7 @@ impl ReplicationSend for ConnectionManager {
             //     .entry(group)
             //     .or_default()
             //     .update_collect_changes_since_this_tick(system_current_tick);
-            replication_sender.prepare_entity_despawn(entity, group_id);
+            replication_sender.prepare_entity_despawn(entity, replication_group_id);
             Ok(())
         })
     }
@@ -869,9 +869,9 @@ impl ReplicationSend for ConnectionManager {
         self.buffer_replication_messages(tick, bevy_tick)
     }
 
-    fn get_mut_replicate_component_cache(
+    fn get_mut_replicate_despawn_cache(
         &mut self,
-    ) -> &mut bevy::ecs::entity::EntityHashMap<Replicate> {
+    ) -> &mut bevy::ecs::entity::EntityHashMap<DespawnMetadata> {
         &mut self.replicate_component_cache
     }
 
