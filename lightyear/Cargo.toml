@@ -31,7 +31,7 @@ webtransport = [
     "dep:ring",
     "dep:wasm-bindgen-futures",
 ]
-leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
+leafwing = ["dep:leafwing-input-manager"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
 websocket = [
     "dep:tokio",
