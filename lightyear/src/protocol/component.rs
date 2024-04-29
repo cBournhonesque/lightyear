@@ -164,13 +164,12 @@ impl ComponentRegistry {
 
     pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self.serialize_fns_map.get_mut(&kind).expect(
-            format!(
+        let erased_fns = self.serialize_fns_map.get_mut(&kind).unwrap_or_else(|| {
+            panic!(
                 "Component {} is not part of the protocol",
                 std::any::type_name::<C>()
             )
-            .as_str(),
-        );
+        });
         erased_fns.add_map_entities::<C>();
     }
 

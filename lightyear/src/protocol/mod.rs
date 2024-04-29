@@ -1,11 +1,11 @@
 //! The Protocol is used to define all the types that can be sent over the network
 //!
 //! A protocol is composed of a few main parts:
-//! - a [`MessageRegistry`] that contains the list of all the messages that can be sent over the network, along with how to serialize and deserialize them
-//! - a [`ComponentRegistry`] that contains the list of all the components that can be sent over the network, along with how to serialize and deserialize them.
+//! - a [`MessageRegistry`](message::MessageRegistry) that contains the list of all the messages that can be sent over the network, along with how to serialize and deserialize them
+//! - a [`ComponentRegistry`](component::ComponentRegistry) that contains the list of all the components that can be sent over the network, along with how to serialize and deserialize them.
 //! You can also define additional behaviour for each component (such as how to run interpolation for them, etc.)
 //! - a list of inputs that can be sent from client to server
-//! - a list of channels that define how the data will be sent over the network (reliability, ordering, etc.)
+//! - a [`ChannelRegistry`](channel::ChannelRegistry) that contains the list of channels that define how the data will be sent over the network (reliability, ordering, etc.)
 
 use anyhow::Context;
 
@@ -18,8 +18,6 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::channel::builder::{Channel, ChannelSettings};
-use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::message::MessageRegistry;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::shared::replication::ReplicationSend;
