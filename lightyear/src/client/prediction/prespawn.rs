@@ -279,11 +279,10 @@ impl PreSpawnedPlayerObjectPlugin {
             // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawnedPlayerObject
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
-            // let confirmed_tick = connection
-            //     .replication_receiver
-            //     .get_confirmed_tick(confirmed_entity)
-            //     .unwrap();
-            let confirmed_tick = Tick(0);
+            let confirmed_tick = connection
+                .replication_receiver
+                .get_confirmed_tick(confirmed_entity)
+                .unwrap();
             commands
                 .entity(confirmed_entity)
                 .insert(Confirmed {

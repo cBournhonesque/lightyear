@@ -23,7 +23,7 @@ pub struct Replicated;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
-pub struct DespawnTracker;
+pub(crate) struct DespawnTracker;
 
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.

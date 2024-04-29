@@ -80,7 +80,7 @@ pub mod prelude {
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
-        NetworkTarget, PrePredicted, Replicate, ReplicationGroup, ReplicationMode,
+        NetworkTarget, PrePredicted, Replicate, Replicated, ReplicationGroup, ReplicationMode,
         ShouldBePredicted,
     };
     pub use crate::shared::replication::entity_map::{ExternalMapper, RemoteEntityMap};

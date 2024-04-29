@@ -168,21 +168,21 @@ impl Plugin for ProtocolPlugin {
         app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
         app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
-        app.register_component::<ColorComponent>(ChannelDirection::ServerToClient);
+        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional);
         app.add_prediction::<ColorComponent>(ComponentSyncMode::Once);
         app.add_interpolation::<ColorComponent>(ComponentSyncMode::Once);
 
-        app.register_component::<BallMarker>(ChannelDirection::ServerToClient);
+        app.register_component::<BallMarker>(ChannelDirection::Bidirectional);
         app.add_prediction::<BallMarker>(ComponentSyncMode::Once);
         app.add_interpolation::<BallMarker>(ComponentSyncMode::Once);
 
-        app.register_component::<Position>(ChannelDirection::ServerToClient);
+        app.register_component::<Position>(ChannelDirection::Bidirectional);
         app.add_prediction::<Position>(ComponentSyncMode::Full);
         app.add_interpolation::<Position>(ComponentSyncMode::Full);
         app.add_interpolation_fn::<Position>(position::lerp);
         app.add_correction_fn::<Position>(position::lerp);
 
-        app.register_component::<Rotation>(ChannelDirection::ServerToClient);
+        app.register_component::<Rotation>(ChannelDirection::Bidirectional);
         app.add_prediction::<Rotation>(ComponentSyncMode::Full);
         app.add_interpolation::<Rotation>(ComponentSyncMode::Full);
         app.add_interpolation_fn::<Rotation>(rotation::lerp);
@@ -190,10 +190,10 @@ impl Plugin for ProtocolPlugin {
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!
         // we still need prediction to be able to correctly predict the physics on the client
-        app.register_component::<LinearVelocity>(ChannelDirection::ServerToClient);
+        app.register_component::<LinearVelocity>(ChannelDirection::Bidirectional);
         app.add_prediction::<LinearVelocity>(ComponentSyncMode::Full);
 
-        app.register_component::<AngularVelocity>(ChannelDirection::ServerToClient);
+        app.register_component::<AngularVelocity>(ChannelDirection::Bidirectional);
         app.add_prediction::<AngularVelocity>(ComponentSyncMode::Full);
 
         // channels

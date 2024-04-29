@@ -110,7 +110,7 @@ pub(crate) fn movement(
             // NOTE: be careful to directly pass Mut<PlayerPosition>
             // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
             shared_movement_behaviour(velocity, action);
-            info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
+            trace!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
         }
     }
 }
