@@ -44,6 +44,16 @@ impl MapEntities for Component4 {
     }
 }
 
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul, Reflect)]
+pub struct Component5(pub f32);
+
+impl Mul<f32> for &Component5 {
+    type Output = Component5;
+    fn mul(self, rhs: f32) -> Self::Output {
+        Component5(self.0 * rhs)
+    }
+}
+
 // Resources
 #[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
 pub struct Resource1(pub f32);
@@ -101,6 +111,11 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Component4>(ChannelDirection::ServerToClient);
         app.add_prediction::<Component4>(ComponentSyncMode::Simple);
         app.add_component_map_entities::<Component4>();
+
+        app.register_component::<Component5>(ChannelDirection::ServerToClient);
+        app.add_prediction::<Component5>(ComponentSyncMode::Full);
+        app.add_interpolation::<Component5>(ComponentSyncMode::Full);
+        app.add_linear_interpolation_fn::<Component5>();
 
         app.register_resource::<Resource1>(ChannelDirection::ServerToClient);
         // channels

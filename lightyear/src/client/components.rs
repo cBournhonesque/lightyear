@@ -14,7 +14,7 @@ use crate::prelude::{Message, Tick};
 /// - an entity that simply contains the replicated components. It will have the marker component [`Confirmed`]
 /// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](crate::client::prediction::Predicted)
 /// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](crate::client::interpolation::Interpolated)
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Default)]
 pub struct Confirmed {
     /// The corresponding Predicted entity
     pub predicted: Option<Entity>,

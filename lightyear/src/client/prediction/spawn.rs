@@ -52,6 +52,7 @@ pub(crate) fn spawn_predicted_entity(
             // update the predicted entity mapping
             manager
                 .predicted_entity_map
+                .get_mut()
                 .confirmed_to_predicted
                 .insert(confirmed_entity, predicted_entity);
 

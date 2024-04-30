@@ -102,6 +102,7 @@ impl PrePredictionPlugin {
                 // update the predicted entity mapping
                 manager
                     .predicted_entity_map
+                    .get_mut()
                     .confirmed_to_predicted
                     .insert(confirmed_entity, predicted_entity);
                 predicted_entity_mut.confirmed_entity = Some(confirmed_entity);
