@@ -90,7 +90,7 @@ pub(crate) fn handle_connections(
         // we know which entity to move)
         global.client_id_to_entity_id.insert(client_id, entity.id());
         // we will create a room for each client. To keep things simple, the room id will be the client id
-        let room_id = RoomId(client_id.to_bits() as u16);
+        let room_id = client_id.into();
         room_manager.room_mut(room_id).add_client(client_id);
         room_manager.room_mut(PLAYER_ROOM).add_client(client_id);
         // also add the player entity to that room (so that the client can always see their own player)
@@ -120,7 +120,7 @@ pub(crate) fn interest_management(
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {
-            let room_id = RoomId(client_id.0.to_bits() as u16);
+            let room_id = client_id.into();
             // let circles_in_room = server.room(room_id).entities();
             let mut room = room_manager.room_mut(room_id);
             for (circle_entity, circle_position) in circle_query.iter() {

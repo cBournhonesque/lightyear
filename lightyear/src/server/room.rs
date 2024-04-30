@@ -10,6 +10,8 @@ use bevy::prelude::{
 };
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
+use bitcode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace};
 
 use crate::connection::id::ClientId;
@@ -24,8 +26,34 @@ use crate::utils::wrapping_id::wrapping_id;
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
-// Id for a [`Room`], which is used to perform interest management.
-wrapping_id!(RoomId);
+/// Id for a [`Room`], which is used to perform interest management.
+#[derive(
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    PartialEq,
+    Default,
+    Reflect,
+)]
+pub struct RoomId(pub u64);
+
+impl From<Entity> for RoomId {
+    fn from(value: Entity) -> Self {
+        RoomId(value.to_bits())
+    }
+}
+
+impl From<ClientId> for RoomId {
+    fn from(value: ClientId) -> Self {
+        RoomId(value.to_bits())
+    }
+}
 
 /// Resource that will track any changes in the rooms
 /// (we cannot use bevy `Events` directly because we don't need to send this every frame.
