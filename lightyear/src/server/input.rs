@@ -3,7 +3,7 @@ use anyhow::Context;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 
-use bitcode::__private::Fixed;
+use bitcode::encoding::Fixed;
 
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
@@ -13,7 +13,6 @@ use crate::prelude::{
     TickManager, UserAction,
 };
 use crate::protocol::message::MessageKind;
-use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputEvent;

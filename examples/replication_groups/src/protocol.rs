@@ -138,7 +138,7 @@ impl PlayerPosition {
                 }
             }
         }
-        unreachable!("a and b should be on the same x or y")
+        unreachable!("a ({}) and b ({}) should be on the same x or y", a, b)
     }
 }
 
