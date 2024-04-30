@@ -95,6 +95,7 @@ pub(crate) fn despawn_confirmed(
     for confirmed_entity in query.read() {
         if let Some(predicted) = manager
             .predicted_entity_map
+            .get_mut()
             .confirmed_to_predicted
             .remove(&confirmed_entity)
         {

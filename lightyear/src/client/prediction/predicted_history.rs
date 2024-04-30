@@ -1,3 +1,5 @@
+//! Managed the history buffer, which is a buffer of the past predicted component states,
+//! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
 use std::ops::Deref;
 
 use bevy::prelude::{
@@ -6,32 +8,31 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info, trace};
 
-use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::Predicted;
 use crate::prelude::{
     ComponentRegistry, ExternalMapper, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
 };
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
 
-use super::{Confirmed, Predicted};
-
-// TODO: maybe just option<T> ?
+/// Stores a past update for a component
 #[derive(Debug, PartialEq, Clone)]
-pub enum ComponentState<C> {
-    // the component got just removed
+pub(crate) enum ComponentState<C> {
+    /// the component just got removed
     Removed,
-    // the component got updated
+    /// the component got updated
     Updated(C),
 }
 
 /// To know if we need to do rollback, we need to compare the predicted entity's history with the server's state updates
 #[derive(Component, Debug)]
-pub struct PredictionHistory<C: PartialEq> {
+pub(crate) struct PredictionHistory<C: PartialEq> {
     // TODO: add a max size for the buffer
     // We want to avoid using a SequenceBuffer for optimization (we don't want to store a copy of the component for each history tick)
-    // We can afford to use a ReadyBuffer because we will get server updates with monotically increasing ticks
+    // We can afford to use a ReadyBuffer because we will get server updates with monotonically increasing ticks
     // therefore we can get rid of the old ticks before the server update
 
     // We will only store the history for the ticks where the component got updated
@@ -62,9 +63,21 @@ impl<C: SyncComponent> PredictionHistory<C> {
         self.buffer = ReadyBuffer::new();
     }
 
-    /// Get the value of the component at the specified tick.
-    /// Clears the history buffer of all ticks older or equal than the specified tick.
-    /// NOTE: Stores the returned value in the provided tick!!!
+    /// Add to the buffer that we received an update for the component at the given tick
+    pub(crate) fn add_update(&mut self, tick: Tick, component: C) {
+        self.buffer
+            .add_item(tick, ComponentState::Updated(component));
+    }
+
+    /// Add to the buffer that the component got removed at the given tick
+    pub(crate) fn add_remove(&mut self, tick: Tick) {
+        self.buffer.add_item(tick, ComponentState::Removed);
+    }
+
+    // TODO: check if this logic is necessary/correct?
+    /// Clear the history of values strictly older than the specified tick,
+    /// and return the most recent value that is older or equal to the specified tick.
+    /// NOTE: That value is written back into the buffer
     ///
     /// CAREFUL:
     /// the component history will only contain the ticks where the component got updated, and otherwise
@@ -77,36 +90,7 @@ impl<C: SyncComponent> PredictionHistory<C> {
             state
         })
     }
-
-    // /// Get the value of the component at the specified tick.
-    // /// Clears the history buffer of all ticks older than the specified tick.
-    // /// Returns None
-    // pub(crate) fn get_history_at_tick(&mut self, tick: Tick) -> Option<T> {
-    //     if self.buffer.heap.is_empty() {
-    //         return None;
-    //     }
-    //     let mut val = None;
-    //     loop {
-    //         if let Some(item_with_key) = self.buffer.heap.pop() {
-    //             // we have a new update that is older than what we want, stop
-    //             if item_with_key.key > tick {
-    //                 // put back the update in the heap
-    //                 self.buffer.heap.push(item_with_key);
-    //                 break;
-    //             } else {
-    //                 val = Some(item_with_key.item);
-    //             }
-    //         } else {
-    //             break;
-    //         }
-    //     }
-    //     val
-    // }
 }
-
-// This system:
-// - when we receive a confirmed entity, we will create a predicted entity
-// - when that predicted entity is created, we need to copy all components from the confirmed entity to the predicted entity, and create ComponentHistories
 
 // Copy component insert/remove from confirmed to predicted
 // Currently we will just copy every PredictedComponent
@@ -117,11 +101,12 @@ impl<C: SyncComponent> PredictionHistory<C> {
 //  - copy component to history and don't add component
 
 // TODO: only run this for SyncComponent where SyncMode != None
+/// Add component history for entities that are predicted
+/// There is extra complexity because the component could get added on the Confirmed entity (received from the server), or added to the Predited entity directly
 #[allow(clippy::type_complexity)]
 pub(crate) fn add_component_history<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
-    // TODO: unfortunately we need this to be mutable because of the MapEntities trait even though it's not actually needed...
-    mut manager: ResMut<PredictionManager>,
+    manager: Res<PredictionManager>,
     mut commands: Commands,
     tick_manager: Res<TickManager>,
     predicted_entities: Query<
@@ -159,19 +144,14 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                             commands.get_entity(predicted_entity).unwrap();
                         // map any entities from confirmed to predicted
                         let mut new_component = confirmed_component.deref().clone();
-                        component_registry.map_entities(
-                            &mut new_component,
-                            &mut manager.predicted_entity_map.confirmed_to_predicted,
-                        );
+                        manager.map_entities(&mut new_component, component_registry.as_ref());
                         match component_registry.prediction_mode::<C>() {
                             ComponentSyncMode::Full => {
                                 // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
-                                // TODO: then there's no need to add the component here, since it's going to get added during rollback anyway
+                                // or will it? because the component just got spawned anyway..
+                                // TODO: then there's no need to add the component here, since it's going to get added during rollback anyway?
                                 let mut history = PredictionHistory::<C>::default();
-                                history.buffer.add_item(
-                                    tick_manager.tick(),
-                                    ComponentState::Updated(confirmed_component.deref().clone()),
-                                );
+                                history.add_update(tick, confirmed_component.deref().clone());
                                 predicted_entity_mut.insert((new_component, history));
                             }
                             ComponentSyncMode::Simple => {
@@ -201,7 +181,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
 /// Add the history for prespawned entities.
 /// This must run on FixedUpdate (for entities spawned on FixedUpdate) and PreUpdate (for entities spawned on Update)
 #[allow(clippy::type_complexity)]
-pub fn add_prespawned_component_history<C: SyncComponent>(
+pub(crate) fn add_prespawned_component_history<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
     mut commands: Commands,
     tick_manager: Res<TickManager>,
@@ -243,10 +223,7 @@ fn add_history<C: SyncComponent>(
                 debug!(?kind, ?tick, ?predicted_entity, "Adding prediction history");
                 // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
                 let mut history = PredictionHistory::<C>::default();
-                history.buffer.add_item(
-                    tick,
-                    ComponentState::Updated(predicted_component.deref().clone()),
-                );
+                history.add_update(tick, predicted_component.deref().clone());
                 commands.entity(predicted_entity).insert(history);
             }
         }
@@ -291,7 +268,7 @@ fn add_history<C: SyncComponent>(
 //    - we remove the component from predicted.
 
 /// After one fixed-update tick, we record the predicted component history for the current tick
-pub fn update_prediction_history<T: SyncComponent>(
+pub(crate) fn update_prediction_history<T: SyncComponent>(
     mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
     mut removed_component: RemovedComponents<T>,
     mut removed_entities: Query<&mut PredictionHistory<T>, Without<T>>,
@@ -311,14 +288,12 @@ pub fn update_prediction_history<T: SyncComponent>(
     for (component, mut history) in query.iter_mut() {
         // change detection works even when running the schedule for rollback (with no time increase)
         if component.is_changed() {
-            history
-                .buffer
-                .add_item(tick, ComponentState::Updated(component.clone()));
+            history.add_update(tick, component.deref().clone());
         }
     }
     for entity in removed_component.read() {
         if let Ok(mut history) = removed_entities.get_mut(entity) {
-            history.buffer.add_item(tick, ComponentState::Removed);
+            history.add_remove(tick);
         }
     }
 }
@@ -327,8 +302,7 @@ pub fn update_prediction_history<T: SyncComponent>(
 #[allow(clippy::type_complexity)]
 pub(crate) fn apply_confirmed_update<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
-    // TODO: unfortunately we need this to be mutable because of the MapEntities trait even though it's not actually needed...
-    mut manager: ResMut<PredictionManager>,
+    manager: Res<PredictionManager>,
     mut predicted_entities: Query<
         &mut C,
         (
@@ -357,10 +331,7 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
                         ComponentSyncMode::Simple => {
                             // map any entities from confirmed to predicted
                             let mut component = confirmed_component.deref().clone();
-                            component_registry.map_entities(
-                                &mut component,
-                                &mut manager.predicted_entity_map.confirmed_to_predicted,
-                            );
+                            manager.map_entities(&mut component, component_registry.as_ref());
                             *predicted_component = component;
                         }
                         _ => {}
@@ -373,36 +344,193 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
-    //
-    // #[derive(Component, Clone, PartialEq, Eq, Debug)]
-    // pub struct A(u32);
-    //
-    // #[test]
-    // fn test_component_history() {
-    //     let mut component_history = ComponentHistory::new();
-    //
-    //     // check when we try to access a value when the buffer is empty
-    //     assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
-    //
-    //     // check when we try to access an exact tick
-    //     component_history.buffer.add_item(Tick(1), A(1));
-    //     component_history.buffer.add_item(Tick(2), A(2));
-    //     assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(2)));
-    //     // check that we cleared older ticks
-    //     assert!(component_history.buffer.is_empty());
-    //
-    //     // check when we try to access a value in-between ticks
-    //     component_history.buffer.add_item(Tick(1), A(1));
-    //     component_history.buffer.add_item(Tick(3), A(3));
-    //     assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(1)));
-    //     assert_eq!(component_history.buffer.len(), 1);
-    //     assert_eq!(component_history.get_history_at_tick(Tick(4)), Some(A(3)));
-    //     assert!(component_history.buffer.is_empty());
-    //
-    //     // check when we try to access a value before any ticks
-    //     component_history.buffer.add_item(Tick(1), A(1));
-    //     assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
-    //     assert_eq!(component_history.buffer.len(), 1);
-    // }
+    use super::*;
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::utils::ready_buffer::ItemWithReadyKey;
+
+    /// Test adding and removing updates to the component history
+    #[test]
+    fn test_component_history() {
+        let mut component_history = PredictionHistory::<Component1>::default();
+
+        // check when we try to access a value when the buffer is empty
+        assert_eq!(component_history.pop_until_tick(Tick(0)), None);
+
+        // check when we try to access an exact tick
+        component_history.add_update(Tick(1), Component1(1.0));
+        component_history.add_update(Tick(2), Component1(2.0));
+        assert_eq!(
+            component_history.pop_until_tick(Tick(2)),
+            Some(ComponentState::Updated(Component1(2.0)))
+        );
+        // check that we cleared older ticks, and that the most recent value still remains
+        assert_eq!(component_history.buffer.len(), 1);
+        assert!(component_history.buffer.has_item(&Tick(2)));
+
+        // check when we try to access a value in-between ticks
+        component_history.add_update(Tick(4), Component1(4.0));
+        // we retrieve the most recent value older or equal to Tick(3)
+        assert_eq!(
+            component_history.pop_until_tick(Tick(3)),
+            Some(ComponentState::Updated(Component1(2.0)))
+        );
+        assert_eq!(component_history.buffer.len(), 2);
+        // check that the most recent value got added back to the buffer at the popped tick
+        assert_eq!(
+            component_history.buffer.heap.peek(),
+            Some(&ItemWithReadyKey {
+                key: Tick(2),
+                item: ComponentState::Updated(Component1(2.0))
+            })
+        );
+        assert!(component_history.buffer.has_item(&Tick(4)));
+
+        // check that nothing happens when we try to access a value before any ticks
+        assert_eq!(component_history.pop_until_tick(Tick(0)), None);
+        assert_eq!(component_history.buffer.len(), 2);
+    }
+
+    /// Test adding the component history to the predicted entity
+    /// 1. Add the history for ComponentSyncMode::Full that was added to the confirmed entity
+    /// 2. Add the history for ComponentSyncMode::Full that was added to the predicted entity
+    /// 3. Don't add the history for ComponentSyncMode::Simple
+    /// 4. Don't add the history for ComponentSyncMode::Once
+    // TODO: check map entities
+    #[test]
+    fn test_add_component_history() {
+        let mut stepper = BevyStepper::default();
+
+        let tick = stepper.client_tick();
+        let confirmed = stepper.client_app.world.spawn(Confirmed::default()).id();
+        let predicted = stepper
+            .client_app
+            .world
+            .spawn(Predicted {
+                confirmed_entity: Some(confirmed),
+            })
+            .id();
+        stepper
+            .client_app
+            .world
+            .entity_mut(confirmed)
+            .get_mut::<Confirmed>()
+            .unwrap()
+            .predicted = Some(predicted);
+
+        // 1. Add the history for ComponentSyncMode::Full that was added to the confirmed entity
+        stepper
+            .client_app
+            .world
+            .entity_mut(confirmed)
+            .insert(Component1(1.0));
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity_mut(predicted)
+                .get_mut::<PredictionHistory<Component1>>()
+                .expect("Expected prediction history to be added")
+                .pop_until_tick(tick),
+            Some(ComponentState::Updated(Component1(1.0))),
+            "Expected component value to be added to prediction history"
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(predicted)
+                .get::<Component1>()
+                .expect("Expected component to be added to predicted entity"),
+            &Component1(1.0),
+            "Expected component to be added to predicted entity"
+        );
+
+        // 2. Add the history for ComponentSyncMode::Full that was added to the predicted entity
+        let tick = stepper.client_tick();
+        stepper
+            .client_app
+            .world
+            .entity_mut(predicted)
+            .insert(Component5(1.0));
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity_mut(predicted)
+                .get_mut::<PredictionHistory<Component5>>()
+                .expect("Expected prediction history to be added")
+                .pop_until_tick(tick),
+            Some(ComponentState::Updated(Component5(1.0))),
+            "Expected component value to be added to prediction history"
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(predicted)
+                .get::<Component5>()
+                .expect("Expected component to be added to predicted entity"),
+            &Component5(1.0),
+            "Expected component to be added to predicted entity"
+        );
+
+        // 3. Don't add the history for ComponentSyncMode::Simple
+        let tick = stepper.client_tick();
+        stepper
+            .client_app
+            .world
+            .entity_mut(confirmed)
+            .insert(Component2(1.0));
+        stepper.frame_step();
+        assert!(
+            stepper
+                .client_app
+                .world
+                .entity(predicted)
+                .get::<PredictionHistory<Component2>>()
+                .is_none(),
+            "Expected component value to not be added to prediction history for ComponentSyncMode::Simple"
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(predicted)
+                .get::<Component2>()
+                .expect("Expected component to be added to predicted entity"),
+            &Component2(1.0),
+            "Expected component to be added to predicted entity"
+        );
+
+        // 4. Don't add the history for ComponentSyncMode::Once
+        let tick = stepper.client_tick();
+        stepper
+            .client_app
+            .world
+            .entity_mut(confirmed)
+            .insert(Component3(1.0));
+        stepper.frame_step();
+        assert!(
+            stepper
+                .client_app
+                .world
+                .entity(predicted)
+                .get::<PredictionHistory<Component3>>()
+                .is_none(),
+            "Expected component value to not be added to prediction history for ComponentSyncMode::Once"
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(predicted)
+                .get::<Component3>()
+                .expect("Expected component to be added to predicted entity"),
+            &Component3(1.0),
+            "Expected component to be added to predicted entity"
+        );
+    }
 }

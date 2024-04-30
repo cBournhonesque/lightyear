@@ -4,6 +4,7 @@ use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
 use bevy::prelude::{Component, Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use bevy::utils::hashbrown::hash_map::Entry;
+use std::cell::UnsafeCell;
 
 /// A trait for structs who can do entity mapping for another type.
 /// This is used to avoid the orphan rule, as we can't implement [`MapEntities`] on external types.
@@ -30,8 +31,8 @@ pub struct RemoteEntityMap {
 
 #[derive(Default, Debug, Reflect)]
 pub struct PredictedEntityMap {
-    // map from the confirmed entity to the predicted entity
-    // useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
+    /// Map from the confirmed entity to the predicted entity
+    /// useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
     pub(crate) confirmed_to_predicted: EntityMap,
 }
 

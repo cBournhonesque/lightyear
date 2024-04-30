@@ -139,6 +139,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
 pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
     // TODO: unfortunately we need this to be mutable because of the MapEntities trait even though it's not actually needed...
+    //  could use UnsafeCell to bypass this.
     mut manager: ResMut<InterpolationManager>,
     mut interpolated_entities: Query<
         &mut ConfirmedHistory<C>,
