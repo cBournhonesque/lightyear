@@ -14,8 +14,8 @@ use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 
+use bitcode::encoding::Fixed;
 use bitcode::Encode;
-use bitcode::__private::Fixed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace, warn};
@@ -354,6 +354,7 @@ impl ComponentRegistry {
         entity_map: &mut EntityMap,
         events: &mut ConnectionEvents,
     ) -> anyhow::Result<()> {
+        trace!("Writing component {} to entity", std::any::type_name::<C>());
         let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
         let entity = entity_world_mut.id();
         // TODO: do we need the tick information in the event?

@@ -20,6 +20,10 @@ pub(crate) fn spawn_predicted_entity(
     connection: Res<ConnectionManager>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
+    // TODO: instead of listening to the ComponentInsertEvent, should we just directly query on Added<ShouldBePredicted>?
+    //  maybe listening to the event is more performant, since Added<ShouldBePredicted> queries all entities that have this component?
+    //  (which should actually be ok since we remove ShouldBePredicted immediately)
+    //  Benchmark!
     // get the list of entities who get ShouldBePredicted replicated from server
     mut should_be_predicted_added: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
     // only handle predicted that have ShouldBePredicted
