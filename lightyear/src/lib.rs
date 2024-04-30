@@ -5,7 +5,6 @@ It is designed for server-authoritative multiplayer games; and aims to be both f
 
 You can find more information in the [book](https://cbournhonesque.github.io/lightyear/book/) or check out the [examples](https://github.com/cBournhonesque/lightyear/tree/main/examples)!
 */
-#![allow(unused_mut)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
@@ -15,33 +14,10 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 // the `docsrs` configuration attribute is defined
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-// re-exports (mostly used in the derive macro crate or for internal purposes)
+// re-exports
 #[doc(hidden)]
 pub(crate) mod _internal {
-    pub use enum_dispatch::enum_dispatch;
     pub use paste::paste;
-
-    pub use lightyear_macros::ChannelInternal;
-
-    pub use crate::channel::builder::TickBufferChannel;
-    pub use crate::channel::builder::{
-        EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
-    };
-    pub use crate::client::interpolation::LinearInterpolator;
-    pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
-    pub use crate::protocol::message::MessageKind;
-    pub use crate::protocol::{BitSerializable, EventContext};
-    pub use crate::shared::events::components::{
-        ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
-    };
-    pub use crate::shared::events::connection::{
-        IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-    };
-    pub use crate::shared::replication::components::ShouldBeInterpolated;
-    pub use crate::shared::sets::{ClientMarker, ServerMarker};
-    pub use crate::shared::time_manager::WrappedTime;
-    pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};
-    pub use crate::utils::sequence_buffer::SequenceBuffer;
 }
 
 /// Prelude containing commonly used types

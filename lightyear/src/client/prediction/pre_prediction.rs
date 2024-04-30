@@ -3,7 +3,6 @@
 use bevy::prelude::*;
 use tracing::{debug, error, trace, warn};
 
-use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
@@ -15,7 +14,7 @@ use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
 use crate::prelude::{NetworkTarget, ShouldBePredicted, Tick};
 use crate::shared::replication::components::{PrePredicted, Replicate};
-use crate::shared::sets::InternalReplicationSet;
+use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 #[derive(Default)]
 pub(crate) struct PrePredictionPlugin;

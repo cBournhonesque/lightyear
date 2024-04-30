@@ -10,11 +10,11 @@ use tracing::{error, info_span, trace};
 use bitcode::__private::Fixed;
 use bitcode::{Decode, Encode};
 
-use crate::_internal::{BitSerializable, MessageKind, ServerMarker};
 use crate::packet::message::SingleData;
 use crate::prelude::{MainSet, Message, NetworkTarget};
-use crate::protocol::message::MessageRegistry;
+use crate::protocol::message::{MessageKind, MessageRegistry};
 use crate::protocol::registry::NetId;
+use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
@@ -23,7 +23,7 @@ use crate::server::events::MessageEvent;
 use crate::server::networking::is_started;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
-use crate::shared::sets::InternalMainSet;
+use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 #[derive(Encode, Decode, Clone, Debug)]
 pub enum ServerMessage {

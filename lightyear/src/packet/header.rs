@@ -5,12 +5,12 @@ use tracing::trace;
 
 use bitcode::{Decode, Encode};
 
-use crate::_internal::WrappedTime;
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::PacketStatsManager;
 use crate::prelude::TimeManager;
 use crate::shared::tick_manager::Tick;
+use crate::shared::time_manager::WrappedTime;
 
 /// Header included at the start of all packets
 #[derive(Encode, Decode, Deserialize, Serialize, Debug, Clone, PartialEq)]

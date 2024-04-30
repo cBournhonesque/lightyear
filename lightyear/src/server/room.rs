@@ -12,13 +12,12 @@ use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
 use tracing::{error, info, trace};
 
-use crate::_internal::ServerMarker;
 use crate::connection::id::ClientId;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::is_started;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicateVisibility};
 use crate::shared::replication::ReplicationSend;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
 use crate::shared::time_manager::is_server_ready_to_send;
 use crate::utils::wrapping_id::wrapping_id;
 
@@ -544,7 +543,7 @@ fn update_despawn_metadata_cache(
 /// - Visibility Lost gets removed from the cache
 fn clear_entity_replication_cache(
     mut query: Query<&mut ReplicateVisibility>,
-    mut connection_manager: ResMut<ConnectionManager>,
+    connection_manager: ResMut<ConnectionManager>,
 ) {
     for mut replicate in query.iter_mut() {
         replicate

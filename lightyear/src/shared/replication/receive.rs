@@ -279,7 +279,7 @@ impl ReplicationReceiver {
                     //     .map(|c| c.into())
                     //     .collect::<HashSet<P::ComponentKinds>>();
                     debug!(remote_entity = ?entity, "Received InsertComponent");
-                    for mut component in actions.insert {
+                    for component in actions.insert {
                         self.reader.reset_read(component.as_slice());
                         let _ = component_registry
                             .raw_write(
@@ -316,7 +316,7 @@ impl ReplicationReceiver {
                     //     .map(|c| c.into())
                     //     .collect::<Vec<P::ComponentKinds>>();
                     debug!(remote_entity = ?entity, "Received UpdateComponent");
-                    for mut component in actions.updates {
+                    for component in actions.updates {
                         // TODO: re-use buffers via pool?
                         self.reader.reset_read(component.as_slice());
                         let _ = component_registry
@@ -340,7 +340,7 @@ impl ReplicationReceiver {
                     if let Ok(mut local_entity_mut) =
                         self.remote_entity_map.get_by_remote(world, entity)
                     {
-                        for mut component in components {
+                        for component in components {
                             self.reader.reset_read(component.as_slice());
                             let _ = component_registry
                                 .raw_write(

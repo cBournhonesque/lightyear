@@ -1,7 +1,6 @@
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 
-use crate::_internal::ServerMarker;
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
 use crate::client::prediction::Predicted;
@@ -14,7 +13,7 @@ use crate::server::networking::is_started;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::components::Replicate;
 use crate::shared::replication::plugin::ReplicationPlugin;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
 
 /// Configuration related to replicating the server's World to clients
 #[derive(Clone, Debug)]

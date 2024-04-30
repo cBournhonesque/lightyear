@@ -2,13 +2,13 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
-use crate::_internal::ShouldBeInterpolated;
 use crate::prelude::{
     NetworkTarget, PrePredicted, RemoteEntityMap, ReplicationGroup, ReplicationMode,
     ShouldBePredicted,
 };
 use crate::shared::replication::components::{
     PerComponentReplicationMetadata, Replicate, ReplicationGroupId, ReplicationGroupIdBuilder,
+    ShouldBeInterpolated,
 };
 use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
 use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};

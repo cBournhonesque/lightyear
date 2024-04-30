@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroU32;
 
+use crate::channel::builder::EntityUpdatesChannel;
 use crossbeam_channel::{Receiver, Sender};
 use governor::{DefaultDirectRateLimiter, Quota};
 use nonzero_ext::*;
 use tracing::{debug, error, trace};
 
-use crate::_internal::EntityUpdatesChannel;
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 use crate::prelude::{ChannelKind, ChannelRegistry, Tick};
 use crate::protocol::registry::NetId;

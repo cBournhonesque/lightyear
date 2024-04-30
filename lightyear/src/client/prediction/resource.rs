@@ -3,9 +3,9 @@
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Resource};
 
-use crate::_internal::ReadyBuffer;
 use crate::prelude::Tick;
 use crate::shared::replication::entity_map::PredictedEntityMap;
+use crate::utils::ready_buffer::ReadyBuffer;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 

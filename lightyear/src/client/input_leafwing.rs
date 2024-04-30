@@ -42,7 +42,6 @@ use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use tracing::{error, trace};
 
-use crate::_internal::ClientMarker;
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -56,7 +55,7 @@ use crate::inputs::leafwing::input_buffer::{
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{Mode, SharedConfig, TickManager};
 use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::{FixedUpdateSet, InternalMainSet};
+use crate::shared::sets::{ClientMarker, FixedUpdateSet, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
 /// Run condition to control most of the systems in the LeafwingInputPlugin

@@ -30,7 +30,6 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use tracing::{debug, error, info, trace};
 
-use crate::_internal::ClientMarker;
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -44,7 +43,7 @@ use crate::inputs::native::{InputMessage, UserAction};
 use crate::prelude::client::ClientConnection;
 use crate::prelude::{server, AppMessageExt, ChannelDirection, SharedConfig, Tick, TickManager};
 use crate::shared::config::Mode;
-use crate::shared::sets::InternalMainSet;
+use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
 #[derive(Debug, Clone, Reflect)]

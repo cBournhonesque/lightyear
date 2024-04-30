@@ -300,7 +300,6 @@ mod tests {
 
     use bevy::prelude::default;
 
-    use crate::_internal::*;
     use crate::packet::message::MessageId;
     use crate::packet::packet::FRAGMENT_SIZE;
     use crate::packet::priority_manager::PriorityConfig;
@@ -322,9 +321,9 @@ mod tests {
         });
 
         // Create message managers
-        let mut client_message_manager =
+        let client_message_manager =
             MessageManager::new(&channel_registry, PriorityConfig::default());
-        let mut server_message_manager =
+        let server_message_manager =
             MessageManager::new(&channel_registry, PriorityConfig::default());
         (client_message_manager, server_message_manager)
     }

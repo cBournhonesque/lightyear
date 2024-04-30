@@ -1,11 +1,10 @@
-use crate::_internal::{ReadBuffer, ReadWordBuffer};
 use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::NetServer;
 use crate::packet::packet::Packet;
 use crate::prelude::{Io, LinkConditionerConfig};
-use crate::serialize::wordbuffer::reader::BufferPool;
+use crate::serialize::bitcode::reader::BufferPool;
 use anyhow::{anyhow, Context, Result};
 use bevy::utils::HashMap;
 use std::collections::VecDeque;

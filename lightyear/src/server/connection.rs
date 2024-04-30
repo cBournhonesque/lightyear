@@ -9,12 +9,9 @@ use hashbrown::hash_map::Entry;
 use serde::Serialize;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
-use bitcode::__private::Fixed;
+use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
+use bitcode::encoding::Fixed;
 
-use crate::_internal::{
-    BitSerializable, EntityUpdatesChannel, MessageKind, PingChannel, ServerMarker,
-    ShouldBeInterpolated,
-};
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
 use crate::connection::id::ClientId;
@@ -29,6 +26,7 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
+use crate::protocol::BitSerializable;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;
@@ -40,12 +38,15 @@ use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
-use crate::shared::replication::components::{NetworkTarget, Replicate, ReplicationGroupId};
+use crate::shared::replication::components::{
+    NetworkTarget, Replicate, ReplicationGroupId, ShouldBeInterpolated,
+};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::systems::DespawnMetadata;
 use crate::shared::replication::ReplicationMessageData;
 use crate::shared::replication::{ReplicationMessage, ReplicationSend};
+use crate::shared::sets::ServerMarker;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -255,7 +256,7 @@ impl ConnectionManager {
             .iter_mut()
             .for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
-                world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
+                world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
                     // receive events on the connection
                     let events = connection.receive(
                         world,
@@ -491,7 +492,7 @@ impl Connection {
                     self.reader_pool.attach(reader);
 
                     match message {
-                        ClientMessage::Message(mut message, target) => {
+                        ClientMessage::Message(message, target) => {
                             let mut reader = self.reader_pool.start_read(message.as_slice());
                             let net_id = reader
                                 .decode::<NetId>(Fixed)

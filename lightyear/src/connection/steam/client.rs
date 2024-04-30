@@ -1,10 +1,9 @@
-use crate::_internal::{ReadBuffer, ReadWordBuffer};
 use crate::client::networking::NetworkingState;
 use crate::connection::client::NetClient;
 use crate::connection::id::ClientId;
 use crate::packet::packet::Packet;
 use crate::prelude::{Io, LinkConditionerConfig};
-use crate::serialize::wordbuffer::reader::BufferPool;
+use crate::serialize::bitcode::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
 use bevy::tasks::IoTaskPool;
