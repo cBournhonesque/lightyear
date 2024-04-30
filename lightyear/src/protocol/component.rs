@@ -14,7 +14,6 @@ use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 
-use crate::_internal::{InstantCorrector, LinearInterpolator, MessageKind, ServerMarker};
 use bitcode::Encode;
 use bitcode::__private::Fixed;
 use serde::de::DeserializeOwned;

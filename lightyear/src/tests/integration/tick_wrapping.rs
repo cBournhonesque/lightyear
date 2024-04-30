@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use crate::_internal::WrappedTime;
 use crate::client::input::InputManager;
 use crate::prelude::client::{InputSystemSet, SyncConfig};
 use crate::prelude::server::InputEvent;
 use crate::prelude::*;
+use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::tests::stepper::{BevyStepper, Step};
 

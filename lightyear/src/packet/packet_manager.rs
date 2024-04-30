@@ -614,7 +614,6 @@ mod tests {
 
     use lightyear_macros::ChannelInternal;
 
-    use crate::_internal::*;
     use crate::channel::senders::fragment_sender::FragmentSender;
     use crate::packet::message::MessageId;
     use crate::prelude::*;

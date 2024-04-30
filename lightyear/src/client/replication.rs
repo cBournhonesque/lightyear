@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use crate::_internal::ClientMarker;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::networking::is_connected;
@@ -9,7 +8,7 @@ use crate::client::sync::client_is_synced;
 use crate::prelude::client::InterpolationDelay;
 use crate::prelude::SharedConfig;
 use crate::shared::replication::plugin::ReplicationPlugin;
-use crate::shared::sets::InternalReplicationSet;
+use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 #[derive(Clone, Debug, Reflect)]
 pub struct ReplicationConfig {

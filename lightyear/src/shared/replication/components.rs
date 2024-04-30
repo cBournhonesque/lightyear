@@ -8,7 +8,6 @@ use tracing::trace;
 
 use bitcode::{Decode, Encode};
 
-use crate::_internal::{ClientMarker, ServerMarker};
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;

@@ -5,9 +5,8 @@ use anyhow::Context;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use bitcode::__private::Fixed;
+use bitcode::encoding::Fixed;
 
-use crate::_internal::{MessageKind, ServerMarker};
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;
@@ -19,13 +18,14 @@ use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::client::is_in_rollback;
 use crate::prelude::server::MessageEvent;
 use crate::prelude::{client, MessageRegistry, Mode, NetworkTarget, SharedConfig, TickManager};
+use crate::protocol::message::MessageKind;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::is_started;
 use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::InternalMainSet;
+use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 pub struct LeafwingInputPlugin<A> {
     marker: std::marker::PhantomData<A>,

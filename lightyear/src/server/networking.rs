@@ -4,7 +4,6 @@ use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_internal::ServerMarker;
 use crate::client::config::ClientConfig;
 use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
@@ -17,7 +16,7 @@ use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, E
 use crate::server::room::RoomManager;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
-use crate::shared::sets::InternalMainSet;
+use crate::shared::sets::{InternalMainSet, ServerMarker};
 use crate::shared::time_manager::is_server_ready_to_send;
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients

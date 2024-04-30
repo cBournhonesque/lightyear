@@ -7,7 +7,6 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace, warn};
 
-use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
@@ -22,7 +21,7 @@ use crate::prelude::{ComponentRegistry, ParentSync, ShouldBePredicted, Tick, Tic
 use crate::protocol::component::ComponentKind;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
-use crate::shared::sets::InternalReplicationSet;
+use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 #[derive(Default)]
 pub(crate) struct PreSpawnedPlayerObjectPlugin;
@@ -104,7 +103,7 @@ impl PreSpawnedPlayerObjectPlugin {
 
         world.resource_scope(|world: &mut World, mut manager: Mut<PredictionManager>| {
             world.resource_scope(
-                |world: &mut World, mut component_registry: Mut<ComponentRegistry>| {
+                |world: &mut World, component_registry: Mut<ComponentRegistry>| {
                     let components = world.components();
 
                     // ignore confirmed entities just in case we somehow didn't remove their hash during PreUpdate
@@ -456,12 +455,12 @@ mod tests {
     use bevy::prelude::Entity;
     use hashbrown::HashMap;
 
-    use crate::_internal::ItemWithReadyKey;
     use crate::client::prediction::resource::PredictionManager;
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
+    use crate::utils::ready_buffer::ItemWithReadyKey;
 
     #[test]
     fn test_compute_hash() {

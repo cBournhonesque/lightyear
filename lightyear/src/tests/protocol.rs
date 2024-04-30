@@ -5,9 +5,9 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect, Resource};
 use cfg_if::cfg_if;
 use derive_more::{Add, Mul};
+use lightyear_macros::ChannelInternal;
 use serde::{Deserialize, Serialize};
 
-use crate::_internal::*;
 use crate::client::components::ComponentSyncMode;
 use crate::prelude::*;
 

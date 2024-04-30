@@ -33,6 +33,11 @@ path = "spawn.rs"
 harness = false
 
 [[bench]]
+name = "message"
+path = "message.rs"
+harness = false
+
+[[bench]]
 name = "bitcode_packing"
 path = "bitcode_packing.rs"
 harness = false

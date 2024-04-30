@@ -2,7 +2,6 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use crate::_internal::ShouldBeInterpolated;
 use crate::prelude::{
     AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, IoConfig,
     LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
@@ -10,6 +9,7 @@ use crate::prelude::{
 };
 use crate::server::config::ServerConfig;
 use crate::shared::config::SharedConfig;
+use crate::shared::replication::components::ShouldBeInterpolated;
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
 

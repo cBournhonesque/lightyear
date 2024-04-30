@@ -8,7 +8,6 @@ use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
 
-use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -26,7 +25,7 @@ use crate::server::networking::is_started;
 use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::components::Replicated;
-use crate::shared::sets::InternalMainSet;
+use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
 use crate::transport::io::IoState;

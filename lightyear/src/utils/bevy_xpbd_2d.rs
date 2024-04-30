@@ -14,7 +14,6 @@ use crate::prelude::Message;
 // pub use rotation::*;
 
 pub mod position {
-    use crate::_internal::LinearInterpolator;
 
     use super::*;
 
@@ -32,7 +31,6 @@ pub mod position {
 }
 
 pub mod rotation {
-    use crate::_internal::LinearInterpolator;
 
     use super::*;
 
@@ -58,7 +56,6 @@ pub mod rotation {
 }
 
 pub mod linear_velocity {
-    use crate::_internal::LinearInterpolator;
 
     use super::*;
 
@@ -76,7 +73,6 @@ pub mod linear_velocity {
 }
 
 pub mod angular_velocity {
-    use crate::_internal::LinearInterpolator;
 
     use super::*;
 

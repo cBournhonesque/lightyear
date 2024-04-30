@@ -7,7 +7,6 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 
-use crate::_internal::ClientMarker;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::networking::is_connected;
@@ -29,7 +28,7 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject, SharedConfig};
-use crate::shared::sets::InternalMainSet;
+use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
 use super::predicted_history::{add_component_history, apply_confirmed_update};

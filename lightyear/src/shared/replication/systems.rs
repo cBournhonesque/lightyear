@@ -10,7 +10,6 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::_internal::ShouldBeInterpolated;
 use crate::client::replication::ClientReplicationPlugin;
 use crate::prelude::{ClientId, NetworkTarget, ReplicationGroup, ShouldBePredicted, TickManager};
 use crate::protocol::component::ComponentRegistry;
@@ -157,7 +156,7 @@ fn send_entity_despawn<R: ReplicationSend>(
 fn send_entity_spawn<R: ReplicationSend>(
     system_bevy_ticks: SystemChangeTick,
     component_registry: Res<ComponentRegistry>,
-    mut query: Query<(Entity, Ref<Replicate>, Option<&ReplicateVisibility>)>,
+    query: Query<(Entity, Ref<Replicate>, Option<&ReplicateVisibility>)>,
     mut sender: ResMut<R>,
 ) {
     // Replicate to already connected clients (replicate only new entities)

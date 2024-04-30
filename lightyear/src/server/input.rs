@@ -5,7 +5,6 @@ use bevy::utils::HashMap;
 
 use bitcode::__private::Fixed;
 
-use crate::_internal::{MessageKind, ServerMarker};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
 use crate::prelude::server::MessageEvent;
@@ -13,12 +12,13 @@ use crate::prelude::{
     AppMessageExt, ChannelDirection, ClientId, Message, MessageRegistry, NetworkTarget,
     TickManager, UserAction,
 };
+use crate::protocol::message::MessageKind;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputEvent;
 use crate::server::networking::is_started;
-use crate::shared::sets::InternalMainSet;
+use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 // - ClientInputs:
 // - inputs will be sent via a special message

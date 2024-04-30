@@ -9,9 +9,9 @@ use bytes::Bytes;
 use serde::Serialize;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
+use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
 use bitcode::encoding::Fixed;
 
-use crate::_internal::{ClientMarker, EntityUpdatesChannel, MessageKind, PingChannel};
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
 use crate::client::message::ClientMessage;
@@ -41,6 +41,7 @@ use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::systems::DespawnMetadata;
 use crate::shared::replication::ReplicationMessageData;
 use crate::shared::replication::{ReplicationMessage, ReplicationSend};
+use crate::shared::sets::ClientMarker;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -337,7 +338,7 @@ impl ConnectionManager {
                         .expect("Could not decode server message");
                     // other message-handling logic
                     match message {
-                        ServerMessage::Message(mut message) => {
+                        ServerMessage::Message(message) => {
                             // reset the reader to read the inner bytes
                             reader.reset_read(message.as_ref());
                             let net_id = reader
@@ -393,7 +394,7 @@ impl ConnectionManager {
             for (group, replication_list) in
                 self.replication_receiver.read_messages(tick_manager.tick())
             {
-                world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
+                world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
                     trace!(?group, ?replication_list, "read replication messages");
                     replication_list
                         .into_iter()

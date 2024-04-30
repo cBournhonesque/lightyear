@@ -1,6 +1,7 @@
 //! General struct handling replication
 use std::iter::Extend;
 
+use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
 use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
@@ -10,7 +11,6 @@ use bevy::utils::{hashbrown, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::_internal::{EntityActionsChannel, EntityUpdatesChannel};
 use crate::packet::message::MessageId;
 use crate::prelude::{ShouldBePredicted, Tick};
 use crate::protocol::channel::ChannelKind;
@@ -395,6 +395,7 @@ impl GroupChannel {
 
 #[cfg(test)]
 mod tests {
+    use crate::channel::builder::EntityActionsChannel;
     use bevy::prelude::*;
 
     use super::*;

@@ -1,9 +1,9 @@
-use crate::_internal::{BitSerializable, MessageKind};
 use crate::prelude::{
     AppMessageExt, ChannelDirection, ComponentRegistry, Message, MessageRegistry, ReplicateResource,
 };
 use crate::protocol::message::MessageType;
 use crate::protocol::registry::NetId;
+use crate::protocol::BitSerializable;
 use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;

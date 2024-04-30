@@ -3,9 +3,6 @@ use bevy::ecs::entity::EntityHash;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 
-use crate::_internal::{
-    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, ServerMarker,
-};
 use crate::connection::id::ClientId;
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::LeafwingUserAction;
@@ -13,11 +10,12 @@ use crate::packet::message::Message;
 use crate::prelude::ComponentRegistry;
 use crate::server::connection::ConnectionManager;
 use crate::shared::events::connection::{
-    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
+    ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
-use crate::shared::sets::InternalMainSet;
+use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
