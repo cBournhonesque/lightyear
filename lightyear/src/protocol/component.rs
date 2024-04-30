@@ -23,7 +23,7 @@ use tracing::{debug, error, trace, warn};
 use crate::client::components::{ComponentSyncMode, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
-use crate::client::prediction::add_prediction_systems;
+use crate::client::prediction::plugin::add_prediction_systems;
 use crate::prelude::client::SyncComponent;
 use crate::prelude::server::{ServerConfig, ServerPlugin};
 use crate::prelude::{

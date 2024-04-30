@@ -453,6 +453,7 @@ pub struct PreSpawnedPlayerObject {
 
 #[cfg(test)]
 mod tests {
+    use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
     use bevy::prelude::Entity;
     use hashbrown::HashMap;
 

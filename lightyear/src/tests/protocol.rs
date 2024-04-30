@@ -89,6 +89,7 @@ impl Plugin for ProtocolPlugin {
         // components
         app.register_component::<Component1>(ChannelDirection::ServerToClient);
         app.add_prediction::<Component1>(ComponentSyncMode::Full);
+        app.add_interpolation::<Component1>(ComponentSyncMode::Full);
         app.add_linear_interpolation_fn::<Component1>();
 
         app.register_component::<Component2>(ChannelDirection::ServerToClient);
