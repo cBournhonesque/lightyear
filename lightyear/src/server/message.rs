@@ -103,7 +103,7 @@ pub(crate) fn add_client_to_server_message<M: Message>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         read_message::<M>
-            .after(InternalMainSet::<ServerMarker>::Receive)
+            .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
             .run_if(is_started),
     );
 }

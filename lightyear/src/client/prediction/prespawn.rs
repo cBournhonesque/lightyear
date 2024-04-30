@@ -356,6 +356,7 @@ impl PreSpawnedPlayerObjectPlugin {
 #[derive(
     Component, Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq, Reflect,
 )]
+#[component(storage = "SparseSet")]
 pub struct PreSpawnedPlayerObject {
     /// The hash that will identify the spawned entity
     /// By default, if the hash is not set, it will be generated from the entity's archetype (list of components) and spawn tick

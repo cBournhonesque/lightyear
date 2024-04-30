@@ -18,10 +18,12 @@ use crate::server::room::ClientVisibility;
 /// Marker component that indicates that the entity was spawned via replication
 /// (it is being replicated from a remote world)
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[component(storage = "SparseSet")]
 pub struct Replicated;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
+#[component(storage = "SparseSet")]
 pub(crate) struct DespawnTracker;
 
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
@@ -457,18 +459,21 @@ impl NetworkTarget {
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[component(storage = "SparseSet")]
 pub struct ShouldBeInterpolated;
 
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
 //  because we already do the mapping at other steps
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[component(storage = "SparseSet")]
 pub struct PrePredicted {
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[component(storage = "SparseSet")]
 pub struct ShouldBePredicted;
 
 #[cfg(test)]

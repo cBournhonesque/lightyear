@@ -83,7 +83,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         app.configure_sets(
             PreUpdate,
             InputSystemSet::ReceiveInputMessage
-                .after(InternalMainSet::<ServerMarker>::Receive)
+                .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
                 .run_if(is_started),
         );
         app.configure_sets(

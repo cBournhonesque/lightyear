@@ -236,7 +236,7 @@ impl Plugin for PredictionPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                InternalMainSet::<ClientMarker>::Receive,
+                InternalMainSet::<ClientMarker>::EmitEvents,
                 (
                     PredictionSet::SpawnPrediction,
                     PredictionSet::SpawnHistory,
