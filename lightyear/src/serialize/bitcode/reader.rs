@@ -27,8 +27,8 @@ pub struct Reader<'a>(Option<(WordReader<'a>, WordContext)>);
 // #[bitcode_hint(gamma)]
 struct OnlyGammaDecode<T: DeserializeOwned>(#[bitcode(with_serde)] T);
 
-unsafe impl Send for ReadWordBuffer {}
-unsafe impl Sync for ReadWordBuffer {}
+unsafe impl Send for BitcodeReader {}
+unsafe impl Sync for BitcodeReader {}
 
 pub(crate) struct BufferPool(pub(crate) crate::utils::pool::Pool<WordBuffer>);
 
@@ -48,16 +48,16 @@ impl BufferPool {
         Self(crate::utils::pool::Pool::new(cap, new_buffer))
     }
 
-    pub fn start_read(&self, bytes: &[u8]) -> ReadWordBuffer {
+    pub fn start_read(&self, bytes: &[u8]) -> BitcodeReader {
         trace!("buffer pool length: {}", self.0.len());
         let buffer = self.0.pull(new_buffer);
         // let (reader, context) = buffer.start_read(bytes);
         // ReadWordBuffer { reader, context }
         let (_, buffer) = buffer.detach();
-        ReadWordBuffer::start_read_with_buffer(bytes, buffer)
+        BitcodeReader::start_read_with_buffer(bytes, buffer)
     }
 
-    pub fn attach(&self, reader: ReadWordBuffer) {
+    pub fn attach(&self, reader: BitcodeReader) {
         // return to the pool the buffer associated to the reader
         self.0.attach(reader.into_owner().into_inner());
     }
@@ -71,7 +71,7 @@ impl BufferPool {
 // We use self_cell because the reader contains a reference to the WordBuffer
 // (it will take ownership of the buffer's contents to write into)
 self_cell!(
-    pub struct ReadWordBuffer {
+    pub struct BitcodeReader {
         owner: UnsafeCell<WordBuffer>,
         #[covariant]
         // reader contains a reference to the buffer
@@ -79,7 +79,7 @@ self_cell!(
     }
 );
 
-impl ReadWordBuffer {
+impl BitcodeReader {
     /// Copies the bytes into the internal buffer without allocating a new buffer
     pub(crate) fn reset_read(&mut self, bytes: &[u8]) {
         self.with_dependent_mut(|buffer, reader| {
@@ -92,7 +92,7 @@ impl ReadWordBuffer {
     }
 }
 
-impl ReadBuffer for ReadWordBuffer {
+impl ReadBuffer for BitcodeReader {
     // fn deserialize<T: DeserializeOwned>(&mut self) -> anyhow::Result<T> {
     //     let with_gamma =
     //         OnlyGammaDecode::<T>::decode(Fixed, &mut self.reader).context("error deserializing")?;
@@ -141,7 +141,7 @@ impl ReadBuffer for ReadWordBuffer {
     }
 
     fn start_read(bytes: &[u8]) -> Self {
-        ReadWordBuffer::new(
+        BitcodeReader::new(
             UnsafeCell::new(WordBuffer::with_capacity(bytes.len())),
             |buffer| {
                 // safety: we just created the buffer and nothing else had access to it
@@ -162,9 +162,9 @@ impl ReadBuffer for ReadWordBuffer {
     }
 }
 
-impl ReadWordBuffer {
+impl BitcodeReader {
     pub(crate) fn start_read_with_buffer(bytes: &[u8], buffer: WordBuffer) -> Self {
-        ReadWordBuffer::new(UnsafeCell::new(buffer), |buffer| {
+        BitcodeReader::new(UnsafeCell::new(buffer), |buffer| {
             // safety: we just created the buffer and nothing else had access to it
             // we need to get a mutable reference to the buffer to take ownership of it
             unsafe {

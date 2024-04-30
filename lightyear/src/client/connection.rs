@@ -11,9 +11,7 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 
 use bitcode::encoding::Fixed;
 
-use crate::_internal::{
-    ClientMarker, EntityUpdatesChannel, MessageKind, PingChannel, WriteBuffer, WriteWordBuffer,
-};
+use crate::_internal::{ClientMarker, EntityUpdatesChannel, MessageKind, PingChannel};
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
 use crate::client::message::ClientMessage;
@@ -28,8 +26,10 @@ use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::MessageRegistry;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
+use crate::serialize::bitcode::reader::BufferPool;
+use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::BufferPool;
+use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
@@ -82,7 +82,7 @@ pub struct ConnectionManager {
 
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
-    writer: WriteWordBuffer,
+    writer: BitcodeWriter,
     pub(crate) reader_pool: BufferPool,
     // TODO: maybe don't do any replication until connection is synced?
 }
@@ -123,7 +123,7 @@ impl ConnectionManager {
             replicate_component_cache: EntityHashMap::default(),
             events: ConnectionEvents::default(),
             received_messages: HashMap::default(),
-            writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
             // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
             reader_pool: BufferPool::new(1),
         }
@@ -450,7 +450,7 @@ impl ReplicationSend for ConnectionManager {
         &mut self.events
     }
 
-    fn writer(&mut self) -> &mut WriteWordBuffer {
+    fn writer(&mut self) -> &mut BitcodeWriter {
         &mut self.writer
     }
 

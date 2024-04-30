@@ -7,7 +7,6 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::{NextState, Reflect, ResMut, Resource};
 use enum_dispatch::enum_dispatch;
 
-use crate::_internal::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
 use crate::client::networking::NetworkingState;
 use crate::connection::id::ClientId;

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use bitcode::{Decode, Encode};
 
 use crate::_internal::{
-    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, WriteWordBuffer,
+    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
 use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
@@ -22,6 +22,8 @@ use crate::prelude::{NetworkTarget, Tick};
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::EventContext;
+use crate::serialize::bitcode::writer::BitcodeWriter;
+use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::shared::events::connection::{
     ClearEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
@@ -118,7 +120,7 @@ pub(crate) trait ReplicationSend: Resource {
 
     fn events(&mut self) -> &mut Self::Events;
 
-    fn writer(&mut self) -> &mut WriteWordBuffer;
+    fn writer(&mut self) -> &mut BitcodeWriter;
 
     fn component_registry(&self) -> &ComponentRegistry;
 

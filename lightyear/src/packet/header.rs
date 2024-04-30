@@ -286,7 +286,10 @@ impl ReceiveBuffer {
 mod tests {
     use bitcode::encoding::Fixed;
 
-    use crate::_internal::*;
+    use crate::serialize::bitcode::reader::BitcodeReader;
+    use crate::serialize::bitcode::writer::BitcodeWriter;
+    use crate::serialize::reader::ReadBuffer;
+    use crate::serialize::writer::WriteBuffer;
 
     use super::*;
 
@@ -350,11 +353,11 @@ mod tests {
             ack_bitfield: 3,
             tick: Tick(0),
         };
-        let mut writer = WriteWordBuffer::with_capacity(50);
+        let mut writer = BitcodeWriter::with_capacity(50);
         writer.encode(&header, Fixed)?;
         let data = writer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(data);
+        let mut reader = BitcodeReader::start_read(data);
         let read_header = reader.decode::<PacketHeader>(Fixed)?;
 
         assert_eq!(header, read_header);

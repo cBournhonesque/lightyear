@@ -1,11 +1,13 @@
-use crate::_internal::{
-    BitSerializable, MessageKind, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
-};
+use crate::_internal::{BitSerializable, MessageKind};
 use crate::prelude::{
     AppMessageExt, ChannelDirection, ComponentRegistry, Message, MessageRegistry, ReplicateResource,
 };
 use crate::protocol::message::MessageType;
 use crate::protocol::registry::NetId;
+use crate::serialize::bitcode::reader::BitcodeReader;
+use crate::serialize::bitcode::writer::BitcodeWriter;
+use crate::serialize::reader::ReadBuffer;
+use crate::serialize::writer::WriteBuffer;
 use crate::shared::replication::entity_map::EntityMap;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
@@ -31,8 +33,8 @@ pub struct SerializeFns<M> {
     pub map_entities: Option<MapEntitiesFn<M>>,
 }
 
-type SerializeFn<M> = fn(&M, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
-type DeserializeFn<M> = fn(reader: &mut ReadWordBuffer) -> anyhow::Result<M>;
+type SerializeFn<M> = fn(&M, writer: &mut BitcodeWriter) -> anyhow::Result<()>;
+type DeserializeFn<M> = fn(reader: &mut BitcodeReader) -> anyhow::Result<M>;
 pub(crate) type MapEntitiesFn<M> = fn(&mut M, entity_map: &mut EntityMap);
 
 impl ErasedSerializeFns {
@@ -78,7 +80,7 @@ impl ErasedSerializeFns {
     pub(crate) fn serialize<M: 'static>(
         &self,
         message: &M,
-        writer: &mut WriteWordBuffer,
+        writer: &mut BitcodeWriter,
     ) -> anyhow::Result<()> {
         let fns = unsafe { self.typed::<M>() };
         (fns.serialize)(message, writer)
@@ -87,7 +89,7 @@ impl ErasedSerializeFns {
     /// Deserialize the message value from the reader
     pub(crate) fn deserialize<M: 'static>(
         &self,
-        reader: &mut ReadWordBuffer,
+        reader: &mut BitcodeReader,
         entity_map: &mut EntityMap,
     ) -> anyhow::Result<M> {
         let fns = unsafe { self.typed::<M>() };

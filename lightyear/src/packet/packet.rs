@@ -4,7 +4,6 @@ use serde::Serialize;
 
 use bitcode::encoding::{Fixed, Gamma};
 
-use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
@@ -105,7 +104,7 @@ impl SinglePacket {
 impl BitSerializable for SinglePacket {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
-    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         self.data
             .iter()
             .enumerate()
@@ -131,7 +130,7 @@ impl BitSerializable for SinglePacket {
             })
     }
 
-    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -196,7 +195,7 @@ impl FragmentedPacket {
 impl BitSerializable for FragmentedPacket {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
-    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         writer.encode(&self.channel_id, Gamma)?;
         self.fragment.encode(writer)?;
         // continuation bit: is there single packet data?
@@ -204,7 +203,7 @@ impl BitSerializable for FragmentedPacket {
         self.packet.encode(writer)
     }
 
-    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -286,7 +285,7 @@ impl Packet {
     }
 
     /// Encode a packet into the write buffer
-    pub fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
+    pub fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         // use encode to force Fixed encoding
         // should still use gamma for packet type
         // TODO: add test
@@ -298,7 +297,7 @@ impl Packet {
     }
 
     /// Decode a packet from the read buffer. The read buffer will only contain the bytes for a single packet
-    pub fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Packet> {
+    pub fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Packet> {
         let header = reader.decode::<PacketHeader>(Fixed)?;
         let packet_type = header.get_packet_type();
         match packet_type {
@@ -369,12 +368,13 @@ mod tests {
     use bitcode::encoding::Gamma;
     use lightyear_macros::ChannelInternal;
 
-    use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
     use crate::packet::message::{FragmentData, MessageId, SingleData};
     use crate::packet::packet::{FragmentedPacket, SinglePacket};
     use crate::packet::packet_manager::PacketBuilder;
     use crate::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};
     use crate::protocol::channel::ChannelKind;
+    use crate::serialize::bitcode::reader::BitcodeReader;
+    use crate::serialize::bitcode::writer::BitcodeWriter;
 
     use super::*;
 
@@ -414,7 +414,7 @@ mod tests {
         let manager = PacketBuilder::new();
         let mut packet = SinglePacket::new();
 
-        let mut write_buffer = WriteWordBuffer::with_capacity(50);
+        let mut write_buffer = BitcodeWriter::with_capacity(50);
         let message1 = SingleData::new(None, Bytes::from("hello"), 1.0);
         let message2 = SingleData::new(None, Bytes::from("world"), 1.0);
         let message3 = SingleData::new(None, Bytes::from("!"), 1.0);
@@ -429,7 +429,7 @@ mod tests {
         let packet_bytes = write_buffer.finish_write();
 
         // Encode manually
-        let mut expected_write_buffer = WriteWordBuffer::with_capacity(50);
+        let mut expected_write_buffer = BitcodeWriter::with_capacity(50);
         // channel id
         expected_write_buffer.encode(&0u16, Gamma)?;
         // messages, with continuation bit
@@ -459,7 +459,7 @@ mod tests {
 
         assert_eq!(packet_bytes, expected_packet_bytes);
 
-        let mut reader = ReadWordBuffer::start_read(packet_bytes);
+        let mut reader = BitcodeReader::start_read(packet_bytes);
         let decoded_packet = SinglePacket::decode(&mut reader)?;
 
         assert_eq!(decoded_packet.num_messages(), 3);
@@ -484,7 +484,7 @@ mod tests {
         };
         let mut packet = FragmentedPacket::new(*channel_id, fragment.clone());
 
-        let mut write_buffer = WriteWordBuffer::with_capacity(100);
+        let mut write_buffer = BitcodeWriter::with_capacity(100);
         let message1 = SingleData::new(None, Bytes::from("hello"), 1.0);
         let message2 = SingleData::new(None, Bytes::from("world"), 1.0);
         let message3 = SingleData::new(None, Bytes::from("!"), 1.0);
@@ -498,7 +498,7 @@ mod tests {
         packet.encode(&mut write_buffer)?;
         let packet_bytes = write_buffer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(packet_bytes);
+        let mut reader = BitcodeReader::start_read(packet_bytes);
         let decoded_packet = FragmentedPacket::decode(&mut reader)?;
 
         assert_eq!(decoded_packet.packet.num_messages(), 3);
@@ -523,12 +523,12 @@ mod tests {
         };
         let packet = FragmentedPacket::new(*channel_id, fragment.clone());
 
-        let mut write_buffer = WriteWordBuffer::with_capacity(100);
+        let mut write_buffer = BitcodeWriter::with_capacity(100);
 
         packet.encode(&mut write_buffer)?;
         let packet_bytes = write_buffer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(packet_bytes);
+        let mut reader = BitcodeReader::start_read(packet_bytes);
         let decoded_packet = FragmentedPacket::decode(&mut reader)?;
 
         assert_eq!(decoded_packet.packet.num_messages(), 0);

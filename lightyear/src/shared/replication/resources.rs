@@ -49,9 +49,6 @@ mod command {
         /// Start replicating a resource to remote clients.
         ///
         /// Any change to the resource will be replicated to the clients.
-        // TODO: we use `Replicate` as argument instead of the simpler `NetworkTarget`
-        //  because it helps with type-inference when calling this method.
-        //  We can switch to `NetworkTarget` if we remove the `P` bound of `Replicate`.
         fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate);
     }
 

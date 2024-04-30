@@ -10,7 +10,7 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::_internal::{ShouldBeInterpolated, WriteBuffer};
+use crate::_internal::ShouldBeInterpolated;
 use crate::client::replication::ClientReplicationPlugin;
 use crate::prelude::{ClientId, NetworkTarget, ReplicationGroup, ShouldBePredicted, TickManager};
 use crate::protocol::component::ComponentRegistry;

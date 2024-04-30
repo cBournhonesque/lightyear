@@ -9,7 +9,6 @@
 
 use anyhow::Context;
 
-use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
 use bevy::prelude::{App, Resource};
 use bevy::reflect::TypePath;
 use bitcode::encoding::Fixed;
@@ -37,9 +36,9 @@ mod serialize;
 
 /// Something that can be serialized bit by bit
 pub trait BitSerializable: Clone {
-    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
+    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()>;
 
-    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
     where
         Self: Sized;
 }
@@ -49,11 +48,11 @@ impl<T> BitSerializable for T
 where
     T: Serialize + DeserializeOwned + Clone,
 {
-    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         writer.serialize(self)
     }
 
-    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {

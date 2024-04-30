@@ -4,7 +4,6 @@ use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::Debug;
 
-use crate::_internal::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
 use crate::client::config::ClientConfig;
 use crate::client::message::add_server_to_client_message;
 use crate::prelude::{client, server, AppComponentExt, Channel, RemoteEntityMap};
@@ -27,6 +26,10 @@ use crate::protocol::component::ComponentKind;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn};
 use crate::protocol::{BitSerializable, EventContext};
+use crate::serialize::bitcode::reader::BitcodeReader;
+use crate::serialize::bitcode::writer::BitcodeWriter;
+use crate::serialize::reader::ReadBuffer;
+use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::server::message::add_client_to_server_message;
 use crate::shared::replication::entity_map::EntityMap;
@@ -150,7 +153,7 @@ impl MessageRegistry {
     pub(crate) fn serialize<M: Message>(
         &self,
         message: &M,
-        writer: &mut WriteWordBuffer,
+        writer: &mut BitcodeWriter,
     ) -> anyhow::Result<RawData> {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
@@ -166,7 +169,7 @@ impl MessageRegistry {
 
     pub(crate) fn deserialize<M: Message>(
         &self,
-        reader: &mut ReadWordBuffer,
+        reader: &mut BitcodeReader,
         entity_map: &mut EntityMap,
     ) -> anyhow::Result<M> {
         let net_id = reader.decode::<NetId>(Fixed)?;

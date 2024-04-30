@@ -20,8 +20,8 @@ use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
+use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::serialize::RawData;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
@@ -305,6 +305,7 @@ mod tests {
     use crate::packet::packet::FRAGMENT_SIZE;
     use crate::packet::priority_manager::PriorityConfig;
     use crate::prelude::*;
+    use crate::serialize::bitcode::reader::BitcodeReader;
     use crate::tests::protocol::*;
 
     use super::*;
@@ -360,7 +361,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             server_message_manager.recv_packet(packet)?;
         }
         let mut data = server_message_manager.read_messages();
@@ -397,7 +398,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             client_message_manager.recv_packet(packet)?;
         }
 
@@ -456,7 +457,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             server_message_manager.recv_packet(packet)?;
         }
         let mut data = server_message_manager.read_messages();
@@ -498,7 +499,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             client_message_manager.recv_packet(packet)?;
         }
 
@@ -542,7 +543,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in payloads.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             server_message_manager.recv_packet(packet)?;
         }
 
@@ -552,7 +553,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             client_message_manager.recv_packet(packet)?;
         }
 

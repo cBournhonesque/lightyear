@@ -14,10 +14,7 @@ use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 
-use crate::_internal::{
-    InstantCorrector, LinearInterpolator, MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker,
-    WriteBuffer, WriteWordBuffer,
-};
+use crate::_internal::{InstantCorrector, LinearInterpolator, MessageKind, ServerMarker};
 use bitcode::Encode;
 use bitcode::__private::Fixed;
 use serde::de::DeserializeOwned;
@@ -38,6 +35,10 @@ use crate::protocol::message::MessageType;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn, SerializeFns};
 use crate::protocol::{BitSerializable, EventContext};
+use crate::serialize::bitcode::reader::BitcodeReader;
+use crate::serialize::bitcode::writer::BitcodeWriter;
+use crate::serialize::reader::ReadBuffer;
+use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::server::networking::is_started;
 use crate::shared::events::connection::{
@@ -82,7 +83,7 @@ pub struct InterpolationMetadata {
 type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
 type RawWriteFn = fn(
     &ComponentRegistry,
-    &mut ReadWordBuffer,
+    &mut BitcodeReader,
     ComponentNetId,
     &mut EntityWorldMut,
     &mut EntityMap,
@@ -226,7 +227,7 @@ impl ComponentRegistry {
     pub(crate) fn serialize<C: Component>(
         &self,
         component: &C,
-        writer: &mut WriteWordBuffer,
+        writer: &mut BitcodeWriter,
     ) -> anyhow::Result<RawData> {
         let kind = ComponentKind::of::<C>();
         let erased_fns = self
@@ -243,7 +244,7 @@ impl ComponentRegistry {
     /// Deserialize only the component value (the ComponentNetId has already been read)
     fn raw_deserialize<C: Component>(
         &self,
-        reader: &mut ReadWordBuffer,
+        reader: &mut BitcodeReader,
         net_id: ComponentNetId,
         entity_map: &mut EntityMap,
     ) -> anyhow::Result<C> {
@@ -260,7 +261,7 @@ impl ComponentRegistry {
 
     pub(crate) fn deserialize<C: Component>(
         &self,
-        reader: &mut ReadWordBuffer,
+        reader: &mut BitcodeReader,
         entity_map: &mut EntityMap,
     ) -> anyhow::Result<C> {
         let net_id = reader.decode::<ComponentNetId>(Fixed)?;
@@ -329,7 +330,7 @@ impl ComponentRegistry {
     /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
     pub(crate) fn raw_write(
         &self,
-        reader: &mut ReadWordBuffer,
+        reader: &mut BitcodeReader,
         entity_world_mut: &mut EntityWorldMut,
         entity_map: &mut EntityMap,
         events: &mut ConnectionEvents,
@@ -348,7 +349,7 @@ impl ComponentRegistry {
 
     pub(crate) fn write<C: Component>(
         &self,
-        reader: &mut ReadWordBuffer,
+        reader: &mut BitcodeReader,
         net_id: ComponentNetId,
         entity_world_mut: &mut EntityWorldMut,
         entity_map: &mut EntityMap,
