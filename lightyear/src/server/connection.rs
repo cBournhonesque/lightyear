@@ -13,7 +13,7 @@ use bitcode::__private::Fixed;
 
 use crate::_internal::{
     BitSerializable, EntityUpdatesChannel, MessageKind, PingChannel, ServerMarker,
-    ShouldBeInterpolated, WriteBuffer, WriteWordBuffer,
+    ShouldBeInterpolated,
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
@@ -29,8 +29,10 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
+use crate::serialize::bitcode::reader::BufferPool;
+use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::BufferPool;
+use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::server::config::PacketConfig;
 use crate::server::events::ServerEvents;
@@ -66,7 +68,7 @@ pub struct ConnectionManager {
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
-    pub(crate) writer: WriteWordBuffer,
+    pub(crate) writer: BitcodeWriter,
     pub(crate) reader_pool: BufferPool,
     packet_config: PacketConfig,
     ping_config: PingConfig,
@@ -88,7 +90,7 @@ impl ConnectionManager {
             events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
-            writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
             reader_pool: BufferPool::new(1),
             packet_config,
             ping_config,
@@ -291,7 +293,7 @@ pub struct Connection {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
         HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
-    writer: WriteWordBuffer,
+    writer: BitcodeWriter,
     pub(crate) reader_pool: BufferPool,
     // messages that we have received that need to be rebroadcasted to other clients
     pub(crate) messages_to_rebroadcast: Vec<(RawData, NetworkTarget, ChannelKind)>,
@@ -328,7 +330,7 @@ impl Connection {
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
             // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
             reader_pool: BufferPool::new(1),
             messages_to_rebroadcast: vec![],
@@ -590,7 +592,7 @@ impl ReplicationSend for ConnectionManager {
         &mut self.events
     }
 
-    fn writer(&mut self) -> &mut WriteWordBuffer {
+    fn writer(&mut self) -> &mut BitcodeWriter {
         &mut self.writer
     }
 

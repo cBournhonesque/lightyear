@@ -10,14 +10,14 @@ use tracing::{error, info_span, trace};
 use bitcode::__private::Fixed;
 use bitcode::{Decode, Encode};
 
-use crate::_internal::{
-    BitSerializable, MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker, WriteBuffer,
-    WriteWordBuffer,
-};
+use crate::_internal::{BitSerializable, MessageKind, ServerMarker};
 use crate::packet::message::SingleData;
 use crate::prelude::{MainSet, Message, NetworkTarget};
 use crate::protocol::message::MessageRegistry;
 use crate::protocol::registry::NetId;
+use crate::serialize::reader::ReadBuffer;
+use crate::serialize::writer::WriteBuffer;
+use crate::serialize::RawData;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::MessageEvent;
 use crate::server::networking::is_started;
@@ -29,7 +29,7 @@ use crate::shared::sets::InternalMainSet;
 pub enum ServerMessage {
     #[bitcode_hint(frequency = 2)]
     // #[bitcode(with_serde)]
-    Message(Vec<u8>),
+    Message(RawData),
     #[bitcode_hint(frequency = 3)]
     // #[bitcode(with_serde)]
     Replication(ReplicationMessage),
@@ -109,10 +109,10 @@ pub(crate) fn add_client_to_server_message<M: Message>(app: &mut App) {
 }
 
 impl BitSerializable for ServerMessage {
-    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         writer.encode(self, Fixed).context("could not encode")
     }
-    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {

@@ -9,11 +9,12 @@ use bevy::reflect::Reflect;
 use bevy::utils::HashSet;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
-use crate::_internal::{ReadBuffer, ReadWordBuffer};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::Tick;
 use crate::protocol::component::ComponentRegistry;
+use crate::serialize::bitcode::reader::BitcodeReader;
+use crate::serialize::reader::ReadBuffer;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 
@@ -27,7 +28,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 pub(crate) struct ReplicationReceiver {
-    reader: ReadWordBuffer,
+    reader: BitcodeReader,
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
 
@@ -42,7 +43,7 @@ pub(crate) struct ReplicationReceiver {
 impl ReplicationReceiver {
     pub(crate) fn new() -> Self {
         Self {
-            reader: ReadWordBuffer::start_read(&[]),
+            reader: BitcodeReader::start_read(&[]),
             // RECEIVE
             remote_entity_map: RemoteEntityMap::default(),
             remote_entity_to_group: Default::default(),

@@ -7,7 +7,6 @@ use serde::Serialize;
 
 use bitcode::encoding::{Fixed, Gamma};
 
-use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::reader::ReadBuffer;
@@ -107,7 +106,7 @@ impl SingleData {
         }
     }
 
-    pub(crate) fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<usize> {
+    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.id, Fixed)?;
         writer.encode(&self.tick, Fixed)?;
@@ -123,7 +122,7 @@ impl SingleData {
     }
 
     // TODO: are we doing an extra copy here?
-    pub(crate) fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self> {
+    pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
         let id = reader.decode::<Option<MessageId>>(Fixed)?;
         let tick = reader.decode::<Option<Tick>>(Fixed)?;
 
@@ -180,7 +179,7 @@ pub struct FragmentData {
 }
 
 impl FragmentData {
-    pub(crate) fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<usize> {
+    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.message_id, Fixed)?;
         writer.encode(&self.tick, Fixed)?;
@@ -201,7 +200,7 @@ impl FragmentData {
         Ok(num_bits_written)
     }
 
-    pub(crate) fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
+    pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -253,7 +252,7 @@ impl MessageContainer {
 
     /// Serialize the message into a bytes buffer
     /// Returns the number of bits written
-    pub(crate) fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<usize> {
+    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         match &self {
             MessageContainer::Single(data) => data.encode(writer),
             MessageContainer::Fragment(data) => data.encode(writer),
@@ -299,19 +298,19 @@ impl MessageContainer {
 
 #[cfg(test)]
 mod tests {
-    use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
-
     use super::*;
+    use crate::serialize::bitcode::reader::BitcodeReader;
+    use crate::serialize::bitcode::writer::BitcodeWriter;
 
     #[test]
     fn test_serde_single_data() {
         let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into(), 1.0);
-        let mut writer = WriteWordBuffer::with_capacity(10);
+        let mut writer = BitcodeWriter::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();
         // dbg!(a);
         let bytes = writer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(bytes);
+        let mut reader = BitcodeReader::start_read(bytes);
         let decoded = SingleData::decode(&mut reader).unwrap();
 
         // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));
@@ -335,12 +334,12 @@ mod tests {
             bytes: bytes.clone(),
             priority: 1.0,
         };
-        let mut writer = WriteWordBuffer::with_capacity(10);
+        let mut writer = BitcodeWriter::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();
         // dbg!(a);
         let bytes = writer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(bytes);
+        let mut reader = BitcodeReader::start_read(bytes);
         let decoded = FragmentData::decode(&mut reader).unwrap();
 
         // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));

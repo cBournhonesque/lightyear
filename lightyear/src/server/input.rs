@@ -5,7 +5,7 @@ use bevy::utils::HashMap;
 
 use bitcode::__private::Fixed;
 
-use crate::_internal::{MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker};
+use crate::_internal::{MessageKind, ServerMarker};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
 use crate::prelude::server::MessageEvent;

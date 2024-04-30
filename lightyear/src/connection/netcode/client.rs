@@ -10,8 +10,8 @@ use crate::connection::client::NetClient;
 use crate::connection::id;
 use crate::prelude::client::NetworkingState;
 use crate::prelude::IoConfig;
+use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::transport::io::Io;
 use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
