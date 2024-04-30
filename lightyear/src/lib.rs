@@ -14,7 +14,7 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 // the `docsrs` configuration attribute is defined
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-// re-exports (mostly used in the derive macro crate or for internal purposes)
+// re-exports
 #[doc(hidden)]
 pub(crate) mod _internal {
     pub use paste::paste;
