@@ -170,12 +170,9 @@ pub(crate) fn fixed_update_log(
     ball: Query<(Entity, &Transform), (With<BallMarker>, Without<Confirmed>)>,
     interpolated_ball: Query<(Entity, &Transform), (With<BallMarker>, With<Interpolated>)>,
 ) {
-    let mut tick = tick_manager.tick();
-    if let Some(rollback) = rollback {
-        if let RollbackState::ShouldRollback { current_tick } = rollback.state {
-            tick = current_tick;
-        }
-    }
+    let tick = rollback.map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
+    });
     for (entity, transform) in player.iter() {
         trace!(
         ?tick,

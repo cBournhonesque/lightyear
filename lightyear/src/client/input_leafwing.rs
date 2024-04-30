@@ -480,12 +480,9 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
     mut action_state_query: Query<(Entity, &mut ActionState<A>, &InputBuffer<A>)>,
     rollback: Res<Rollback>,
 ) {
-    let tick = match rollback.state {
-        RollbackState::Default => unreachable!(),
-        RollbackState::ShouldRollback {
-            current_tick: rollback_tick,
-        } => rollback_tick,
-    };
+    let tick = rollback
+        .get_rollback_tick()
+        .expect("we should be in rollback");
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
         // let state_is_empty = input_buffer.get(tick).is_none();
         // let input_buffer = input_buffer.buffer;
