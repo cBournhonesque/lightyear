@@ -226,11 +226,8 @@ fn write_input_event<A: UserAction>(
     mut client_input_events: EventWriter<InputEvent<A>>,
     rollback: Option<Res<Rollback>>,
 ) {
-    let tick = rollback.map_or(tick_manager.tick(), |rollback| match rollback.state {
-        RollbackState::Default => tick_manager.tick(),
-        RollbackState::ShouldRollback {
-            current_tick: rollback_tick,
-        } => rollback_tick,
+    let tick = rollback.map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
     });
     let input = input_manager.get_input(tick);
     client_input_events.send(InputEvent::new(input_manager.get_input(tick), ()));

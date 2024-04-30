@@ -1,4 +1,6 @@
 use std::fmt::Debug;
+use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicU16, Ordering};
 
 use bevy::app::FixedMain;
 use bevy::ecs::entity::EntityHashSet;
@@ -8,6 +10,7 @@ use bevy::prelude::{
     Without, World,
 };
 use bevy::reflect::Reflect;
+use parking_lot::RwLock;
 use tracing::{debug, error, trace, trace_span};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
@@ -26,37 +29,87 @@ use super::Predicted;
 #[derive(Default, Resource, Reflect)]
 #[reflect(Resource)]
 pub struct Rollback {
-    pub state: RollbackState,
+    // have to reflect(ignore) this field because of RwLock unfortunately
+    #[reflect(ignore)]
+    /// We use a RwLock because we want to be able to update this value from multiple systems
+    /// in parallel.
+    pub state: RwLock<RollbackState>,
     // pub rollback_groups: EntityHashMap<ReplicationGroupId, RollbackState>,
 }
 
 /// Resource that will track whether we should do rollback or not
 /// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
-#[derive(Debug, Default, Copy, Clone, Reflect)]
+#[derive(Debug, Default, Reflect)]
 pub enum RollbackState {
     /// We are not in a rollback state
     #[default]
     Default,
     /// We should do a rollback starting from the current_tick
     ShouldRollback {
-        // tick we are setting (to record history)
+        /// Current tick of the rollback process
+        ///
+        /// (note: we will start the rollback from the next tick after we notice the mismatch)
         current_tick: Tick,
     },
 }
 
-/// Check if there is mismatch so we need to do a rollback
+impl Rollback {
+    pub(crate) fn new(state: RollbackState) -> Self {
+        Self {
+            state: RwLock::new(state),
+        }
+    }
+    /// Returns true if we are currently in a rollback state
+    pub(crate) fn is_rollback(&self) -> bool {
+        match *self.state.read().deref() {
+            RollbackState::ShouldRollback { .. } => true,
+            RollbackState::Default => false,
+        }
+    }
+
+    /// Get the current rollback tick
+    pub(crate) fn get_rollback_tick(&self) -> Option<Tick> {
+        match *self.state.read().deref() {
+            RollbackState::ShouldRollback { current_tick } => Some(current_tick),
+            RollbackState::Default => None,
+        }
+    }
+
+    /// Increment the rollback tick
+    pub(crate) fn increment_rollback_tick(&self) {
+        if let RollbackState::ShouldRollback {
+            ref mut current_tick,
+        } = *self.state.write().deref_mut()
+        {
+            *current_tick += 1;
+        }
+    }
+
+    /// Set the rollback state back to non-rollback
+    pub(crate) fn set_non_rollback(&self) {
+        *self.state.write().deref_mut() = RollbackState::Default;
+    }
+
+    /// Set the rollback state to `ShouldRollback` with the given tick
+    pub(crate) fn set_rollback_tick(&self, tick: Tick) {
+        *self.state.write().deref_mut() = RollbackState::ShouldRollback { current_tick: tick };
+    }
+}
+
+/// Check if we need to do a rollback.
+/// We do this separately from `prepare_rollback` because even if component A is the same between predicted and confirmed,
+/// if component B is different we do a rollback for all components
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn check_rollback<C: SyncComponent>(
     // TODO: have a way to only get the updates of entities that are predicted?
     tick_manager: Res<TickManager>,
     connection: Res<ConnectionManager>,
-
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<&mut PredictionHistory<C>, (With<Predicted>, Without<Confirmed>)>,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
-    mut rollback: ResMut<Rollback>,
+    rollback: Res<Rollback>,
 ) {
     let kind = std::any::type_name::<C>();
 
@@ -103,51 +156,41 @@ pub(crate) fn check_rollback<C: SyncComponent>(
             continue;
         }
 
-        // Note: it may seem like an optimization to only compare the history/server-state if we are not sure
-        // that we should rollback (RollbackState::Default)
-        // That is not the case, because if we do rollback we will need to snap the client entity to the server state
-        // So either way we will need to do an operation.
-        match rollback.state {
-            // 3.a We are still not sure if we should do rollback. Compare history against confirmed
-            // We rollback if there's no history (newly added predicted entity, or if there is a mismatch)
-            RollbackState::Default => {
-                let history_value = predicted_history.pop_until_tick(tick);
-                let predicted_exist = history_value.is_some();
-                let confirmed_exist = confirmed_component.is_some();
-                let should_rollback = match confirmed_component {
-                    // TODO: history-value should not be empty here; should we panic if it is?
-                    // confirm does not exist. rollback if history value is not Removed
-                    None => history_value.map_or(false, |history_value| {
-                        history_value != ComponentState::Removed
-                    }),
-                    // confirm exist. rollback if history value is different
-                    Some(c) => history_value.map_or(true, |history_value| match history_value {
-                        ComponentState::Updated(history_value) => history_value != *c,
-                        ComponentState::Removed => true,
-                    }),
-                };
-                if should_rollback {
-                    debug!(
+        // 3.a We are still not sure if we should do rollback. Compare history against confirmed
+        // We rollback if there's no history (newly added predicted entity, or if there is a mismatch)
+        if !rollback.is_rollback() {
+            let history_value = predicted_history.pop_until_tick(tick);
+            let predicted_exist = history_value.is_some();
+            let confirmed_exist = confirmed_component.is_some();
+            let should_rollback = match confirmed_component {
+                // TODO: history-value should not be empty here; should we panic if it is?
+                // confirm does not exist. rollback if history value is not Removed
+                None => history_value.map_or(false, |history_value| {
+                    history_value != ComponentState::Removed
+                }),
+                // confirm exist. rollback if history value is different
+                Some(c) => history_value.map_or(true, |history_value| match history_value {
+                    ComponentState::Updated(history_value) => history_value != *c,
+                    ComponentState::Removed => true,
+                }),
+            };
+            if should_rollback {
+                debug!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, current_tick
                    );
-                    // TODO: try atomic enum update
-                    rollback.state = RollbackState::ShouldRollback {
-                        // we already rolled-back the state for the entity's latest_tick
-                        // after this we will start right away with a physics update, so we need to start taking the inputs from the next tick
-                        current_tick: tick + 1,
-                    };
-                }
+                // we already rolled-back the state for the entity's latest_tick
+                // after this we will start right away with a physics update, so we need to start taking the inputs from the next tick
+                rollback.set_rollback_tick(tick + 1);
             }
+        } else {
             // 3.b We already know we should do rollback (because of another entity/component), start the rollback
-            RollbackState::ShouldRollback { .. } => {
-                trace!(
+            trace!(
                    "Rollback check: should roll back for component between predicted and confirmed on tick {:?} for component {:?}. Current tick: {:?}",
                    tick, kind, current_tick
                    );
-            }
-        };
+        }
     }
 }
 
@@ -319,13 +362,11 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
 
     let current_tick = tick_manager.tick();
 
-    let RollbackState::ShouldRollback {
-        current_tick: rollback_tick_plus_one,
-    } = rollback.state
-    else {
+    let Some(rollback_tick_plus_one) = rollback.get_rollback_tick() else {
         error!("prepare_rollback_prespawn should only be called when we are in rollback");
         return;
     };
+
     // careful, the current_tick is already incremented by 1 in the check_rollback stage...
     let rollback_tick = rollback_tick_plus_one - 1;
 
@@ -429,45 +470,51 @@ pub(crate) fn run_rollback(world: &mut World) {
 
     // NOTE: all predicted entities should be on the same tick!
     // TODO: might not need to check the state, because we only run this system if we are in rollback
-    if let RollbackState::ShouldRollback {
-        current_tick: current_rollback_tick,
-    } = rollback.state
-    {
-        // NOTE: careful! we restored the state to the end of tick `confirmed` = `current_rollback_tick - 1`
-        //  we want to run fixed-update to be at the end of `current_tick`, so we need to run
-        // `current_tick - (current_rollback_tick - 1)` ticks
-        // (we set `current_rollback_tick` to `confirmed + 1` so that on the FixedUpdate rollback run, we fetch the input for
-        // `confirmed + 1`
-        let num_rollback_ticks = current_tick + 1 - current_rollback_tick;
-        debug!(
-            "Rollback between {:?} and {:?}",
-            current_rollback_tick, current_tick
-        );
+    let current_rollback_tick = rollback
+        .get_rollback_tick()
+        .expect("we should be in rollback");
 
-        // run the physics fixed update schedule (which should contain ALL predicted/rollback components)
-        for i in 0..num_rollback_ticks {
-            // TODO: if we are in rollback, there are some FixedUpdate systems that we don't want to re-run ??
-            //  for example we only want to run the physics on non-confirmed entities
-            world.run_schedule(FixedMain)
-        }
-        debug!("Finished rollback. Current tick: {:?}", current_tick);
+    // NOTE: careful! we restored the state to the end of tick `confirmed` = `current_rollback_tick - 1`
+    //  we want to run fixed-update to be at the end of `current_tick`, so we need to run
+    // `current_tick - (current_rollback_tick - 1)` ticks
+    // (we set `current_rollback_tick` to `confirmed + 1` so that on the FixedUpdate rollback run, we fetch the input for
+    // `confirmed + 1`
+    let num_rollback_ticks = current_tick + 1 - current_rollback_tick;
+    debug!(
+        "Rollback between {:?} and {:?}",
+        current_rollback_tick, current_tick
+    );
+
+    // run the physics fixed update schedule (which should contain ALL predicted/rollback components)
+    for i in 0..num_rollback_ticks {
+        // TODO: if we are in rollback, there are some FixedUpdate systems that we don't want to re-run ??
+        //  for example we only want to run the physics on non-confirmed entities
+        world.run_schedule(FixedMain)
     }
+    debug!("Finished rollback. Current tick: {:?}", current_tick);
 
     // revert the state of Rollback for the next frame
-    let mut rollback = world.get_resource_mut::<Rollback>().unwrap();
-    rollback.state = RollbackState::Default;
+    let rollback = world.get_resource_mut::<Rollback>().unwrap();
+    rollback.set_non_rollback();
 }
 
-pub(crate) fn increment_rollback_tick(mut rollback: ResMut<Rollback>) {
+pub(crate) fn increment_rollback_tick(rollback: Res<Rollback>) {
     trace!("increment rollback tick");
-    // update the rollback tick
-    // (we already set the history for client.last_received_server_tick() in the rollback check,
-    // we will start at the next tick. This is valid because this system runs after the physics systems)
-    if let RollbackState::ShouldRollback {
-        ref mut current_tick,
-    } = rollback.state
-    {
-        *current_tick += 1;
+    rollback.increment_rollback_tick();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::stepper::BevyStepper;
+
+    /// Check that we enter a rollback state when confirmed entity is updated at tick T and:
+    /// 1. Predicted component and Confirmed component are different
+    /// 2. Confirmed component does not exist and predicted component exists
+    /// 3. Confirmed component exists but predicted component does not exist
+    #[test]
+    fn check_rollback() {
+        let stepper = BevyStepper::default();
     }
 }
 

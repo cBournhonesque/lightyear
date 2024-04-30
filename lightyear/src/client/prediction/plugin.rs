@@ -129,7 +129,7 @@ pub enum PredictionSet {
 
 /// Returns true if we are doing rollback
 pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
-    rollback.is_some_and(|rollback| matches!(rollback.state, RollbackState::ShouldRollback { .. }))
+    rollback.is_some_and(|rollback| rollback.is_rollback())
 }
 
 pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {
@@ -224,9 +224,7 @@ impl Plugin for PredictionPlugin {
 
         // RESOURCES
         app.init_resource::<PredictionManager>();
-        app.insert_resource(Rollback {
-            state: RollbackState::Default,
-        });
+        app.insert_resource(Rollback::new(RollbackState::Default));
 
         // PreUpdate systems:
         // 1. Receive confirmed entities, add Confirmed and Predicted components

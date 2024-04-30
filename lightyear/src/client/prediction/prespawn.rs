@@ -95,11 +95,9 @@ impl PreSpawnedPlayerObjectPlugin {
     /// Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
     pub(crate) fn compute_prespawn_hash(world: &mut World) {
         // get the rollback tick if the pre-spawned entity is being recreated during rollback!
-        let rollback_state = world.resource::<Rollback>().state;
-        let tick = match rollback_state {
-            RollbackState::Default => world.resource::<TickManager>().tick(),
-            RollbackState::ShouldRollback { current_tick } => current_tick,
-        };
+        let tick = world
+            .resource::<TickManager>()
+            .tick_or_rollback_tick(world.resource::<Rollback>());
 
         world.resource_scope(|world: &mut World, mut manager: Mut<PredictionManager>| {
             world.resource_scope(

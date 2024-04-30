@@ -229,13 +229,9 @@ pub(crate) fn update_prediction_history<T: SyncComponent>(
     tick_manager: Res<TickManager>,
     rollback: Res<Rollback>,
 ) {
-    // tick for which we will record the history
-    let tick = match rollback.state {
-        // if not in rollback, we are recording the history for the current client tick
-        RollbackState::Default => tick_manager.tick(),
-        // if in rollback, we are recording the history for the current rollback tick
-        RollbackState::ShouldRollback { current_tick } => current_tick,
-    };
+    // tick for which we will record the history (either the current client tick or the current rollback tick)
+    let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
+
     // update history if the predicted component changed
     for (component, mut history) in query.iter_mut() {
         // change detection works even when running the schedule for rollback
@@ -616,11 +612,12 @@ mod tests {
 
         // 5. Updating ComponentSyncMode::Full on predicted entity during rollback
         let rollback_tick = Tick(10);
-        stepper.client_app.world.insert_resource(Rollback {
-            state: RollbackState::ShouldRollback {
+        stepper
+            .client_app
+            .world
+            .insert_resource(Rollback::new(RollbackState::ShouldRollback {
                 current_tick: rollback_tick,
-            },
-        });
+            }));
         stepper
             .client_app
             .world
