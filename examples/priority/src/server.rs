@@ -28,7 +28,6 @@ const NUM_CIRCLES: i32 = 6;
 #[derive(Resource, Default)]
 pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
-    pub client_id_to_room_id: HashMap<ClientId, RoomId>,
 }
 
 pub(crate) fn init(mut commands: Commands) {

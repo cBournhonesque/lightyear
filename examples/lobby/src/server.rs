@@ -186,11 +186,11 @@ mod lobby {
             info!("Client {client_id:?} joined lobby {lobby_id:?}");
             let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
             lobby.players.push(client_id);
-            room_manager.add_client(client_id, RoomId(lobby_id as u16));
+            room_manager.add_client(client_id, RoomId(lobby_id as u64));
             if lobby.in_game {
                 // if the game has already started, we need to spawn the player entity
                 let entity = spawn_player_entity(&mut commands, global.reborrow(), client_id, true);
-                room_manager.add_entity(entity, RoomId(lobby_id as u16));
+                room_manager.add_entity(entity, RoomId(lobby_id as u64));
             }
         }
         // always make sure that there is an empty lobby for players to join
@@ -210,7 +210,7 @@ mod lobby {
         for lobby_join in events.read() {
             let client_id = lobby_join.context();
             let lobby_id = lobby_join.message().lobby_id;
-            room_manager.remove_client(*client_id, RoomId(lobby_id as u16));
+            room_manager.remove_client(*client_id, RoomId(lobby_id as u64));
             lobbies.remove_client(*client_id);
         }
     }
@@ -238,7 +238,7 @@ mod lobby {
                 }
             }
 
-            let room_id = RoomId(lobby_id as u16);
+            let room_id = RoomId(lobby_id as u64);
             // the client was not part of the lobby, they are joining in the middle of the game
             if !lobby.players.contains(client_id) {
                 lobby.players.push(*client_id);
