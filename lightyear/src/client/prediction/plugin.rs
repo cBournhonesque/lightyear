@@ -27,7 +27,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject, SharedConfig};
+use crate::prelude::{PreSpawnedPlayerObject, SharedConfig};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
