@@ -19,11 +19,11 @@ mock_time = ["lightyear/mock_time"]
 
 [dependencies]
 lightyear = { path = "../../lightyear", features = [
-    "webtransport",
-    "websocket",
-    "render",
-    "steam",
-    "zstd",
+  "webtransport",
+  "websocket",
+  "render",
+  "steam",
+  "zstd",
 ] }
 async-compat = "0.2.3"
 serde = { version = "1.0.188", features = ["derive"] }
