@@ -1,11 +1,12 @@
 use anyhow::{anyhow, Result};
-use bevy::prelude::Resource;
+use bevy::prelude::{Component, Entity, Resource, With, World};
 use bevy::utils::HashMap;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::server::SteamConfig;
 use crate::packet::packet::Packet;
+use crate::prelude::server::ServerConfig;
 use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 use crate::server::config::NetcodeConfig;
 
@@ -44,7 +45,7 @@ pub trait NetServer: Send + Sync {
 }
 
 /// A wrapper around a `Box<dyn NetServer>`
-#[derive(Resource)]
+#[derive(Component)]
 pub struct ServerConnection {
     server: Box<dyn NetServer>,
 }
@@ -146,62 +147,58 @@ type ServerConnectionIdx = usize;
 // TODO: add a way to get the server of a given type?
 /// On the server we allow the use of multiple types of ServerConnection at the same time
 /// This resource holds the list of all the [`ServerConnection`]s, and maps client ids to the index of the server connection in the list
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct ServerConnections {
-    /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub(crate) servers: Vec<ServerConnection>,
-    /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
-    pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
+    // list of the various `ServerConnection`s available. Will be static after first insertion.
+    // pub(crate) servers: Vec<ServerConnection>,
+    /// Mapping from the connection's [`ClientId`] to the Entity holding the [`ServerConnection`]
+    pub(crate) client_server_map: HashMap<ClientId, Entity>,
     /// Track whether the server is ready to listen to incoming connections
     is_listening: bool,
 }
 
 impl ServerConnections {
-    pub fn new(config: Vec<NetConfig>) -> Self {
-        let mut servers = vec![];
-        for config in config {
-            let server = config.build_server();
-            servers.push(server);
-        }
-        ServerConnections {
-            servers,
-            client_server_map: HashMap::default(),
-            is_listening: false,
-        }
-    }
+    // pub fn new(config: Vec<NetConfig>) -> Self {
+    //     let mut servers = vec![];
+    //     for config in config {
+    //         let server = config.build_server();
+    //         servers.push(server);
+    //     }
+    //     ServerConnections {
+    //         servers,
+    //         client_server_map: HashMap::default(),
+    //         is_listening: false,
+    //     }
+    // }
 
     /// Start listening for client connections on all internal servers
-    pub fn start(&mut self) -> Result<()> {
-        for server in &mut self.servers {
-            server.start()?;
+    pub fn start(&mut self, world: &mut World) -> Result<()> {
+        let server_config = world.resource::<ServerConfig>().clone();
+        for config in server_config.net {
+            let mut server_connection = config.build_server();
+            server_connection.start()?;
+            world.spawn(server_connection);
         }
         self.is_listening = true;
         Ok(())
     }
 
     /// Stop listening for client connections on all internal servers
-    pub fn stop(&mut self) -> Result<()> {
-        for server in &mut self.servers {
-            server.stop()?;
-        }
+    pub fn stop(&mut self, world: &mut World) -> Result<()> {
+        world
+            .query::<&mut ServerConnection>()
+            .iter_mut(world)
+            .for_each(|mut server| {
+                server.stop().expect("could not stop server");
+            });
+        world
+            .query_filtered::<Entity, With<ServerConnection>>()
+            .iter(world)
+            .for_each(|entity| {
+                world.despawn(entity);
+            });
         self.is_listening = false;
         Ok(())
-    }
-
-    /// Disconnect a specific client
-    pub fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
-        self.client_server_map.get(&client_id).map_or(
-            Err(anyhow!(
-                "Could not find the server instance associated with client: {client_id:?}"
-            )),
-            |&server_idx| {
-                self.servers[server_idx].disconnect(client_id)?;
-                // NOTE: we don't remove the client from the map here because it is done
-                //  in the server's `receive` method
-                // self.client_server_map.remove(&client_id);
-                Ok(())
-            },
-        )
     }
 
     /// Returns true if the server is currently listening for client packets
