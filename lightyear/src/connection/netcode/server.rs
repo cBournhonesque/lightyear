@@ -539,7 +539,10 @@ impl<Ctx> NetcodeServer<Ctx> {
             .get_mut(&id)
             .expect("invalid client id");
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
-        sender.send(&buf[..size], &conn.addr).map_err(Error::from)?;
+        sender
+            .send(&buf[..size], &conn.addr)
+            // .inspect_err(|e| error!("ERROR SENDING: {:?}", e))
+            .map_err(Error::from)?;
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
         conn.sequence += 1;

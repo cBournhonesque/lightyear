@@ -60,6 +60,7 @@ pub mod prelude {
     pub use crate::shared::time_manager::TimeManager;
     pub use crate::transport::config::{IoConfig, TransportConfig};
     pub use crate::transport::io::Io;
+    pub use crate::transport::middleware::compression::CompressionConfig;
     pub use crate::transport::middleware::conditioner::LinkConditionerConfig;
 
     pub mod client {

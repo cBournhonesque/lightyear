@@ -26,6 +26,7 @@ lightyear = { path = "../../lightyear", features = [
   "render",
   "leafwing",
   "steam",
+  "zstd",
 ] }
 async-compat = "0.2.3"
 serde = { version = "1.0.188", features = ["derive"] }
