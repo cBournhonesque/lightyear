@@ -136,6 +136,7 @@ impl ConnectionManager {
         self.sync_manager.is_synced()
     }
 
+    /// Returns true if we received a new server packet on this frame
     pub(crate) fn received_new_server_tick(&self) -> bool {
         self.sync_manager.duration_since_latest_received_server_tick == Duration::default()
     }

@@ -22,7 +22,8 @@ pub enum TickEvent {
     TickSnap { old_tick: Tick, new_tick: Tick },
 }
 
-fn increment_tick(mut tick_manager: ResMut<TickManager>) {
+/// System that increments the tick at the start of FixedUpdate
+pub(crate) fn increment_tick(mut tick_manager: ResMut<TickManager>) {
     tick_manager.increment_tick();
     trace!("increment_tick! new tick: {:?}", tick_manager.tick());
 }
