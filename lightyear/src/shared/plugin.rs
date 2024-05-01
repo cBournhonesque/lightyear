@@ -12,6 +12,7 @@ use crate::shared::config::SharedConfig;
 use crate::shared::replication::components::ShouldBeInterpolated;
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
+use crate::transport::middleware::compression::CompressionConfig;
 
 #[derive(Default, Debug)]
 pub struct SharedPlugin {
@@ -42,6 +43,7 @@ impl Plugin for SharedPlugin {
             .register_type::<TickConfig>()
             .register_type::<PingConfig>()
             .register_type::<LinkConditionerConfig>()
+            .register_type::<CompressionConfig>()
             .register_type::<IoConfig>();
 
         // RESOURCES

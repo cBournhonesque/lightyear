@@ -79,7 +79,7 @@ impl Debug for Io {
 
 impl PacketReceiver for Io {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
-        // todo: compression + bandwidth monitoring
+        // todo: bandwidth monitoring
         self.receiver.as_mut().recv().map(|x| {
             if let Some((ref buffer, _)) = x {
                 #[cfg(feature = "metrics")]
@@ -97,7 +97,7 @@ impl PacketReceiver for Io {
 
 impl PacketSender for Io {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
-        // todo: compression + bandwidth monitoring
+        // todo: bandwidth monitoring
         #[cfg(feature = "metrics")]
         {
             metrics::counter!("transport.packets_sent").increment(1);

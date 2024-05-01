@@ -41,6 +41,7 @@ websocket = [
   "dep:wasm-bindgen",
 ]
 steam = ["dep:steamworks"]
+zstd = ["dep:zstd"]
 
 [dependencies]
 # utils
@@ -63,6 +64,9 @@ rand = "0.8"
 ringbuffer = "0.15"
 thiserror = "1.0.50"
 seahash = "4.1.0"
+
+# compression
+zstd = { version = "0.13.1", optional = true }
 
 # input
 leafwing-input-manager = { version = "0.13", optional = true }

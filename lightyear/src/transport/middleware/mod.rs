@@ -6,6 +6,9 @@ use crate::transport::{PacketReceiver, PacketSender};
 /// A conditioner is used to simulate network conditions such as latency, jitter and packet loss.
 pub(crate) mod conditioner;
 
+/// Middleware that compresses packets before sending them.
+pub(crate) mod compression;
+
 pub trait PacketReceiverWrapper<T: PacketReceiver> {
     fn wrap(self, receiver: T) -> impl PacketReceiver;
 }

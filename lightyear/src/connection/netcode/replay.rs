@@ -1,7 +1,7 @@
 const REPLAY_PROTECTION_BUFFER_SIZE: usize = 256;
 const UNRECEIVED: u64 = u64::MAX;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReplayProtection {
     most_recent_sequence: u64,
     received_packet: [u64; REPLAY_PROTECTION_BUFFER_SIZE],
