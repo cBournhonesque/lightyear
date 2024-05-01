@@ -12,9 +12,7 @@ use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, Syn
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
-use crate::prelude::{
-    ComponentRegistry, ExternalMapper, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
-};
+use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
 

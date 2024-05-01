@@ -6,12 +6,6 @@ use bevy::reflect::Reflect;
 use bevy::utils::hashbrown::hash_map::Entry;
 use std::cell::UnsafeCell;
 
-/// A trait for structs who can do entity mapping for another type.
-/// This is used to avoid the orphan rule, as we can't implement [`MapEntities`] on external types.
-pub trait ExternalMapper<C> {
-    fn map_entities_for<M: EntityMapper>(component: &mut C, entity_mapper: &mut M);
-}
-
 #[derive(Default, Debug, Reflect, Deref, DerefMut)]
 pub struct EntityMap(pub(crate) EntityHashMap<Entity>);
 

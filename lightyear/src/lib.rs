@@ -49,7 +49,7 @@ pub mod prelude {
         NetworkTarget, PrePredicted, Replicate, Replicated, ReplicationGroup, ReplicationMode,
         ShouldBePredicted,
     };
-    pub use crate::shared::replication::entity_map::{ExternalMapper, RemoteEntityMap};
+    pub use crate::shared::replication::entity_map::RemoteEntityMap;
     pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::replication::resources::{
         ReplicateResource, ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt,

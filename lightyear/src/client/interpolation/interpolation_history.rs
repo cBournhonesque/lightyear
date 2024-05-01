@@ -5,13 +5,13 @@ use bevy::prelude::{
 };
 use tracing::{debug, trace};
 
+use crate::client::components::Confirmed;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
-use crate::client::components::{Confirmed, SyncMetadata};
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
-use crate::prelude::{ComponentRegistry, ExternalMapper, TickManager};
+use crate::prelude::{ComponentRegistry, TickManager};
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
 
@@ -75,10 +75,11 @@ impl<C: SyncComponent> ConfirmedHistory<C> {
 }
 
 // TODO: maybe add the component history on the Confirmed entity instead of Interpolated? would make more sense maybe
+/// Add a component history for all Interpolated entities, that will store the history of the Confirmed component
+/// that we want to interpolate between entities that have the `Confirmed` component
 pub(crate) fn add_component_history<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
-    // TODO: unfortunately we need this to be mutable because of the MapEntities trait even though it's not actually needed...
-    mut manager: ResMut<InterpolationManager>,
+    manager: Res<InterpolationManager>,
     tick_manager: Res<TickManager>,
     mut commands: Commands,
     connection: Res<ConnectionManager>,
@@ -102,10 +103,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                     let history = ConfirmedHistory::<C>::new();
                     // map any entities from confirmed to interpolated
                     let mut new_component = confirmed_component.deref().clone();
-                    component_registry.map_entities(
-                        &mut new_component,
-                        &mut manager.interpolated_entity_map.confirmed_to_interpolated,
-                    );
+                    manager.map_entities(&mut new_component, component_registry.as_ref());
                     match component_registry.interpolation_mode::<C>() {
                         ComponentSyncMode::Full => {
                             trace!(?interpolated_entity, tick=?tick_manager.tick(),  "spawn interpolation history");
@@ -138,9 +136,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
 /// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
 pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
-    // TODO: unfortunately we need this to be mutable because of the MapEntities trait even though it's not actually needed...
-    //  could use UnsafeCell to bypass this.
-    mut manager: ResMut<InterpolationManager>,
+    manager: Res<InterpolationManager>,
     mut interpolated_entities: Query<
         &mut ConfirmedHistory<C>,
         (With<Interpolated>, Without<Confirmed>),
@@ -166,10 +162,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
 
                     // map any entities from confirmed to predicted
                     let mut component = confirmed_component.deref().clone();
-                    component_registry.map_entities(
-                        &mut component,
-                        &mut manager.interpolated_entity_map.confirmed_to_interpolated,
-                    );
+                    manager.map_entities(&mut component, component_registry.as_ref());
                     trace!(?kind, tick = ?tick, "adding confirmed update to history");
                     // update the history at the value that the entity currently is
                     history.buffer.add_item(tick, component);
@@ -184,8 +177,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
 /// When we receive a server update for a simple component, we just update the entity directly
 pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
-    // TODO: unfortunately we need this to be mutable because of the MapEntities trait even though it's not actually needed...
-    mut manager: ResMut<InterpolationManager>,
+    manager: Res<InterpolationManager>,
     mut interpolated_entities: Query<&mut C, (With<Interpolated>, Without<Confirmed>)>,
     confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
 ) {
@@ -196,10 +188,7 @@ pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
                     // for sync-components, we just match the confirmed component
                     // map any entities from confirmed to interpolated first
                     let mut component = confirmed_component.deref().clone();
-                    component_registry.map_entities(
-                        &mut component,
-                        &mut manager.interpolated_entity_map.confirmed_to_interpolated,
-                    );
+                    manager.map_entities(&mut component, component_registry.as_ref());
                     *interpolated_component = component;
                 }
             }
