@@ -432,7 +432,7 @@ impl GroupChannel {
             .get(&self.actions_pending_recv_message_id)?;
         // if the message is from the future, keep it there
         if message.0 > current_tick {
-            trace!("message tick is from the future compared to our tick");
+            error!("message tick {:?} is from the future compared to our current tick {current_tick:?}", message.0);
             return None;
         }
 

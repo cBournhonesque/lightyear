@@ -7,8 +7,8 @@ use std::hash::Hash;
 use std::ops::{Add, Mul};
 
 use bevy::prelude::{
-    App, Component, Entity, EntityMapper, EntityWorldMut, IntoSystemConfigs, Resource, TypePath,
-    World,
+    App, Component, DetectChangesMut, Entity, EntityMapper, EntityWorldMut, IntoSystemConfigs,
+    Resource, TypePath, World,
 };
 use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
@@ -30,7 +30,7 @@ use crate::prelude::{
     client, server, ChannelDirection, Message, MessageRegistry, PreSpawnedPlayerObject,
     RemoteEntityMap, ReplicateResource, Tick,
 };
-use crate::protocol::message::MessageType;
+use crate::protocol::message::{MessageKind, MessageType};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn, SerializeFns};
 use crate::protocol::{BitSerializable, EventContext};
@@ -362,6 +362,7 @@ impl ComponentRegistry {
         // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
         if let Some(mut c) = entity_world_mut.get_mut::<C>() {
             events.push_update_component(entity, net_id, tick);
+            // TODO: use set_if_neq for PartialEq
             *c = component;
         } else {
             events.push_insert_component(entity, net_id, tick);

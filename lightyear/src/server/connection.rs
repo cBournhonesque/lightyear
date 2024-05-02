@@ -527,6 +527,7 @@ impl Connection {
                             }
                         }
                         ClientMessage::Replication(replication) => {
+                            error!(?tick, ?replication, "received replication message");
                             // buffer the replication message
                             self.replication_receiver.recv_message(replication, tick);
                         }
@@ -552,7 +553,7 @@ impl Connection {
         for (group, replication_list) in
             self.replication_receiver.read_messages(tick_manager.tick())
         {
-            trace!(?group, ?replication_list, "read replication messages");
+            error!(?group, ?replication_list, "read replication messages");
             replication_list
                 .into_iter()
                 .for_each(|(tick, replication)| {

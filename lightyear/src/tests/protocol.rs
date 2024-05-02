@@ -58,6 +58,9 @@ impl Mul<f32> for &Component5 {
 #[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
 pub struct Resource1(pub f32);
 
+#[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
+pub struct Resource2(pub f32);
+
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
@@ -116,8 +119,9 @@ impl Plugin for ProtocolPlugin {
         app.add_prediction::<Component5>(ComponentSyncMode::Full);
         app.add_interpolation::<Component5>(ComponentSyncMode::Full);
         app.add_linear_interpolation_fn::<Component5>();
-
+        // resources
         app.register_resource::<Resource1>(ChannelDirection::ServerToClient);
+        app.register_resource::<Resource2>(ChannelDirection::Bidirectional);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,

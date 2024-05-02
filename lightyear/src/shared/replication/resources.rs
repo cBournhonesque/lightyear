@@ -98,6 +98,9 @@ mod command {
     }
 }
 
+// TODO: serialize the resource directly into the component, instead of cloning it,
+//  but then we need to make sure that the component is serialized with just a memcpy,
+//  since it's already been serialized. Maybe we can implement its BitSerialize ourselves?
 /// This component can be added to an entity to start replicating a [`Resource`] to remote clients.
 ///
 /// Currently, resources are cloned to be replicated, so only use this for resources that are
@@ -125,6 +128,8 @@ impl<R> Default for ReplicateResource<R> {
 
 pub(crate) mod send {
     use super::*;
+    use crate::prelude::NetworkIdentity;
+    use tracing::info;
 
     pub(crate) struct ResourceSendPlugin<R> {
         _marker: PhantomData<R>,
@@ -161,20 +166,22 @@ pub(crate) mod send {
     }
 
     fn copy_send_resource<R: Resource + Clone>(
+        identity: NetworkIdentity,
         resource: Option<Res<R>>,
         mut replicating_entity: Query<&mut ReplicateResource<R>, With<Replicate>>,
     ) {
-        if replicating_entity.iter().len() > 1 {
-            error!(
-                "Only one entity per World should have a ReplicateResource<{:?}> component",
-                std::any::type_name::<R>()
-            );
-            return;
-        }
+        // if replicating_entity.iter().len() > 1 {
+        //     error!(
+        //         "Only one entity per World should have a ReplicateResource<{:?}> component",
+        //         std::any::type_name::<R>()
+        //     );
+        //     return;
+        // }
         let Some(resource) = resource else {
             // if the resource was removed, remove it from the entity
             if let Ok(mut replicating_entity) = replicating_entity.get_single_mut() {
                 if replicating_entity.resource.is_some() {
+                    error!(identity = ?identity.identity(), "Sending removal for resource {:?}", std::any::type_name::<R>());
                     replicating_entity.resource = None;
                 }
             }
@@ -182,6 +189,10 @@ pub(crate) mod send {
         };
         if let Ok(mut replicating_entity) = replicating_entity.get_single_mut() {
             if resource.is_changed() || replicating_entity.is_added() {
+                error!(identity = ?identity.identity(),
+                    "Sending update for resource {:?}",
+                    std::any::type_name::<R>()
+                );
                 // TODO: we should be able to avoid this clone? we only need the reference to the resource to serialize it
                 //  - we could directly serialize the data here and store it in the component
                 //  - the component could just be a marker that we need to serialize the resource, and then we have a custom
@@ -193,7 +204,14 @@ pub(crate) mod send {
 }
 
 pub(crate) mod receive {
-    use bevy::prelude::RemovedComponents;
+    use crate::prelude::{ChannelDirection, ComponentRegistry, NetworkIdentity};
+    use crate::protocol::component::ComponentKind;
+    use crate::protocol::EventContext;
+    use crate::shared::events::components::{
+        ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
+    };
+    use bevy::prelude::{DetectChangesMut, EventReader, RemovedComponents};
+    use tracing::debug;
 
     use super::*;
 
@@ -214,7 +232,7 @@ pub(crate) mod receive {
             app.configure_sets(
                 PreUpdate,
                 InternalReplicationSet::<R::SetMarker>::ReceiveResourceUpdates
-                    .after(InternalMainSet::<R::SetMarker>::Receive),
+                    .after(InternalMainSet::<R::SetMarker>::EmitEvents),
             );
         }
     }
@@ -224,37 +242,91 @@ pub(crate) mod receive {
     ) {
         app.add_systems(
             PreUpdate,
-            (copy_receive_resource::<R>, handle_despawned_entity::<R>)
+            handle_despawned_entity::<R>
+                .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
+        );
+        app.add_systems(
+            PreUpdate,
+            copy_receive_resource::<R, S::EventContext>
                 .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
         );
     }
 
-    fn copy_receive_resource<R: Resource + Clone>(
+    // NOTE: we cannot use directly the value of the resource here inside the ReplicateResource<R> component,
+    //  because in the bidirectional case, we would then be removing the resource immediately since the
+    //  ReplicateResource component doesn't contain the resource in the Receive SystemSet.
+    //  instead, use the replication events.
+    fn copy_receive_resource<R: Resource + Clone, Ctx: EventContext>(
         mut commands: Commands,
+        identity: NetworkIdentity,
+        mut received_inserts: EventReader<ComponentInsertEvent<ReplicateResource<R>, Ctx>>,
+        mut received_updates: EventReader<ComponentUpdateEvent<ReplicateResource<R>, Ctx>>,
         replicating_entity: Query<Ref<ReplicateResource<R>>>,
-        resource: Option<ResMut<R>>,
+        mut resource: Option<ResMut<R>>,
     ) {
-        if replicating_entity.iter().len() > 1 {
-            error!(
-                "Only one entity per World should have a ReplicateResource<{:?}> component",
-                std::any::type_name::<R>()
-            );
-            return;
-        }
-        if let Ok(replicating_entity) = replicating_entity.get_single() {
-            if replicating_entity.is_changed() {
-                if let Some(received_value) = &replicating_entity.resource {
-                    if let Some(mut resource) = resource {
-                        *resource = received_value.clone();
+        for entity in received_inserts
+            .read()
+            .map(|e| e.entity())
+            .chain(received_updates.read().map(|e| e.entity()))
+        {
+            error!(identity = ?identity.identity(), "Received resource replication event");
+            if let Ok(replicating_entity) = replicating_entity.get(entity) {
+                if replicating_entity.is_changed() {
+                    if let Some(received_value) = &replicating_entity.resource {
+                        error!(identity = ?identity.identity(), "Update resource");
+                        if let Some(ref mut resource) = resource {
+                            // write the received value to the resource
+                            // without change detection to avoid an infinite loop
+                            *(resource.bypass_change_detection()) = received_value.clone();
+                        } else {
+                            commands.insert_resource(received_value.clone());
+                        }
                     } else {
-                        commands.insert_resource(received_value.clone());
+                        error!(
+                            is_client = ?identity.is_client(),
+                            "Despawning resource {:?} because the replicating entity doesn't contain it",
+                            std::any::type_name::<R>(),
+                        );
+                        commands.remove_resource::<R>();
                     }
-                } else if let Some(resource) = resource {
-                    commands.remove_resource::<R>();
                 }
             }
         }
     }
+
+    // fn copy_receive_resource<R: Resource + Clone>(
+    //     component_registry: Res<ComponentRegistry>,
+    //     mut commands: Commands,
+    //     replicating_entity: Query<Ref<ReplicateResource<R>>>,
+    //     resource: Option<ResMut<R>>,
+    // ) {
+    //     if replicating_entity.iter().len() > 1 {
+    //         error!(
+    //             "Only one entity per World should have a ReplicateResource<{:?}> component",
+    //             std::any::type_name::<R>()
+    //         );
+    //         return;
+    //     }
+    //     if let Ok(replicating_entity) = replicating_entity.get_single() {
+    //         if replicating_entity.is_changed() {
+    //             if let Some(received_value) = &replicating_entity.resource {
+    //                 if let Some(mut resource) = resource {
+    //                     // TODO: use set_if_neq for PartialEq
+    //                     // resource.set_if_neq(received_value.clone());
+    //                     *resource = received_value.clone();
+    //                 } else {
+    //                     commands.insert_resource(received_value.clone());
+    //                 }
+    //             } else if let Some(resource) = resource {
+    //                 error!(
+    //                     "Despawning resource {:?} because the replicating entity doesn't contain it",
+    //                     std::any::type_name::<R>()
+    //                 );
+    //                 commands.remove_resource::<R>();
+    //             }
+    //         }
+    //     }
+    // }
 
     /// If the entity that was driving the replication of the resource is despawned (usually when the
     /// client disconnects from the server), despawn the resource
@@ -263,6 +335,10 @@ pub(crate) mod receive {
         mut despawned: RemovedComponents<ReplicateResource<R>>,
     ) {
         for despawned_entity in despawned.read() {
+            error!(
+                "Despawning resource {:?} because the entity was despawned",
+                std::any::type_name::<R>()
+            );
             commands.remove_resource::<R>();
         }
     }
@@ -270,12 +346,17 @@ pub(crate) mod receive {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::{Commands, OnEnter};
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::{apply_deferred, Commands, OnEnter, Resource};
+    use serde::{Deserialize, Serialize};
+    use std::marker::PhantomData;
+    use tracing::error;
 
     use crate::prelude::client::NetworkingState;
-    use crate::prelude::Replicate;
+    use crate::prelude::{AppComponentExt, Replicate};
+    use crate::shared::replication::resources::command::StartReplicateCommand;
     use crate::shared::replication::resources::ReplicateResourceExt;
-    use crate::tests::protocol::{Component1, Resource1};
+    use crate::tests::protocol::{Component1, Resource1, Resource2};
     use crate::tests::stepper::{BevyStepper, Step};
 
     use super::{ReplicateResource, StopReplicateResourceExt};
@@ -436,6 +517,8 @@ mod tests {
         assert_eq!(stepper.client_app.world.resource::<Resource1>().0, 1.0);
     }
 
+    /// Check that when a client disconnects, every resource that was spawned from replication
+    /// gets despawned.
     #[test]
     fn test_client_disconnect() {
         let mut stepper = BevyStepper::default();
@@ -557,5 +640,69 @@ mod tests {
 
         // check that the deletion hasn't been replicated
         assert_eq!(stepper.client_app.world.resource::<Resource1>().0, 3.0);
+    }
+
+    #[test]
+    fn test_bidirectional_replication() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::INFO)
+            .init();
+        let mut stepper = BevyStepper::default();
+
+        // start replicating a resource via commands (even if the resource doesn't exist yet)
+        let start_server_replicate_system =
+            stepper
+                .server_app
+                .world
+                .register_system(|mut commands: Commands| {
+                    commands.replicate_resource::<Resource2>(Replicate::default());
+                });
+        let stop_server_replicate_system =
+            stepper
+                .server_app
+                .world
+                .register_system(|mut commands: Commands| {
+                    commands.stop_replicate_resource::<Resource2>();
+                });
+        stepper.server_app.world.insert_resource(Resource2(1.0));
+        error!("resource inserted");
+        let _ = stepper
+            .server_app
+            .world
+            .run_system(start_server_replicate_system);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the resource was replicated
+        assert_eq!(stepper.client_app.world.resource::<Resource2>().0, 1.0);
+
+        // update the resource on the client
+        // and start replicating the resource to the server
+        let start_client_replicate_system =
+            stepper
+                .client_app
+                .world
+                .register_system(|mut commands: Commands| {
+                    commands.replicate_resource::<Resource2>(Replicate::default());
+                });
+        let stop_client_replicate_system =
+            stepper
+                .server_app
+                .world
+                .register_system(|mut commands: Commands| {
+                    commands.stop_replicate_resource::<Resource2>();
+                });
+
+        let _ = stepper
+            .client_app
+            .world
+            .run_system(start_client_replicate_system);
+        stepper.client_app.world.resource_mut::<Resource2>().0 = 2.0;
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the update was replicated to the server
+        assert_eq!(stepper.server_app.world.resource::<Resource2>().0, 2.0);
     }
 }

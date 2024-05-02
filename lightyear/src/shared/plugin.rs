@@ -1,4 +1,6 @@
 //! Bevy [`bevy::prelude::Plugin`] used by both the server and the client
+use crate::client::config::ClientConfig;
+use crate::connection::server::ServerConnections;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
@@ -22,16 +24,44 @@ pub struct SharedPlugin {
 /// You can use this as a SystemParam to identify whether you're running on the client or the server
 #[derive(SystemParam)]
 pub struct NetworkIdentity<'w, 's> {
-    config: Option<Res<'w, ServerConfig>>,
+    client_config: Option<Res<'w, ClientConfig>>,
+    server: Option<Res<'w, ServerConnections>>,
     _marker: std::marker::PhantomData<&'s ()>,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Identity {
+    /// This peer is a client.
+    /// (note that both the client and server plugins could be running in the same process; but this peer is still acting like a client.
+    /// (for example if the server plugin is stopped))
+    Client,
+    /// This peer is a server.
+    Server,
+    /// This peer is both a server and a client
+    HostServer,
+}
+
 impl<'w, 's> NetworkIdentity<'w, 's> {
+    pub fn identity(&self) -> Identity {
+        let Some(config) = &self.client_config else {
+            return Identity::Server;
+        };
+        if matches!(config.shared.mode, Mode::HostServer)
+            && self
+                .server
+                .as_ref()
+                .map_or(false, |server| server.is_listening())
+        {
+            return Identity::HostServer;
+        } else {
+            return Identity::Client;
+        }
+    }
     pub fn is_client(&self) -> bool {
-        self.config.is_none()
+        self.identity() == Identity::Client
     }
     pub fn is_server(&self) -> bool {
-        self.config.is_some()
+        self.identity() == Identity::Server
     }
 }
 
