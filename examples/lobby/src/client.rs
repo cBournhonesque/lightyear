@@ -106,6 +106,7 @@ fn on_disconnect(
     for entity in entities.iter() {
         commands.entity(entity).despawn_recursive();
     }
+    commands.remove_resource::<Lobbies>();
 
     // stop the server if it was started (if the player was host)
     commands.stop_server();

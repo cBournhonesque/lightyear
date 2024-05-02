@@ -52,7 +52,7 @@ pub mod prelude {
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
     pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::replication::resources::{
-        ReplicateResource, ReplicateResourceExt, StopReplicateResourceExt,
+        ReplicateResourceExt, ReplicateResourceMetadata, StopReplicateResourceExt,
     };
     pub use crate::shared::sets::{FixedUpdateSet, MainSet};
     pub use crate::shared::tick_manager::TickManager;

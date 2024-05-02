@@ -28,7 +28,7 @@ use crate::prelude::client::SyncComponent;
 use crate::prelude::server::{ServerConfig, ServerPlugin};
 use crate::prelude::{
     client, server, ChannelDirection, Message, MessageRegistry, PreSpawnedPlayerObject,
-    RemoteEntityMap, ReplicateResource, Tick,
+    RemoteEntityMap, ReplicateResourceMetadata, Tick,
 };
 use crate::protocol::message::{MessageKind, MessageType};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};

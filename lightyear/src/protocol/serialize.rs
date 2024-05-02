@@ -1,5 +1,6 @@
 use crate::prelude::{
-    AppMessageExt, ChannelDirection, ComponentRegistry, Message, MessageRegistry, ReplicateResource,
+    AppMessageExt, ChannelDirection, ComponentRegistry, Message, MessageRegistry,
+    ReplicateResourceMetadata,
 };
 use crate::protocol::message::MessageType;
 use crate::protocol::registry::NetId;

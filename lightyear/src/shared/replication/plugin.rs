@@ -78,17 +78,18 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                 (
                     (
                         InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::Buffer,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::All),
                     (
                         InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
-                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::Buffer),
                     (
+                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
                         InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
@@ -98,6 +99,11 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                     (
                         InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
                         InternalReplicationSet::<R::SetMarker>::Buffer,
+                        InternalMainSet::<R::SetMarker>::SendPackets,
+                    )
+                        .chain(),
+                    (
+                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalMainSet::<R::SetMarker>::SendPackets,
                     )
                         .chain(),

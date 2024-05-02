@@ -7,7 +7,8 @@ use std::fmt::Debug;
 use crate::client::config::ClientConfig;
 use crate::client::message::add_server_to_client_message;
 use crate::prelude::{
-    client, server, AppComponentExt, Channel, ComponentRegistry, RemoteEntityMap, ReplicateResource,
+    client, server, AppComponentExt, Channel, ComponentRegistry, RemoteEntityMap,
+    ReplicateResourceMetadata,
 };
 use bevy::prelude::{
     App, Component, EntityMapper, EventWriter, IntoSystemConfigs, ResMut, Resource, TypePath, World,
@@ -35,6 +36,7 @@ use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::server::message::add_client_to_server_message;
 use crate::shared::replication::entity_map::EntityMap;
+use crate::shared::replication::resources::DespawnResource;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MessageType {
@@ -152,6 +154,7 @@ impl AppMessageExt for App {
     /// Register a resource to be automatically replicated over the network
     fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection) {
         self.add_message::<R>(direction);
+        self.add_message::<DespawnResource<R>>(direction);
         register_resource_send::<R>(self, direction)
     }
 }
