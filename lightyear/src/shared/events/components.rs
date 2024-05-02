@@ -35,8 +35,8 @@ impl<Ctx> DisconnectEvent<Ctx> {
 /// This event is emitted whenever we receive a message from the remote
 #[derive(Event)]
 pub struct MessageEvent<M: Message, Ctx = ()> {
-    message: M,
-    context: Ctx,
+    pub message: M,
+    pub context: Ctx,
 }
 
 impl<M: Message, Ctx> MessageEvent<M, Ctx> {

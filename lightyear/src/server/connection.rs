@@ -36,6 +36,7 @@ use crate::server::config::PacketConfig;
 use crate::server::events::ServerEvents;
 use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
+use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{
@@ -582,6 +583,29 @@ impl Connection {
         self.replication_sender.recv_update_acks();
         debug!("Received server packet with tick: {:?}", tick);
         Ok(())
+    }
+}
+
+impl MessageSend for ConnectionManager {
+    // TODO: don't duplicate these but have a super trait instead
+    type EventContext = ClientId;
+    type SetMarker = ServerMarker;
+
+    fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        self.send_message_to_target::<C, M>(message, target)
+    }
+
+    fn erased_send_message_to_target<M: Message>(
+        &mut self,
+        message: &M,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        self.erased_send_message_to_target(message, channel_kind, target)
     }
 }
 

@@ -300,7 +300,7 @@ fn prepare_input_message<A: UserAction>(
             "sending input message: {:?}", message.end_tick
         );
         connection
-            .send_message::<InputChannel, _>(message)
+            .send_message::<InputChannel, _>(&message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             })

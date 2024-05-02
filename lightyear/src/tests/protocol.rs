@@ -100,25 +100,26 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<MyInput>::default());
         // components
-        app.register_component::<Component1>(ChannelDirection::ServerToClient);
-        app.add_prediction::<Component1>(ComponentSyncMode::Full);
-        app.add_interpolation::<Component1>(ComponentSyncMode::Full);
-        app.add_linear_interpolation_fn::<Component1>();
+        app.register_component::<Component1>(ChannelDirection::ServerToClient)
+            .add_prediction::<Component1>(ComponentSyncMode::Full)
+            .add_interpolation::<Component1>(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn::<Component1>();
 
-        app.register_component::<Component2>(ChannelDirection::ServerToClient);
-        app.add_prediction::<Component2>(ComponentSyncMode::Simple);
+        app.register_component::<Component2>(ChannelDirection::ServerToClient)
+            .add_prediction::<Component2>(ComponentSyncMode::Simple);
 
-        app.register_component::<Component3>(ChannelDirection::ServerToClient);
-        app.add_prediction::<Component3>(ComponentSyncMode::Once);
+        app.register_component::<Component3>(ChannelDirection::ServerToClient)
+            .add_prediction::<Component3>(ComponentSyncMode::Once);
 
-        app.register_component::<Component4>(ChannelDirection::ServerToClient);
-        app.add_prediction::<Component4>(ComponentSyncMode::Simple);
-        app.add_component_map_entities::<Component4>();
+        app.register_component::<Component4>(ChannelDirection::ServerToClient)
+            .add_prediction::<Component4>(ComponentSyncMode::Simple)
+            .add_map_entities::<Component4>();
 
-        app.register_component::<Component5>(ChannelDirection::ServerToClient);
-        app.add_prediction::<Component5>(ComponentSyncMode::Full);
-        app.add_interpolation::<Component5>(ComponentSyncMode::Full);
-        app.add_linear_interpolation_fn::<Component5>();
+        app.register_component::<Component5>(ChannelDirection::ServerToClient)
+            .add_prediction::<Component5>(ComponentSyncMode::Full)
+            .add_interpolation::<Component5>(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn::<Component5>();
+
         // resources
         app.register_resource::<Resource1>(ChannelDirection::ServerToClient);
         app.register_resource::<Resource2>(ChannelDirection::Bidirectional);
