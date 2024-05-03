@@ -57,11 +57,14 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
             .register_type::<PredictedEntityMap>()
             .register_type::<InterpolatedEntityMap>();
 
+        // TODO: should we put this back into enable_receive?
+        app.add_plugins(ResourceReceivePlugin::<R>::default());
+        app.add_plugins(ResourceSendPlugin::<R>::default());
         // SYSTEM SETS //
         if self.enable_receive {
             // PLUGINS
             app.add_plugins(HierarchyReceivePlugin::<R>::default());
-            app.add_plugins(ResourceReceivePlugin::<R>::default());
+            // app.add_plugins(ResourceReceivePlugin::<R>::default());
         }
         if self.enable_send {
             app.configure_sets(
@@ -113,7 +116,7 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
             add_replication_send_systems::<R>(app);
             // PLUGINS
             app.add_plugins(HierarchySendPlugin::<R>::default());
-            app.add_plugins(ResourceSendPlugin::<R>::default());
+            // app.add_plugins(ResourceSendPlugin::<R>::default());
         }
 
         // TODO: split receive cleanup from send cleanup

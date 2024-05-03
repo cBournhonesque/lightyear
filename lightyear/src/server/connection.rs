@@ -528,7 +528,7 @@ impl Connection {
                             }
                         }
                         ClientMessage::Replication(replication) => {
-                            error!(?tick, ?replication, "received replication message");
+                            trace!(?tick, ?replication, "received replication message");
                             // buffer the replication message
                             self.replication_receiver.recv_message(replication, tick);
                         }

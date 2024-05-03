@@ -93,7 +93,7 @@ pub(crate) mod send {
     use crate::prelude::NetworkIdentity;
     use crate::shared::message::MessageSend;
     use bevy::prelude::resource_removed;
-    use tracing::info;
+    use tracing::{info, trace};
 
     pub(crate) struct ResourceSendPlugin<R> {
         _marker: PhantomData<R>,
@@ -145,6 +145,10 @@ pub(crate) mod send {
         if let Some(resource) = resource {
             if resource.is_changed() {
                 if let Some(replication_resource) = replication_resource {
+                    trace!(
+                        "sending resource replication update: {:?}",
+                        std::any::type_name::<R>()
+                    );
                     let _ = connection_manager.erased_send_message_to_target(
                         resource.as_ref(),
                         replication_resource.channel,
@@ -164,8 +168,9 @@ pub(crate) mod receive {
         ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
     };
     use crate::shared::message::MessageSend;
+    use crate::shared::plugin::Identity;
     use bevy::prelude::{DetectChangesMut, EventReader, Events, RemovedComponents};
-    use tracing::debug;
+    use tracing::{debug, trace};
 
     use super::*;
 
@@ -196,12 +201,23 @@ pub(crate) mod receive {
 
     pub(crate) fn add_resource_receive_systems<R: Resource + Message, S: MessageSend>(
         app: &mut App,
+        is_bidirectional: bool,
     ) {
-        app.add_systems(
-            PreUpdate,
-            handle_resource_message::<R, S::EventContext>
-                .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
-        );
+        // If `is_bidirectional` is  true, that means that the resource can be replicated in both directions.
+        // In that case, we need to disable change detection or we would get an infinite loop of updates.
+        if is_bidirectional {
+            app.add_systems(
+                PreUpdate,
+                handle_resource_message_bidirectional::<R, S::EventContext>
+                    .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
+            );
+        } else {
+            app.add_systems(
+                PreUpdate,
+                handle_resource_message::<R, S::EventContext>
+                    .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
+            );
+        }
     }
 
     fn handle_resource_message<R: Resource + Message, Ctx: EventContext>(
@@ -211,6 +227,29 @@ pub(crate) mod receive {
         mut resource: Option<ResMut<R>>,
     ) {
         for message in update_message.drain() {
+            trace!("received resource replication message");
+            // TODO: disable change detection only for bidirectional!
+            if let Some(ref mut resource) = resource {
+                **resource = message.message;
+            } else {
+                commands.insert_resource(message.message);
+            }
+        }
+        for message in remove_message.read() {
+            if resource.is_some() {
+                commands.remove_resource::<R>();
+            }
+        }
+    }
+
+    fn handle_resource_message_bidirectional<R: Resource + Message, Ctx: EventContext>(
+        mut commands: Commands,
+        mut update_message: ResMut<Events<MessageEvent<R, Ctx>>>,
+        mut remove_message: EventReader<MessageEvent<DespawnResource<R>, Ctx>>,
+        mut resource: Option<ResMut<R>>,
+    ) {
+        for message in update_message.drain() {
+            trace!("received resource replication message");
             // TODO: disable change detection only for bidirectional!
             if let Some(ref mut resource) = resource {
                 // write the received value to the resource
@@ -447,6 +486,9 @@ mod tests {
     /// - resource replication works in both directions
     #[test]
     fn test_bidirectional_replication() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::ERROR)
+            .init();
         let mut stepper = BevyStepper::default();
 
         // start replicating a resource via commands (even if the resource doesn't exist yet)
@@ -498,9 +540,6 @@ mod tests {
             .run_system(start_client_replicate_system);
         stepper.client_app.world.resource_mut::<Resource2>().0 = 2.0;
         stepper.frame_step();
-        stepper.frame_step();
-        // TODO: why do we need an extra frame here?
-        stepper.frame_step();
 
         // check that the update was replicated to the server
         assert_eq!(stepper.server_app.world.resource::<Resource2>().0, 2.0);
@@ -520,9 +559,6 @@ mod tests {
         // update the resource on the client, it should be replicated again to the server
         stepper.client_app.world.resource_mut::<Resource2>().0 = 3.0;
         stepper.frame_step();
-        stepper.frame_step();
-        // TODO: why do we need an extra frame here?
-        // stepper.frame_step();
 
         // check that the update was replicated to the server
         assert_eq!(stepper.server_app.world.resource::<Resource2>().0, 3.0);

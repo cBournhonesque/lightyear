@@ -197,7 +197,7 @@ impl Plugin for ProtocolPlugin {
         app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
         app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
         // resources
-        app.register_resource::<Lobbies>(ChannelDirection::ServerToClient);
+        app.register_resource::<Lobbies>(ChannelDirection::Bidirectional);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

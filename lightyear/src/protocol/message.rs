@@ -92,7 +92,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::receive::add_resource_receive_systems::<
                     R,
                     server::ConnectionManager,
-                >(app);
+                >(app, false);
             }
         }
         ChannelDirection::ServerToClient => {
@@ -106,12 +106,32 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::receive::add_resource_receive_systems::<
                     R,
                     client::ConnectionManager,
-                >(app);
+                >(app, false);
             }
         }
         ChannelDirection::Bidirectional => {
-            register_resource_send::<R>(app, ChannelDirection::ClientToServer);
-            register_resource_send::<R>(app, ChannelDirection::ServerToClient);
+            if is_server {
+                crate::shared::replication::resources::send::add_resource_send_systems::<
+                    R,
+                    server::ConnectionManager,
+                >(app);
+                crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                    R,
+                    server::ConnectionManager,
+                >(app, true);
+            }
+            if is_client {
+                crate::shared::replication::resources::send::add_resource_send_systems::<
+                    R,
+                    client::ConnectionManager,
+                >(app);
+                crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                    R,
+                    client::ConnectionManager,
+                >(app, true);
+            }
+            // register_resource_send::<R>(app, ChannelDirection::ClientToServer);
+            // register_resource_send::<R>(app, ChannelDirection::ServerToClient);
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+use crate::client::replication::ReplicationConfig;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
@@ -112,6 +113,10 @@ impl BevyStepper {
             shared: shared_config.clone(),
             net: vec![net_config],
             ping: PingConfig::default(),
+            replication: server::ReplicationConfig {
+                enable_send: true,
+                enable_receive: true,
+            },
             ..default()
         };
         let plugin = server::ServerPlugin::new(config);
@@ -136,6 +141,10 @@ impl BevyStepper {
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
+            replication: client::ReplicationConfig {
+                enable_send: true,
+                enable_receive: true,
+            },
             ..default()
         };
         let plugin = client::ClientPlugin::new(config);
