@@ -3,3 +3,4 @@
 /Cargo.lock
 /.idea
 /examples/**/dist/
+.DS_Store
