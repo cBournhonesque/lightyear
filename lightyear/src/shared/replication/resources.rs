@@ -514,9 +514,9 @@ mod tests {
     /// - resource replication works in both directions
     #[test]
     fn test_bidirectional_replication() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::ERROR)
-            .init();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
         let mut stepper = BevyStepper::default();
 
         // start replicating a resource via commands (even if the resource doesn't exist yet)

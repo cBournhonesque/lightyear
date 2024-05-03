@@ -52,9 +52,9 @@ impl<'w, 's> NetworkIdentity<'w, 's> {
                 .as_ref()
                 .map_or(false, |server| server.is_listening())
         {
-            return Identity::HostServer;
+            Identity::HostServer
         } else {
-            return Identity::Client;
+            Identity::Client
         }
     }
     pub fn is_client(&self) -> bool {
