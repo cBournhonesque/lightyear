@@ -35,7 +35,7 @@ pub(crate) mod registry;
 pub(crate) mod serialize;
 
 /// Something that can be serialized bit by bit
-pub trait BitSerializable: Clone {
+pub trait BitSerializable {
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()>;
 
     fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
@@ -46,7 +46,7 @@ pub trait BitSerializable: Clone {
 // TODO: allow for either decode/encode directly, or use serde if we add an attribute with_serde?
 impl<T> BitSerializable for T
 where
-    T: Serialize + DeserializeOwned + Clone,
+    T: Serialize + DeserializeOwned,
 {
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         writer.serialize(self)
