@@ -57,11 +57,14 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
             .register_type::<PredictedEntityMap>()
             .register_type::<InterpolatedEntityMap>();
 
+        // TODO: should we put this back into enable_receive?
+        app.add_plugins(ResourceReceivePlugin::<R>::default());
+        app.add_plugins(ResourceSendPlugin::<R>::default());
         // SYSTEM SETS //
         if self.enable_receive {
             // PLUGINS
             app.add_plugins(HierarchyReceivePlugin::<R>::default());
-            app.add_plugins(ResourceReceivePlugin::<R>::default());
+            // app.add_plugins(ResourceReceivePlugin::<R>::default());
         }
         if self.enable_send {
             app.configure_sets(
@@ -78,12 +81,12 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                 (
                     (
                         InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::Buffer,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::All),
                     (
                         InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
-                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals,
                     )
@@ -92,6 +95,9 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                         InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
+                        // TODO: verify this, why does handle-replicate-update need to run every frame?
+                        //  because Removed<Replicate> is cleared every frame?
+                        // NOTE: HandleReplicateUpdate should also run every frame?
                         // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                     )
                         .in_set(InternalMainSet::<R::SetMarker>::Send),
@@ -101,13 +107,18 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                         InternalMainSet::<R::SetMarker>::SendPackets,
                     )
                         .chain(),
+                    (
+                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
+                        InternalMainSet::<R::SetMarker>::SendPackets,
+                    )
+                        .chain(),
                 ),
             );
             // SYSTEMS
             add_replication_send_systems::<R>(app);
             // PLUGINS
             app.add_plugins(HierarchySendPlugin::<R>::default());
-            app.add_plugins(ResourceSendPlugin::<R>::default());
+            // app.add_plugins(ResourceSendPlugin::<R>::default());
         }
 
         // TODO: split receive cleanup from send cleanup

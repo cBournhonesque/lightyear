@@ -5,7 +5,7 @@ use bevy::ptr::UnsafeCellDeref;
 use bevy::reflect::Reflect;
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
-use tracing::{info, trace};
+use tracing::{error, info, trace};
 
 use bitcode::buffer::BufferTrait;
 use bitcode::word_buffer::WordBuffer;
@@ -133,6 +133,7 @@ impl MessageManager {
             if channel.sender.has_messages_to_send() {
                 let (single_data, fragment_data) = channel.sender.send_packet();
                 if !single_data.is_empty() || !fragment_data.is_empty() {
+                    trace!(?channel_id, "send message with channel_id");
                     has_data_to_send = true;
                 }
                 data_to_send.push((*channel_id, (single_data, fragment_data)));

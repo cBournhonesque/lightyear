@@ -32,7 +32,7 @@ pub(crate) mod message;
 
 /// Provides a mapping from a type to a unique identifier that can be serialized
 pub(crate) mod registry;
-mod serialize;
+pub(crate) mod serialize;
 
 /// Something that can be serialized bit by bit
 pub trait BitSerializable: Clone {

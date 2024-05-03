@@ -1,5 +1,6 @@
 use crate::prelude::{
-    AppMessageExt, ChannelDirection, ComponentRegistry, Message, MessageRegistry, ReplicateResource,
+    AppMessageExt, ChannelDirection, ComponentRegistry, Message, MessageRegistry,
+    ReplicateResourceMetadata,
 };
 use crate::protocol::message::MessageType;
 use crate::protocol::registry::NetId;
@@ -102,9 +103,9 @@ impl ErasedSerializeFns {
 }
 
 pub trait AppSerializeExt {
+    /// Indicate that the type `M` contains Entity references, and that the entities
+    /// should be mapped during deserialization
     fn add_map_entities<M: MapEntities + 'static>(&mut self);
-
-    fn add_resource_map_entities<R: Resource + MapEntities + 'static>(&mut self);
 }
 
 impl AppSerializeExt for App {
@@ -117,9 +118,5 @@ impl AppSerializeExt for App {
         registry.try_add_map_entities::<M>();
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         registry.try_add_map_entities::<M>();
-    }
-
-    fn add_resource_map_entities<R: Resource + MapEntities + 'static>(&mut self) {
-        self.add_map_entities::<ReplicateResource<R>>();
     }
 }

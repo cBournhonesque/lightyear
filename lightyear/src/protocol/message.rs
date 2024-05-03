@@ -6,7 +6,10 @@ use std::fmt::Debug;
 
 use crate::client::config::ClientConfig;
 use crate::client::message::add_server_to_client_message;
-use crate::prelude::{client, server, AppComponentExt, Channel, RemoteEntityMap};
+use crate::prelude::{
+    client, server, AppComponentExt, Channel, ComponentRegistry, RemoteEntityMap,
+    ReplicateResourceMetadata,
+};
 use bevy::prelude::{
     App, Component, EntityMapper, EventWriter, IntoSystemConfigs, ResMut, Resource, TypePath, World,
 };
@@ -33,6 +36,7 @@ use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::server::message::add_client_to_server_message;
 use crate::shared::replication::entity_map::EntityMap;
+use crate::shared::replication::resources::DespawnResource;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MessageType {
@@ -73,6 +77,65 @@ fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection)
     }
 }
 
+fn register_resource_send<R: Resource + Message>(app: &mut App, direction: ChannelDirection) {
+    let is_client = app.world.get_resource::<ClientConfig>().is_some();
+    let is_server = app.world.get_resource::<ServerConfig>().is_some();
+    match direction {
+        ChannelDirection::ClientToServer => {
+            if is_client {
+                crate::shared::replication::resources::send::add_resource_send_systems::<
+                    R,
+                    client::ConnectionManager,
+                >(app);
+            }
+            if is_server {
+                crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                    R,
+                    server::ConnectionManager,
+                >(app, false);
+            }
+        }
+        ChannelDirection::ServerToClient => {
+            if is_server {
+                crate::shared::replication::resources::send::add_resource_send_systems::<
+                    R,
+                    server::ConnectionManager,
+                >(app);
+            }
+            if is_client {
+                crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                    R,
+                    client::ConnectionManager,
+                >(app, false);
+            }
+        }
+        ChannelDirection::Bidirectional => {
+            if is_server {
+                crate::shared::replication::resources::send::add_resource_send_systems::<
+                    R,
+                    server::ConnectionManager,
+                >(app);
+                crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                    R,
+                    server::ConnectionManager,
+                >(app, true);
+            }
+            if is_client {
+                crate::shared::replication::resources::send::add_resource_send_systems::<
+                    R,
+                    client::ConnectionManager,
+                >(app);
+                crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                    R,
+                    client::ConnectionManager,
+                >(app, true);
+            }
+            // register_resource_send::<R>(app, ChannelDirection::ClientToServer);
+            // register_resource_send::<R>(app, ChannelDirection::ServerToClient);
+        }
+    }
+}
+
 pub struct MessageRegistration<'a> {
     app: &'a mut App,
 }
@@ -81,7 +144,8 @@ impl MessageRegistration<'_> {
     /// Specify that the message contains entities which should be mapped from the remote world to the local world
     /// upon deserialization
     pub fn add_map_entities<M: MapEntities + 'static>(self) -> Self {
-        self.app.add_message_map_entities::<M>();
+        let mut registry = self.app.world.resource_mut::<MessageRegistry>();
+        registry.add_map_entities::<M>();
         self
     }
 }
@@ -92,9 +156,9 @@ pub trait AppMessageExt {
     /// This message can now be sent over the network.
     fn add_message<M: Message>(&mut self, direction: ChannelDirection);
 
-    /// Specify that the message contains entities which should be mapped from the remote world to the local world
-    /// upon deserialization
-    fn add_message_map_entities<M: MapEntities + 'static>(&mut self);
+    /// Registers the resource in the Registry
+    /// This resource can now be sent over the network.
+    fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection);
 }
 
 impl AppMessageExt for App {
@@ -107,11 +171,11 @@ impl AppMessageExt for App {
         register_message_send::<M>(self, direction);
     }
 
-    /// Specify that the message contains entities which should be mapped from the remote world to the local world
-    /// upon deserialization
-    fn add_message_map_entities<M: MapEntities + 'static>(&mut self) {
-        let mut registry = self.world.resource_mut::<MessageRegistry>();
-        registry.add_map_entities::<M>();
+    /// Register a resource to be automatically replicated over the network
+    fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection) {
+        self.add_message::<R>(direction);
+        self.add_message::<DespawnResource<R>>(direction);
+        register_resource_send::<R>(self, direction)
     }
 }
 

@@ -82,6 +82,7 @@ fn read_message<M: Message>(
                             }
                         }
                         event.send(MessageEvent::new(message, *client_id));
+                        trace!("Received message: {:?}", std::any::type_name::<M>());
                     }
                     Err(e) => {
                         error!(

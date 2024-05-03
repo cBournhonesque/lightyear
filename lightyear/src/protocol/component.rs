@@ -7,8 +7,8 @@ use std::hash::Hash;
 use std::ops::{Add, Mul};
 
 use bevy::prelude::{
-    App, Component, Entity, EntityMapper, EntityWorldMut, IntoSystemConfigs, Resource, TypePath,
-    World,
+    App, Component, DetectChangesMut, Entity, EntityMapper, EntityWorldMut, IntoSystemConfigs,
+    Resource, TypePath, World,
 };
 use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
@@ -28,9 +28,9 @@ use crate::prelude::client::SyncComponent;
 use crate::prelude::server::{ServerConfig, ServerPlugin};
 use crate::prelude::{
     client, server, ChannelDirection, Message, MessageRegistry, PreSpawnedPlayerObject,
-    RemoteEntityMap, ReplicateResource, Tick,
+    RemoteEntityMap, ReplicateResourceMetadata, Tick,
 };
-use crate::protocol::message::MessageType;
+use crate::protocol::message::{MessageKind, MessageType};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn, SerializeFns};
 use crate::protocol::{BitSerializable, EventContext};
@@ -149,10 +149,6 @@ impl ComponentRegistry {
         let remove: RawRemoveFn = Self::remove::<C>;
         self.replication_map
             .insert(component_kind, ReplicationMetadata { write, remove });
-    }
-
-    pub(crate) fn register_resource<R: Resource + Message>(&mut self) {
-        self.register_component::<ReplicateResource<R>>();
     }
 
     pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
@@ -362,6 +358,7 @@ impl ComponentRegistry {
         // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
         if let Some(mut c) = entity_world_mut.get_mut::<C>() {
             events.push_update_component(entity, net_id, tick);
+            // TODO: use set_if_neq for PartialEq
             *c = component;
         } else {
             events.push_insert_component(entity, net_id, tick);
@@ -419,45 +416,6 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
     }
 }
 
-fn register_resource_send<R: Resource + Message>(app: &mut App, direction: ChannelDirection) {
-    let is_client = app.world.get_resource::<ClientConfig>().is_some();
-    let is_server = app.world.get_resource::<ServerConfig>().is_some();
-    match direction {
-        ChannelDirection::ClientToServer => {
-            if is_client {
-                crate::shared::replication::resources::send::add_resource_send_systems::<
-                    client::ConnectionManager,
-                    R,
-                >(app);
-            }
-            if is_server {
-                crate::shared::replication::resources::receive::add_resource_receive_systems::<
-                    server::ConnectionManager,
-                    R,
-                >(app);
-            }
-        }
-        ChannelDirection::ServerToClient => {
-            if is_server {
-                crate::shared::replication::resources::send::add_resource_send_systems::<
-                    server::ConnectionManager,
-                    R,
-                >(app);
-            }
-            if is_client {
-                crate::shared::replication::resources::receive::add_resource_receive_systems::<
-                    client::ConnectionManager,
-                    R,
-                >(app);
-            }
-        }
-        ChannelDirection::Bidirectional => {
-            register_resource_send::<R>(app, ChannelDirection::ClientToServer);
-            register_resource_send::<R>(app, ChannelDirection::ServerToClient);
-        }
-    }
-}
-
 /// Add a component to the list of components that can be sent
 pub trait AppComponentExt {
     /// Registers the component in the Registry
@@ -466,14 +424,6 @@ pub trait AppComponentExt {
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_>;
-
-    /// Registers the resource in the Registry
-    /// This resource can now be sent over the network.
-    fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection);
-
-    /// Specify that the component contains entities which should be mapped from the remote world to the local world
-    /// upon deserialization
-    fn add_component_map_entities<C: MapEntities + 'static>(&mut self);
 
     /// Enable prediction systems for this component.
     /// You can specify the prediction [`ComponentSyncMode`]
@@ -508,7 +458,8 @@ impl ComponentRegistration<'_> {
     /// Specify that the component contains entities which should be mapped from the remote world to the local world
     /// upon deserialization
     pub fn add_map_entities<C: MapEntities + 'static>(self) -> Self {
-        self.app.add_component_map_entities::<C>();
+        let mut registry = self.app.world.resource_mut::<ComponentRegistry>();
+        registry.add_map_entities::<C>();
         self
     }
 
@@ -576,16 +527,6 @@ impl AppComponentExt for App {
         debug!("register component {}", std::any::type_name::<C>());
         register_component_send::<C>(self, direction);
         ComponentRegistration { app: self }
-    }
-
-    fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection) {
-        self.register_component::<ReplicateResource<R>>(direction);
-        register_resource_send::<R>(self, direction)
-    }
-
-    fn add_component_map_entities<C: MapEntities + 'static>(&mut self) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
-        registry.add_map_entities::<C>();
     }
 
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {

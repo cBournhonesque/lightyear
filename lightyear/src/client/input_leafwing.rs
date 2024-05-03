@@ -673,7 +673,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
             message.diffs
         );
         connection
-            .send_message::<InputChannel, InputMessage<A>>(message)
+            .send_message::<InputChannel, InputMessage<A>>(&message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             })

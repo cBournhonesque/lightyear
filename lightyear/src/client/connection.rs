@@ -33,6 +33,7 @@ use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
+use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
@@ -41,7 +42,7 @@ use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::systems::DespawnMetadata;
 use crate::shared::replication::ReplicationMessageData;
 use crate::shared::replication::{ReplicationMessage, ReplicationSend};
-use crate::shared::sets::ClientMarker;
+use crate::shared::sets::{ClientMarker, ServerMarker};
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -176,26 +177,27 @@ impl ConnectionManager {
     }
 
     /// Send a message to the server
-    pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()> {
+    pub fn send_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<()> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::None)
     }
 
     /// Send a message to the server, the message should be re-broadcasted according to the `target`
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: M,
+        message: &M,
         target: NetworkTarget,
     ) -> Result<()> {
-        // TODO: if unified; send message directly to the client's message receiver
-        // TODO: add metrics?
-        // serialize early! then the message manager just focuses on raw bytes + reliability
-        // however we then call serialize many times for small messages, we lose bitcode's compressability
-        let message_bytes = self
-            .message_registry
-            .serialize(&message, &mut self.writer)?;
+        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
+    }
 
-        let channel = ChannelKind::of::<C>();
-        self.buffer_message(message_bytes, channel, target)
+    fn erased_send_message_to_target<M: Message>(
+        &mut self,
+        message: &M,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        let message_bytes = self.message_registry.serialize(message, &mut self.writer)?;
+        self.buffer_message(message_bytes, channel_kind, target)
     }
 
     pub(crate) fn buffer_message(
@@ -440,6 +442,25 @@ impl ConnectionManager {
         // notify the replication sender that some sent messages were received
         self.replication_sender.recv_update_acks();
         Ok(())
+    }
+}
+
+impl MessageSend for ConnectionManager {
+    fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        self.send_message_to_target::<C, M>(message, target)
+    }
+
+    fn erased_send_message_to_target<M: Message>(
+        &mut self,
+        message: &M,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        self.erased_send_message_to_target(message, channel_kind, target)
     }
 }
 
