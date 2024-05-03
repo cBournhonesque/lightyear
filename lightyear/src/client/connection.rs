@@ -446,9 +446,6 @@ impl ConnectionManager {
 }
 
 impl MessageSend for ConnectionManager {
-    // TODO: don't duplicate these but have a super trait instead
-    type EventContext = ();
-    type SetMarker = ClientMarker;
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
         message: &M,

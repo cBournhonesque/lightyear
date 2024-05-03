@@ -39,6 +39,7 @@ pub mod prelude {
     pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
     pub use crate::protocol::component::{AppComponentExt, ComponentRegistry, Linear};
     pub use crate::protocol::message::{AppMessageExt, MessageRegistry};
+    pub use crate::protocol::serialize::AppSerializeExt;
     pub use crate::shared::config::{Mode, SharedConfig};
     pub use crate::shared::input::InputPlugin;
     #[cfg(feature = "leafwing")]

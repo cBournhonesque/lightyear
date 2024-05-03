@@ -554,7 +554,7 @@ impl Connection {
         for (group, replication_list) in
             self.replication_receiver.read_messages(tick_manager.tick())
         {
-            error!(?group, ?replication_list, "read replication messages");
+            trace!(?group, ?replication_list, "read replication messages");
             replication_list
                 .into_iter()
                 .for_each(|(tick, replication)| {
@@ -587,10 +587,6 @@ impl Connection {
 }
 
 impl MessageSend for ConnectionManager {
-    // TODO: don't duplicate these but have a super trait instead
-    type EventContext = ClientId;
-    type SetMarker = ServerMarker;
-
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
         message: &M,

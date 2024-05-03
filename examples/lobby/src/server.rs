@@ -70,7 +70,7 @@ pub(crate) struct Global {
 
 /// System to start the dedicated server at Startup
 fn start_dedicated_server(mut commands: Commands) {
-    commands.replicate_resource::<Lobbies>(Replicate::default());
+    commands.replicate_resource::<Lobbies, Channel1>(NetworkTarget::All);
     commands.start_server();
 }
 
@@ -260,6 +260,7 @@ mod lobby {
                 if host.is_none() {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
+                        error!("Spawning player {player:?} entity for game");
                         let entity =
                             spawn_player_entity(&mut commands, global.reborrow(), *player, true);
                         room_manager.add_entity(entity, room_id);

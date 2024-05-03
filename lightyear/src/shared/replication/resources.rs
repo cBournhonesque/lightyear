@@ -111,7 +111,12 @@ pub(crate) mod send {
         fn build(&self, app: &mut App) {}
     }
 
-    pub(crate) fn add_resource_send_systems<R: Resource + Message, S: MessageSend>(app: &mut App) {
+    pub(crate) fn add_resource_send_systems<
+        R: Resource + Message,
+        S: MessageSend + ReplicationSend,
+    >(
+        app: &mut App,
+    ) {
         app.add_systems(
             PostUpdate,
             (
@@ -137,11 +142,28 @@ pub(crate) mod send {
     }
 
     /// Send a message when the resource is updated
-    fn send_resource_update<R: Resource + Message, S: MessageSend>(
+    fn send_resource_update<R: Resource + Message, S: MessageSend + ReplicationSend>(
         mut connection_manager: ResMut<S>,
         replication_resource: Option<Res<ReplicateResourceMetadata<R>>>,
         resource: Option<Res<R>>,
     ) {
+        // send the resource to newly connected clients
+        let new_clients = connection_manager.new_connected_clients();
+        if !new_clients.is_empty() {
+            if let Some(resource) = &resource {
+                if let Some(replication_resource) = replication_resource.as_ref() {
+                    trace!(
+                        "sending resource replication update to new clients: {:?}",
+                        std::any::type_name::<R>()
+                    );
+                    let _ = connection_manager.erased_send_message_to_target(
+                        resource.as_ref(),
+                        replication_resource.channel,
+                        NetworkTarget::Only(new_clients.clone()),
+                    );
+                }
+            }
+        }
         if let Some(resource) = resource {
             if resource.is_changed() {
                 if let Some(replication_resource) = replication_resource {
@@ -149,10 +171,13 @@ pub(crate) mod send {
                         "sending resource replication update: {:?}",
                         std::any::type_name::<R>()
                     );
+                    let mut target = replication_resource.target.clone();
+                    // no need to send a duplicate message to new clients
+                    target.exclude(new_clients);
                     let _ = connection_manager.erased_send_message_to_target(
                         resource.as_ref(),
                         replication_resource.channel,
-                        replication_resource.target.clone(),
+                        target,
                     );
                 }
             }
@@ -199,7 +224,10 @@ pub(crate) mod receive {
         }
     }
 
-    pub(crate) fn add_resource_receive_systems<R: Resource + Message, S: MessageSend>(
+    pub(crate) fn add_resource_receive_systems<
+        R: Resource + Message,
+        S: MessageSend + ReplicationSend,
+    >(
         app: &mut App,
         is_bidirectional: bool,
     ) {

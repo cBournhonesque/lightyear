@@ -7,7 +7,8 @@ use crate::client::config::ClientConfig;
 use crate::client::input_leafwing::LeafwingInputConfig;
 use crate::inputs::leafwing::InputMessage;
 use crate::prelude::{
-    AppComponentExt, AppMessageExt, ChannelDirection, LeafwingUserAction, MessageRegistry,
+    AppComponentExt, AppMessageExt, AppSerializeExt, ChannelDirection, LeafwingUserAction,
+    MessageRegistry,
 };
 use crate::protocol::message::MessageType;
 use crate::server::config::ServerConfig;
@@ -32,7 +33,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         app.world
             .resource_mut::<MessageRegistry>()
             .add_message::<InputMessage<A>>(MessageType::LeafwingInput);
-        app.add_message_map_entities::<InputMessage<A>>();
+        app.add_map_entities::<InputMessage<A>>();
         app.register_component::<ActionState<A>>(ChannelDirection::Bidirectional);
         let is_client = app.world.get_resource::<ClientConfig>().is_some();
         let is_server = app.world.get_resource::<ServerConfig>().is_some();

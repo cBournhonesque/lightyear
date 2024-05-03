@@ -92,10 +92,12 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::Buffer),
                     (
-                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
                         InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
+                        // TODO: verify this, why does handle-replicate-update need to run every frame?
+                        //  because Removed<Replicate> is cleared every frame?
+                        // NOTE: HandleReplicateUpdate should also run every frame?
                         // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                     )
                         .in_set(InternalMainSet::<R::SetMarker>::Send),
