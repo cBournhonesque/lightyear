@@ -18,7 +18,7 @@ works.
 For example, `per_component_metadata` lets you fine-tune the replication logic for each component (exclude a component
 from being replicated, etc.)
 
-You can find some of the other usages in the [advanced_replication](../concepts/advanced_replication/title.md) section.
+You can find some of the other usages in the [advanced_replication](../advanced_replication/title.md) section.
 
 
 ### Replicating resources
