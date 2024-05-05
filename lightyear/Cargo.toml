@@ -70,7 +70,7 @@ seahash = "4.1.0"
 leafwing-input-manager = { version = "0.13", optional = true }
 
 # physics
-bevy_xpbd_2d = { version = "0.4", optional = true }
+bevy_xpbd_2d = { version = "0.4", optional = true, default-features = false }
 
 # serialization
 bitcode = { version = "0.5.1", package = "bitcode_lightyear_patch", path = "../vendor/bitcode", features = [
