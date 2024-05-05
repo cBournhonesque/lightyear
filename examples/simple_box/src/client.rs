@@ -77,7 +77,11 @@ pub(crate) fn handle_connection(
 }
 
 /// System that reads from peripherals and adds inputs to the buffer
-/// This system must be run in the
+/// This system must be run in the `InputSystemSet::BufferInputs` set in the `FixedPreUpdate` schedule
+/// to work correctly.
+///
+/// I would also advise to use the `leafwing` feature to use the `LeafwingInputPlugin` instead of the
+/// `InputPlugin`, which contains more features.
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
     mut input_manager: ResMut<InputManager<Inputs>>,
