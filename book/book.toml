@@ -13,3 +13,7 @@ command = "mdbook-mermaid"
 [output]
 
 [output.linkcheck]
+
+[output.html]
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+site-url = "/book/"

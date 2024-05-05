@@ -57,7 +57,7 @@ impl Plugin for ServerReplicationPlugin {
                 PreUpdate,
                 ServerReplicationSet::ClientReplication
                     .run_if(is_started)
-                    .after(InternalMainSet::<ServerMarker>::Receive),
+                    .after(InternalMainSet::<ServerMarker>::EmitEvents),
             )
             .configure_sets(
                 PostUpdate,

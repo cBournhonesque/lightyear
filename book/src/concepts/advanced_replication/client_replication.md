@@ -12,7 +12,7 @@ Note that `prediction_target` and `interpolation_target` will be unused as the s
 prediction or interpolation.
 
 If you want to then broadcast that entity to other clients, you will have to add a `Replicate` component
-on the server entity. This should generally happen in the `MainSet::AddReplicate` SystemSet on the server, so that it happens right 
+on the server entity. This should generally happen in the `ServerReplicationSet::ClientReplication` SystemSet on the server, so that it happens right 
 after receiving the client entity.
 
 Be careful to not replicate the entity back to the original client, as it would create a duplicate entity on the client.
@@ -55,18 +55,16 @@ A solution is to spawn the predicted projectile on the client; but then replicat
 When the server replicates back the projectile, it creates a Confirmed entity on the client, but
 **will re-use the existing predicted projectile as the Predicted entity**.
 
-The way to do this is to add a `ShouldBePredicted { client_entity: Option<Entity> }` component on the client entity that 
-you want to predict.
+The way to do this is to add a `PrePredicted` component on the client entity that you want to predict.
 On the server, to replicate back the entity to the client, you will need to manually add a `Replicate` component to the entity
 to specify to which clients you want to rebroadcast it.
-**Note that you must add the `Replicate` component in the `MainSet::AddReplicate` `SystemSet` for proper handling of 
+**Note that you must add the `Replicate` component in the `ServerReplicationSet::ClientReplication` `SystemSet` for proper handling of 
 pre-spawned predicted entities!**
 
-When the server replicates back the entity, the client will check if the entity has a `ShouldBePredicted` component.
-If the `client_entity` is None, that means this is not a pre-spawned Predicted entity, and the client will spawn both the Confirmed 
+When the server replicates back the entity, the client will check if the entity has a `PrePredicted` component.
+If not present, that means this is not a pre-spawned Predicted entity, and the client will spawn both the Confirmed 
 and Predicted entities.
-
-If the `client_entity` is `Some(entity)`, the client will spawn a new Confirmed entity, but will re-use the `entity` as the Predicted entity.
+If it's present, the client will spawn a new Confirmed entity, but will re-use the `entity` as the Predicted entity.
 
 
 Note that pre-spawned predicted entities will give authority to the server's entity immediately, the client to server
