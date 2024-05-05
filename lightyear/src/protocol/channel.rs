@@ -1,10 +1,19 @@
+use bevy::app::App;
+use bevy::ecs::entity::MapEntities;
+use bevy::prelude::{Resource, TypePath};
 use bevy::reflect::Reflect;
 use serde::Deserialize;
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use crate::channel::builder::ChannelContainer;
 use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings};
+use crate::channel::builder::{
+    ChannelContainer, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
+};
+use crate::prelude::{
+    ChannelDirection, ChannelMode, DefaultUnorderedUnreliableChannel, Message, ReliableSettings,
+    TickBufferChannel,
+};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 
 // TODO: derive Reflect once we reach bevy 0.14
@@ -29,7 +38,7 @@ impl From<TypeId> for ChannelKind {
 }
 
 /// Registry to store metadata about the various [`Channel`]
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Resource, Default, Clone, Debug, PartialEq, TypePath)]
 pub struct ChannelRegistry {
     // we only store the ChannelBuilder because we might want to create multiple instances of the same channel
     pub(in crate::protocol) builder_map: HashMap<ChannelKind, ChannelBuilder>,
@@ -39,13 +48,46 @@ pub struct ChannelRegistry {
 }
 
 impl ChannelRegistry {
-    pub fn new() -> Self {
-        Self {
+    pub(crate) fn new() -> Self {
+        let mut registry = Self {
             builder_map: HashMap::new(),
             kind_map: TypeMapper::new(),
             name_map: HashMap::new(),
             built: false,
-        }
+        };
+        registry.add_channel::<EntityUpdatesChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
+            direction: ChannelDirection::Bidirectional,
+            priority: 1.0,
+        });
+        registry.add_channel::<EntityActionsChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+            direction: ChannelDirection::Bidirectional,
+            // we want to send the entity actions as soon as possible
+            priority: 10.0,
+        });
+        registry.add_channel::<PingChannel>(ChannelSettings {
+            mode: ChannelMode::SequencedUnreliable,
+            direction: ChannelDirection::Bidirectional,
+            // we always want to include the ping in the packet
+            priority: 1000.0,
+        });
+        registry.add_channel::<InputChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            direction: ChannelDirection::ClientToServer,
+            priority: 3.0,
+        });
+        registry.add_channel::<DefaultUnorderedUnreliableChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            direction: ChannelDirection::Bidirectional,
+            priority: 1.0,
+        });
+        registry.add_channel::<TickBufferChannel>(ChannelSettings {
+            mode: ChannelMode::TickBuffered,
+            direction: ChannelDirection::ClientToServer,
+            priority: 1.0,
+        });
+        registry
     }
 
     /// Build all the channels in the registry
@@ -62,10 +104,10 @@ impl ChannelRegistry {
     }
 
     /// Register a new type
-    pub fn add<T: Channel>(&mut self, settings: ChannelSettings) {
-        let kind = self.kind_map.add::<T>();
-        self.builder_map.insert(kind, T::get_builder(settings));
-        let name = T::name();
+    pub fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) {
+        let kind = self.kind_map.add::<C>();
+        self.builder_map.insert(kind, C::get_builder(settings));
+        let name = C::name();
         self.name_map.insert(kind, name.to_string());
     }
 
@@ -97,6 +139,18 @@ impl ChannelRegistry {
     }
 }
 
+/// Add a message to the list of messages that can be sent
+pub trait AppChannelExt {
+    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings);
+}
+
+impl AppChannelExt for App {
+    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) {
+        let mut registry = self.world.resource_mut::<ChannelRegistry>();
+        registry.add_channel::<C>(settings);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::prelude::{default, TypePath};
@@ -111,13 +165,13 @@ mod tests {
 
     #[test]
     fn test_channel_registry() -> anyhow::Result<()> {
-        let mut registry = ChannelRegistry::new();
+        let mut registry = ChannelRegistry::default();
 
         let settings = ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         };
-        registry.add::<MyChannel>(settings.clone());
+        registry.add_channel::<MyChannel>(settings.clone());
         assert_eq!(registry.len(), 1);
 
         let builder = registry.get_builder_from_net_id(0).unwrap();

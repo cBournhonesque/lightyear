@@ -1,6 +1,6 @@
-use bevy::ecs::entity::MapEntities;
 use std::ops::Mul;
 
+use bevy::ecs::entity::MapEntities;
 use bevy::math::Vec2;
 use bevy::prelude::*;
 use derive_more::{Add, Mul};
@@ -11,10 +11,12 @@ use leafwing_input_manager::InputManagerBundle;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::shared::color_from_id;
+use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
 use UserAction;
+
+use crate::shared::color_from_id;
 
 // Player
 #[derive(Bundle)]
@@ -90,32 +92,6 @@ pub struct PlayerColor(pub(crate) Color);
 // Marker component
 pub struct CircleMarker;
 
-// Example of a component that contains an entity.
-// This component, when replicated, needs to have the inner entity mapped from the Server world
-// to the client World.
-// This can be done by adding a `#[message(custom_map)]` attribute to the component, and then
-// deriving the `MapEntities` trait for the component.
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
-pub struct PlayerParent(Entity);
-
-impl MapEntities for PlayerParent {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
-    }
-}
-
-#[component_protocol(protocol = "MyProtocol")]
-pub enum Components {
-    #[protocol(sync(mode = "once"))]
-    PlayerId(PlayerId),
-    #[protocol(sync(mode = "full"))]
-    PlayerPosition(Position),
-    #[protocol(sync(mode = "once"))]
-    PlayerColor(PlayerColor),
-    #[protocol(sync(mode = "once"))]
-    CircleMarker(CircleMarker),
-}
-
 // Channels
 
 #[derive(Channel)]
@@ -125,11 +101,6 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
-
-#[message_protocol(protocol = "MyProtocol")]
-pub enum Messages {
-    Message1(Message1),
-}
 
 // Inputs
 
@@ -143,22 +114,36 @@ pub enum Inputs {
     Spawn,
 }
 
-impl LeafwingUserAction for Inputs {}
-
 // Protocol
+pub(crate) struct ProtocolPlugin;
 
-protocolize! {
-    Self = MyProtocol,
-    Message = Messages,
-    Component = Components,
-    LeafwingInput1 = Inputs,
-}
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        // inputs
+        app.add_plugins(LeafwingInputPlugin::<Inputs>::default());
+        // components
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
-pub(crate) fn protocol() -> MyProtocol {
-    let mut protocol = MyProtocol::default();
-    protocol.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        ..default()
-    });
-    protocol
+        app.register_component::<Position>(ChannelDirection::Bidirectional);
+        app.add_prediction::<Position>(ComponentSyncMode::Full);
+        app.add_interpolation::<Position>(ComponentSyncMode::Full);
+        app.add_linear_interpolation_fn::<Position>();
+
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+
+        app.register_component::<CircleMarker>(ChannelDirection::ServerToClient);
+        app.add_prediction::<CircleMarker>(ComponentSyncMode::Once);
+        app.add_interpolation::<CircleMarker>(ComponentSyncMode::Once);
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+    }
 }

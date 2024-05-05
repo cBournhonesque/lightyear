@@ -18,6 +18,7 @@ use web_sys::{
 };
 
 use crate::transport::error::{Error, Result};
+use crate::transport::io::IoState;
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET, MTU,
@@ -28,7 +29,7 @@ pub(crate) struct WebSocketClientSocketBuilder {
 }
 
 impl TransportBuilder for WebSocketClientSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    fn connect(self) -> Result<(TransportEnum, IoState)> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<Vec<u8>>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Vec<u8>>();
         let (close_tx, mut close_rx) = mpsc::channel(1);
@@ -43,7 +44,8 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
 
         info!("Starting client websocket task");
 
-        let ws = WebSocket::new(&format!("ws://{}/", self.server_addr)).unwrap();
+        let ws = WebSocket::new(&format!("ws://{}/", self.server_addr))
+            .map_err(|e| Error::Io(std::io::Error::other("could not create websocket")))?;
 
         ws.set_binary_type(BinaryType::Arraybuffer);
 
@@ -104,11 +106,14 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
         on_error_callback.forget();
         listen_close_signal_callback.forget();
 
-        Ok(TransportEnum::WebSocketClient(WebSocketClientSocket {
-            sender,
-            receiver,
-            close_sender: close_tx,
-        }))
+        Ok((
+            TransportEnum::WebSocketClient(WebSocketClientSocket {
+                sender,
+                receiver,
+                close_sender: close_tx,
+            }),
+            IoState::Connected,
+        ))
     }
 }
 

@@ -1,7 +1,7 @@
-use bevy::ecs::entity::MapEntities;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 
+use bevy::ecs::entity::MapEntities;
 use bevy::math::Vec2;
 use bevy::prelude::{
     Component, Entity, EntityMapper, Event, FromReflect, Reflect, Resource, TypePath,
@@ -464,12 +464,6 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
     }
     pub(crate) fn update_from_message(&mut self, end_tick: Tick, diffs: Vec<Vec<ActionDiff<A>>>) {
         let message_start_tick = end_tick - diffs.len() as u16 + 1;
-        if self.start_tick.is_none() {
-            // initialize the buffer
-            self.start_tick = Some(message_start_tick);
-        };
-        let start_tick = self.start_tick.unwrap();
-
         for (delta, diffs_for_tick) in diffs.into_iter().enumerate() {
             let tick = message_start_tick + Tick(delta as u16);
             self.set(tick, diffs_for_tick);
@@ -511,8 +505,6 @@ mod tests {
     enum Action {
         Jump,
     }
-
-    impl LeafwingUserAction for Action {}
 
     #[test]
     fn test_get_set_pop() {

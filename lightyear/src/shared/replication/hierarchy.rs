@@ -3,10 +3,9 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::{ClientMarker, ReplicationSend};
 use crate::prelude::ReplicationGroup;
-use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
+use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
@@ -16,6 +15,7 @@ use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 /// Updates entity's `Parent` component on change.
 /// Removes the parent if `None`.
 #[derive(Component, Default, Reflect, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+#[component(storage = "SparseSet")]
 pub struct ParentSync(Option<Entity>);
 
 impl MapEntities for ParentSync {
@@ -26,11 +26,11 @@ impl MapEntities for ParentSync {
     }
 }
 
-pub struct HierarchySendPlugin<P, R> {
-    _marker: std::marker::PhantomData<(P, R)>,
+pub struct HierarchySendPlugin<R> {
+    _marker: std::marker::PhantomData<R>,
 }
 
-impl<P, R> Default for HierarchySendPlugin<P, R> {
+impl<R> Default for HierarchySendPlugin<R> {
     fn default() -> Self {
         Self {
             _marker: std::marker::PhantomData,
@@ -38,12 +38,12 @@ impl<P, R> Default for HierarchySendPlugin<P, R> {
     }
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> HierarchySendPlugin<P, R> {
+impl<R: ReplicationSend> HierarchySendPlugin<R> {
     /// If `replicate.replicate_hierarchy` is true, replicate the entire hierarchy of the entity
     fn propagate_replicate(
         mut commands: Commands,
         // query the root parent of the hierarchy
-        parent_query: Query<(Entity, Ref<Replicate<P>>), (Without<Parent>, With<Children>)>,
+        parent_query: Query<(Entity, Ref<Replicate>), (Without<Parent>, With<Children>)>,
         children_query: Query<&Children>,
     ) {
         for (parent_entity, replicate) in parent_query.iter() {
@@ -66,7 +66,7 @@ impl<P: Protocol, R: ReplicationSend<P>> HierarchySendPlugin<P, R> {
     /// (run this in post-update before replicating, to account for any hierarchy changed initiated by the user)
     ///
     /// This only runs on the sending side
-    fn update_parent_sync(mut query: Query<(Ref<Parent>, &mut ParentSync), With<Replicate<P>>>) {
+    fn update_parent_sync(mut query: Query<(Ref<Parent>, &mut ParentSync), With<Replicate>>) {
         for (parent, mut parent_sync) in query.iter_mut() {
             if parent.is_changed() || parent_sync.is_added() {
                 trace!(
@@ -84,7 +84,7 @@ impl<P: Protocol, R: ReplicationSend<P>> HierarchySendPlugin<P, R> {
     /// This only runs on the sending side
     fn removal_system(
         mut removed_parents: RemovedComponents<Parent>,
-        mut hierarchy: Query<&mut ParentSync, With<Replicate<P>>>,
+        mut hierarchy: Query<&mut ParentSync, With<Replicate>>,
     ) {
         for entity in removed_parents.read() {
             if let Ok(mut parent_sync) = hierarchy.get_mut(entity) {
@@ -94,7 +94,7 @@ impl<P: Protocol, R: ReplicationSend<P>> HierarchySendPlugin<P, R> {
     }
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchySendPlugin<P, R> {
+impl<R: ReplicationSend> Plugin for HierarchySendPlugin<R> {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PostUpdate,
@@ -104,16 +104,17 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchySendPlugin<P, R> {
             )
                 // we don't need to run these every frame, only every send_interval
                 .in_set(InternalMainSet::<R::SetMarker>::Send)
+                // run before the replication-send systems
                 .before(InternalReplicationSet::<R::SetMarker>::All),
         );
     }
 }
 
-pub struct HierarchyReceivePlugin<P, R> {
-    _marker: std::marker::PhantomData<(P, R)>,
+pub struct HierarchyReceivePlugin<R> {
+    _marker: std::marker::PhantomData<R>,
 }
 
-impl<P, R> Default for HierarchyReceivePlugin<P, R> {
+impl<R> Default for HierarchyReceivePlugin<R> {
     fn default() -> Self {
         Self {
             _marker: std::marker::PhantomData,
@@ -121,7 +122,7 @@ impl<P, R> Default for HierarchyReceivePlugin<P, R> {
     }
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> HierarchyReceivePlugin<P, R> {
+impl<R: ReplicationSend> HierarchyReceivePlugin<R> {
     /// Update parent/children hierarchy if parent_sync changed
     ///
     /// This only runs on the receiving side
@@ -129,7 +130,7 @@ impl<P: Protocol, R: ReplicationSend<P>> HierarchyReceivePlugin<P, R> {
         mut commands: Commands,
         hierarchy: Query<
             (Entity, &ParentSync, Option<&Parent>),
-            (Changed<ParentSync>, Without<Replicate<P>>),
+            (Changed<ParentSync>, Without<Replicate>),
         >,
     ) {
         for (entity, parent_sync, parent) in hierarchy.iter() {
@@ -150,7 +151,7 @@ impl<P: Protocol, R: ReplicationSend<P>> HierarchyReceivePlugin<P, R> {
     }
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchyReceivePlugin<P, R> {
+impl<R: ReplicationSend> Plugin for HierarchyReceivePlugin<R> {
     fn build(&self, app: &mut App) {
         // REFLECTION
         app.register_type::<ParentSync>();
@@ -171,7 +172,7 @@ mod tests {
     use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
 
-    use crate::prelude::ReplicationGroup;
+    use crate::prelude::{Replicate, ReplicationGroup};
     use crate::shared::replication::hierarchy::ParentSync;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};

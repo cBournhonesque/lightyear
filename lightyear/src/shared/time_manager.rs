@@ -195,8 +195,9 @@ mod wrapped_time {
     use bitcode::read::Read;
     use bitcode::write::Write;
 
-    use crate::_reexport::{ReadBuffer, WriteBuffer};
     use crate::protocol::BitSerializable;
+    use crate::serialize::reader::ReadBuffer;
+    use crate::serialize::writer::WriteBuffer;
 
     use super::*;
 

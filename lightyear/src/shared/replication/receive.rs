@@ -12,11 +12,11 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::Tick;
-use crate::protocol::component::ComponentProtocol;
-use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
-use crate::protocol::Protocol;
+use crate::protocol::component::ComponentRegistry;
+use crate::serialize::bitcode::reader::BitcodeReader;
+use crate::serialize::reader::ReadBuffer;
 use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::replication::components::ReplicationGroupId;
+use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 
 use super::entity_map::RemoteEntityMap;
 use super::{
@@ -27,7 +27,8 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
-pub(crate) struct ReplicationReceiver<P: Protocol> {
+pub(crate) struct ReplicationReceiver {
+    reader: BitcodeReader,
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
 
@@ -36,12 +37,13 @@ pub(crate) struct ReplicationReceiver<P: Protocol> {
 
     // BOTH
     /// Buffer to so that we have an ordered receiver per group
-    pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel<P>>,
+    pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 }
 
-impl<P: Protocol> ReplicationReceiver<P> {
+impl ReplicationReceiver {
     pub(crate) fn new() -> Self {
         Self {
+            reader: BitcodeReader::start_read(&[]),
             // RECEIVE
             remote_entity_map: RemoteEntityMap::default(),
             remote_entity_to_group: Default::default(),
@@ -51,11 +53,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
     }
 
     /// Recv a new replication message and buffer it
-    pub(crate) fn recv_message(
-        &mut self,
-        message: ReplicationMessage<P::Components, P::ComponentKinds>,
-        remote_tick: Tick,
-    ) {
+    pub(crate) fn recv_message(&mut self, message: ReplicationMessage, remote_tick: Tick) {
         trace!(?message, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(message.group_id).or_default();
         match message.data {
@@ -124,13 +122,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
     pub(crate) fn read_messages(
         &mut self,
         current_tick: Tick,
-    ) -> Vec<(
-        ReplicationGroupId,
-        Vec<(
-            Tick,
-            ReplicationMessageData<P::Components, P::ComponentKinds>,
-        )>,
-    )> {
+    ) -> Vec<(ReplicationGroupId, Vec<(Tick, ReplicationMessageData)>)> {
         trace!(?current_tick, ?self.group_channels, "reading replication messages");
         self.group_channels
             .iter_mut()
@@ -162,7 +154,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
 
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
     /// Get the group channel associated with a given entity
-    fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel<P>> {
+    fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel> {
         self.remote_entity_map
             .get_remote(local_entity)
             .and_then(|remote_entity| self.channel_by_remote(*remote_entity))
@@ -170,7 +162,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
 
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
     /// Get the group channel associated with a given entity
-    fn channel_by_remote(&self, remote_entity: Entity) -> Option<&GroupChannel<P>> {
+    fn channel_by_remote(&self, remote_entity: Entity) -> Option<&GroupChannel> {
         self.remote_entity_to_group
             .get(&remote_entity)
             .and_then(|group_id| self.group_channels.get(group_id))
@@ -182,7 +174,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
 /// - entity updates (component updates) to be done unreliably
 ///
 /// - all component inserts/removes/updates for an entity to be grouped together in a single message
-impl<P: Protocol> ReplicationReceiver<P> {
+impl ReplicationReceiver {
     // TODO: how can I emit metrics here that contain the channel kind?
     //  use a OnceCell that gets set with the channel name mapping when the protocol is finalized?
     //  the other option is to have wrappers in Connection, but that's pretty ugly
@@ -192,11 +184,13 @@ impl<P: Protocol> ReplicationReceiver<P> {
     /// we can access the tick via the replication manager
     pub(crate) fn apply_world(
         &mut self,
+        // TODO: should we use Commands to avoid the need to block the world?
         world: &mut World,
+        component_registry: &ComponentRegistry,
         tick: Tick,
-        replication: ReplicationMessageData<P::Components, P::ComponentKinds>,
+        replication: ReplicationMessageData,
         group_id: ReplicationGroupId,
-        events: &mut ConnectionEvents<P>,
+        events: &mut ConnectionEvents,
     ) {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
@@ -220,7 +214,20 @@ impl<P: Protocol> ReplicationReceiver<P> {
                             continue;
                         }
                         // TODO: optimization: spawn the bundle of insert components
-                        let local_entity = world.spawn_empty();
+
+                        // TODO: spawning all entities with Confirmed:
+                        //  - is inefficient because we don't need the receive tick in most cases (only for prediction/interpolation)
+                        //  - we can't use Without<Confirmed> queries to display all interpolated/predicted entities, because
+                        //    the entities we receive from other clients all have Confirmed added.
+                        //    Doing Or<(With<Interpolated>, With<Predicted>)> is not ideal; what if we want to see a replicated entity that doesn't have
+                        //    interpolation/prediction? Maybe we should introduce new components ReplicatedFrom<Server> and ReplicatedFrom<Client>.
+                        // // we spawn every replicated entity with the `Confirmed` component
+                        // let local_entity = world.spawn(Confirmed {
+                        //     predicted: None,
+                        //     interpolated: None,
+                        //     tick,
+                        // });
+                        let local_entity = world.spawn(Replicated);
                         self.remote_entity_map.insert(*entity, local_entity.id());
                         trace!("Updated remote entity map: {:?}", self.remote_entity_map);
 
@@ -260,23 +267,30 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         continue;
                     };
 
+                    // NOTE: 2 options
+                    //  - send the raw data to a separate typed system
+                    //  -  or just insert it here via function pointers
                     // inserts
-                    let kinds = actions
-                        .insert
-                        .iter()
-                        .map(|c| c.into())
-                        .collect::<HashSet<P::ComponentKinds>>();
-                    debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
-                    for mut component in actions.insert {
-                        // map any entities inside the component
-                        component.map_entities(&mut self.remote_entity_map);
-                        // TODO: figure out what to do with tick here
-                        events.push_insert_component(
-                            local_entity_mut.id(),
-                            (&component).into(),
-                            Tick(0),
-                        );
-                        component.insert(&mut local_entity_mut);
+
+                    // TODO: remove updates that are duplicate for the same component
+                    // let kinds = actions
+                    //     .insert
+                    //     .iter()
+                    //     .map(|c| c.into())
+                    //     .collect::<HashSet<P::ComponentKinds>>();
+                    debug!(remote_entity = ?entity, "Received InsertComponent");
+                    for component in actions.insert {
+                        self.reader.reset_read(component.as_slice());
+                        let _ = component_registry
+                            .raw_write(
+                                &mut self.reader,
+                                &mut local_entity_mut,
+                                &mut self.remote_entity_map.remote_to_local,
+                                events,
+                            )
+                            .inspect_err(|e| {
+                                error!("could not write the component to the entity: {:?}", e)
+                            });
 
                         // TODO: special-case for pre-spawned entities: we receive them from a client, but then we
                         //  we should immediately take ownership of it, so we won't receive a despawn for it
@@ -292,27 +306,29 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
                         events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
-                        kind.remove(&mut local_entity_mut);
+                        component_registry.raw_remove(kind, &mut local_entity_mut);
                     }
 
-                    // (no need to run apply_deferred after applying actions, that is only for Commands)
-
                     // updates
-                    let kinds = actions
-                        .updates
-                        .iter()
-                        .map(|c| c.into())
-                        .collect::<Vec<P::ComponentKinds>>();
-                    debug!(remote_entity = ?entity, ?kinds, "Received UpdateComponent");
-                    for mut component in actions.updates {
-                        // map any entities inside the component
-                        component.map_entities(&mut self.remote_entity_map);
-                        events.push_update_component(
-                            local_entity_mut.id(),
-                            (&component).into(),
-                            Tick(0),
-                        );
-                        component.update(&mut local_entity_mut);
+                    // let kinds = actions
+                    //     .updates
+                    //     .iter()
+                    //     .map(|c| c.into())
+                    //     .collect::<Vec<P::ComponentKinds>>();
+                    debug!(remote_entity = ?entity, "Received UpdateComponent");
+                    for component in actions.updates {
+                        // TODO: re-use buffers via pool?
+                        self.reader.reset_read(component.as_slice());
+                        let _ = component_registry
+                            .raw_write(
+                                &mut self.reader,
+                                &mut local_entity_mut,
+                                &mut self.remote_entity_map.remote_to_local,
+                                events,
+                            )
+                            .inspect_err(|e| {
+                                error!("could not write the component to the entity: {:?}", e)
+                            });
                     }
                 }
             }
@@ -321,18 +337,21 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 for (entity, components) in m.updates.into_iter() {
                     debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
                     // update the entity only if it exists
-                    if let Ok(mut local_entity) =
+                    if let Ok(mut local_entity_mut) =
                         self.remote_entity_map.get_by_remote(world, entity)
                     {
-                        for mut component in components {
-                            // map any entities inside the component
-                            component.map_entities(&mut self.remote_entity_map);
-                            events.push_update_component(
-                                local_entity.id(),
-                                (&component).into(),
-                                Tick(0),
-                            );
-                            component.update(&mut local_entity);
+                        for component in components {
+                            self.reader.reset_read(component.as_slice());
+                            let _ = component_registry
+                                .raw_write(
+                                    &mut self.reader,
+                                    &mut local_entity_mut,
+                                    &mut self.remote_entity_map.remote_to_local,
+                                    events,
+                                )
+                                .inspect_err(|e| {
+                                    error!("could not write the component to the entity: {:?}", e)
+                                });
                         }
                     } else {
                         // we can get a few buffered updates after the entity has been despawned
@@ -367,28 +386,26 @@ impl<P: Protocol> ReplicationReceiver<P> {
 
 /// Channel to keep track of receiving/sending replication messages for a given Group
 #[derive(Debug)]
-pub struct GroupChannel<P: Protocol> {
+pub struct GroupChannel {
     // entities
     // set of remote entities that are part of the same Replication Group
     remote_entities: HashSet<Entity>,
     // actions
     pub actions_pending_recv_message_id: MessageId,
-    pub actions_recv_message_buffer:
-        BTreeMap<MessageId, (Tick, EntityActionMessage<P::Components, P::ComponentKinds>)>,
+    pub actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionMessage)>,
     // updates
     // map from necessary_last_action_tick to the buffered message
     // the first tick is the last_action_tick (we can only apply the update if the last action tick has been reached)
     // the second tick is the update's server tick when it was sent
     pub buffered_updates_with_last_action_tick:
-        BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
+        BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage>>,
     // updates for which there is no condition on the last_action_tick: we can apply them immediately
-    pub buffered_updates_without_last_action_tick:
-        BTreeMap<Tick, EntityUpdatesMessage<P::Components>>,
+    pub buffered_updates_without_last_action_tick: BTreeMap<Tick, EntityUpdatesMessage>,
     /// remote tick of the latest update/action that we applied to the local group
     pub latest_tick: Option<Tick>,
 }
 
-impl<P: Protocol> Default for GroupChannel<P> {
+impl Default for GroupChannel {
     fn default() -> Self {
         Self {
             remote_entities: HashSet::default(),
@@ -401,24 +418,21 @@ impl<P: Protocol> Default for GroupChannel<P> {
     }
 }
 
-impl<P: Protocol> GroupChannel<P> {
+impl GroupChannel {
     /// Reads a message from the internal buffer to get its content
     /// Since we are receiving messages in order, we don't return from the buffer
     /// until we have received the message we are waiting for (the next expected MessageId)
     /// This assumes that the sender sends all message ids sequentially.
     ///
     /// If had received updates that were waiting on a given action, we also return them
-    fn read_action(
-        &mut self,
-        current_tick: Tick,
-    ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
+    fn read_action(&mut self, current_tick: Tick) -> Option<(Tick, EntityActionMessage)> {
         // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
         let message = self
             .actions_recv_message_buffer
             .get(&self.actions_pending_recv_message_id)?;
         // if the message is from the future, keep it there
         if message.0 > current_tick {
-            trace!("message tick is from the future compared to our tick");
+            debug!("message tick {:?} is from the future compared to our current tick {current_tick:?}", message.0);
             return None;
         }
 
@@ -434,7 +448,7 @@ impl<P: Protocol> GroupChannel<P> {
         Some(message)
     }
 
-    fn read_buffered_updates(&mut self) -> Vec<(Tick, EntityUpdatesMessage<P::Components>)> {
+    fn read_buffered_updates(&mut self) -> Vec<(Tick, EntityUpdatesMessage)> {
         // if we haven't applied any actions (latest_tick is None) we cannot apply any updates
         let Some(latest_tick) = self.latest_tick else {
             return vec![];
@@ -470,15 +484,7 @@ impl<P: Protocol> GroupChannel<P> {
         res
     }
 
-    fn read_messages(
-        &mut self,
-        current_tick: Tick,
-    ) -> Option<
-        Vec<(
-            Tick,
-            ReplicationMessageData<P::Components, P::ComponentKinds>,
-        )>,
-    > {
+    fn read_messages(&mut self, current_tick: Tick) -> Option<Vec<(Tick, ReplicationMessageData)>> {
         let mut res = Vec::new();
 
         // check for any actions that are ready to be applied
@@ -501,14 +507,12 @@ impl<P: Protocol> GroupChannel<P> {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::protocol::*;
-
     use super::*;
 
     #[allow(clippy::get_first)]
     #[test]
     fn test_recv_replication_messages() {
-        let mut manager = ReplicationReceiver::<MyProtocol>::new();
+        let mut manager = ReplicationReceiver::new();
 
         let group_id = ReplicationGroupId(0);
         // recv an actions message that is too old: should be ignored

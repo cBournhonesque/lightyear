@@ -2,11 +2,9 @@
 
 ## Client
 
-A client is simply a bevy
-plugin: [ClientPlugin](https://docs.rs/lightyear/latest/lightyear/client/plugin/struct.ClientPlugin.html)
+A client is simply a bevy plugin: [ClientPlugin](https://docs.rs/lightyear/latest/lightyear/client/plugin/struct.ClientPlugin.html)
 
-You create it by providing a `Protocol` struct and
-a [`ClientConfig`](https://docs.rs/lightyear/latest/lightyear/client/config/struct.ClientConfig.html) struct.
+You create it by providing a [`ClientConfig`](https://docs.rs/lightyear/latest/lightyear/client/config/struct.ClientConfig.html) struct.
 
 You can see how it is defined in the example [here](https://github.com/cBournhonesque/lightyear/blob/main/examples/simple_box/src/main.rs#L175).
 
@@ -43,7 +41,7 @@ but for this demo we will mostly use the defaults.
       net: net_config,
       ..default()
   };
-  let client_plugin = client::ClientPlugin::new(client::PluginConfig::new(client_config, protocol()));
+  let client_plugin = client::ClientPlugin::new(client_config);
 ```
 
 The [NetConfig](https://docs.rs/lightyear/latest/lightyear/prelude/client/enum.NetConfig.html) doesn't have any Default value and needs to be provided; it defines how (i.e. what transport layer) the client will connect to the server.
@@ -98,14 +96,14 @@ let net_config = NetConfig::Netcode {
 
 ## Server
 
-Building the server is very similar to building the client; we need to provide a `Protocol` struct and a `ServerConfig` struct.
+Building the server is very similar to building the client; we need to provide a `ServerConfig` struct.
 ```rust,noplayground
 let server_config = server::ServerConfig {
     shared: shared_config(Mode::Separate),
     net: net_configs,
     ..default()
 };
-let server_plugin = server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol()));
+let server_plugin = server::ServerPlugin::new(server_config);
 ```
 
 The server can listen for client connections using multiple transports at the same time!
@@ -138,7 +136,7 @@ let config = ServerConfig {
     ..default()
 };
 /// Finally build the server plugin
-let server_plugin = server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol()));
+let server_plugin = server::ServerPlugin::new(server_config);
 ```
 
 Next we will start adding systems to the client and server.

@@ -3,11 +3,12 @@ use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::color_from_id;
-use lightyear::client::components::LerpFn;
+use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
 use lightyear::utils::bevy::*;
+
+use crate::shared::color_from_id;
 
 pub const BALL_SIZE: f32 = 10.0;
 pub const PLAYER_SIZE: f32 = 40.0;
@@ -61,7 +62,6 @@ impl PlayerBundle {
 pub(crate) struct BallBundle {
     transform: Transform,
     color: ColorComponent,
-    // replicate: Replicate,
     marker: BallMarker,
 }
 
@@ -72,22 +72,11 @@ impl BallBundle {
         color: Color,
         predicted: bool,
     ) -> Self {
-        // let mut replicate = Replicate {
-        //     replication_target: NetworkTarget::None,
-        //     ..default()
-        // };
-        // if predicted {
-        //     replicate.prediction_target = NetworkTarget::All;
-        //     replicate.replication_group = REPLICATION_GROUP;
-        // } else {
-        //     replicate.interpolation_target = NetworkTarget::All;
-        // }
         let mut transform = Transform::from_xyz(position.x, position.y, 0.0);
         transform.rotate_z(rotation_radians);
         Self {
             transform,
             color: ColorComponent(color),
-            // replicate,
             marker: BallMarker,
         }
     }
@@ -103,18 +92,6 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
-#[component_protocol(protocol = "MyProtocol")]
-pub enum Components {
-    #[protocol(sync(mode = "once"))]
-    PlayerId(PlayerId),
-    #[protocol(sync(mode = "once"))]
-    ColorComponent(ColorComponent),
-    #[protocol(sync(mode = "once"))]
-    BallMarker(BallMarker),
-    #[protocol(sync(mode = "full", lerp = "TransformLinearInterpolation"))]
-    Transform(Transform),
-}
-
 // Channels
 
 #[derive(Channel)]
@@ -124,11 +101,6 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
-
-#[message_protocol(protocol = "MyProtocol")]
-pub enum Messages {
-    Message1(Message1),
-}
 
 // Inputs
 
@@ -148,25 +120,37 @@ pub enum AdminActions {
     Reset,
 }
 
-impl LeafwingUserAction for PlayerActions {}
-impl LeafwingUserAction for AdminActions {}
-
 // Protocol
+pub(crate) struct ProtocolPlugin;
 
-protocolize! {
-    Self = MyProtocol,
-    Message = Messages,
-    Component = Components,
-    Input = (),
-    LeafwingInput1 = PlayerActions,
-    LeafwingInput2 = AdminActions,
-}
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        // inputs
+        app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
+        // components
+        app.register_component::<PlayerId>(ChannelDirection::Bidirectional);
+        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
-pub(crate) fn protocol() -> MyProtocol {
-    let mut protocol = MyProtocol::default();
-    protocol.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        ..default()
-    });
-    protocol
+        app.register_component::<Transform>(ChannelDirection::Bidirectional);
+        app.add_prediction::<Transform>(ComponentSyncMode::Full);
+        app.add_interpolation::<Transform>(ComponentSyncMode::Full);
+        app.add_interpolation_fn::<Transform>(TransformLinearInterpolation::lerp);
+
+        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional);
+        app.add_prediction::<ColorComponent>(ComponentSyncMode::Once);
+        app.add_interpolation::<ColorComponent>(ComponentSyncMode::Once);
+
+        app.register_component::<BallMarker>(ChannelDirection::Bidirectional);
+        app.add_prediction::<BallMarker>(ComponentSyncMode::Once);
+        app.add_interpolation::<BallMarker>(ComponentSyncMode::Once);
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+    }
 }

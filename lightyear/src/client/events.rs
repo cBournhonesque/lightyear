@@ -13,38 +13,38 @@
 //! }
 //! ```
 
-use crate::prelude::{ClientId, Protocol};
-use crate::shared::events::connection::ConnectionEvents;
+use bevy::app::{App, Plugin, PreUpdate};
+use bevy::prelude::{Component, Event, Events, IntoSystemConfigs};
+
+use crate::client::connection::ConnectionManager;
+use crate::prelude::ClientId;
 use crate::shared::events::plugin::EventsPlugin;
-use bevy::app::{App, Plugin, PostUpdate};
-use bevy::prelude::{Event, Events};
+use crate::shared::events::systems::push_component_events;
+use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 /// Plugin that handles generating bevy [`Events`] related to networking and replication
-pub struct ClientEventsPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
-}
+#[derive(Default)]
+pub struct ClientEventsPlugin;
 
-impl<P: Protocol> Default for ClientEventsPlugin<P> {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<P: Protocol> Plugin for ClientEventsPlugin<P> {
+impl Plugin for ClientEventsPlugin {
     fn build(&self, app: &mut App) {
         app
             // EVENTS
             .add_event::<ConnectEvent>()
             // PLUGIN
-            // TODO: it's annoying to have to keep that () around...
-            //  revisit this.. maybe the into_iter_messages returns directly an object that
-            //  can be created from Ctx and Message
-            //  For Server it's the MessageEvent<M, ClientId>
-            //  For Client it's MessageEvent<M> directly
-            .add_plugins(EventsPlugin::<P, ()>::default());
+            .add_plugins(EventsPlugin::<ConnectionManager>::default());
     }
+}
+
+pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
+    app.add_event::<ComponentUpdateEvent<C>>();
+    app.add_event::<ComponentInsertEvent<C>>();
+    app.add_event::<ComponentRemoveEvent<C>>();
+    app.add_systems(
+        PreUpdate,
+        push_component_events::<C, ConnectionManager>
+            .in_set(InternalMainSet::<ClientMarker>::EmitEvents),
+    );
 }
 
 /// Bevy [`Event`] emitted on the client on the frame where the connection is established

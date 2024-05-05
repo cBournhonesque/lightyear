@@ -14,35 +14,31 @@ correctly.
 A `Protocol` contains multiple sub-parts:
 
 - `Input`: Defines the user inputs, which is an enum of all the inputs that the client can send to the server.
+  Input handling can be added by adding the `InputPlugin` plugin: `app.add_plugins(InputPlugin::<I>::default());`
+
 - `LeafwingInput`: (only if the feature `leafwing` is enabled) Defines the leafwing `ActionState` that the client can
   send to the server.
-- `Message`: Defines the message protocol, which is an enum of all the messages that can be exchanged between the client
-  and server. Each message must be `Serializable + Clone`.
+  Input handling can be added by adding the `LeafwingInputPlugin` plugin: `app.add_plugins(LeafwingInputPlugin::<I>::default());`
+ 
+- `MessageRegistry`: Will hold metadata about the all the messages that can be sent over the network. Each message must be `Serializable + Deserializeable + Clone`.
+ You can register a message with the command `app.add_message::<Message1>(ChannelDirection::Bidirectional);`
+ 
 - `Components`: Defines the component protocol, which is an enum of all the components that can be replicated between
   the client and server. Each component must be `Serializable + Clone + Component`.
+  You can register a component with:
+  ```rust,noplayground
+  app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
+    .add_prediction::<PlayerId>(ComponentSyncMode::Once)
+    .add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+  ```
+  (You can specify additional behaviour for the component, such as prediction or interpolation.)
+
 - `Channels`: the protocol should also contain a list of channels to be used to send messages. A `Channel` defines
-  guarantees
-  about how the packets will be sent over the network: reliably? in-order? etc.
-
-### Protocolize Macro
-
-The `protocolize!` macro is used to define a protocol. It takes the following parameters:
-
-- `Self`: The name of the protocol.
-- `Message`: The type of the message protocol.
-- `Component`: The type of the component protocol.
-- `Input`: The type of the user input.
-- `Crate`: The name of the shared crate.
-
-## Usage
-
-To define a protocol, you would use the `protocolize!` macro. Here's a basic example:
-
-```rust
-protocolize! {
-    Self = MyProtocol,
-    Message = MyMessage,
-    Component = MyComponent,
-    Input = MyInput,
-    Crate = my_crate,
-}
+  guarantees about how the packets will be sent over the network: reliably? in-order? etc.
+  You can register a channel with:
+  ```rust,noplayground
+  app.add_channel::<Channel1>(ChannelSettings {
+      mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+      ..default()
+  });
+  ```

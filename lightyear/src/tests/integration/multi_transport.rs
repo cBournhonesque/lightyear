@@ -1,33 +1,22 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
 use bevy::core::TaskPoolThreadAssignmentPolicy;
-use bevy::utils::Duration;
-use std::net::SocketAddr;
-use std::str::FromStr;
-
-use bevy::prelude::{
-    default, App, Mut, PluginGroup, Real, Resource, TaskPoolOptions, TaskPoolPlugin, Time,
-};
+use bevy::prelude::{default, App, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time};
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
-use bevy::utils::HashMap;
+use bevy::utils::Duration;
 use bevy::MinimalPlugins;
 
-use crate::client as crate_client;
 use crate::connection::netcode::generate_key;
 use crate::connection::server::{NetServer, ServerConnections};
 use crate::prelude::client::{
-    Authentication, ClientConfig, ClientConnection, InputConfig, InterpolationConfig, NetClient,
-    NetConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientConfig, ClientConnection, InterpolationConfig, NetClient, NetConfig,
+    PredictionConfig, SyncConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerConfig};
 use crate::prelude::*;
-use crate::server as crate_server;
-use crate::transport::LOCAL_SOCKET;
-
-use crate::protocol::*;
-use crate::shared::replication::components::Replicate;
 use crate::tests::protocol::*;
-use crate::tests::stepper::{BevyStepper, Step};
+use crate::tests::stepper::Step;
+use crate::transport::LOCAL_SOCKET;
 
 pub struct MultiBevyStepper {
     // first client will use local channels
@@ -136,9 +125,8 @@ impl MultiBevyStepper {
             ],
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, protocol());
-        let plugin = server::ServerPlugin::new(plugin_config);
-        server_app.add_plugins(plugin);
+        let plugin = server::ServerPlugin::new(config);
+        server_app.add_plugins((plugin, ProtocolPlugin));
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app
             .world
@@ -171,9 +159,8 @@ impl MultiBevyStepper {
                 interpolation: interpolation_config.clone(),
                 ..default()
             };
-            let plugin_config = client::PluginConfig::new(config, protocol());
-            let plugin = client::ClientPlugin::new(plugin_config);
-            client_app.add_plugins(plugin);
+            let plugin = client::ClientPlugin::new(config);
+            client_app.add_plugins((plugin, ProtocolPlugin));
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
                 .world
@@ -215,12 +202,12 @@ impl MultiBevyStepper {
             if self
                 .client_app_1
                 .world
-                .resource::<ClientConnectionManager>()
+                .resource::<client::ConnectionManager>()
                 .is_synced()
                 && self
                     .client_app_2
                     .world
-                    .resource::<ClientConnectionManager>()
+                    .resource::<client::ConnectionManager>()
                     .is_synced()
             {
                 return;

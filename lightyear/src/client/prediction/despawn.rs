@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use bevy::ecs::system::{Command, EntityCommands};
 use bevy::prelude::{
-    Commands, Component, Entity, Query, Reflect, RemovedComponents, ResMut, With, Without, World,
+    Commands, Component, Entity, Query, Reflect, RemovedComponents, Res, ResMut, With, Without,
+    World,
 };
 use tracing::{debug, error, trace};
 
@@ -10,8 +11,7 @@ use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, Syn
 use crate::client::config::ClientConfig;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{Mode, ShouldBePredicted, TickManager};
-use crate::protocol::Protocol;
+use crate::prelude::{ComponentRegistry, Mode, ShouldBePredicted, TickManager};
 use crate::shared::tick_manager::Tick;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
@@ -20,9 +20,8 @@ use crate::shared::tick_manager::Tick;
 /// This command must be used to despawn the predicted or confirmed entity.
 /// - If the entity is predicted, it can still be re-created if we realize during a rollback that it should not have been despawned.
 /// - If the entity is confirmed, we despawn both the predicted and confirmed entities
-pub struct PredictionDespawnCommand<P: Protocol> {
+pub struct PredictionDespawnCommand {
     entity: Entity,
-    _marker: PhantomData<P>,
 }
 
 #[derive(Component, PartialEq, Debug, Reflect)]
@@ -32,7 +31,7 @@ pub(crate) struct PredictionDespawnMarker {
     pub(crate) death_tick: Tick,
 }
 
-impl<P: Protocol> Command for PredictionDespawnCommand<P> {
+impl Command for PredictionDespawnCommand {
     fn apply(self, world: &mut World) {
         let tick_manager = world.get_resource::<TickManager>().unwrap();
         let current_tick = tick_manager.tick();
@@ -78,15 +77,12 @@ impl<P: Protocol> Command for PredictionDespawnCommand<P> {
 }
 
 pub trait PredictionDespawnCommandsExt {
-    fn prediction_despawn<P: Protocol>(&mut self);
+    fn prediction_despawn(&mut self);
 }
 impl PredictionDespawnCommandsExt for EntityCommands<'_> {
-    fn prediction_despawn<P: Protocol>(&mut self) {
+    fn prediction_despawn(&mut self) {
         let entity = self.id();
-        self.commands().add(PredictionDespawnCommand {
-            entity,
-            _marker: PhantomData::<P>,
-        })
+        self.commands().add(PredictionDespawnCommand { entity })
     }
 }
 
@@ -99,6 +95,7 @@ pub(crate) fn despawn_confirmed(
     for confirmed_entity in query.read() {
         if let Some(predicted) = manager
             .predicted_entity_map
+            .get_mut()
             .confirmed_to_predicted
             .remove(&confirmed_entity)
         {
@@ -114,14 +111,13 @@ pub struct RemovedCache<C: Component>(pub Option<C>);
 
 #[allow(clippy::type_complexity)]
 /// Instead of despawning the entity, we remove all components except the history and the predicted marker
-pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent, P: Protocol>(
+pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
+    component_registry: Res<ComponentRegistry>,
     mut commands: Commands,
     full_query: Query<Entity, (With<C>, With<PredictionDespawnMarker>)>,
     simple_query: Query<(Entity, &C), With<PredictionDespawnMarker>>,
-) where
-    P::Components: SyncMetadata<C>,
-{
-    match P::Components::mode() {
+) {
+    match component_registry.prediction_mode::<C>() {
         // for full components, we can delete the component
         // it will get re-instated during rollback if the confirmed entity doesn't get despawned
         ComponentSyncMode::Full => {

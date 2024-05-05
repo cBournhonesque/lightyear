@@ -1,27 +1,16 @@
-use bevy::utils::Duration;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
-use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
-use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
 
-use lightyear::_reexport::ShouldBeInterpolated;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::shared_config;
-use crate::{shared, ClientTransports, SharedSettings};
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActionState<Inputs>>();
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.add_systems(Startup, init);
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         app.add_systems(
@@ -35,9 +24,9 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-/// Startup system for the client
-pub(crate) fn init(mut client: ClientConnectionParam) {
-    let _ = client.connect();
+// Startup system for the client
+pub(crate) fn init(mut commands: Commands) {
+    commands.connect_client();
 }
 
 /// Listen for events to know when the client is connected, and spawn a text entity

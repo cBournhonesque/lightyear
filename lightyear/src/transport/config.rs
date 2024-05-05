@@ -16,8 +16,13 @@ use crate::transport::dummy::DummyIo;
 use crate::transport::error::Result;
 use crate::transport::io::IoStats;
 use crate::transport::local::LocalChannelBuilder;
+#[cfg(feature = "zstd")]
+use crate::transport::middleware::compression::zstd::{
+    compression::ZstdCompressor, decompression::ZstdDecompressor,
+};
+use crate::transport::middleware::compression::CompressionConfig;
 use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
-use crate::transport::middleware::PacketReceiverWrapper;
+use crate::transport::middleware::{PacketReceiverWrapper, PacketSenderWrapper};
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(feature = "websocket")]
@@ -137,6 +142,7 @@ pub struct IoConfig {
     #[reflect(ignore)]
     pub transport: TransportConfig,
     pub conditioner: Option<LinkConditionerConfig>,
+    pub compression: CompressionConfig,
 }
 
 impl Default for IoConfig {
@@ -145,6 +151,7 @@ impl Default for IoConfig {
         Self {
             transport: TransportConfig::UdpSocket(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 0)),
             conditioner: None,
+            compression: CompressionConfig::default(),
         }
     }
 
@@ -154,6 +161,7 @@ impl Default for IoConfig {
         Self {
             transport: TransportConfig::LocalChannel { recv, send },
             conditioner: None,
+            compression: CompressionConfig::default(),
         }
     }
 }
@@ -163,6 +171,7 @@ impl IoConfig {
         Self {
             transport,
             conditioner: None,
+            compression: CompressionConfig::default(),
         }
     }
     pub fn with_conditioner(mut self, conditioner_config: LinkConditionerConfig) -> Self {
@@ -170,21 +179,39 @@ impl IoConfig {
         self
     }
 
+    pub fn with_compression(mut self, compression_config: CompressionConfig) -> Self {
+        self.compression = compression_config;
+        self
+    }
+
     pub fn connect(self) -> Result<Io> {
-        let transport = self.transport.build().connect()?;
+        let (transport, state) = self.transport.build().connect()?;
         let local_addr = transport.local_addr();
-        let (sender, receiver, close_fn) = transport.split();
-        let receiver: BoxedReceiver = if let Some(conditioner_config) = self.conditioner {
+        #[allow(unused_mut)]
+        let (mut sender, receiver, close_fn) = transport.split();
+        #[allow(unused_mut)]
+        let mut receiver: BoxedReceiver = if let Some(conditioner_config) = self.conditioner {
             let conditioner = LinkConditioner::new(conditioner_config);
             Box::new(conditioner.wrap(receiver))
         } else {
             Box::new(receiver)
         };
+        match self.compression {
+            CompressionConfig::None => {}
+            #[cfg(feature = "zstd")]
+            CompressionConfig::Zstd { level } => {
+                let compressor = ZstdCompressor::new(level);
+                sender = Box::new(compressor.wrap(sender));
+                let decompressor = ZstdDecompressor::new();
+                receiver = Box::new(decompressor.wrap(receiver));
+            }
+        }
         Ok(Io {
             local_addr,
             sender,
             receiver,
             close_fn,
+            state,
             stats: IoStats::default(),
         })
     }

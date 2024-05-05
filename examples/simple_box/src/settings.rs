@@ -1,16 +1,16 @@
 //! This module parses the settings.ron file and builds a lightyear configuration from it
-use bevy::utils::Duration;
+use std::env::join_paths;
 use std::net::{Ipv4Addr, SocketAddr};
 
 use async_compat::Compat;
 use bevy::tasks::IoTaskPool;
+use bevy::utils::Duration;
 use serde::{Deserialize, Serialize};
 
+use lightyear::prelude::client::Authentication;
 #[cfg(not(target_family = "wasm"))]
 use lightyear::prelude::client::SteamConfig;
-
-use lightyear::prelude::client::Authentication;
-use lightyear::prelude::{ClientId, IoConfig, LinkConditionerConfig, TransportConfig};
+use lightyear::prelude::{CompressionConfig, IoConfig, LinkConditionerConfig, TransportConfig};
 
 #[cfg(not(target_family = "wasm"))]
 use crate::server::Certificate;
@@ -116,6 +116,9 @@ pub struct SharedSettings {
 
     /// a 32-byte array to authenticate via the Netcode.io protocol
     pub(crate) private_key: [u8; 32],
+
+    /// compression options
+    pub(crate) compression: CompressionConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -140,11 +143,10 @@ pub fn build_server_netcode_config(
     let netcode_config = server::NetcodeConfig::default()
         .with_protocol_id(shared.protocol_id)
         .with_key(shared.private_key);
-    let io_config = IoConfig::from_transport(transport_config);
-    let io_config = if let Some(conditioner) = conditioner {
-        io_config.with_conditioner(conditioner)
-    } else {
-        io_config
+    let io_config = IoConfig {
+        transport: transport_config,
+        conditioner,
+        compression: shared.compression,
     };
     server::NetConfig::Netcode {
         config: netcode_config,
@@ -240,11 +242,10 @@ pub fn build_client_netcode_config(
         protocol_id: shared.protocol_id,
     };
     let netcode_config = client::NetcodeConfig::default();
-    let io_config = IoConfig::from_transport(transport_config);
-    let io_config = if let Some(conditioner) = conditioner {
-        io_config.with_conditioner(conditioner)
-    } else {
-        io_config
+    let io_config = IoConfig {
+        transport: transport_config,
+        conditioner,
+        compression: shared.compression,
     };
     client::NetConfig::Netcode {
         auth,

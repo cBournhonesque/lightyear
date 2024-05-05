@@ -10,8 +10,8 @@ use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::NetServer;
 use crate::prelude::IoConfig;
+use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::server::config::NetcodeConfig;
 use crate::transport::io::Io;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
@@ -539,7 +539,10 @@ impl<Ctx> NetcodeServer<Ctx> {
             .get_mut(&id)
             .expect("invalid client id");
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
-        sender.send(&buf[..size], &conn.addr).map_err(Error::from)?;
+        sender
+            .send(&buf[..size], &conn.addr)
+            // .inspect_err(|e| error!("ERROR SENDING: {:?}", e))
+            .map_err(Error::from)?;
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
         conn.sequence += 1;
@@ -1001,32 +1004,33 @@ impl NetServer for Server {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        let io = self.io.as_mut().context("io is not initialized")?;
-        let mut connected_clients = self
-            .server
-            .connected_client_ids()
-            .map(id::ClientId::Netcode)
-            .collect::<Vec<_>>();
-        self.server.disconnect_all(io)?;
-        self.server
-            .cfg
-            .context
-            .disconnections
-            .append(&mut connected_clients);
-        // close and drop the io
-        io.close().context("Could not close the io")?;
-        std::mem::take(&mut self.io);
+        if let Some(mut io) = self.io.take() {
+            let mut connected_clients = self
+                .server
+                .connected_client_ids()
+                .map(id::ClientId::Netcode)
+                .collect::<Vec<_>>();
+            self.server.disconnect_all(&mut io)?;
+            self.server
+                .cfg
+                .context
+                .disconnections
+                .append(&mut connected_clients);
+            // close and drop the io
+            io.close().context("Could not close the io")?;
+        }
         Ok(())
     }
 
     fn disconnect(&mut self, client_id: id::ClientId) -> anyhow::Result<()> {
-        let io = self.io.as_mut().context("io is not initialized")?;
         match client_id {
             id::ClientId::Netcode(id) => {
-                self.server
-                    .disconnect(id, io)
-                    .context("Could not disconnect client")?;
-                self.server.cfg.context.disconnections.push(client_id);
+                if let Some(io) = self.io.as_mut() {
+                    self.server
+                        .disconnect(id, io)
+                        .context("Could not disconnect client")?;
+                    self.server.cfg.context.disconnections.push(client_id);
+                }
                 Ok(())
             }
             _ => Err(anyhow!("the client id must be of type Netcode")),

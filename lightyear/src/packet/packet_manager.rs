@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use bitcode::encoding::Gamma;
-use bitcode::word_buffer::WordBuffer;
 
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
@@ -12,8 +11,8 @@ use crate::packet::packet::{
 use crate::packet::packet_type::PacketType;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
+use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.
@@ -28,8 +27,8 @@ pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
     // Pre-allocated buffer to encode/decode without allocation.
     // TODO: should this be associated with Packet?
-    try_write_buffer: WriteWordBuffer,
-    write_buffer: WriteWordBuffer,
+    try_write_buffer: BitcodeWriter,
+    write_buffer: BitcodeWriter,
 }
 
 impl PacketBuilder {
@@ -64,7 +63,7 @@ impl PacketBuilder {
         // TODO: check that we haven't allocated!
         // self.clear_write_buffer();
 
-        let mut write_buffer = WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY);
+        let mut write_buffer = BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY);
         write_buffer.set_reserved_bits(PACKET_BUFFER_CAPACITY);
         packet.encode(&mut write_buffer)?;
         // TODO: we should actually call finish write to byte align!
@@ -88,7 +87,7 @@ impl PacketBuilder {
         // self.try_write_buffer
         //     .serialize(packet.header())
         //     .expect("Failed to serialize header, this should never happen");
-        // TODO: need to reserver HEADER_BYTES bits?
+        // TODO: need to reserve HEADER_BYTES bits?
         let header = self
             .header_manager
             .prepare_send_packet_header(PacketType::Data);
@@ -147,7 +146,7 @@ impl PacketBuilder {
     }
 
     pub fn message_num_bits(&mut self, message: &MessageContainer) -> anyhow::Result<usize> {
-        let mut write_buffer = WriteWordBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
+        let mut write_buffer = BitcodeWriter::with_capacity(2 * PACKET_BUFFER_CAPACITY);
         let prev_num_bits = write_buffer.num_bits_written();
         message.encode(&mut write_buffer)?;
         Ok(write_buffer.num_bits_written() - prev_num_bits)
@@ -615,7 +614,6 @@ mod tests {
 
     use lightyear_macros::ChannelInternal;
 
-    use crate::_reexport::*;
     use crate::channel::senders::fragment_sender::FragmentSender;
     use crate::packet::message::MessageId;
     use crate::prelude::*;
@@ -636,10 +634,10 @@ mod tests {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         };
-        let mut c = ChannelRegistry::new();
-        c.add::<Channel1>(settings.clone());
-        c.add::<Channel2>(settings.clone());
-        c.add::<Channel3>(settings.clone());
+        let mut c = ChannelRegistry::default();
+        c.add_channel::<Channel1>(settings.clone());
+        c.add_channel::<Channel2>(settings.clone());
+        c.add_channel::<Channel3>(settings.clone());
         c
     }
 

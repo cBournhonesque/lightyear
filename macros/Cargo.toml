@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_macros"
-version = "0.13.0"
+version = "0.14.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
@@ -15,18 +15,12 @@ exclude = ["/tests"]
 [lib]
 proc-macro = true
 
-[features]
-leafwing = []
-
 
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "2.0", features = ["full"] }
 serde = { version = "1.0.188", features = ["derive"] }
-anyhow = "1.0.75"
-darling = "0.20"
-uuid = { version = "1.6.1", features = ["v4"] }
 
 [dev-dependencies]
 lightyear = { path = "../lightyear" }

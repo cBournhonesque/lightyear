@@ -8,7 +8,6 @@ use tracing::{debug, info, trace};
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::packet::packet::PacketId;
-use crate::protocol::Protocol;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickEvent};
@@ -16,7 +15,7 @@ use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Run condition to run systems only if the client is synced
-pub fn client_is_synced<P: Protocol>(connection: Option<Res<ConnectionManager<P>>>) -> bool {
+pub fn client_is_synced(connection: Option<Res<ConnectionManager>>) -> bool {
     // TODO: check if this correct; in host-server mode, the client is always synced
     connection.map_or(false, |c| c.sync_manager.is_synced())
 }
@@ -690,7 +689,7 @@ mod tests {
         let client_entity = *stepper
             .client_app
             .world
-            .resource::<ClientConnectionManager>()
+            .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)

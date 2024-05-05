@@ -11,7 +11,7 @@ use crate::shared::tick_manager::Tick;
 use super::UserAction;
 
 #[derive(Resource, Debug)]
-pub struct InputBuffer<T: UserAction> {
+pub struct InputBuffer<T> {
     pub buffer: VecDeque<Option<T>>,
     pub start_tick: Option<Tick>,
 }
@@ -48,7 +48,7 @@ impl<T: UserAction> InputMessage<T> {
     }
 }
 
-impl<T: UserAction> Default for InputBuffer<T> {
+impl<T> Default for InputBuffer<T> {
     fn default() -> Self {
         Self {
             // buffer: SequenceBuffer::new(),
@@ -190,8 +190,6 @@ impl<T: UserAction> InputBuffer<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    impl UserAction for usize {}
 
     #[test]
     fn test_get_set_pop() {

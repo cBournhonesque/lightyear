@@ -9,7 +9,7 @@ pub mod connection;
 
 pub mod events;
 
-mod input;
+pub mod input;
 
 pub mod plugin;
 
@@ -21,5 +21,5 @@ pub mod input_leafwing;
 pub(crate) mod message;
 pub(crate) mod prediction;
 
-mod networking;
+pub(crate) mod networking;
 pub mod replication;

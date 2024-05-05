@@ -2,7 +2,7 @@
 
 You can use the `Replicate` component to initiate replicating an entity from the local `World` to the remote `World`.
 
-By default, every component in the entity that is part of the `ComponentProtocol` will be replicated. Any changes in
+By default, every component in the entity that is part of the `ComponentRegistry` will be replicated. Any changes in
 those components
 will be replicated.
 However the entity state will always be 'consistent': the remote entity will always contain the exact same combination
@@ -18,4 +18,15 @@ works.
 For example, `per_component_metadata` lets you fine-tune the replication logic for each component (exclude a component
 from being replicated, etc.)
 
-You can find some of the other usages in the [advanced_replication](../concepts/advanced_replication/title.md) section.
+You can find some of the other usages in the [advanced_replication](../advanced_replication/title.md) section.
+
+
+### Replicating resources
+
+You can also replicate bevy `Resources`. This is useful when you want to update a `Resource` on the server and keep synced
+copies on the client. This only works for `Resources` that also implement `Clone`, and should be limited to resources which are cheap to clone.
+
+- Then, to replicate a `Resource`, you can use the `commands.replicate_resource::<R>(replicate)` method. You will need to provide
+an instance of the `Replicate` struct to specify how the replication should be done (e.g. to which clients should the resource
+be replicated). To stop replicating a `Resource`, you can use the `commands.stop_replicate_resource::<R>()` method. Note that
+this won't delete the resource from the client, but it will stop updating it.

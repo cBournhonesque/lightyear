@@ -5,6 +5,7 @@ use tracing::trace;
 
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::rollback::Rollback;
+use crate::prelude::client::RollbackState;
 use crate::prelude::FixedUpdateSet;
 use crate::utils::wrapping_id::wrapping_id;
 
@@ -21,7 +22,8 @@ pub enum TickEvent {
     TickSnap { old_tick: Tick, new_tick: Tick },
 }
 
-fn increment_tick(mut tick_manager: ResMut<TickManager>) {
+/// System that increments the tick at the start of FixedUpdate
+pub(crate) fn increment_tick(mut tick_manager: ResMut<TickManager>) {
     tick_manager.increment_tick();
     trace!("increment_tick! new tick: {:?}", tick_manager.tick());
 }
@@ -95,5 +97,10 @@ impl TickManager {
     /// Get the current tick of the local app
     pub fn tick(&self) -> Tick {
         self.tick
+    }
+
+    /// Get the current tick of the app; works even if we are in rollback
+    pub fn tick_or_rollback_tick(&self, rollback_state: &Rollback) -> Tick {
+        rollback_state.get_rollback_tick().unwrap_or(self.tick)
     }
 }

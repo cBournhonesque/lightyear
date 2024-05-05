@@ -1,6 +1,7 @@
 //! Dummy io for connections that provide their own way of sending and receiving raw bytes (for example steamworks).
 use std::net::SocketAddr;
 
+use crate::transport::io::IoState;
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET,
@@ -12,8 +13,8 @@ use super::error::Result;
 pub struct DummyIo;
 
 impl TransportBuilder for DummyIo {
-    fn connect(self) -> Result<TransportEnum> {
-        Ok(TransportEnum::Dummy(self))
+    fn connect(self) -> Result<(TransportEnum, IoState)> {
+        Ok((TransportEnum::Dummy(self), IoState::Connected))
     }
 }
 

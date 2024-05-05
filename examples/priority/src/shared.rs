@@ -1,12 +1,10 @@
-use bevy::utils::Duration;
 use std::ops::Deref;
 
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::action_state::ActionState;
-use lightyear::client::interpolation::Interpolated;
-use lightyear::client::prediction::Predicted;
 
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
@@ -34,6 +32,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Startup, init);
             app.add_systems(Update, (draw_players, draw_props));

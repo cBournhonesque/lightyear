@@ -4,10 +4,10 @@ use std::net::{Ipv4Addr, SocketAddr};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
+
 use lightyear::client::components::Confirmed;
 use lightyear::client::interpolation::Interpolated;
 use lightyear::client::prediction::Predicted;
-
 pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
@@ -32,8 +32,8 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
-    connections.start().expect("Failed to start server");
+pub(crate) fn init(mut commands: Commands) {
+    commands.start_server();
     commands.spawn(
         TextBundle::from_section(
             "Server",

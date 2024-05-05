@@ -1,14 +1,12 @@
 use bevy::prelude::{Commands, Component, DetectChanges, Entity, Query, Ref, Res, With, Without};
 use tracing::{debug, info, trace};
 
-use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::interpolation::Interpolated;
-use crate::prelude::TickManager;
-use crate::protocol::Protocol;
+use crate::prelude::{ComponentRegistry, TickManager};
 use crate::shared::tick_manager::Tick;
 
 // if we haven't received updates since UPDATE_INTERPOLATION_START_TICK_FACTOR * send_interval
@@ -53,9 +51,9 @@ impl<C: Component> InterpolateStatus<C> {
 
 /// At the end of each frame, interpolate the components between the last 2 confirmed server states
 /// Invariant: start_tick <= current_interpolate_tick + overstep < end_tick
-pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
+pub(crate) fn update_interpolate_status<C: SyncComponent>(
     config: Res<ClientConfig>,
-    connection: Res<ConnectionManager<P>>,
+    connection: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
     mut query: Query<(
         Entity,
@@ -63,11 +61,8 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
         &mut InterpolateStatus<C>,
         &mut ConfirmedHistory<C>,
     )>,
-) where
-    P::Components: SyncMetadata<C>,
-    P::ComponentKinds: FromType<C>,
-{
-    let kind = P::ComponentKinds::from_type();
+) {
+    let kind = std::any::type_name::<C>();
 
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
     let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
@@ -217,14 +212,13 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
 /// - or at least SEND_INTERVAL_TICK_FACTOR * send_interval has passed. (this is to deal with the case where we only receive
 /// one update; for example if we spawn the player and then they don't move. If we didn't do this the interpolated entity would
 /// simply not appear)
-pub(crate) fn insert_interpolated_component<C: SyncComponent, P: Protocol>(
+pub(crate) fn insert_interpolated_component<C: SyncComponent>(
+    component_registry: Res<ComponentRegistry>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     mut commands: Commands,
     mut query: Query<(Entity, &InterpolateStatus<C>), Without<C>>,
-) where
-    P::Components: SyncMetadata<C>,
-{
+) {
     let tick = tick_manager.tick();
     // how many ticks between each interpolation update (add 1 to roughly take the ceil)
     // TODO: use something more precise, with the interpolation overstep?
@@ -244,7 +238,7 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent, P: Protocol>(
                 assert_ne!(start_tick, end_tick);
                 trace!("insert interpolated comp value because we have 2 updates");
                 let t = status.interpolation_fraction().unwrap();
-                let value = P::Components::lerp(start_value, end_value, t);
+                let value = component_registry.interpolate(start_value, end_value, t);
                 entity_commands.insert(value);
             } else {
                 // we only have one update, but enough time has passed that we should add the component anyway
@@ -258,11 +252,10 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent, P: Protocol>(
 }
 
 /// Update the component value on the Interpolate entity
-pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
+pub(crate) fn interpolate<C: Component + Clone>(
+    component_registry: Res<ComponentRegistry>,
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
-) where
-    P::Components: SyncMetadata<C>,
-{
+) {
     for (mut component, status) in query.iter_mut() {
         debug!("checking if we do interpolation");
         // NOTE: it is possible that we reach start_tick when end_tick is not set
@@ -272,7 +265,7 @@ pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
                 assert!(status.current_tick < *end_tick);
                 if start_tick != end_tick {
                     let t = status.interpolation_fraction().unwrap();
-                    let value = P::Components::lerp(start_value, end_value, t);
+                    let value = component_registry.interpolate(start_value, end_value, t);
                     *component = value;
                 } else {
                     *component = start_value.clone();

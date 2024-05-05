@@ -14,7 +14,7 @@ use crate::prelude::{Message, Tick};
 /// - an entity that simply contains the replicated components. It will have the marker component [`Confirmed`]
 /// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](crate::client::prediction::Predicted)
 /// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](crate::client::interpolation::Interpolated)
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Default)]
 pub struct Confirmed {
     /// The corresponding Predicted entity
     pub predicted: Option<Entity>,
@@ -27,9 +27,6 @@ pub struct Confirmed {
 
 pub trait SyncComponent: Component + Clone + PartialEq + Message {}
 impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message {}
-
-// NOTE: we use these traits that the Protocol will implement so that we don't implement
-// external traits on external types and break the orphan rule
 
 /// Function that will interpolated between two values
 pub trait LerpFn<C> {
@@ -44,7 +41,7 @@ pub trait SyncMetadata<C> {
     fn mode() -> ComponentSyncMode;
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 /// Defines how a predicted or interpolated component will be replicated from confirmed to predicted/interpolated
 ///
 /// We use a single enum instead of 2 separate enums because we want to be able to use the same enum for both predicted and interpolated components

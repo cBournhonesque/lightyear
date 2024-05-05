@@ -90,7 +90,6 @@ impl PacketConfig {
 ///
 /// Most of the fields are optional and have sensible defaults.
 /// What is required is:
-/// - a `Protocol` that defines which messages can be sent between client and server
 /// - a [`SharedConfig`] struct that has to be same on the client and the server, and contains some common configuration
 /// - a [`NetConfig`] that species the connection type
 /// ```rust,ignore

@@ -10,8 +10,8 @@ use crate::connection::client::NetClient;
 use crate::connection::id;
 use crate::prelude::client::NetworkingState;
 use crate::prelude::IoConfig;
+use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::transport::io::Io;
 use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
@@ -660,13 +660,14 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     }
 
     fn disconnect(&mut self) -> anyhow::Result<()> {
-        let io = self.io.as_mut().context("io is not initialized")?;
-        self.client
-            .disconnect(io)
-            .context("Error when disconnecting from server")?;
-        // close and drop the io
-        io.close().context("Could not close the io")?;
-        std::mem::take(&mut self.io);
+        if let Some(io) = self.io.as_mut() {
+            self.client
+                .disconnect(io)
+                .context("Error when disconnecting from server")?;
+            // close and drop the io
+            io.close().context("Could not close the io")?;
+            std::mem::take(&mut self.io);
+        }
         Ok(())
     }
 

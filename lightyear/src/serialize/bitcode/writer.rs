@@ -18,7 +18,7 @@ use crate::serialize::writer::WriteBuffer;
 // most of the other subfields are Serializable
 
 #[derive(Default)]
-pub struct WriteWordBuffer {
+pub struct BitcodeWriter {
     pub(crate) buffer: WordBuffer,
     pub(crate) writer: WordWriter,
     max_bits: usize,
@@ -28,7 +28,7 @@ pub struct WriteWordBuffer {
 // #[bitcode_hint(gamma)]
 struct OnlyGammaEncode<'a, T: Serialize + ?Sized>(#[bitcode(with_serde)] &'a T);
 
-impl WriteBuffer for WriteWordBuffer {
+impl WriteBuffer for BitcodeWriter {
     // fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()> {
     //     serialize_compat(t, Fixed, &mut self.writer).context("error serializing")
     // }
@@ -90,15 +90,33 @@ impl WriteBuffer for WriteWordBuffer {
 
 #[cfg(test)]
 mod tests {
+    use crate::serialize::bitcode::reader::BitcodeReader;
     use crate::serialize::reader::ReadBuffer;
-    use crate::serialize::wordbuffer::reader::ReadWordBuffer;
+    use bitcode::{Decode, Encode};
+
+    #[derive(Encode, Decode)]
+    struct A;
+    #[test]
+    fn test_write_zst() -> anyhow::Result<()> {
+        use super::*;
+        use crate::serialize::writer::WriteBuffer;
+
+        let mut buffer = BitcodeWriter::with_capacity(5);
+        // confirm that we serialize bit by bit
+        buffer.encode(&A, Fixed)?;
+
+        // finish
+        let bytes = buffer.finish_write();
+        assert_eq!(bytes, &[]);
+        Ok(())
+    }
 
     #[test]
     fn test_write_bits() -> anyhow::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
 
-        let mut buffer = WriteWordBuffer::with_capacity(5);
+        let mut buffer = BitcodeWriter::with_capacity(5);
         // confirm that we serialize bit by bit
         buffer.serialize(&true)?;
         buffer.serialize(&false)?;
@@ -110,7 +128,7 @@ mod tests {
         // in little-endian, we write the bits in reverse order
         assert_eq!(bytes, &[0b00001101]);
 
-        let mut read_buffer = ReadWordBuffer::start_read(bytes);
+        let mut read_buffer = BitcodeReader::start_read(bytes);
         let bool = read_buffer.deserialize::<bool>()?;
         assert!(bool);
         let bool = read_buffer.deserialize::<bool>()?;
@@ -131,7 +149,7 @@ mod tests {
         use crate::serialize::writer::WriteBuffer;
         use serde::Serialize;
 
-        let mut buffer = WriteWordBuffer::with_capacity(2);
+        let mut buffer = BitcodeWriter::with_capacity(2);
         let first_vec: Vec<u32> = vec![4, 6, 3];
         let second_vec: Vec<u64> = vec![2, 5];
         // confirm that we serialize bit by bit
@@ -140,7 +158,7 @@ mod tests {
         // finish
         let bytes = buffer.finish_write();
 
-        let mut read_buffer = ReadWordBuffer::start_read(bytes);
+        let mut read_buffer = BitcodeReader::start_read(bytes);
         let vec = read_buffer.deserialize::<Vec<u32>>()?;
         assert_eq!(vec, first_vec);
         let vec = read_buffer.deserialize::<Vec<u64>>()?;

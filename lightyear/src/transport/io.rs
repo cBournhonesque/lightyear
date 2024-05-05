@@ -18,7 +18,7 @@ use crate::transport::middleware::conditioner::{
 use crate::transport::middleware::PacketReceiverWrapper;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
-use super::error::Result;
+use super::error::{Error, Result};
 use super::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, TransportBuilder, TransportBuilderEnum, LOCAL_SOCKET,
 };
@@ -30,6 +30,7 @@ pub struct Io {
     pub(crate) sender: BoxedSender,
     pub(crate) receiver: BoxedReceiver,
     pub(crate) close_fn: Option<BoxedCloseFn>,
+    pub(crate) state: IoState,
     pub(crate) stats: IoStats,
 }
 
@@ -78,7 +79,7 @@ impl Debug for Io {
 
 impl PacketReceiver for Io {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
-        // todo: compression + bandwidth monitoring
+        // todo: bandwidth monitoring
         self.receiver.as_mut().recv().map(|x| {
             if let Some((ref buffer, _)) = x {
                 #[cfg(feature = "metrics")]
@@ -96,7 +97,7 @@ impl PacketReceiver for Io {
 
 impl PacketSender for Io {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
-        // todo: compression + bandwidth monitoring
+        // todo: bandwidth monitoring
         #[cfg(feature = "metrics")]
         {
             metrics::counter!("transport.packets_sent").increment(1);
@@ -168,4 +169,13 @@ impl Plugin for IoDiagnosticsPlugin {
                 .with_max_history_length(IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN),
         );
     }
+}
+
+/// Tracks the state of creating the Io
+pub(crate) enum IoState {
+    Connecting {
+        error_channel: async_channel::Receiver<Option<Error>>,
+    },
+    Connected,
+    Disconnected,
 }

@@ -1,42 +1,45 @@
 //! Components used for replication
 use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::QueryFilter;
-use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
+use bevy::prelude::{Component, Entity, EntityMapper, Or, Reflect, With};
 use bevy::utils::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::_reexport::FromType;
+use bitcode::{Decode, Encode};
+
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
 use crate::prelude::ParentSync;
-use crate::protocol::Protocol;
+use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
 use crate::server::room::ClientVisibility;
+
+/// Marker component that indicates that the entity was spawned via replication
+/// (it is being replicated from a remote world)
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[component(storage = "SparseSet")]
+pub struct Replicated;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
-pub struct DespawnTracker;
+#[component(storage = "SparseSet")]
+pub(crate) struct DespawnTracker;
 
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
 #[derive(Component, Clone, PartialEq, Debug, Reflect)]
-pub struct Replicate<P: Protocol> {
+pub struct Replicate {
     /// Which clients should this entity be replicated to
     pub replication_target: NetworkTarget,
     /// Which clients should predict this entity
     pub prediction_target: NetworkTarget,
     /// Which clients should interpolated this entity
     pub interpolation_target: NetworkTarget,
-
-    // TODO: this should not be public, but replicate is public... how to fix that?
-    //  have a separate component ReplicateVisibility?
-    //  or force users to use `Replicate::default().with...`?
-    /// List of clients that the entity is currently replicated to.
-    /// Will be updated before the other replication systems
-    #[doc(hidden)]
-    pub replication_clients_cache: HashMap<ClientId, ClientVisibility>,
+    /// How do we find the list of clients to replicate to?
     pub replication_mode: ReplicationMode,
+    /// The replication group defines how entities are grouped (sent as a single message) for replication.
+    /// This should not be modified after the Replicate component is created
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
     pub replication_group: ReplicationGroup,
@@ -45,15 +48,25 @@ pub struct Replicate<P: Protocol> {
     /// and `ParentSync` components to the children yourself
     pub replicate_hierarchy: bool,
 
+    // TODO: could it be dangerous to use component kind here? (because the value could vary between rust versions)
+    //  should be ok, because this is not networked
     /// Lets you override the replication modalities for a specific component
-    pub per_component_metadata: HashMap<P::ComponentKinds, PerComponentReplicationMetadata>,
+    #[reflect(ignore)]
+    pub per_component_metadata: HashMap<ComponentKind, PerComponentReplicationMetadata>,
+}
+
+#[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
+pub(crate) struct ReplicateVisibility {
+    /// List of clients that the entity is currently replicated to.
+    /// Will be updated before the other replication systems
+    pub(crate) clients_cache: HashMap<ClientId, ClientVisibility>,
 }
 
 /// This lets you specify how to customize the replication behaviour for a given component
 #[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct PerComponentReplicationMetadata {
     /// If true, do not replicate the component. (By default, all components of this entity that are present in the
-    /// ComponentProtocol) will be replicated.
+    /// [`ComponentRegistry`] will be replicated.
     disabled: bool,
     /// If true, replicate only inserts/removals of the component, not the updates.
     /// (i.e. the component will only get replicated once at spawn)
@@ -73,17 +86,14 @@ impl Default for PerComponentReplicationMetadata {
     }
 }
 
-impl<P: Protocol> Replicate<P> {
+impl Replicate {
     pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
         self.replication_group.group_id(entity)
     }
 
     /// Returns true if we don't want to replicate the component
-    pub fn is_disabled<C>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+    pub fn is_disabled<C: Component>(&self) -> bool {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .get(&kind)
             .is_some_and(|metadata| metadata.disabled)
@@ -91,11 +101,8 @@ impl<P: Protocol> Replicate<P> {
 
     /// If true, the component will be replicated only once, when the entity is spawned.
     /// We do not replicate component updates
-    pub fn is_replicate_once<C>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+    pub fn is_replicate_once<C: Component>(&self) -> bool {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .get(&kind)
             .is_some_and(|metadata| metadata.replicate_once)
@@ -104,11 +111,8 @@ impl<P: Protocol> Replicate<P> {
     /// Replication target for this specific component
     /// This will be the intersection of the provided `entity_target`, and the `target` of the component
     /// if it exists
-    pub fn target<C>(&self, mut entity_target: NetworkTarget) -> NetworkTarget
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+    pub fn target<C: Component>(&self, mut entity_target: NetworkTarget) -> NetworkTarget {
+        let kind = ComponentKind::of::<C>();
         match self.per_component_metadata.get(&kind) {
             None => entity_target,
             Some(metadata) => {
@@ -120,11 +124,8 @@ impl<P: Protocol> Replicate<P> {
     }
 
     /// Disable the replication of a component for this entity
-    pub fn disable_component<C>(&mut self)
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+    pub fn disable_component<C: Component>(&mut self) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .entry(kind)
             .or_default()
@@ -132,11 +133,8 @@ impl<P: Protocol> Replicate<P> {
     }
 
     /// Enable the replication of a component for this entity
-    pub fn enable_component<C>(&mut self)
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+    pub fn enable_component<C: Component>(&mut self) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .entry(kind)
             .or_default()
@@ -149,22 +147,16 @@ impl<P: Protocol> Replicate<P> {
         }
     }
 
-    pub fn enable_replicate_once<C>(&mut self)
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+    pub fn enable_replicate_once<C: Component>(&mut self) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .entry(kind)
             .or_default()
             .replicate_once = true;
     }
 
-    pub fn disable_replicate_once<C>(&mut self)
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+    pub fn disable_replicate_once<C: Component>(&mut self) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .entry(kind)
             .or_default()
@@ -177,11 +169,8 @@ impl<P: Protocol> Replicate<P> {
         }
     }
 
-    pub fn add_target<C>(&mut self, target: NetworkTarget)
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+    pub fn add_target<C: Component>(&mut self, target: NetworkTarget) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata.entry(kind).or_default().target = target;
         // if we are back at the default, remove the entry
         if self.per_component_metadata.get(&kind).unwrap()
@@ -260,31 +249,46 @@ impl ReplicationGroup {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
+#[derive(
+    Default,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Reflect,
+    Encode,
+    Decode,
+)]
 pub struct ReplicationGroupId(pub u64);
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
     /// We will replicate this entity only to clients that are in the same room as the entity
+    /// (the client still needs to be included in the [`NetworkTarget`], the room is simply an additional constraint)
     Room,
     /// We will replicate this entity to clients using only the [`NetworkTarget`], without caring about rooms
     #[default]
     NetworkTarget,
 }
 
-impl<P: Protocol> Default for Replicate<P> {
+impl Default for Replicate {
     fn default() -> Self {
         #[allow(unused_mut)]
         let mut replicate = Self {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
             interpolation_target: NetworkTarget::None,
-            replication_clients_cache: HashMap::new(),
             replication_mode: ReplicationMode::default(),
             replication_group: Default::default(),
             replicate_hierarchy: true,
             per_component_metadata: HashMap::default(),
         };
+        // TODO: what's the point in replicating them once since they don't change?
+        //  or is it because they are removed and we don't want to replicate the removal?
         // those metadata components should only be replicated once
         replicate.enable_replicate_once::<ShouldBePredicted>();
         replicate.enable_replicate_once::<ShouldBeInterpolated>();
@@ -301,7 +305,7 @@ impl<P: Protocol> Default for Replicate<P> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect, Encode, Decode)]
 /// NetworkTarget indicated which clients should receive some message
 pub enum NetworkTarget {
     #[default]
@@ -455,18 +459,21 @@ impl NetworkTarget {
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[component(storage = "SparseSet")]
 pub struct ShouldBeInterpolated;
 
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
 //  because we already do the mapping at other steps
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[component(storage = "SparseSet")]
 pub struct PrePredicted {
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[component(storage = "SparseSet")]
 pub struct ShouldBePredicted;
 
 #[cfg(test)]

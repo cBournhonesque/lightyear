@@ -10,15 +10,18 @@ pub(crate) type NetId = u16;
 
 pub trait TypeKind: From<TypeId> + Copy + PartialEq + Eq + Hash {}
 
+// Type used to serialize the data over the network
+// pub trait NetId: copy + PartialEq + Eq + Hash {}
+
 // needs trait_alias feature
 // type TypeKind = From<TypeId> + Copy + PartialEq + Eq + Hash {};
 
 /// Struct to map a type to an id that can be serialized over the network
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeMapper<K: TypeKind> {
-    pub(in crate::protocol) next_net_id: NetId,
-    pub(in crate::protocol) kind_map: HashMap<K, NetId>,
-    pub(in crate::protocol) id_map: HashMap<NetId, K>,
+    pub(crate) next_net_id: NetId,
+    pub(crate) kind_map: HashMap<K, NetId>,
+    pub(crate) id_map: HashMap<NetId, K>,
 }
 
 impl<K: TypeKind> Default for TypeMapper<K> {
@@ -40,7 +43,7 @@ impl<K: TypeKind> TypeMapper<K> {
     pub fn add<T: 'static>(&mut self) -> K {
         let kind = K::from(TypeId::of::<T>());
         if self.kind_map.contains_key(&kind) {
-            panic!("Type already registered");
+            panic!("Type {:?} already registered", std::any::type_name::<T>());
         }
         let net_id = self.next_net_id;
         self.kind_map.insert(kind, net_id);

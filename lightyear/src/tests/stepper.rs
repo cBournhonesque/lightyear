@@ -1,22 +1,22 @@
-use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use crate::connection::client::{ClientConnection, NetClient};
-use bevy::ecs::system::SystemState;
-use bevy::prelude::{default, App, Mut, PluginGroup, Real, Time, World};
+use crate::client::replication::ReplicationConfig;
+use bevy::ecs::system::RunSystemOnce;
+use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
-use bevy::{DefaultPlugins, MinimalPlugins};
-use tracing_subscriber::fmt::format::FmtSpan;
+use bevy::utils::Duration;
+use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
-use crate::connection::server::{NetServer, ServerConnection, ServerConnections};
 use crate::prelude::client::{
-    Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientCommands, ClientConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
-use crate::prelude::server::{NetcodeConfig, ServerConfig};
+use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig};
 use crate::prelude::*;
 use crate::tests::protocol::*;
+
+pub const TEST_CLIENT_ID: u64 = 111;
 
 /// Helpers to setup a bevy app where I can just step the world easily
 pub trait Step {
@@ -99,7 +99,6 @@ impl BevyStepper {
         // Shared config
         let protocol_id = 0;
         let private_key = generate_key();
-        let client_id = 111;
 
         // Setup server
         let mut server_app = App::new();
@@ -114,11 +113,14 @@ impl BevyStepper {
             shared: shared_config.clone(),
             net: vec![net_config],
             ping: PingConfig::default(),
+            replication: server::ReplicationConfig {
+                enable_send: true,
+                enable_receive: true,
+            },
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, protocol());
-        let plugin = server::ServerPlugin::new(plugin_config);
-        server_app.add_plugins(plugin);
+        let plugin = server::ServerPlugin::new(config);
+        server_app.add_plugins((plugin, ProtocolPlugin));
 
         // Setup client
         let mut client_app = App::new();
@@ -128,7 +130,7 @@ impl BevyStepper {
                 server_addr: addr,
                 protocol_id,
                 private_key,
-                client_id,
+                client_id: TEST_CLIENT_ID,
             },
             config: Default::default(),
             io: client_io,
@@ -139,11 +141,14 @@ impl BevyStepper {
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
+            replication: client::ReplicationConfig {
+                enable_send: true,
+                enable_receive: true,
+            },
             ..default()
         };
-        let plugin_config = client::PluginConfig::new(config, protocol());
-        let plugin = client::ClientPlugin::new(plugin_config);
-        client_app.add_plugins(plugin);
+        let plugin = client::ClientPlugin::new(config);
+        client_app.add_plugins((plugin, ProtocolPlugin));
 
         // Initialize Real time (needed only for the first TimeSystem run)
         let now = bevy::utils::Instant::now();
@@ -169,7 +174,7 @@ impl BevyStepper {
 
     pub(crate) fn interpolation_tick(&mut self) -> Tick {
         self.client_app.world.resource_scope(
-            |world: &mut World, manager: Mut<ClientConnectionManager>| {
+            |world: &mut World, manager: Mut<client::ConnectionManager>| {
                 manager
                     .sync_manager
                     .interpolation_tick(world.resource::<TickManager>())
@@ -184,23 +189,21 @@ impl BevyStepper {
         self.server_app.world.resource::<TickManager>().tick()
     }
     pub(crate) fn init(&mut self) {
+        self.server_app.finish();
         self.server_app
             .world
-            .resource_mut::<ServerConnections>()
-            .start()
-            .expect("could not start server");
+            .run_system_once(|mut commands: Commands| commands.start_server());
+        self.client_app.finish();
         self.client_app
             .world
-            .resource_mut::<ClientConnection>()
-            .connect()
-            .expect("could not connect client");
+            .run_system_once(|mut commands: Commands| commands.connect_client());
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self
                 .client_app
                 .world
-                .resource::<ClientConnectionManager>()
+                .resource::<client::ConnectionManager>()
                 .is_synced()
             {
                 break;

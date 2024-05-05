@@ -38,6 +38,7 @@ pub(crate) fn despawn_interpolated(
     for confirmed_entity in query.read() {
         if let Some(interpolated) = manager
             .interpolated_entity_map
+            .get_mut()
             .confirmed_to_interpolated
             .remove(&confirmed_entity)
         {

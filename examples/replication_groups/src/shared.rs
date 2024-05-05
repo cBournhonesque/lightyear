@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
-use lightyear::client::prediction::Predicted;
 use tracing::Level;
 
+use lightyear::client::prediction::Predicted;
 use lightyear::prelude::client::{Confirmed, Interpolated};
 use lightyear::prelude::*;
 
@@ -26,6 +26,8 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
+        // REFLECTION
         app.register_type::<PlayerId>();
         app.register_type::<PlayerPosition>();
         app.register_type::<PlayerParent>();

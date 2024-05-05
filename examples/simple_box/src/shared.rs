@@ -8,7 +8,6 @@ use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use bevy_mod_picking::DefaultPickingPlugins;
 
-use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use lightyear::shared::config::Mode;
 
@@ -30,6 +29,8 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        // the protocol needs to be shared between the client and server
+        app.add_plugins(ProtocolPlugin);
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_plugins(DefaultPickingPlugins);
             app.add_systems(Startup, init);

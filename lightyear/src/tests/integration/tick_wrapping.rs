@@ -1,12 +1,13 @@
-use crate::_reexport::WrappedTime;
+use bevy::prelude::*;
+use bevy::utils::Duration;
+
 use crate::client::input::InputManager;
 use crate::prelude::client::{InputSystemSet, SyncConfig};
 use crate::prelude::server::InputEvent;
 use crate::prelude::*;
+use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::tests::stepper::{BevyStepper, Step};
-use bevy::prelude::*;
-use bevy::utils::Duration;
 
 fn press_input(mut input_manager: ResMut<InputManager<MyInput>>, tick_manager: Res<TickManager>) {
     input_manager.add_input(MyInput(0), tick_manager.tick());
@@ -96,7 +97,7 @@ fn test_sync_after_tick_wrap() {
     let client_entity = *stepper
         .client_app
         .world
-        .resource::<ClientConnectionManager>()
+        .resource::<client::ConnectionManager>()
         .replication_receiver
         .remote_entity_map
         .get_local(server_entity)
@@ -191,7 +192,7 @@ fn test_sync_after_tick_half_wrap() {
     let client_entity = *stepper
         .client_app
         .world
-        .resource::<ClientConnectionManager>()
+        .resource::<client::ConnectionManager>()
         .replication_receiver
         .remote_entity_map
         .get_local(server_entity)

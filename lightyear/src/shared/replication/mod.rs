@@ -10,13 +10,24 @@ use bevy::reflect::Map;
 use bevy::utils::HashSet;
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
+use bitcode::{Decode, Encode};
+
 use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::{NetworkTarget, Tick};
-use crate::protocol::{EventContext, Protocol};
+use crate::protocol::component::{ComponentNetId, ComponentRegistry};
+use crate::protocol::registry::NetId;
+use crate::protocol::EventContext;
+use crate::serialize::bitcode::writer::BitcodeWriter;
+use crate::serialize::writer::WriteBuffer;
+use crate::serialize::RawData;
+use crate::shared::events::connection::{
+    ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    IterEntityDespawnEvent, IterEntitySpawnEvent,
+};
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
+use crate::shared::replication::systems::DespawnMetadata;
 
 pub mod components;
 
@@ -25,39 +36,22 @@ pub mod entity_map;
 pub(crate) mod hierarchy;
 pub(crate) mod plugin;
 pub(crate) mod receive;
+pub(crate) mod resources;
 pub(crate) mod send;
-pub mod systems;
+pub(crate) mod systems;
 
-// // NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
-// //  better to not add trait bounds on structs directly anyway
-// #[cfg_attr(feature = "debug", derive(Debug))]
-// #[derive(Serialize, Deserialize, Clone)]
-// pub enum ReplicationMessage<C, K> {
-//     // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
-//     SpawnEntity(Entity, Vec<C>),
-//     DespawnEntity(Entity),
-//     // TODO: maybe ComponentActions (Insert/Remove) in the same message? same logic, we might want to receive all of them at the same time
-//     //  unfortunately can't really put entity-updates in the same message because it uses a different channel
-//     /// All the components that are inserted on this entity
-//     InsertComponent(Entity, Vec<C>),
-//     /// All the components that are removed from this entity
-//     RemoveComponent(Entity, Vec<K>),
-//     // TODO: add the tick of the update? maybe this makes no sense if we gather updates only at the end of the tick
-//     EntityUpdate(Entity, Vec<C>),
-// }
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct EntityActions<C, K: Hash + Eq> {
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+pub struct EntityActions {
     pub(crate) spawn: bool,
     pub(crate) despawn: bool,
-    // Cannot use HashSet because we would need ComponentProtocol to implement Hash + Eq
-    pub(crate) insert: Vec<C>,
-    pub(crate) remove: HashSet<K>,
-    // We also include the updates for the current tick in the actions, if there are any
-    pub(crate) updates: Vec<C>,
+    pub(crate) insert: Vec<RawData>,
+    #[bitcode(with_serde)]
+    // TODO: use a ComponentNetId instead of NetId?
+    pub(crate) remove: HashSet<NetId>,
+    pub(crate) updates: Vec<RawData>,
 }
 
-impl<C, K: Hash + Eq> Default for EntityActions<C, K> {
+impl Default for EntityActions {
     fn default() -> Self {
         Self {
             spawn: false,
@@ -71,34 +65,36 @@ impl<C, K: Hash + Eq> Default for EntityActions<C, K> {
 
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct EntityActionMessage<C, K: Hash + Eq> {
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+pub struct EntityActionMessage {
     sequence_id: MessageId,
+    #[bitcode(with_serde)]
     // we use vec but the order of entities should not matter
-    pub(crate) actions: Vec<(Entity, EntityActions<C, K>)>,
+    pub(crate) actions: Vec<(Entity, EntityActions)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct EntityUpdatesMessage<C> {
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+pub struct EntityUpdatesMessage {
     /// The last tick for which we sent an EntityActionsMessage for this group
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
     /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
     last_action_tick: Option<Tick>,
-    pub(crate) updates: Vec<(Entity, Vec<C>)>,
+    #[bitcode(with_serde)]
+    pub(crate) updates: Vec<(Entity, Vec<RawData>)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub enum ReplicationMessageData<C, K: Hash + Eq> {
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+pub enum ReplicationMessageData {
     /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
-    Actions(EntityActionMessage<C, K>),
+    Actions(EntityActionMessage),
     /// All the entity updates for a given group
-    Updates(EntityUpdatesMessage<C>),
+    Updates(EntityUpdatesMessage),
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct ReplicationMessage<C, K: Hash + Eq> {
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+pub struct ReplicationMessage {
     pub(crate) group_id: ReplicationGroupId,
-    pub(crate) data: ReplicationMessageData<C, K>,
+    pub(crate) data: ReplicationMessageData,
 }
 
 #[doc(hidden)]
@@ -106,13 +102,25 @@ pub struct ReplicationMessage<C, K: Hash + Eq> {
 /// (this trait is used to easily enable both client to server and server to client replication)
 ///
 /// The trait is made public because it is needed in the macros
-pub trait ReplicationSend<P: Protocol>: Resource {
-    // Type of the context associated with the events emitted by this replication plugin
-    // type EventContext: EventContext;
+pub(crate) trait ReplicationSend: Resource {
+    type Events: IterComponentInsertEvent<Self::EventContext>
+        + IterComponentRemoveEvent<Self::EventContext>
+        + IterComponentUpdateEvent<Self::EventContext>
+        + IterEntitySpawnEvent<Self::EventContext>
+        + IterEntityDespawnEvent<Self::EventContext>
+        + ClearEvents;
+    /// Type of the context associated with the events emitted by this replication plugin
+    type EventContext: EventContext;
     /// Marker to identify the type of the ReplicationSet component
     /// This is mostly relevant in the unified mode, where a ReplicationSet can be added several times
     /// (in the client and the server replication plugins)
     type SetMarker: Debug + Hash + Send + Sync + Eq + Clone;
+
+    fn events(&mut self) -> &mut Self::Events;
+
+    fn writer(&mut self) -> &mut BitcodeWriter;
+
+    fn component_registry(&self) -> &ComponentRegistry;
 
     /// Set the priority for a given replication group, for a given client
     /// This IS the client-facing API that users must use to update the priorities for a given client.
@@ -132,7 +140,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate<P>,
+        replicate: &Replicate,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
@@ -140,7 +148,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate<P>,
+        replication_group_id: ReplicationGroupId,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
@@ -148,8 +156,9 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn prepare_component_insert(
         &mut self,
         entity: Entity,
-        component: P::Components,
-        replicate: &Replicate<P>,
+        kind: ComponentNetId,
+        component: RawData,
+        replicate: &Replicate,
         target: NetworkTarget,
         // bevy_tick for the current system run (we send component updates since the most recent bevy_tick of
         //  last update ack OR last action sent)
@@ -159,17 +168,19 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn prepare_component_remove(
         &mut self,
         entity: Entity,
-        component_kind: P::ComponentKinds,
-        replicate: &Replicate<P>,
+        component_kind: ComponentNetId,
+        replicate: &Replicate,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
 
-    fn prepare_entity_update(
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_component_update(
         &mut self,
         entity: Entity,
-        component: P::Components,
-        replicate: &Replicate<P>,
+        kind: ComponentNetId,
+        component: RawData,
+        replicate: &Replicate,
         target: NetworkTarget,
         // bevy_tick when the component changes
         component_change_tick: BevyTick,
@@ -187,7 +198,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     /// But the receiving systems might expect both components to be present at the same time.
     fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
 
-    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Replicate<P>>;
+    fn get_mut_replicate_despawn_cache(&mut self) -> &mut EntityHashMap<DespawnMetadata>;
 
     /// Do some regular cleanup on the internals of replication
     /// - account for tick wrapping by resetting some internal ticks for each replication group
@@ -246,7 +257,7 @@ mod tests {
         let client_entity = *stepper
             .client_app
             .world
-            .resource::<ClientConnectionManager>()
+            .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)

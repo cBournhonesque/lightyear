@@ -88,7 +88,6 @@ impl ChannelReceive for TickUnreliableReceiver {
 #[cfg(test)]
 mod tests {
     use bevy::utils::Duration;
-
     use bytes::Bytes;
 
     use crate::channel::receivers::ChannelReceive;

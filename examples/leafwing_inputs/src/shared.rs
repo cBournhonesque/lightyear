@@ -45,6 +45,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Startup, init_camera);
 
@@ -173,12 +174,9 @@ pub(crate) fn after_physics_log(
     >,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
-    let mut tick = tick_manager.tick();
-    if let Some(rollback) = rollback {
-        if let RollbackState::ShouldRollback { current_tick } = rollback.state {
-            tick = current_tick;
-        }
-    }
+    let tick = rollback.map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
+    });
     for (entity, position, rotation) in players.iter() {
         debug!(
             ?tick,

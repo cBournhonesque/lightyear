@@ -1,26 +1,16 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
-use bevy::utils::Duration;
-use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
-use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
 
-use lightyear::_reexport::ShouldBeInterpolated;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, Cli, ClientTransports, SharedSettings};
+use crate::shared::shared_movement_behaviour;
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.init_resource::<ActionState<Inputs>>();
         app.add_systems(Startup, init);
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
@@ -36,9 +26,9 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-// Startup system for the client
-pub(crate) fn init(mut client: ClientConnectionParam) {
-    let _ = client.connect();
+/// Startup system for the client
+pub(crate) fn init(mut commands: Commands) {
+    commands.connect_client();
 }
 
 /// Listen for events to know when the client is connected, and spawn a text entity
@@ -67,10 +57,6 @@ pub(crate) fn movement(
     // TODO: maybe make prediction mode a separate component!!!
     mut position_query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
 ) {
-    // if we are not doing prediction, no need to read inputs
-    if <Components as SyncMetadata<Position>>::mode() != ComponentSyncMode::Full {
-        return;
-    }
     for (position, input) in position_query.iter_mut() {
         shared_movement_behaviour(position, input);
     }

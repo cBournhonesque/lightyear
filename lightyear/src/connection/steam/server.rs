@@ -1,11 +1,10 @@
-use crate::_reexport::{ReadBuffer, ReadWordBuffer};
 use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::NetServer;
 use crate::packet::packet::Packet;
 use crate::prelude::{Io, LinkConditionerConfig};
-use crate::serialize::wordbuffer::reader::BufferPool;
+use crate::serialize::bitcode::reader::BufferPool;
 use anyhow::{anyhow, Context, Result};
 use bevy::utils::HashMap;
 use std::collections::VecDeque;
@@ -99,7 +98,8 @@ impl NetServer for Server {
         self.listen_socket = Some(
             self.client
                 .networking_sockets()
-                .create_listen_socket_ip(server_addr, options)
+                // TODO: using the NetworkingConfigEntry options seems to cause an issue. See: https://github.com/Noxime/steamworks-rs/issues/169
+                .create_listen_socket_ip(server_addr, vec![])
                 .context("could not create server listen socket")?,
         );
         info!("Steam socket started on {:?}", server_addr);

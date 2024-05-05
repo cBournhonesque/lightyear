@@ -1,19 +1,12 @@
-use bevy::utils::Duration;
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 
-use bevy::app::PluginGroupBuilder;
-use bevy::ecs::archetype::Archetype;
 use bevy::prelude::*;
-use leafwing_input_manager::prelude::ActionState;
 
 pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::shared_config;
-use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -22,8 +15,6 @@ impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
-        // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.add_systems(
             Update,
             (handle_connections, (tick_timers, update_props).chain()),
@@ -37,11 +28,10 @@ const NUM_CIRCLES: i32 = 6;
 #[derive(Resource, Default)]
 pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
-    pub client_id_to_room_id: HashMap<ClientId, RoomId>,
 }
 
-pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
-    connections.start().expect("Failed to start server");
+pub(crate) fn init(mut commands: Commands) {
+    commands.start_server();
     commands.spawn(
         TextBundle::from_section(
             "Server",

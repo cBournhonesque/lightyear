@@ -4,10 +4,8 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionState;
-use lightyear::client::components::Confirmed;
-use lightyear::client::interpolation::Interpolated;
-use lightyear::client::prediction::Predicted;
 
+use lightyear::client::components::Confirmed;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -30,6 +28,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Startup, init);
             app.add_systems(Update, (draw_boxes, draw_circles));

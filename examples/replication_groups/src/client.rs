@@ -6,7 +6,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use lightyear::_reexport::LinearInterpolator;
+use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::connection::netcode::NetcodeServer;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -54,15 +54,15 @@ impl Plugin for ExampleClientPlugin {
         // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        app.add_plugins(VisualInterpolationPlugin::<PlayerPosition, MyProtocol>::default());
+        app.add_plugins(VisualInterpolationPlugin::<PlayerPosition>::default());
         app.add_systems(Update, debug_pre_visual_interpolation);
         app.add_systems(Last, debug_post_visual_interpolation);
     }
 }
 
 // Startup system for the client
-pub(crate) fn init(mut client: ClientConnectionParam) {
-    let _ = client.connect();
+pub(crate) fn init(mut commands: Commands) {
+    commands.connect_client();
 }
 
 /// Listen for events to know when the client is connected, and spawn a text entity
@@ -116,9 +116,6 @@ pub(crate) fn movement(
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
-    if <Components as SyncMetadata<PlayerPosition>>::mode() != ComponentSyncMode::Full {
-        return;
-    }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             for position in position_query.iter_mut() {
@@ -301,7 +298,7 @@ pub(crate) fn interpolate(
                             debug!("ADD POINT");
                         }
                         // the path is straight! just move the head and adjust the tail
-                        *parent_position = LinearInterpolator::lerp(pos_start, pos_end, t);
+                        *parent_position = Linear::lerp(pos_start, pos_end, t);
                         tail.shorten_back(parent_position.0, tail_length.0);
                         debug!(
                             ?tail,

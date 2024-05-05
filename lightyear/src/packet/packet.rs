@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
+use serde::Serialize;
+
 use bitcode::encoding::{Fixed, Gamma};
 
 use crate::connection::netcode::MAX_PACKET_SIZE;
@@ -366,12 +368,13 @@ mod tests {
     use bitcode::encoding::Gamma;
     use lightyear_macros::ChannelInternal;
 
-    use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
     use crate::packet::message::{FragmentData, MessageId, SingleData};
     use crate::packet::packet::{FragmentedPacket, SinglePacket};
     use crate::packet::packet_manager::PacketBuilder;
     use crate::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};
     use crate::protocol::channel::ChannelKind;
+    use crate::serialize::bitcode::reader::BitcodeReader;
+    use crate::serialize::bitcode::writer::BitcodeWriter;
 
     use super::*;
 
@@ -386,9 +389,9 @@ mod tests {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         };
-        let mut c = ChannelRegistry::new();
-        c.add::<Channel1>(settings.clone());
-        c.add::<Channel2>(settings.clone());
+        let mut c = ChannelRegistry::default();
+        c.add_channel::<Channel1>(settings.clone());
+        c.add_channel::<Channel2>(settings.clone());
         c
     }
 
@@ -411,7 +414,7 @@ mod tests {
         let manager = PacketBuilder::new();
         let mut packet = SinglePacket::new();
 
-        let mut write_buffer = WriteWordBuffer::with_capacity(50);
+        let mut write_buffer = BitcodeWriter::with_capacity(50);
         let message1 = SingleData::new(None, Bytes::from("hello"), 1.0);
         let message2 = SingleData::new(None, Bytes::from("world"), 1.0);
         let message3 = SingleData::new(None, Bytes::from("!"), 1.0);
@@ -426,7 +429,7 @@ mod tests {
         let packet_bytes = write_buffer.finish_write();
 
         // Encode manually
-        let mut expected_write_buffer = WriteWordBuffer::with_capacity(50);
+        let mut expected_write_buffer = BitcodeWriter::with_capacity(50);
         // channel id
         expected_write_buffer.encode(&0u16, Gamma)?;
         // messages, with continuation bit
@@ -456,7 +459,7 @@ mod tests {
 
         assert_eq!(packet_bytes, expected_packet_bytes);
 
-        let mut reader = ReadWordBuffer::start_read(packet_bytes);
+        let mut reader = BitcodeReader::start_read(packet_bytes);
         let decoded_packet = SinglePacket::decode(&mut reader)?;
 
         assert_eq!(decoded_packet.num_messages(), 3);
@@ -481,7 +484,7 @@ mod tests {
         };
         let mut packet = FragmentedPacket::new(*channel_id, fragment.clone());
 
-        let mut write_buffer = WriteWordBuffer::with_capacity(100);
+        let mut write_buffer = BitcodeWriter::with_capacity(100);
         let message1 = SingleData::new(None, Bytes::from("hello"), 1.0);
         let message2 = SingleData::new(None, Bytes::from("world"), 1.0);
         let message3 = SingleData::new(None, Bytes::from("!"), 1.0);
@@ -495,7 +498,7 @@ mod tests {
         packet.encode(&mut write_buffer)?;
         let packet_bytes = write_buffer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(packet_bytes);
+        let mut reader = BitcodeReader::start_read(packet_bytes);
         let decoded_packet = FragmentedPacket::decode(&mut reader)?;
 
         assert_eq!(decoded_packet.packet.num_messages(), 3);
@@ -520,12 +523,12 @@ mod tests {
         };
         let packet = FragmentedPacket::new(*channel_id, fragment.clone());
 
-        let mut write_buffer = WriteWordBuffer::with_capacity(100);
+        let mut write_buffer = BitcodeWriter::with_capacity(100);
 
         packet.encode(&mut write_buffer)?;
         let packet_bytes = write_buffer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(packet_bytes);
+        let mut reader = BitcodeReader::start_read(packet_bytes);
         let decoded_packet = FragmentedPacket::decode(&mut reader)?;
 
         assert_eq!(decoded_packet.packet.num_messages(), 0);

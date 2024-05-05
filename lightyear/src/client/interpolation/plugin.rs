@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::_reexport::FromType;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
@@ -14,9 +13,7 @@ use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
 use crate::client::interpolation::Interpolated;
 use crate::client::sync::client_is_synced;
-use crate::prelude::{ExternalMapper, Mode};
-use crate::protocol::component::ComponentProtocol;
-use crate::protocol::Protocol;
+use crate::prelude::{Mode, SharedConfig};
 
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
@@ -68,9 +65,6 @@ impl InterpolationDelay {
 #[derive(Clone, Reflect)]
 pub struct InterpolationConfig {
     pub delay: InterpolationDelay,
-    /// If true, disable the interpolation logic (but still keep the internal component history buffers)
-    /// The user will have to manually implement
-    pub custom_interpolation_logic: bool,
     // How long are we keeping the history of the confirmed entities so we can interpolate between them?
     // pub(crate) interpolation_buffer_size: Duration,
 }
@@ -80,7 +74,6 @@ impl Default for InterpolationConfig {
     fn default() -> Self {
         Self {
             delay: InterpolationDelay::default(),
-            custom_interpolation_logic: false,
             // interpolation_buffer_size: Duration::from_millis(100),
         }
     }
@@ -93,28 +86,14 @@ impl InterpolationConfig {
     }
 }
 
-pub struct InterpolationPlugin<P: Protocol> {
+#[derive(Default)]
+pub struct InterpolationPlugin {
     config: InterpolationConfig,
-
-    // minimum_snapshots
-    _marker: PhantomData<P>,
 }
 
-impl<P: Protocol> InterpolationPlugin<P> {
+impl InterpolationPlugin {
     pub(crate) fn new(config: InterpolationConfig) -> Self {
-        Self {
-            config,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<P: Protocol> Default for InterpolationPlugin<P> {
-    fn default() -> Self {
-        Self {
-            config: InterpolationConfig::default(),
-            _marker: PhantomData,
-        }
+        Self { config }
     }
 }
 
@@ -147,31 +126,29 @@ pub enum InterpolationSet {
 }
 
 /// Add per-component systems related to interpolation
-pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
-where
-    P::Components: SyncMetadata<C>,
-    P::Components: ExternalMapper<C>,
-    P::ComponentKinds: FromType<C>,
-{
+pub fn add_prepare_interpolation_systems<C: SyncComponent>(
+    app: &mut App,
+    interpolation_mode: ComponentSyncMode,
+) {
     // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         Update,
         (
-            add_component_history::<C, P>.in_set(InterpolationSet::SpawnHistory),
+            add_component_history::<C>.in_set(InterpolationSet::SpawnHistory),
             removed_components::<C>.in_set(InterpolationSet::Despawn),
         ),
     );
-    match P::Components::mode() {
+    match interpolation_mode {
         ComponentSyncMode::Full => {
             app.add_systems(
                 Update,
                 (
-                    apply_confirmed_update_mode_full::<C, P>,
-                    update_interpolate_status::<C, P>.run_if(client_is_synced::<P>),
+                    apply_confirmed_update_mode_full::<C>,
+                    update_interpolate_status::<C>.run_if(client_is_synced),
                     // TODO: that means we could insert the component twice, here and then in interpolate...
                     //  need to optimize this
-                    insert_interpolated_component::<C, P>,
+                    insert_interpolated_component::<C>,
                 )
                     .chain()
                     .in_set(InterpolationSet::PrepareInterpolation),
@@ -180,7 +157,7 @@ where
         ComponentSyncMode::Simple => {
             app.add_systems(
                 Update,
-                apply_confirmed_update_mode_simple::<C, P>
+                apply_confirmed_update_mode_simple::<C>
                     .in_set(InterpolationSet::PrepareInterpolation),
             );
         }
@@ -190,27 +167,22 @@ where
 
 // We add the interpolate system in different function because we might not want to add them
 // in case there is custom interpolation logic.
-pub fn add_interpolation_systems<C: Component + Clone, P: Protocol>(app: &mut App)
-where
-    P::Components: SyncMetadata<C>,
-{
+pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
     app.add_systems(
         Update,
-        interpolate::<C, P>.in_set(InterpolationSet::Interpolate),
+        interpolate::<C>.in_set(InterpolationSet::Interpolate),
     );
 }
 
-impl<P: Protocol> Plugin for InterpolationPlugin<P> {
+impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
+        let should_run_interpolation =
+            not(SharedConfig::is_host_server_condition).and_then(client_is_synced);
+
         // REFLECT
         app.register_type::<InterpolationConfig>()
             .register_type::<InterpolationDelay>()
             .register_type::<Interpolated>();
-
-        P::Components::add_prepare_interpolation_systems(app);
-        if !self.config.custom_interpolation_logic {
-            P::Components::add_interpolation_systems(app);
-        }
 
         // RESOURCES
         app.init_resource::<InterpolationManager>();
@@ -227,12 +199,15 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
                 .in_set(InterpolationSet::All)
                 .chain(),
         );
-        app.configure_sets(Update, InterpolationSet::All.run_if(client_is_synced::<P>));
+        app.configure_sets(
+            Update,
+            InterpolationSet::All.run_if(should_run_interpolation),
+        );
         // SYSTEMS
         app.add_systems(
             Update,
             (
-                spawn_interpolated_entity::<P>.in_set(InterpolationSet::SpawnInterpolation),
+                spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
                 despawn_interpolated.in_set(InterpolationSet::Despawn),
             ),
         );

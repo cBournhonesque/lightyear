@@ -1,10 +1,12 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
+use anyhow::Context;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::_reexport::ServerMarker;
+use bitcode::encoding::Fixed;
+
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;
@@ -14,17 +16,19 @@ use crate::inputs::leafwing::input_buffer::{
 };
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::client::is_in_rollback;
-use crate::prelude::{client, Mode, SharedConfig, TickManager};
-use crate::protocol::Protocol;
+use crate::prelude::server::MessageEvent;
+use crate::prelude::{client, MessageRegistry, Mode, NetworkTarget, SharedConfig, TickManager};
+use crate::protocol::message::MessageKind;
+use crate::protocol::registry::NetId;
+use crate::protocol::BitSerializable;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
-use crate::server::events::InputMessageEvent;
-use crate::shared::events::connection::IterInputMessageEvent;
+use crate::server::networking::is_started;
 use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::InternalMainSet;
+use crate::shared::sets::{InternalMainSet, ServerMarker};
 
-pub struct LeafwingInputPlugin<P, A> {
-    marker: std::marker::PhantomData<(P, A)>,
+pub struct LeafwingInputPlugin<A> {
+    marker: std::marker::PhantomData<A>,
 }
 
 // // TODO: also create events on top of this?
@@ -42,7 +46,7 @@ pub struct LeafwingInputPlugin<P, A> {
 //     }
 // }
 
-impl<P, A> Default for LeafwingInputPlugin<P, A> {
+impl<A> Default for LeafwingInputPlugin<A> {
     fn default() -> Self {
         Self {
             marker: std::marker::PhantomData,
@@ -60,13 +64,8 @@ pub enum InputSystemSet {
     Update,
 }
 
-impl<P: Protocol, A: LeafwingUserAction> Plugin for LeafwingInputPlugin<P, A>
-where
-    P::Message: TryInto<InputMessage<A>, Error = ()>,
-{
+impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
-        // EVENTS
-        app.add_event::<InputMessageEvent<A>>();
         // RESOURCES
         // app.init_resource::<GlobalActions<A>>();
         // TODO: (global action states) add a resource tracking the action-state of all clients
@@ -78,16 +77,17 @@ where
                 InputSystemSet::AddBuffers,
                 InputSystemSet::ReceiveInputs,
             )
-                .chain(),
+                .chain()
+                .run_if(is_started),
         );
-        app.configure_sets(FixedPreUpdate, InputSystemSet::Update);
+        app.configure_sets(FixedPreUpdate, InputSystemSet::Update.run_if(is_started));
         // SYSTEMS
         app.add_systems(
             PreUpdate,
             (
                 // TODO: ideally we have a Flush between add_action_diff_buffer and Tick?
                 add_action_diff_buffer::<A>.in_set(InputSystemSet::AddBuffers),
-                receive_input_message::<P, A>.in_set(InputSystemSet::ReceiveInputs),
+                receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs),
             ),
         );
         app.add_systems(
@@ -95,6 +95,7 @@ where
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
 
+        // TODO: register this in Plugin::finish by checking if the client plugin is already registered?
         if app.world.resource::<ServerConfig>().shared.mode != Mode::HostServer {
             // we don't want to add this plugin in HostServer mode because it's already added on the client side
             // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
@@ -125,39 +126,80 @@ fn add_action_diff_buffer<A: LeafwingUserAction>(
 }
 
 /// Read the input messages from the server events to update the ActionDiffBuffers
-fn receive_input_message<P: Protocol, A: LeafwingUserAction>(
+fn receive_input_message<A: LeafwingUserAction>(
     // mut global: Option<ResMut<ActionDiffBuffer<A>>>,
-    mut connection_manager: ResMut<ConnectionManager<P>>,
+    message_registry: Res<MessageRegistry>,
+    mut connection_manager: ResMut<ConnectionManager>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<&mut ActionDiffBuffer<A>>,
-) where
-    P::Message: TryInto<InputMessage<A>, Error = ()>,
-{
-    // let manager = &mut server.connection_manager;
-    for (mut message, client_id) in connection_manager.events.into_iter_input_messages::<A>() {
-        debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-
-        for (target, diffs) in std::mem::take(&mut message.diffs) {
-            match target {
-                // for pre-predicted entities, we already did the mapping on server side upon receiving the message
-                // for non-pre predicted entities, the mapping was already done on client side
-                InputTarget::Entity(entity) | InputTarget::PrePredictedEntity(entity) => {
-                    debug!("received input for entity: {:?}", entity);
-                    if let Ok(mut buffer) = query.get_mut(entity) {
-                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
-                        buffer.update_from_message(message.end_tick, diffs);
-                    } else {
-                        // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
-                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+) {
+    let kind = MessageKind::of::<InputMessage<A>>();
+    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
+        error!(
+            "Could not find the network id for the message kind: {:?}",
+            kind
+        );
+        return;
+    };
+    // re-borrow to allow split borrows
+    let connection_manager = connection_manager.deref_mut();
+    for (client_id, connection) in connection_manager.connections.iter_mut() {
+        if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
+            for (message_bytes, target, channel_kind) in message_list {
+                let mut reader = connection.reader_pool.start_read(&message_bytes);
+                match message_registry.deserialize::<InputMessage<A>>(
+                    &mut reader,
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
+                ) {
+                    Ok(mut message) => {
+                        debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+                        for (target, diffs) in std::mem::take(&mut message.diffs) {
+                            match target {
+                                // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
+                                // (which is possible because the server received the entity)
+                                // - for non-pre predicted entities, the mapping was already done on client side
+                                // (client converted from their local entity to the remote server entity)
+                                InputTarget::Entity(entity)
+                                | InputTarget::PrePredictedEntity(entity) => {
+                                    debug!("received input for entity: {:?}", entity);
+                                    if let Ok(mut buffer) = query.get_mut(entity) {
+                                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
+                                        buffer.update_from_message(message.end_tick, diffs);
+                                    } else {
+                                        // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
+                                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                                    }
+                                }
+                                InputTarget::Global => {
+                                    // TODO: handle global diffs for each client! How? create one entity per client?
+                                    //  or have a resource containing the global ActionState for each client?
+                                    // if let Some(ref mut buffer) = global {
+                                    //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
+                                    // }
+                                }
+                            }
+                        }
+                        // rebroadcast
+                        if target != NetworkTarget::None {
+                            if let Ok(message_bytes) =
+                                message_registry.serialize(&message, &mut connection_manager.writer)
+                            {
+                                connection.messages_to_rebroadcast.push((
+                                    message_bytes,
+                                    target,
+                                    channel_kind,
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(?e, "could not deserialize leafwing input message");
                     }
                 }
-                InputTarget::Global => {
-                    // TODO: handle global diffs for each client! How? create one entity per client?
-                    //  or have a resource containing the global ActionState for each client?
-                    // if let Some(ref mut buffer) = global {
-                    //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
-                    // }
-                }
+                connection.reader_pool.attach(reader);
             }
         }
     }
@@ -201,6 +243,7 @@ mod tests {
     use leafwing_input_manager::prelude::ActionState;
 
     use crate::inputs::leafwing::input_buffer::ActionDiff;
+    use crate::prelude::client;
     use crate::prelude::client::{
         InterpolationConfig, LeafwingInputConfig, PredictionConfig, SyncConfig,
     };
@@ -213,6 +256,9 @@ mod tests {
 
     #[test]
     fn test_leafwing_inputs() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::INFO)
+        //     .init();
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
@@ -235,21 +281,32 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper.client_app.add_plugins((
-            crate::client::input_leafwing::LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::new(
-                LeafwingInputConfig {
-                    // NOTE: for simplicity, we send every diff (because otherwise it's hard to send an input after the tick system)
-                    send_diffs_only: false,
-                    ..default()
-                },
-            ),
-            InputPlugin,
-        ));
-        // let press_action_id = stepper.client_app.world.register_system(press_action);
-        stepper.server_app.add_plugins((
-            LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default(),
-            InputPlugin,
-        ));
+        #[cfg(feature = "leafwing")]
+        {
+            // NOTE: the test doesn't work with send_diffs_only = True; maybe because leafwing's
+            //  tick-action uses Time<Real>?
+            let config = LeafwingInputConfig {
+                send_diffs_only: false,
+                ..default()
+            };
+            stepper
+                .client_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1> {
+                    config: config.clone(),
+                });
+            stepper
+                .client_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
+            stepper
+                .server_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1> {
+                    config: config.clone(),
+                });
+            stepper
+                .server_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
+        }
+        stepper.client_app.add_plugins(InputPlugin);
         stepper.init();
 
         // create an entity on server
@@ -277,7 +334,7 @@ mod tests {
         let client_entity = *stepper
             .client_app
             .world
-            .resource::<ClientConnectionManager>()
+            .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -312,16 +369,10 @@ mod tests {
             .world
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyA);
+        debug!("before press");
         stepper.frame_step();
         // client tick when we send the Jump action
         let client_tick = stepper.client_tick();
-        stepper
-            .client_app
-            .world
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .release(KeyCode::KeyA);
-        stepper.frame_step();
-
         // we should have sent an InputMessage from client to server
         assert_eq!(
             stepper
@@ -335,6 +386,14 @@ mod tests {
                 action: LeafwingInput1::Jump
             }]
         );
+        stepper
+            .client_app
+            .world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::KeyA);
+        // TODO: how come I need to frame_step() twice to see the release action?
+        debug!("before release");
+        stepper.frame_step();
         assert_eq!(
             stepper
                 .server_app
@@ -347,7 +406,5 @@ mod tests {
                 action: LeafwingInput1::Jump
             }]
         );
-        stepper.frame_step();
-        stepper.frame_step();
     }
 }

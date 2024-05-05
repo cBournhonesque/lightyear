@@ -49,33 +49,30 @@ The `simple_box` example has the following structure:
 
 ## Defining a protocol
 
-First, you will need to define a [Protocol](../concepts/replication/protocol.md) for your game.
+First, you will need to define a [protocol](../concepts/replication/protocol.md) for your game.
 (see [here](https://github.com/cBournhonesque/lightyear/blob/main/examples/simple_box/src/protocol.rs) in the example)
 This is where you define the "contract" of what is going to be sent across the network between your client and server.
 
 A protocol is composed of
 
 - [Input](../concepts/advanced_replication/inputs.md): Defines the client's input type, i.e. the different actions that
-  a user can perform
-  (e.g. move, jump, shoot, etc.).
+  a user can perform (e.g. move, jump, shoot, etc.).
 - [Message](../concepts/bevy_integration/events.md): Defines the message protocol, i.e. the messages that can be
-  exchanged between the client and server. A
-  message is any type that is `Send + Sync + 'static` and can be serialized
-- [Components](../concepts/replication/title.md): Defines the component protocol, i.e. the list of components that can
-  be replicated between the client and server.
+  exchanged between the client and server.
+- [Components](../concepts/replication/title.md): Defines the component protocol, i.e. the list of components that can be replicated between the client and server.
+- [Channels](../concepts/reliability/channels.md): Defines channels that are used to send messages between the client and server.
 
-Each of these will be a separate enum containing the list of possible `Messages` (values that can be sent over the
-network) in the protocol.
 A `Message` is any struct that is `Serialize + Deserialize + Clone`.
 
 ### Components
 
-The `ComponentProtocol` is needed for automatic World replication: automatically replicating entities and components
+The `ComponentRegistry` is needed for automatic World replication: automatically replicating entities and components
 from the server's `World` to the client's `World`.
-Only the components that are defined in the `ComponentProtocol` will be replicated.
+Only the components that are defined in the `ComponentRegistry` will be replicated.
 
-A component protocol is an enum where each variant is a component that is also serializable and cloneable, it contains
-all the components that need to be replicated.
+The `ComponentRegistry` is a `Resource` that will store metadata about which components should be replicated and how.
+It can also contain additional metadata for each component, such as prediction or interpolation settings.
+`lightyear` provides helper functions on the `App` to register components to the `ComponentRegistry`.
 
 Let's define our components protocol:
 
@@ -92,24 +89,34 @@ pub struct PlayerPosition(Vec2);
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
-/// This attribute is what is needed to define a component protocol; you will also need to provide the name of the 
-/// protocol struct.
-#[component_protocol(protocol = "MyProtocol")]
-pub enum Components {
-    PlayerId(PlayerId),
-    PlayerPosition(PlayerPosition),
-    PlayerColor(PlayerColor),
+pub struct ProtocolPlugin;
+
+impl Plugin for ProtocolPlugin{
+    fn build(&self, app: &mut App) {
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
+            .add_prediction::<PlayerId>(ComponentSyncMode::Once)
+            .add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+
+        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
+            .add_prediction::<PlayerPosition>(ComponentSyncMode::Full)
+            .add_interpolation::<PlayerPosition>(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn::<PlayerPosition>();
+
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
+            .add_prediction::<PlayerColor>(ComponentSyncMode::Once)
+            .add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+    }
 }
 ```
 
 ### Message
 
 Similarly, the `MessageProtocol` is an enum containing the list of possible `Messages` that can be sent over the
-network.
+network. When registering a message, you can specify the direction in which the message should be sent.
 
 Let's define our message protocol:
 
-```rust
+```rust,noplayground
 /// We don't really use messages in the example, but here is how you would define them.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
@@ -118,6 +125,16 @@ pub struct Message1(pub usize);
 #[message_protocol(protocol = "MyProtocol")]
 pub enum Messages {
     Message1(Message1),
+}
+
+impl Plugin for ProtocolPlugin{
+  fn build(&self, app: &mut App) {
+    // Register messages
+    app.add_message::<Message1>(ChannelDirection::Bidirectional);
+    
+    // Register components
+    ...
+  }
 }
 ```
 
@@ -151,12 +168,19 @@ pub enum Inputs {
     None,
 }
 
-/// The only requirement for the input protocol is to implement the `UserAction` trait
-impl UserAction for Inputs {}
+impl Plugin for ProtocolPlugin{
+  fn build(&self, app: &mut App) {
+    // Register inputs
+    app.add_plugins(InputPlugin::<Inputs>::default());
+    // Register messages
+    ...
+    // Register components
+    ...
+  }
+}
 ```
 
-Inputs have to implement the `UserAction` trait, which means that they must be `Send + Sync + 'static` and can be
-serialized.
+Inputs have to implement the `UserAction` trait, which means that they must be `Send + Sync + 'static` and can be serialized.
 
 ### Channels
 
@@ -170,39 +194,62 @@ A `Channel` defines some properties of how messages will be sent over the networ
 - ordering: do we guarantee that the messages are received in the same order that they were sent?
 - priority: do we want to increase the priority of some messages in case the network is congested?
 
-```rust
+```rust,noplayground
 /// A channel is basically a ZST (Zero Sized Type) with the `Channel` derive macro.
 #[derive(Channel)]
 pub struct Channel1;
+
+pub(crate) struct ProtocolPlugin;
+
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+          mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+          ..default()
+        });
+        // register messages, inputs, components
+        ...
+    }
+}
 ```
 
 We create a channel by simply deriving the `Channel` trait on an empty struct.
 
 ### Protocol
 
-We can now create our complete protocol, by using the `protocolize!` macro.
-
+The complete protocol looks like this:
 ```rust
-/// This macro defines the `MyProtocol` struct that will contain the various parts of the protocol.
-protocolize! {
-    Self = MyProtocol,
-    Message = Messages,
-    Component = Components,
-    Input = Inputs,
-}
+pub(crate) struct ProtocolPlugin;
 
-/// We define a function that will return an instance of our protocol, so that the client and server can share the same
-/// protocol.
-pub(crate) fn protocol() -> MyProtocol {
-    let mut protocol = MyProtocol::default();
-    /// Channels are added to the protocol with the `add_channel` method.
-    protocol.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        direction: ChannelDirection::Bidirectional,
-    });
-    protocol
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        // inputs
+        app.add_plugins(InputPlugin::<Inputs>::default());
+        // components
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
+            .add_prediction::<PlayerId>(ComponentSyncMode::Once)
+            .add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+
+        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
+            .add_prediction::<PlayerPosition>(ComponentSyncMode::Full)
+            .add_interpolation::<PlayerPosition>(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn::<PlayerPosition>();
+
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
+            .add_prediction::<PlayerColor>(ComponentSyncMode::Once)
+            .add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+    }
 }
 ```
+
 
 ## Summary
 

@@ -1,7 +1,8 @@
-use bevy::ecs::entity::MapEntities;
 use std::collections::VecDeque;
 use std::ops::Mul;
 
+use bevy::app::{App, Plugin};
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Reflect, Vec2,
 };
@@ -9,6 +10,7 @@ use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace};
 
+use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::client::LerpFn;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroup;
@@ -136,7 +138,7 @@ impl PlayerPosition {
                 }
             }
         }
-        unreachable!("a and b should be on the same x or y")
+        unreachable!("a ({}) and b ({}) should be on the same x or y", a, b)
     }
 }
 
@@ -197,8 +199,8 @@ impl TailPoints {
 // Example of a component that contains an entity.
 // This component, when replicated, needs to have the inner entity mapped from the Server world
 // to the client World.
-// This can be done by adding a `#[message(custom_map)]` attribute to the component, and then
-// deriving the `MapEntities` trait for the component.
+// This can be done by calling `app.add_component_map_entities::<PlayerParent>()` in your protocol,
+// and deriving the `MapEntities` trait for the component.
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerParent(pub(crate) Entity);
 
@@ -206,25 +208,6 @@ impl MapEntities for PlayerParent {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.0 = entity_mapper.map_entity(self.0);
     }
-}
-
-#[component_protocol(protocol = "MyProtocol")]
-pub enum Components {
-    #[protocol(sync(mode = "once"))]
-    PlayerId(PlayerId),
-    #[protocol(sync(mode = "full"))]
-    PlayerPosition(PlayerPosition),
-    #[protocol(sync(mode = "once"))]
-    PlayerColor(PlayerColor),
-    #[protocol(sync(mode = "once"))]
-    TailLength(TailLength),
-    // we set the interpolation function to NoInterpolation because we are using our own custom interpolation logic
-    // (by default it would use LinearInterpolator, which requires Add and Mul bounds on this component)
-    #[protocol(sync(mode = "full", lerp = "NullInterpolator"))]
-    TailPoints(TailPoints),
-    // we specify `map_entities` because the entity contained in this component needs to be mapped
-    #[protocol(sync(mode = "once"), map_entities)]
-    PlayerParent(PlayerParent),
 }
 
 // Channels
@@ -236,11 +219,6 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
-
-#[message_protocol(protocol = "MyProtocol")]
-pub enum Messages {
-    Message1(Message1),
-}
 
 // Inputs
 
@@ -298,22 +276,48 @@ pub enum Inputs {
     None,
 }
 
-impl UserAction for Inputs {}
-
 // Protocol
+pub(crate) struct ProtocolPlugin;
 
-protocolize! {
-    Self = MyProtocol,
-    Message = Messages,
-    Component = Components,
-    Input = Inputs,
-}
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        // messages
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        // inputs
+        app.add_plugins(InputPlugin::<Inputs>::default());
+        // components
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
-pub(crate) fn protocol() -> MyProtocol {
-    let mut protocol = MyProtocol::default();
-    protocol.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        ..default()
-    });
-    protocol
+        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerPosition>(ComponentSyncMode::Full);
+        app.add_custom_interpolation::<PlayerPosition>(ComponentSyncMode::Full);
+        // we still register an interpolation function which will be used for visual interpolation
+        app.add_linear_interpolation_fn::<PlayerPosition>();
+
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
+        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+
+        app.register_component::<TailPoints>(ChannelDirection::ServerToClient);
+        app.add_prediction::<TailPoints>(ComponentSyncMode::Full);
+        app.add_custom_interpolation::<TailPoints>(ComponentSyncMode::Full);
+        // we do not register an interpolation function because we will use a custom interpolation system
+
+        app.register_component::<TailLength>(ChannelDirection::ServerToClient);
+        app.add_prediction::<TailLength>(ComponentSyncMode::Once);
+        app.add_interpolation::<TailLength>(ComponentSyncMode::Once);
+
+        app.register_component::<PlayerParent>(ChannelDirection::ServerToClient)
+            .add_map_entities::<PlayerParent>();
+        app.add_prediction::<PlayerParent>(ComponentSyncMode::Once);
+        app.add_interpolation::<PlayerParent>(ComponentSyncMode::Once);
+        // app.add_component_map_entities::<PlayerParent>();
+        // channels
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+    }
 }

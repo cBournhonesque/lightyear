@@ -23,6 +23,7 @@ lightyear = { path = "../../lightyear", features = [
   "websocket",
   "render",
   "steam",
+  "zstd",
 ] }
 async-compat = "0.2.3"
 serde = { version = "1.0.188", features = ["derive"] }
@@ -35,6 +36,6 @@ rand = "0.8.1"
 clap = { version = "4.4", features = ["derive"] }
 mock_instant = "0.4"
 metrics-exporter-prometheus = { version = "0.13.0", optional = true }
-bevy-inspector-egui = "0.23"
+bevy-inspector-egui = "0.24"
 cfg-if = "1.0.0"
 crossbeam-channel = "0.5.11"

@@ -1,6 +1,7 @@
 //! General struct handling replication
 use std::iter::Extend;
 
+use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
 use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
@@ -10,14 +11,14 @@ use bevy::utils::{hashbrown, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, FromType};
 use crate::packet::message::MessageId;
 use crate::prelude::{ShouldBePredicted, Tick};
 use crate::protocol::channel::ChannelKind;
-use crate::protocol::component::ComponentProtocol;
-use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
-use crate::protocol::Protocol;
+use crate::protocol::component::ComponentNetId;
+use crate::protocol::registry::NetId;
+use crate::serialize::RawData;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
+use crate::shared::replication::systems::DespawnMetadata;
 
 use super::{EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData};
 
@@ -25,12 +26,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
-pub(crate) struct ReplicationSender<P: Protocol> {
-    // TODO: this is unused by server-send, should we just move it to client-connection?
-    //  in general, we should have some parts of replication-sender/receiver that are shared across all connections!
-    /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
-    /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    pub replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
+pub(crate) struct ReplicationSender {
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub updates_ack_tracker: Receiver<MessageId>,
 
@@ -40,15 +36,11 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     pub updates_message_id_to_group_id: HashMap<MessageId, (ReplicationGroupId, BevyTick)>,
     /// messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
-    pub pending_actions: EntityHashMap<
-        ReplicationGroupId,
-        EntityHashMap<Entity, EntityActions<P::Components, P::ComponentKinds>>,
-    >,
-    pub pending_updates:
-        EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<P::Components>>>,
+    pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
+    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<RawData>>>,
     // Set of unique components for each entity, to avoid sending multiple updates/inserts for the same component
     pub pending_unique_components:
-        EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, HashSet<P::ComponentKinds>>>,
+        EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, HashSet<ComponentNetId>>>,
 
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
@@ -59,14 +51,13 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     pub message_send_receiver: Receiver<MessageId>,
 }
 
-impl<P: Protocol> ReplicationSender<P> {
+impl ReplicationSender {
     pub(crate) fn new(
         updates_ack_tracker: Receiver<MessageId>,
         message_send_receiver: Receiver<MessageId>,
     ) -> Self {
         Self {
             // SEND
-            replicate_component_cache: EntityHashMap::default(),
             updates_ack_tracker,
             updates_message_id_to_group_id: Default::default(),
             pending_actions: EntityHashMap::default(),
@@ -105,6 +96,7 @@ impl<P: Protocol> ReplicationSender<P> {
             }
         }
 
+        // TODO: don't accumulate priority if priority is not enabled
         // then accumulate the priority for all replication groups
         self.group_channels.values_mut().for_each(|channel| {
             channel.accumulated_priority = channel
@@ -141,7 +133,7 @@ impl<P: Protocol> ReplicationSender<P> {
 /// - entity updates (component updates) to be done unreliably
 ///
 /// - all component inserts/removes/updates for an entity to be grouped together in a single message
-impl<P: Protocol> ReplicationSender<P> {
+impl ReplicationSender {
     /// Update the base priority for a given group
     pub(crate) fn update_base_priority(&mut self, group_id: ReplicationGroupId, priority: f32) {
         let channel = self.group_channels.entry(group_id).or_default();
@@ -184,10 +176,9 @@ impl<P: Protocol> ReplicationSender<P> {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        component: P::Components,
+        kind: ComponentNetId,
+        component: RawData,
     ) {
-        let kind: P::ComponentKinds = (&component).into();
-
         if self
             .pending_unique_components
             .entry(group_id)
@@ -223,7 +214,7 @@ impl<P: Protocol> ReplicationSender<P> {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        kind: P::ComponentKinds,
+        kind: ComponentNetId,
     ) {
         if self
             .pending_unique_components
@@ -254,9 +245,9 @@ impl<P: Protocol> ReplicationSender<P> {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        component: P::Components,
+        kind: ComponentNetId,
+        component: RawData,
     ) {
-        let kind: P::ComponentKinds = (&component).into();
         if self
             .pending_unique_components
             .entry(group_id)
@@ -292,12 +283,7 @@ impl<P: Protocol> ReplicationSender<P> {
     pub(crate) fn finalize(
         &mut self,
         tick: Tick,
-    ) -> Vec<(
-        ChannelKind,
-        ReplicationGroupId,
-        ReplicationMessageData<P::Components, P::ComponentKinds>,
-        f32,
-    )> {
+    ) -> Vec<(ChannelKind, ReplicationGroupId, ReplicationMessageData, f32)> {
         let mut messages = Vec::new();
 
         for (group_id, mut actions) in self.pending_actions.drain() {
@@ -409,9 +395,8 @@ impl GroupChannel {
 
 #[cfg(test)]
 mod tests {
+    use crate::channel::builder::EntityActionsChannel;
     use bevy::prelude::*;
-
-    use crate::tests::protocol::*;
 
     use super::*;
 
@@ -420,13 +405,20 @@ mod tests {
     fn test_buffer_replication_messages() {
         // create fake channels for receiving updates about acks and sends
         let (sender, receiver) = crossbeam_channel::unbounded();
-        let mut manager = ReplicationSender::<MyProtocol>::new(receiver.clone(), receiver);
+        let mut manager = ReplicationSender::new(receiver.clone(), receiver);
 
         let entity_1 = Entity::from_raw(0);
         let entity_2 = Entity::from_raw(1);
         let entity_3 = Entity::from_raw(2);
         let group_1 = ReplicationGroupId(0);
         let group_2 = ReplicationGroupId(1);
+        let net_id_1: ComponentNetId = 0;
+        let net_id_2: ComponentNetId = 1;
+        let net_id_3: ComponentNetId = 1;
+        let raw_1 = vec![0];
+        let raw_2 = vec![1];
+        let raw_3 = vec![2];
+        let raw_4 = vec![3];
 
         manager.group_channels.insert(
             group_1,
@@ -445,30 +437,14 @@ mod tests {
 
         // updates should be grouped with actions
         manager.prepare_entity_spawn(entity_1, group_1);
-        manager.prepare_component_insert(
-            entity_1,
-            group_1,
-            MyComponentsProtocol::Component1(Component1(1.0)),
-        );
-        manager.prepare_component_remove(entity_1, group_1, MyComponentsProtocolKind::Component2);
-        manager.prepare_entity_update(
-            entity_1,
-            group_1,
-            MyComponentsProtocol::Component3(Component3(3.0)),
-        );
+        manager.prepare_component_insert(entity_1, group_1, net_id_1, raw_1.clone());
+        manager.prepare_component_remove(entity_1, group_1, net_id_2);
+        manager.prepare_entity_update(entity_1, group_1, net_id_3, raw_2.clone());
 
         // handle another entity in the same group: will be added to EntityActions as well
-        manager.prepare_entity_update(
-            entity_2,
-            group_1,
-            MyComponentsProtocol::Component2(Component2(4.0)),
-        );
+        manager.prepare_entity_update(entity_2, group_1, net_id_2, raw_3.clone());
 
-        manager.prepare_entity_update(
-            entity_3,
-            group_2,
-            MyComponentsProtocol::Component3(Component3(5.0)),
-        );
+        manager.prepare_entity_update(entity_3, group_2, net_id_3, raw_4.clone());
 
         // the order of actions is not important if there are no relations between the entities
         let message = manager.finalize(Tick(2));
@@ -487,9 +463,9 @@ mod tests {
                     EntityActions {
                         spawn: true,
                         despawn: false,
-                        insert: vec![MyComponentsProtocol::Component1(Component1(1.0))],
-                        remove: HashSet::from_iter(vec![MyComponentsProtocolKind::Component2]),
-                        updates: vec![MyComponentsProtocol::Component3(Component3(3.0))],
+                        insert: vec![raw_1],
+                        remove: HashSet::from_iter(vec![net_id_2]),
+                        updates: vec![raw_2],
                     }
                 ),
                 (
@@ -499,7 +475,7 @@ mod tests {
                         despawn: false,
                         insert: vec![],
                         remove: HashSet::default(),
-                        updates: vec![MyComponentsProtocol::Component2(Component2(4.0))],
+                        updates: vec![raw_3],
                     }
                 )
             ])
@@ -513,10 +489,7 @@ mod tests {
                 group_2,
                 ReplicationMessageData::Updates(EntityUpdatesMessage {
                     last_action_tick: Some(Tick(3)),
-                    updates: vec![(
-                        entity_3,
-                        vec![MyComponentsProtocol::Component3(Component3(5.0))]
-                    )],
+                    updates: vec![(entity_3, vec![raw_4])],
                 }),
                 1.0
             )

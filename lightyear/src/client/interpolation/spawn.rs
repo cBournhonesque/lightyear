@@ -1,16 +1,18 @@
-use crate::_reexport::ShouldBeInterpolated;
+use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
+use tracing::trace;
+
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
-use crate::prelude::Protocol;
-use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
-use tracing::trace;
+use crate::prelude::Tick;
+use crate::shared::replication::components::ShouldBeInterpolated;
 
-pub fn spawn_interpolated_entity<P: Protocol>(
+/// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added
+pub fn spawn_interpolated_entity(
     config: Res<ClientConfig>,
-    connection: Res<ConnectionManager<P>>,
+    connection: Res<ConnectionManager>,
     mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
@@ -21,6 +23,7 @@ pub fn spawn_interpolated_entity<P: Protocol>(
         // update the entity mapping
         manager
             .interpolated_entity_map
+            .get_mut()
             .confirmed_to_interpolated
             .insert(confirmed_entity, interpolated);
 

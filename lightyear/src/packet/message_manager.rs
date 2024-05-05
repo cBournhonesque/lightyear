@@ -3,10 +3,12 @@ use std::collections::{HashMap, VecDeque};
 use anyhow::{anyhow, Context};
 use bevy::ptr::UnsafeCellDeref;
 use bevy::reflect::Reflect;
+use bytes::Bytes;
+use crossbeam_channel::Receiver;
+use tracing::{error, info, trace};
+
 use bitcode::buffer::BufferTrait;
 use bitcode::word_buffer::WordBuffer;
-use crossbeam_channel::Receiver;
-use tracing::{info, trace};
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -18,10 +20,9 @@ use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
+use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
-use crate::serialize::wordbuffer::writer::WriteWordBuffer;
-use crate::serialize::writer::WriteBuffer;
+use crate::serialize::RawData;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
@@ -44,9 +45,6 @@ pub struct MessageManager {
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
     packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
-    writer: WriteWordBuffer,
-    // read_buffer: WordBuffer,
-    reader_pool: BufferPool,
 }
 
 impl MessageManager {
@@ -57,10 +55,6 @@ impl MessageManager {
             channels: channel_registry.channels(),
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
-            writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
-            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
-            reader_pool: BufferPool::new(1),
-            // read_buffer: WordBuffer::with_capacity(MTU_PAYLOAD_BYTES),
         }
     }
 
@@ -87,9 +81,9 @@ impl MessageManager {
 
     /// Buffer a message to be sent on this connection
     /// Returns the message id associated with the message, if there is one
-    pub fn buffer_send<M: BitSerializable>(
+    pub fn buffer_send(
         &mut self,
-        message: M,
+        message: Vec<u8>,
         channel_kind: ChannelKind,
     ) -> anyhow::Result<Option<MessageId>> {
         self.buffer_send_with_priority(message, channel_kind, DEFAULT_MESSAGE_PRIORITY)
@@ -107,9 +101,9 @@ impl MessageManager {
     //  was buffered, the user can just include the tick in the message itself.
     /// Buffer a message to be sent on this connection
     /// Returns the message id associated with the message, if there is one
-    pub fn buffer_send_with_priority<M: BitSerializable>(
+    pub fn buffer_send_with_priority(
         &mut self,
-        message: M,
+        message: RawData,
         channel_kind: ChannelKind,
         priority: f32,
     ) -> anyhow::Result<Option<MessageId>> {
@@ -117,10 +111,7 @@ impl MessageManager {
             .channels
             .get_mut(&channel_kind)
             .context("Channel not found")?;
-        self.writer.start_write();
-        message.encode(&mut self.writer)?;
-        let message_bytes: Vec<u8> = self.writer.finish_write().into();
-        Ok(channel.sender.buffer_send(message_bytes.into(), priority))
+        Ok(channel.sender.buffer_send(message.into(), priority))
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
@@ -142,6 +133,7 @@ impl MessageManager {
             if channel.sender.has_messages_to_send() {
                 let (single_data, fragment_data) = channel.sender.send_packet();
                 if !single_data.is_empty() || !fragment_data.is_empty() {
+                    trace!(?channel_id, "send message with channel_id");
                     has_data_to_send = true;
                 }
                 data_to_send.push((*channel_id, (single_data, fragment_data)));
@@ -283,23 +275,15 @@ impl MessageManager {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  let be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages<M: BitSerializable>(&mut self) -> HashMap<ChannelKind, Vec<(Tick, M)>> {
+    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let mut messages = vec![];
             while let Some(single_data) = channel.receiver.read_message() {
                 trace!(?channel_kind, "reading message: {:?}", single_data);
-                // TODO: in this case, it looks like we might not need the pool?
-                //  we can just have a single buffer, and keep re-using that buffer
-                trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
-                let mut reader = self.reader_pool.start_read(single_data.bytes.as_ref());
-                let message = M::decode(&mut reader).expect("Could not decode message");
-                // return the buffer to the pool
-                self.reader_pool.attach(reader);
-
                 // SAFETY: when we receive the message, we set the tick of the message to the header tick
                 // so every message has a tick
-                messages.push((single_data.tick.unwrap(), message));
+                messages.push((single_data.tick.unwrap(), single_data.bytes));
             }
             if !messages.is_empty() {
                 map.insert(*channel_kind, messages);
@@ -315,16 +299,35 @@ impl MessageManager {
 mod tests {
     use std::collections::HashMap;
 
-    use bevy::utils::Duration;
+    use bevy::prelude::default;
 
-    use crate::_reexport::*;
     use crate::packet::message::MessageId;
     use crate::packet::packet::FRAGMENT_SIZE;
     use crate::packet::priority_manager::PriorityConfig;
     use crate::prelude::*;
+    use crate::serialize::bitcode::reader::BitcodeReader;
     use crate::tests::protocol::*;
 
     use super::*;
+
+    fn setup() -> (MessageManager, MessageManager) {
+        let mut channel_registry = ChannelRegistry::default();
+        channel_registry.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            ..default()
+        });
+        channel_registry.add_channel::<Channel2>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
+            ..default()
+        });
+
+        // Create message managers
+        let client_message_manager =
+            MessageManager::new(&channel_registry, PriorityConfig::default());
+        let server_message_manager =
+            MessageManager::new(&channel_registry, PriorityConfig::default());
+        (client_message_manager, server_message_manager)
+    }
 
     #[test]
     /// We want to test that we can send/receive messages over a connection
@@ -333,18 +336,10 @@ mod tests {
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::TRACE)
         //     .init();
-
-        let time_manager = TimeManager::default();
-        let protocol = protocol();
-
-        // Create message managers
-        let mut client_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
-        let mut server_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
+        let (mut client_message_manager, mut server_message_manager) = setup();
 
         // client: buffer send messages, and then send
-        let message = MyMessageProtocol::Message1(Message1("1".to_string()));
+        let message = vec![0, 1];
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -366,17 +361,17 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             server_message_manager.recv_packet(packet)?;
         }
         let mut data = server_message_manager.read_messages();
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
-            &vec![(Tick(0), message.clone())]
+            &vec![(Tick(0), message.clone().into())]
         );
         assert_eq!(
             data.get(&channel_kind_2).unwrap(),
-            &vec![(Tick(0), message.clone())]
+            &vec![(Tick(0), message.clone().into())]
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io
@@ -403,7 +398,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             client_message_manager.recv_packet(packet)?;
         }
 
@@ -422,19 +417,12 @@ mod tests {
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::TRACE)
         //     .init();
-        let protocol = protocol();
-
-        // Create message managers
-        let mut client_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
-        let mut server_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
+        let (mut client_message_manager, mut server_message_manager) = setup();
 
         // client: buffer send messages, and then send
         const MESSAGE_SIZE: usize = (1.5 * FRAGMENT_SIZE as f32) as usize;
 
-        let data = std::str::from_utf8(&[0; MESSAGE_SIZE]).unwrap().to_string();
-        let message = MyMessageProtocol::Message1(Message1(data));
+        let message = [0; MESSAGE_SIZE].to_vec();
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -469,17 +457,17 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             server_message_manager.recv_packet(packet)?;
         }
         let mut data = server_message_manager.read_messages();
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
-            &vec![(Tick(0), message.clone())]
+            &vec![(Tick(0), message.clone().into())]
         );
         assert_eq!(
             data.get(&channel_kind_2).unwrap(),
-            &vec![(Tick(0), message.clone())]
+            &vec![(Tick(0), message.clone().into())]
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io
@@ -506,15 +494,12 @@ mod tests {
             .contains_key(&PacketId(1)));
 
         // Server sends back a message
-        server_message_manager.buffer_send(
-            MyMessageProtocol::Message1(Message1("b".to_string())),
-            channel_kind_1,
-        )?;
+        server_message_manager.buffer_send(vec![1], channel_kind_1)?;
         let mut packet_bytes = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             client_message_manager.recv_packet(packet)?;
         }
 
@@ -528,13 +513,7 @@ mod tests {
 
     #[test]
     fn test_notify_ack() -> anyhow::Result<()> {
-        let protocol = protocol();
-
-        // Create message managers
-        let mut client_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
-        let mut server_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
+        let (mut client_message_manager, mut server_message_manager) = setup();
 
         let update_acks_tracker = client_message_manager
             .channels
@@ -544,7 +523,7 @@ mod tests {
             .subscribe_acks();
 
         let message_id = client_message_manager
-            .buffer_send(MyMessageProtocol::Message2(Message2(1)), Channel2::kind())?
+            .buffer_send(vec![0], Channel2::kind())?
             .unwrap();
         assert_eq!(message_id, MessageId(0));
         let mut payloads = client_message_manager.send_packets(Tick(0))?;
@@ -564,18 +543,17 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in payloads.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             server_message_manager.recv_packet(packet)?;
         }
 
         // Server sends back a message (to ack the message)
-        server_message_manager
-            .buffer_send(MyMessageProtocol::Message2(Message2(1)), Channel2::kind())?;
+        server_message_manager.buffer_send(vec![1], Channel2::kind())?;
         let mut packet_bytes = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = Packet::decode(&mut BitcodeReader::start_read(packet_byte.as_slice()))?;
             client_message_manager.recv_packet(packet)?;
         }
 

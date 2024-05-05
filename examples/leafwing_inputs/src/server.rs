@@ -6,7 +6,6 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::_reexport::ServerMarker;
 
 use lightyear::prelude::client::{Confirmed, Predicted};
 pub use lightyear::prelude::server::*;
@@ -28,15 +27,11 @@ pub struct Global {
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        // add leafwing plugins to handle inputs
-        app.add_plugins((
-            LeafwingInputPlugin::<MyProtocol, PlayerActions>::default(),
-            // LeafwingInputPlugin::<MyProtocol, AdminActions>::default(),
-        ));
         app.insert_resource(Global {
             predict_all: self.predict_all,
         });
-        app.add_systems(Startup, init);
+
+        app.add_systems(Startup, (start_server, init));
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
             PreUpdate,
@@ -48,12 +43,12 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn init(
-    mut commands: Commands,
-    mut connections: ResMut<ServerConnections>,
-    global: Res<Global>,
-) {
-    connections.start().expect("Failed to start server");
+/// System to start the server at Startup
+fn start_server(mut commands: Commands) {
+    commands.start_server();
+}
+
+fn init(mut commands: Commands, global: Res<Global>) {
     commands.spawn(
         TextBundle::from_section(
             "Server",
@@ -115,7 +110,7 @@ pub(crate) fn movement(
             // NOTE: be careful to directly pass Mut<PlayerPosition>
             // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
             shared_movement_behaviour(velocity, action);
-            info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
+            trace!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
         }
     }
 }

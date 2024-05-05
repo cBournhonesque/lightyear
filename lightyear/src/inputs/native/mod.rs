@@ -2,10 +2,11 @@
 Handles dealing with inputs (keyboard presses, mouse clicks) sent from a player (client) to server.
 */
 
+use std::fmt::Debug;
+
 use bevy::prelude::TypePath;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::fmt::Debug;
 
 pub use input_buffer::InputMessage;
 
@@ -22,4 +23,7 @@ pub trait UserAction:
 {
 }
 
-impl UserAction for () {}
+impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static> UserAction
+    for A
+{
+}

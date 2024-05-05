@@ -1,11 +1,12 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use anyhow::Result;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{NextState, Reflect, ResMut, Resource};
+use enum_dispatch::enum_dispatch;
 
-use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
 use crate::client::networking::NetworkingState;
 use crate::connection::id::ClientId;
@@ -18,6 +19,7 @@ use crate::packet::packet::Packet;
 use crate::prelude::{generate_key, Io, IoConfig, Key, LinkConditionerConfig};
 
 // TODO: add diagnostics methods?
+#[enum_dispatch]
 pub trait NetClient: Send + Sync {
     // type Error;
 
@@ -52,10 +54,18 @@ pub trait NetClient: Send + Sync {
     fn io_mut(&mut self) -> Option<&mut Io>;
 }
 
+#[enum_dispatch(NetClient)]
+pub(crate) enum NetClientDispatch {
+    Netcode(super::netcode::Client<()>),
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    Steam(super::steam::client::Client),
+    Local(super::local::client::Client),
+}
+
 /// Resource that holds the client connection
 #[derive(Resource)]
 pub struct ClientConnection {
-    pub(crate) client: Box<dyn NetClient>,
+    pub(crate) client: NetClientDispatch,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -112,7 +122,7 @@ impl NetConfig {
                     io: None,
                 };
                 ClientConnection {
-                    client: Box::new(client),
+                    client: NetClientDispatch::Netcode(client),
                 }
             }
             #[cfg(all(feature = "steam", not(target_family = "wasm")))]
@@ -124,13 +134,13 @@ impl NetConfig {
                 let client = super::steam::client::Client::new(config, conditioner)
                     .expect("could not create steam client");
                 ClientConnection {
-                    client: Box::new(client),
+                    client: NetClientDispatch::Steam(client),
                 }
             }
             NetConfig::Local { id } => {
                 let client = super::local::client::Client::new(id);
                 ClientConnection {
-                    client: Box::new(client),
+                    client: NetClientDispatch::Local(client),
                 }
             }
         }

@@ -1,6 +1,9 @@
 use std::fmt::Debug;
 
+use bevy::ecs::entity::MapEntities;
 use bytes::Bytes;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use bitcode::encoding::{Fixed, Gamma};
 
@@ -10,7 +13,6 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
-use bevy::ecs::entity::MapEntities;
 
 // strategies to avoid copying:
 // - have a net_id for each message or component
@@ -26,8 +28,8 @@ wrapping_id!(MessageId);
 ///
 /// Every type that can be sent over the network must implement this trait.
 ///
-pub trait Message: EventContext + BitSerializable {}
-impl<T: EventContext + BitSerializable> Message for T {}
+pub trait Message: EventContext + BitSerializable + DeserializeOwned + Serialize {}
+impl<T: EventContext + BitSerializable + DeserializeOwned + Serialize> Message for T {}
 
 pub type FragmentIndex = u8;
 
@@ -296,19 +298,19 @@ impl MessageContainer {
 
 #[cfg(test)]
 mod tests {
-    use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
-
     use super::*;
+    use crate::serialize::bitcode::reader::BitcodeReader;
+    use crate::serialize::bitcode::writer::BitcodeWriter;
 
     #[test]
     fn test_serde_single_data() {
         let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into(), 1.0);
-        let mut writer = WriteWordBuffer::with_capacity(10);
+        let mut writer = BitcodeWriter::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();
         // dbg!(a);
         let bytes = writer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(bytes);
+        let mut reader = BitcodeReader::start_read(bytes);
         let decoded = SingleData::decode(&mut reader).unwrap();
 
         // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));
@@ -332,12 +334,12 @@ mod tests {
             bytes: bytes.clone(),
             priority: 1.0,
         };
-        let mut writer = WriteWordBuffer::with_capacity(10);
+        let mut writer = BitcodeWriter::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();
         // dbg!(a);
         let bytes = writer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(bytes);
+        let mut reader = BitcodeReader::start_read(bytes);
         let decoded = FragmentData::decode(&mut reader).unwrap();
 
         // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));

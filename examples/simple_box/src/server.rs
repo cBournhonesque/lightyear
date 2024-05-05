@@ -27,7 +27,7 @@ impl Plugin for ExampleServerPlugin {
         app.insert_resource(Global {
             client_id_to_entity_id: Default::default(),
         });
-        app.add_systems(Startup, init);
+        app.add_systems(Startup, (init, start_server));
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
         app.add_systems(Update, (send_message, handle_connections));
@@ -39,8 +39,13 @@ pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
-pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
-    connections.start().expect("Failed to start server");
+/// Start the server
+fn start_server(mut commands: Commands) {
+    commands.start_server();
+}
+
+/// Add some debugging text to the screen
+fn init(mut commands: Commands) {
     commands.spawn(
         TextBundle::from_section(
             "Server",
@@ -119,14 +124,14 @@ pub(crate) fn movement(
 /// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
 /// and cannot do input handling)
 pub(crate) fn send_message(
-    mut server: ResMut<ServerConnectionManager>,
+    mut server: ResMut<ConnectionManager>,
     input: Option<Res<ButtonInput<KeyCode>>>,
 ) {
     if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
         let message = Message1(5);
         info!("Send message: {:?}", message);
         server
-            .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
+            .send_message_to_target::<Channel1, Message1>(&Message1(5), NetworkTarget::All)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });
