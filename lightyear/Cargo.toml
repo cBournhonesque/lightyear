@@ -65,8 +65,6 @@ ringbuffer = "0.15"
 thiserror = "1.0.50"
 seahash = "4.1.0"
 
-# compression
-zstd = { version = "0.13.1", optional = true }
 
 # input
 leafwing-input-manager = { version = "0.13", optional = true }
@@ -141,6 +139,8 @@ tokio-tungstenite = { version = "0.21.0", optional = true, features = [
   "connect",
   "handshake",
 ] }
+# compression
+zstd = { version = "0.13.1", optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook = { version = "0.1.7" }
@@ -169,6 +169,8 @@ xwt-core = { version = "0.4", optional = true }
 xwt-web-sys = { version = "0.11", optional = true }
 wasm-bindgen = { version = "0.2.90", optional = true }
 wasm-bindgen-futures = { version = "0.4.42", optional = true }
+# compression
+zstd = { version = "0.13.1", optional = true, features = ["wasm"] }
 
 
 [dev-dependencies]
