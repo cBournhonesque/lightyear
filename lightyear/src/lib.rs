@@ -31,7 +31,7 @@ pub mod prelude {
     };
     pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
     pub use crate::connection::id::ClientId;
-    pub use crate::connection::netcode::{generate_key, Key};
+    pub use crate::connection::netcode::{generate_key, ConnectToken, Key};
     #[cfg(feature = "leafwing")]
     pub use crate::inputs::leafwing::LeafwingUserAction;
     pub use crate::inputs::native::UserAction;

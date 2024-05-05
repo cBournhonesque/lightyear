@@ -233,6 +233,12 @@ pub enum Authentication {
 }
 
 impl Authentication {
+    /// Returns true if the Authentication contains a [`ConnectToken`] that can be used to
+    /// connect to the game server
+    pub fn has_token(&self) -> bool {
+        !matches!(self, Authentication::None)
+    }
+
     pub fn get_token(
         self,
         client_timeout_secs: i32,
