@@ -4,6 +4,7 @@
 //! - sending inputs to the server
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
+use async_compat::Compat;
 use std::io::Read;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
@@ -34,7 +35,7 @@ pub struct ExampleClientPlugin {
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ConnectTokenRequestTask {
-            auth_backend_address: self.auth_backend_address,
+            auth_backend_addr: self.auth_backend_address,
             task: None,
         });
         app.add_systems(Startup, spawn_connect_button);
@@ -50,7 +51,7 @@ impl Plugin for ExampleClientPlugin {
 /// Holds a handle to an io task that is requesting a `ConnectToken` from the backend
 #[derive(Resource)]
 struct ConnectTokenRequestTask {
-    auth_backend_address: SocketAddr,
+    auth_backend_addr: SocketAddr,
     task: Option<Task<ConnectToken>>,
 }
 
@@ -63,10 +64,13 @@ fn fetch_connect_token(
 ) {
     if let Some(task) = &mut connect_token_request.task {
         if let Some(connect_token) = block_on(future::poll_once(task)) {
+            // if we have received the connect token, update the `ClientConfig` to use it to connect
+            // to the game server
             if let NetConfig::Netcode { auth, .. } = &mut client_config.net {
                 *auth = Authentication::Token(connect_token);
             }
             commands.connect_client();
+            connect_token_request.task = None;
         }
     }
 }
@@ -99,17 +103,32 @@ pub(crate) fn handle_connection(
 
 /// Get a ConnectToken via a TCP connection to the authentication server
 async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -> ConnectToken {
-    let mut stream = tokio::net::TcpStream::connect(auth_backend_address)
+    let stream = tokio::net::TcpStream::connect(auth_backend_address)
         .await
-        .expect("Failed to connect to authentication server");
+        .expect(
+            format!(
+                "Failed to connect to authentication server on {:?}",
+                auth_backend_address
+            )
+            .as_str(),
+        );
     // wait for the socket to be readable
-    stream.readable().await?;
-    let mut buffer = vec![0u8; CONNECT_TOKEN_BYTES];
-    stream
-        .read_to_end(&mut buffer)
-        .await
-        .expect("Failed to read token from authentication server");
-    ConnectToken::try_from_bytes(&buffer).expect("Failed to parse token from authentication server")
+    stream.readable().await.unwrap();
+    let mut buffer = [0u8; CONNECT_TOKEN_BYTES];
+    match stream.try_read(&mut buffer) {
+        Ok(n) if n == CONNECT_TOKEN_BYTES => {
+            trace!(
+                "Received token bytes: {:?}. Token len: {:?}",
+                buffer,
+                buffer.len()
+            );
+            ConnectToken::try_from_bytes(&buffer)
+                .expect("Failed to parse token from authentication server")
+        }
+        _ => {
+            panic!("Failed to read token from authentication server")
+        }
+    }
 }
 
 /// Create a button that allow you to connect/disconnect to a server
@@ -166,14 +185,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
 }
 
 /// Remove all entities when the client disconnect
-fn on_disconnect(
-    mut commands: Commands,
-    player_entities: Query<Entity, With<PlayerId>>,
-    debug_text: Query<Entity, With<ClientIdText>>,
-) {
-    for entity in player_entities.iter() {
-        commands.entity(entity).despawn_recursive();
-    }
+fn on_disconnect(mut commands: Commands, debug_text: Query<Entity, With<ClientIdText>>) {
     for entity in debug_text.iter() {
         commands.entity(entity).despawn_recursive();
     }
@@ -194,19 +206,19 @@ fn button_system(
                     *on_click = On::<Pointer<Click>>::run(
                         |mut commands: Commands,
                          config: Res<ClientConfig>,
-                         task_state: ResMut<ConnectTokenRequestTask>| {
+                         mut task_state: ResMut<ConnectTokenRequestTask>| {
                             if let NetConfig::Netcode { auth, .. } = &config.net {
                                 // if we have a connect token, try to connect to the game server
                                 if auth.has_token() {
                                     commands.connect_client();
                                     return;
                                 } else {
-                                    let task = IoTaskPool::get().spawn_local(async {
-                                        get_connect_token_from_auth_backend(
-                                            task_state.auth_backend_address,
-                                        )
-                                        .await
-                                    });
+                                    let auth_backend_addr = task_state.auth_backend_addr;
+                                    let task =
+                                        IoTaskPool::get().spawn_local(Compat::new(async move {
+                                            get_connect_token_from_auth_backend(auth_backend_addr)
+                                                .await
+                                        }));
                                     task_state.task = Some(task);
                                 }
                             }
@@ -219,9 +231,15 @@ fn button_system(
                 }
                 NetworkingState::Connected => {
                     text.sections[0].value = "Disconnect".to_string();
-                    *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
-                        commands.disconnect_client();
-                    });
+                    *on_click = On::<Pointer<Click>>::run(
+                        |mut commands: Commands, mut config: ResMut<ClientConfig>| {
+                            commands.disconnect_client();
+                            // reset the authentication method to None, so that we have to request a new ConnectToken
+                            if let NetConfig::Netcode { auth, .. } = &mut config.net {
+                                *auth = Authentication::None;
+                            }
+                        },
+                    );
                 }
             };
         }

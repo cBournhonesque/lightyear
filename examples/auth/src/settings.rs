@@ -120,9 +120,6 @@ pub struct SharedSettings {
 
     /// a 32-byte array to authenticate via the Netcode.io protocol
     pub(crate) private_key: [u8; 32],
-
-    /// compression options
-    pub(crate) compression: CompressionConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -239,16 +236,16 @@ pub fn build_client_netcode_config(
     transport_config: TransportConfig,
 ) -> client::NetConfig {
     let conditioner = conditioner.map_or(None, |c| Some(c.build()));
-    if client_id == 0 {
-        let auth = Authentication::None;
+    let auth = if client_id == 0 {
+        Authentication::None
     } else {
-        let auth = Authentication::Manual {
+        Authentication::Manual {
             server_addr,
             client_id,
             private_key: shared.private_key,
             protocol_id: shared.protocol_id,
-        };
-    }
+        }
+    };
     let netcode_config = client::NetcodeConfig::default();
     let io_config = IoConfig {
         transport: transport_config,

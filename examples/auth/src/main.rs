@@ -192,7 +192,18 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     };
     app.add_plugins((
         server::ServerPlugin::new(server_config),
-        ExampleServerPlugin,
+        ExampleServerPlugin {
+            protocol_id: settings.shared.protocol_id,
+            private_key: settings.shared.private_key,
+            game_server_addr: SocketAddr::V4(SocketAddrV4::new(
+                settings.client.server_addr,
+                settings.client.server_port,
+            )),
+            auth_backend_addr: SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::UNSPECIFIED,
+                settings.server.netcode_auth_port,
+            )),
+        },
         SharedPlugin,
     ));
     app
@@ -228,7 +239,18 @@ fn combined_app(
     };
     app.add_plugins((
         server::ServerPlugin::new(server_config),
-        ExampleServerPlugin,
+        ExampleServerPlugin {
+            protocol_id: settings.shared.protocol_id,
+            private_key: settings.shared.private_key,
+            game_server_addr: SocketAddr::V4(SocketAddrV4::new(
+                settings.client.server_addr,
+                settings.client.server_port,
+            )),
+            auth_backend_addr: SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::UNSPECIFIED,
+                settings.server.netcode_auth_port,
+            )),
+        },
     ));
 
     // client plugin
