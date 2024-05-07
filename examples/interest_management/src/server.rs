@@ -120,7 +120,7 @@ pub(crate) fn interest_management(
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {
-            let room_id = client_id.into();
+            let room_id = client_id.0.into();
             // let circles_in_room = server.room(room_id).entities();
             let mut room = room_manager.room_mut(room_id);
             for (circle_entity, circle_position) in circle_query.iter() {
