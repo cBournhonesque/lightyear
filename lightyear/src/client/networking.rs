@@ -478,8 +478,10 @@ fn connect(world: &mut World) {
 // }
 
 pub trait ClientCommands {
+    /// Start the connection process
     fn connect_client(&mut self);
 
+    /// Disconnect the client
     fn disconnect_client(&mut self);
 }
 

@@ -118,17 +118,17 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
         app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-            .add_prediction::<PlayerId>(ComponentSyncMode::Once)
-            .add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
         app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
-            .add_prediction::<PlayerPosition>(ComponentSyncMode::Full)
-            .add_interpolation::<PlayerPosition>(ComponentSyncMode::Full)
-            .add_linear_interpolation_fn::<PlayerPosition>();
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn();
 
         app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
-            .add_prediction::<PlayerColor>(ComponentSyncMode::Once)
-            .add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
