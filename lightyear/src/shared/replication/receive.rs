@@ -199,6 +199,7 @@ impl ReplicationReceiver {
                 // NOTE: order matters here, because some components can depend on other entities.
                 // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
                 // Our solution is to first handle spawn for all entities separately.
+                let mut remote_entities_to_spawn = vec![];
                 for (entity, actions) in m.actions.iter() {
                     debug!(remote_entity = ?entity, "Received entity actions");
                     assert!(!(actions.spawn && actions.despawn));
@@ -213,6 +214,8 @@ impl ReplicationReceiver {
                             warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
                             continue;
                         }
+                        debug!(remote_entity = ?entity, "Received entity spawn");
+                        remote_entities_to_spawn.push(entity);
                         // TODO: optimization: spawn the bundle of insert components
 
                         // TODO: spawning all entities with Confirmed:
@@ -227,14 +230,17 @@ impl ReplicationReceiver {
                         //     interpolated: None,
                         //     tick,
                         // });
-                        let local_entity = world.spawn(Replicated);
-                        self.remote_entity_map.insert(*entity, local_entity.id());
-                        trace!("Updated remote entity map: {:?}", self.remote_entity_map);
-
-                        debug!(remote_entity = ?entity, "Received entity spawn");
-                        events.push_spawn(local_entity.id());
                     }
                 }
+                // spawn entities in batch as an optimization
+                world
+                    .spawn_batch(vec![Replicated; remote_entities_to_spawn.len()])
+                    .zip(remote_entities_to_spawn)
+                    .for_each(|(local_entity, remote_entity)| {
+                        self.remote_entity_map.insert(*remote_entity, local_entity);
+                        trace!("Updated remote entity map: {:?}", self.remote_entity_map);
+                        events.push_spawn(local_entity);
+                    });
 
                 for (entity, actions) in m.actions.into_iter() {
                     debug!(remote_entity = ?entity, "Received entity actions");
