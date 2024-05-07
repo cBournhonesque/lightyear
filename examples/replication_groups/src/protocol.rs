@@ -286,34 +286,33 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerPosition>(ComponentSyncMode::Full);
-        app.add_custom_interpolation::<PlayerPosition>(ComponentSyncMode::Full);
-        // we still register an interpolation function which will be used for visual interpolation
-        app.add_linear_interpolation_fn::<PlayerPosition>();
+        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_custom_interpolation(ComponentSyncMode::Full)
+            // we still register an interpolation function which will be used for visual interpolation
+            .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<TailPoints>(ChannelDirection::ServerToClient);
-        app.add_prediction::<TailPoints>(ComponentSyncMode::Full);
-        app.add_custom_interpolation::<TailPoints>(ComponentSyncMode::Full);
+        app.register_component::<TailPoints>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_custom_interpolation(ComponentSyncMode::Full);
         // we do not register an interpolation function because we will use a custom interpolation system
 
-        app.register_component::<TailLength>(ChannelDirection::ServerToClient);
-        app.add_prediction::<TailLength>(ComponentSyncMode::Once);
-        app.add_interpolation::<TailLength>(ComponentSyncMode::Once);
+        app.register_component::<TailLength>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
         app.register_component::<PlayerParent>(ChannelDirection::ServerToClient)
-            .add_map_entities::<PlayerParent>();
-        app.add_prediction::<PlayerParent>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerParent>(ComponentSyncMode::Once);
-        // app.add_component_map_entities::<PlayerParent>();
+            .add_map_entities()
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

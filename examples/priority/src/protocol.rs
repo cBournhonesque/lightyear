@@ -130,18 +130,18 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(LeafwingInputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<Position>(ChannelDirection::ServerToClient);
-        app.add_prediction::<Position>(ComponentSyncMode::Full);
-        app.add_interpolation::<Position>(ComponentSyncMode::Full);
-        app.add_linear_interpolation_fn::<Position>();
+        app.register_component::<Position>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
         app.register_component::<Shape>(ChannelDirection::ServerToClient);
         // channels

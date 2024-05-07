@@ -101,24 +101,24 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(InputPlugin::<MyInput>::default());
         // components
         app.register_component::<Component1>(ChannelDirection::ServerToClient)
-            .add_prediction::<Component1>(ComponentSyncMode::Full)
-            .add_interpolation::<Component1>(ComponentSyncMode::Full)
-            .add_linear_interpolation_fn::<Component1>();
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn();
 
         app.register_component::<Component2>(ChannelDirection::ServerToClient)
-            .add_prediction::<Component2>(ComponentSyncMode::Simple);
+            .add_prediction(ComponentSyncMode::Simple);
 
         app.register_component::<Component3>(ChannelDirection::ServerToClient)
-            .add_prediction::<Component3>(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Once);
 
         app.register_component::<Component4>(ChannelDirection::ServerToClient)
-            .add_prediction::<Component4>(ComponentSyncMode::Simple)
-            .add_map_entities::<Component4>();
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_map_entities();
 
         app.register_component::<Component5>(ChannelDirection::ServerToClient)
-            .add_prediction::<Component5>(ComponentSyncMode::Full)
-            .add_interpolation::<Component5>(ComponentSyncMode::Full)
-            .add_linear_interpolation_fn::<Component5>();
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn();
 
         // resources
         app.register_resource::<Resource1>(ChannelDirection::ServerToClient);
