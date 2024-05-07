@@ -1,8 +1,8 @@
 //! Specify how a Client sends/receives messages with a Server
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHashMap, MapEntities};
-use bevy::prelude::{Entity, Local, Mut, Resource, World};
+use bevy::prelude::{Component, Entity, Local, Mut, Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
@@ -20,7 +20,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
-use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget, TargetEntity};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::MessageRegistry;
@@ -36,7 +36,9 @@ use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
-use crate::shared::replication::components::{Replicate, ReplicationGroupId};
+use crate::shared::replication::components::{
+    Replicate, ReplicationGroupId, ShouldReuseTargetEntity,
+};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::systems::DespawnMetadata;
@@ -445,6 +447,24 @@ impl ConnectionManager {
     }
 }
 
+impl ConnectionManager {
+    /// Helper function to prepare component insert for components for which we know the type
+    fn prepare_typed_component_insert<C: Component>(
+        &mut self,
+        entity: Entity,
+        group_id: ReplicationGroupId,
+        data: &C,
+    ) {
+        let net_id = self
+            .component_registry()
+            .get_net_id::<C>()
+            .context(format!("{} is not registered", std::any::type_name::<C>()))?;
+        let raw_data = self.component_registry.serialize(data, &mut self.writer)?;
+        self.replication_sender
+            .prepare_component_insert(entity, group_id, net_id, raw_data);
+    }
+}
+
 impl MessageSend for ConnectionManager {
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
@@ -515,6 +535,16 @@ impl ReplicationSend for ConnectionManager {
         //     .or_default()
         //     .update_collect_changes_since_this_tick(system_current_tick);
         replication_sender.prepare_entity_spawn(entity, group_id);
+        // if we don't want to spawn a new entity but instead reuse an existing once, send a marker component
+        // to indicate which entity to reuse
+        if let TargetEntity::Preexisting(remote_entity) = replicate.target_entity {
+            // TODO: only serialize once
+            self.prepare_typed_component_insert(
+                entity,
+                group_id,
+                &ShouldReuseTargetEntity(remote_entity),
+            );
+        }
 
         // also set the priority for the group when we spawn it
         self.update_priority(
