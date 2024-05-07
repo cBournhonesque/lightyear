@@ -48,7 +48,7 @@ pub mod prelude {
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
         NetworkTarget, PrePredicted, Replicate, Replicated, ReplicationGroup, ReplicationMode,
-        ShouldBePredicted,
+        ShouldBePredicted, TargetEntity,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
     pub use crate::shared::replication::hierarchy::ParentSync;

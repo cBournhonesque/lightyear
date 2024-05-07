@@ -1,8 +1,8 @@
 //! Specify how a Client sends/receives messages with a Server
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHashMap, MapEntities};
-use bevy::prelude::{Entity, Local, Mut, Resource, World};
+use bevy::prelude::{Component, Entity, Local, Mut, Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
@@ -20,7 +20,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
-use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget, TargetEntity};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::MessageRegistry;
@@ -514,8 +514,14 @@ impl ReplicationSend for ConnectionManager {
         //     .entry(group)
         //     .or_default()
         //     .update_collect_changes_since_this_tick(system_current_tick);
-        replication_sender.prepare_entity_spawn(entity, group_id);
-
+        match replicate.target_entity {
+            TargetEntity::Spawn => {
+                replication_sender.prepare_entity_spawn(entity, group_id);
+            }
+            TargetEntity::Preexisting(remote_entity) => {
+                replication_sender.prepare_entity_spawn_reuse(entity, group_id, remote_entity);
+            }
+        }
         // also set the priority for the group when we spawn it
         self.update_priority(
             group_id,
@@ -523,7 +529,6 @@ impl ReplicationSend for ConnectionManager {
             ClientId::Local(0),
             replicate.replication_group.priority(),
         )?;
-        // Prediction/interpolation
         Ok(())
     }
 

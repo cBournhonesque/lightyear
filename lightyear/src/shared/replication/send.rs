@@ -20,7 +20,9 @@ use crate::serialize::RawData;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 use crate::shared::replication::systems::DespawnMetadata;
 
-use super::{EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData};
+use super::{
+    EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData, SpawnAction,
+};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -151,13 +153,28 @@ impl ReplicationSender {
     /// Host has spawned an entity, and we want to replicate this to remote
     /// Returns true if we should send a message
     pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
-        let actions = self
-            .pending_actions
+        self.pending_actions
             .entry(group_id)
             .or_default()
             .entry(entity)
-            .or_default();
-        actions.spawn = true;
+            .or_default()
+            .spawn = SpawnAction::Spawn;
+    }
+
+    /// Host wants to start replicating an entity, but instead of spawning a new entity, it wants to reuse an existing entity
+    /// on the remote. This can be useful for transferring ownership of an entity from one player to another.
+    pub(crate) fn prepare_entity_spawn_reuse(
+        &mut self,
+        local_entity: Entity,
+        group_id: ReplicationGroupId,
+        remote_entity: Entity,
+    ) {
+        self.pending_actions
+            .entry(group_id)
+            .or_default()
+            .entry(local_entity)
+            .or_default()
+            .spawn = SpawnAction::Reuse(remote_entity.to_bits());
     }
 
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
@@ -166,7 +183,7 @@ impl ReplicationSender {
             .or_default()
             .entry(entity)
             .or_default()
-            .despawn = true;
+            .spawn = SpawnAction::Despawn;
     }
 
     // we want to send all component inserts that happen together for the same entity in a single message
@@ -461,8 +478,7 @@ mod tests {
                 (
                     entity_1,
                     EntityActions {
-                        spawn: true,
-                        despawn: false,
+                        spawn: SpawnAction::Spawn,
                         insert: vec![raw_1],
                         remove: HashSet::from_iter(vec![net_id_2]),
                         updates: vec![raw_2],
@@ -471,8 +487,7 @@ mod tests {
                 (
                     entity_2,
                     EntityActions {
-                        spawn: false,
-                        despawn: false,
+                        spawn: SpawnAction::None,
                         insert: vec![],
                         remove: HashSet::default(),
                         updates: vec![raw_3],

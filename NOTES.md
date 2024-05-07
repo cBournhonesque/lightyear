@@ -1,3 +1,11 @@
+- Transferring ownership to another client. 
+  - commands.transfer_ownership(entity, new_owner)
+  - sends a message AuthorityTransfer to the new client who should replicate the entity
+  - the new client can spawn an entity
+
+
+
+
 # Interesting links:
 
 * https://medium.com/@otukof/breaking-tradition-why-rust-might-be-your-best-first-language-d10afc482ac1
