@@ -62,7 +62,8 @@ pub(crate) enum NetClientDispatch {
     Local(super::local::client::Client),
 }
 
-/// Resource that holds the client connection
+/// Resource that holds a [`NetClient`] instance.
+/// (either a Netcode, Steam, or Local client)
 #[derive(Resource)]
 pub struct ClientConnection {
     pub(crate) client: NetClientDispatch,
@@ -191,11 +192,32 @@ impl NetClient for ClientConnection {
 
 #[derive(Resource, Default, Clone)]
 #[allow(clippy::large_enum_variant)]
-/// Struct used to authenticate with the server when using the netcode connection
+/// Struct used to authenticate with the server when using the Netcode connection.
+///
+/// Netcode is a standard to establish secure connections between clients and game servers on top of
+/// an unreliable unordered transport such as UDP.
+/// You can read more about it here: https://github.com/mas-bandwidth/netcode/blob/main/STANDARD.md
+///
+/// The client sends a `ConnectToken` to the game server to start the connection process.
+///
+/// There are several ways to obtain a `ConnectToken`:
+/// - the client can request a `ConnectToken` via a secure (e.g. HTTPS) connection from a backend server.
+/// The server must use the same `protocol_id` and `private_key` as the game servers.
+/// The backend server could be a dedicated webserver; or the game server itself, if it has a way to
+/// establish secure connection.
+/// - when testing, it can be convenient for the client to create its own `ConnectToken` manually.
+/// You can use `Authentication::Manual` for those cases.
 pub enum Authentication {
-    /// Use a `ConnectToken` that was already received (usually from a secure-connection to a webserver)
+    /// Use a `ConnectToken` to authenticate with the game server.
+    ///
+    /// The client must have already received the `ConnectToken` from the backend.
+    /// (The backend will generate a new `client_id` for the user, and use that to generate the
+    /// `ConnectToken`)
     Token(ConnectToken),
-    /// Or build a `ConnectToken` manually from the given parameters
+    /// The client can build a `ConnectToken` manually.
+    ///
+    /// This is only useful for testing purposes. In production, the client should not have access
+    /// to the `private_key`.
     Manual {
         server_addr: SocketAddr,
         client_id: u64,
@@ -203,11 +225,20 @@ pub enum Authentication {
         protocol_id: u64,
     },
     #[default]
-    /// Request a connect token from the backend
-    RequestConnectToken,
+    /// The client has no `ConnectToken`, so it cannot connect to the game server yet.
+    ///
+    /// This is provided so that you can still build a [`ClientConnection`] `Resource` while waiting
+    /// to receive a `ConnectToken` from the backend.
+    None,
 }
 
 impl Authentication {
+    /// Returns true if the Authentication contains a [`ConnectToken`] that can be used to
+    /// connect to the game server
+    pub fn has_token(&self) -> bool {
+        !matches!(self, Authentication::None)
+    }
+
     pub fn get_token(
         self,
         client_timeout_secs: i32,
@@ -225,8 +256,8 @@ impl Authentication {
                 .expire_seconds(token_expire_secs)
                 .generate()
                 .ok(),
-            Authentication::RequestConnectToken => {
-                // create a fake connect token so that we have a NetcodeClient
+            Authentication::None => {
+                // create a fake connect token so that we can build a NetcodeClient
                 ConnectToken::build(
                     SocketAddr::from_str("0.0.0.0:0").unwrap(),
                     0,

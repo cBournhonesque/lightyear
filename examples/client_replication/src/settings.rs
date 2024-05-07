@@ -12,7 +12,7 @@ use lightyear::prelude::client::SteamConfig;
 use lightyear::prelude::{CompressionConfig, IoConfig, LinkConditionerConfig, TransportConfig};
 
 #[cfg(not(target_family = "wasm"))]
-use crate::server::Certificate;
+use crate::server::Identity;
 use crate::{client, server};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -175,14 +175,17 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
                 let certificate = IoTaskPool::get()
                     .scope(|s| {
                         s.spawn(Compat::new(async {
-                            Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
-                                .await
-                                .unwrap()
+                            Identity::load_pemfiles(
+                                "../certificates/cert.pem",
+                                "../certificates/key.pem",
+                            )
+                            .await
+                            .unwrap()
                         }));
                     })
                     .pop()
                     .unwrap();
-                let digest = &certificate.hashes()[0].to_string().replace(":", "");
+                let digest = certificate.certificate_chain().as_slice()[0].hash();
                 println!("Generated self-signed certificate with digest: {}", digest);
                 crate::build_server_netcode_config(
                     settings.server.conditioner.as_ref(),
@@ -278,7 +281,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
                 client_addr,
                 server_addr,
                 #[cfg(target_family = "wasm")]
-                certificate_digest: certificate_digest.to_string(),
+                certificate_digest: certificate_digest.to_string().replace(":", ""),
             },
         ),
         ClientTransports::WebSocket => build_client_netcode_config(

@@ -7,7 +7,7 @@ use crossbeam_channel::{Receiver, Sender};
 #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
 use {
     crate::transport::webtransport::server::WebTransportServerSocketBuilder,
-    wtransport::tls::Certificate,
+    wtransport::tls::Identity,
 };
 
 use crate::prelude::Io;
@@ -35,7 +35,6 @@ use crate::transport::{BoxedReceiver, Transport, TransportBuilder, TransportBuil
 
 /// Use this to configure the [`Transport`] that will be used to establish a connection with the
 /// remote.
-#[derive(Clone)]
 pub enum TransportConfig {
     /// Use a [`UdpSocket`](std::net::UdpSocket)
     #[cfg(not(target_family = "wasm"))]
@@ -54,7 +53,7 @@ pub enum TransportConfig {
     WebTransportServer {
         server_addr: SocketAddr,
         /// Certificate that will be used for authentication
-        certificate: Certificate,
+        certificate: Identity,
     },
     /// Use [`WebSocket`](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) as a transport
     #[cfg(feature = "websocket")]
@@ -75,6 +74,62 @@ pub enum TransportConfig {
     },
     /// Dummy transport if the connection handles its own io (for example steam sockets)
     Dummy,
+}
+
+/// We provide a manual implementation because wtranport's `Identity` does not implement Clone
+impl ::core::clone::Clone for TransportConfig {
+    #[inline]
+    fn clone(&self) -> TransportConfig {
+        match self {
+            #[cfg(not(target_family = "wasm"))]
+            TransportConfig::UdpSocket(__self_0) => {
+                TransportConfig::UdpSocket(::core::clone::Clone::clone(__self_0))
+            }
+            #[cfg(feature = "webtransport")]
+            TransportConfig::WebTransportClient {
+                client_addr: __self_0,
+                server_addr: __self_1,
+                #[cfg(target_family = "wasm")]
+                    certificate_digest: __self_2,
+            } => TransportConfig::WebTransportClient {
+                client_addr: ::core::clone::Clone::clone(__self_0),
+                server_addr: ::core::clone::Clone::clone(__self_1),
+                #[cfg(target_family = "wasm")]
+                certificate_digest: ::core::clone::Clone::clone(__self_2),
+            },
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+            TransportConfig::WebTransportServer {
+                server_addr: __self_0,
+                certificate: __self_1,
+            } => TransportConfig::WebTransportServer {
+                server_addr: ::core::clone::Clone::clone(__self_0),
+                certificate: __self_1.clone_identity(),
+            },
+            #[cfg(feature = "websocket")]
+            TransportConfig::WebSocketClient {
+                server_addr: __self_0,
+            } => TransportConfig::WebSocketClient {
+                server_addr: ::core::clone::Clone::clone(__self_0),
+            },
+            #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
+            TransportConfig::WebSocketServer {
+                server_addr: __self_0,
+            } => TransportConfig::WebSocketServer {
+                server_addr: ::core::clone::Clone::clone(__self_0),
+            },
+            TransportConfig::Channels { channels: __self_0 } => TransportConfig::Channels {
+                channels: ::core::clone::Clone::clone(__self_0),
+            },
+            TransportConfig::LocalChannel {
+                recv: __self_0,
+                send: __self_1,
+            } => TransportConfig::LocalChannel {
+                recv: ::core::clone::Clone::clone(__self_0),
+                send: ::core::clone::Clone::clone(__self_1),
+            },
+            TransportConfig::Dummy => TransportConfig::Dummy,
+        }
+    }
 }
 
 impl TransportConfig {

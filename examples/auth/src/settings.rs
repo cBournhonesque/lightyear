@@ -83,6 +83,10 @@ pub struct ServerSettings {
 
     /// Which transport to use
     pub(crate) transport: Vec<ServerTransports>,
+
+    /// The server will listen on this port for incoming tcp authentication requests
+    /// and respond with a [`ConnectToken`](lightyear::prelude::ConnectToken)
+    pub(crate) netcode_auth_port: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -238,11 +242,15 @@ pub fn build_client_netcode_config(
     transport_config: TransportConfig,
 ) -> client::NetConfig {
     let conditioner = conditioner.map_or(None, |c| Some(c.build()));
-    let auth = Authentication::Manual {
-        server_addr,
-        client_id,
-        private_key: shared.private_key,
-        protocol_id: shared.protocol_id,
+    let auth = if client_id == 0 {
+        Authentication::None
+    } else {
+        Authentication::Manual {
+            server_addr,
+            client_id,
+            private_key: shared.private_key,
+            protocol_id: shared.protocol_id,
+        }
     };
     let netcode_config = client::NetcodeConfig::default();
     let io_config = IoConfig {
@@ -283,7 +291,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
                 client_addr,
                 server_addr,
                 #[cfg(target_family = "wasm")]
-                certificate_digest: certificate_digest.to_string().replace(":", ""),
+                certificate_digest: certificate_digest.clone().replace(":", ""),
             },
         ),
         ClientTransports::WebSocket => build_client_netcode_config(
