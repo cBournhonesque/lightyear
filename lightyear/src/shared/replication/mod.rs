@@ -43,7 +43,6 @@ pub(crate) mod systems;
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
 pub struct EntityActions {
     pub(crate) spawn: SpawnAction,
-    // TODO: maybe do HashMap<NetId, RawData>? for example for ShouldReuseTarget
     pub(crate) insert: Vec<RawData>,
     #[bitcode(with_serde)]
     // TODO: use a ComponentNetId instead of NetId?
@@ -53,11 +52,14 @@ pub struct EntityActions {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
 pub(crate) enum SpawnAction {
+    #[bitcode_hint(frequency = 10)]
     None,
+    #[bitcode_hint(frequency = 2)]
     Spawn,
+    #[bitcode_hint(frequency = 2)]
     Despawn,
-    // the u64 is the entity's bits (we cannot use Entity directly because it doesn't implement Encode/Decode)
-    Reuse(u64),
+    // the u64 is the existing receiver entity's bits (we cannot use Entity directly because it doesn't implement Encode/Decode)
+    ReuseReceiver(u64),
 }
 
 impl Default for EntityActions {

@@ -210,7 +210,7 @@ impl ReplicationReceiver {
                                 self.remote_entity_map.get_local(*remote_entity)
                             {
                                 if world.get_entity(*local_entity).is_some() {
-                                    warn!("Received spawn for an entity that already exists");
+                                    warn!("Received spawn for an entity that already exists. Not spawning a new entity");
                                     continue;
                                 }
                                 warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
@@ -238,7 +238,7 @@ impl ReplicationReceiver {
                             debug!(?remote_entity, "Received entity spawn");
                             events.push_spawn(local_entity.id());
                         }
-                        SpawnAction::Reuse(local_entity) => {
+                        SpawnAction::ReuseReceiver(local_entity) => {
                             let local_entity = Entity::from_bits(local_entity);
                             if world.get_entity(local_entity).is_none() {
                                 // TODO: ignore the entity in the next steps because it does not exist!
@@ -671,7 +671,7 @@ mod tests {
             actions: vec![(
                 remote_entity,
                 EntityActions {
-                    spawn: SpawnAction::Reuse(local_entity.to_bits()),
+                    spawn: SpawnAction::ReuseReceiver(local_entity.to_bits()),
                     insert: vec![],
                     remove: Default::default(),
                     updates: vec![],

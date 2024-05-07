@@ -238,6 +238,8 @@ fn send_entity_spawn<R: ReplicationSend>(
                     target.exclude(new_connected_clients.clone());
                 }
 
+                // TODO: if replicate is removed and re-added, we would spawn a new entity!
+                //  in that case we might want to use reuse the remote entity
                 // only try to replicate if the replicate component was just added
                 if replicate.is_added() {
                     trace!(?entity, "send entity spawn");

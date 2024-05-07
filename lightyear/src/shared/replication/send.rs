@@ -174,7 +174,7 @@ impl ReplicationSender {
             .or_default()
             .entry(local_entity)
             .or_default()
-            .spawn = SpawnAction::Reuse(remote_entity.to_bits());
+            .spawn = SpawnAction::ReuseReceiver(remote_entity.to_bits());
     }
 
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
