@@ -13,7 +13,7 @@ Settings(
         // transport: WebTransport(
         //     // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
         //     // the server will print the certificate digest on startup
-        //     certificate_digest: "a71e935276ac0e37db88bfa702b3ece66f30b3ad4f6117c12b782fe0f2817f9f",
+        //     certificate_digest: "24:48:ea:6f:13:a4:4f:2f:42:b9:f3:71:3f:79:c5:7a:d1:1d:29:ab:de:b0:03:4d:94:92:7b:84:69:01:85:1d",
         // ),
         server_port: 5001,
         transport: Udp,
@@ -62,6 +62,6 @@ Settings(
     shared: SharedSettings(
         protocol_id: 0,
         private_key: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-        compression: Zstd(level: 0),
+        compression: None,
     )
 )
