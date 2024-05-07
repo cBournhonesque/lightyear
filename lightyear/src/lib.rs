@@ -102,7 +102,7 @@ pub mod prelude {
     }
     pub mod server {
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-        pub use wtransport::tls::Certificate;
+        pub use wtransport::tls::Identity;
 
         pub use crate::connection::server::{
             NetConfig, NetServer, ServerConnection, ServerConnections,
