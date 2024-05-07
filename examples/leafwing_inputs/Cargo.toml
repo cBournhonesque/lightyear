@@ -15,12 +15,11 @@ bevy_screen_diagnostics = "0.5.0"
 leafwing-input-manager = "0.13"
 bevy_xpbd_2d = { version = "0.4", features = ["serialize"] }
 lightyear = { path = "../../lightyear", features = [
-  "webtransport",
-  "websocket",
-  "render",
-  "leafwing",
-  "xpbd_2d",
-  "steam",
+    "webtransport",
+    "websocket",
+    "leafwing",
+    "xpbd_2d",
+    "steam",
 ] }
 async-compat = "0.2.3"
 serde = { version = "1.0.188", features = ["derive"] }
