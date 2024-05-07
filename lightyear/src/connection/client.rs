@@ -196,7 +196,7 @@ impl NetClient for ClientConnection {
 ///
 /// Netcode is a standard to establish secure connections between clients and game servers on top of
 /// an unreliable unordered transport such as UDP.
-/// You can read more about it here: https://github.com/mas-bandwidth/netcode/blob/main/STANDARD.md
+/// You can read more about it here: `<https://github.com/mas-bandwidth/netcode/blob/main/STANDARD.md>`
 ///
 /// The client sends a `ConnectToken` to the game server to start the connection process.
 ///

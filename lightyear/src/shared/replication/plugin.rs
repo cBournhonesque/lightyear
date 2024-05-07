@@ -8,7 +8,7 @@ use crate::prelude::{
 };
 use crate::shared::replication::components::{
     PerComponentReplicationMetadata, Replicate, ReplicationGroupId, ReplicationGroupIdBuilder,
-    ShouldBeInterpolated,
+    ShouldBeInterpolated, TargetEntity,
 };
 use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
 use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};
@@ -44,6 +44,7 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
 
         // REFLECTION
         app.register_type::<Replicate>()
+            .register_type::<TargetEntity>()
             .register_type::<PerComponentReplicationMetadata>()
             .register_type::<ReplicationGroupIdBuilder>()
             .register_type::<ReplicationGroup>()

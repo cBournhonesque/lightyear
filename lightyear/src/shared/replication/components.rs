@@ -48,11 +48,26 @@ pub struct Replicate {
     /// and `ParentSync` components to the children yourself
     pub replicate_hierarchy: bool,
 
+    /// Defines the target entity for the replication.
+    /// In most cases, you will want to spawn a new entity on the target client
+    pub target_entity: TargetEntity,
+
     // TODO: could it be dangerous to use component kind here? (because the value could vary between rust versions)
     //  should be ok, because this is not networked
     /// Lets you override the replication modalities for a specific component
     #[reflect(ignore)]
     pub per_component_metadata: HashMap<ComponentKind, PerComponentReplicationMetadata>,
+}
+
+/// Defines the target entity for the replication
+#[derive(Default, Clone, Debug, PartialEq, Reflect)]
+pub enum TargetEntity {
+    /// Spawn a new entity on the target client
+    #[default]
+    Spawn,
+    /// Instead of spawning a new entity, we will apply the replication updates
+    /// to the existing remote entity
+    Preexisting(Entity),
 }
 
 #[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
@@ -285,6 +300,7 @@ impl Default for Replicate {
             replication_mode: ReplicationMode::default(),
             replication_group: Default::default(),
             replicate_hierarchy: true,
+            target_entity: Default::default(),
             per_component_metadata: HashMap::default(),
         };
         // TODO: what's the point in replicating them once since they don't change?

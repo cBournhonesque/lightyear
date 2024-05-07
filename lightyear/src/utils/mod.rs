@@ -8,6 +8,7 @@ pub(crate) mod sequence_buffer;
 
 pub mod bevy;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "xpbd_2d")))]
 #[cfg(feature = "xpbd_2d")]
 pub mod bevy_xpbd_2d;
 

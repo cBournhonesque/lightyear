@@ -21,6 +21,7 @@ use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 use super::entity_map::RemoteEntityMap;
 use super::{
     EntityActionMessage, EntityUpdatesMessage, ReplicationMessage, ReplicationMessageData,
+    SpawnAction,
 };
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
@@ -199,40 +200,55 @@ impl ReplicationReceiver {
                 // NOTE: order matters here, because some components can depend on other entities.
                 // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
                 // Our solution is to first handle spawn for all entities separately.
-                for (entity, actions) in m.actions.iter() {
-                    debug!(remote_entity = ?entity, "Received entity actions");
-                    assert!(!(actions.spawn && actions.despawn));
+                for (remote_entity, actions) in m.actions.iter() {
+                    debug!(?remote_entity, "Received entity actions");
                     // spawn
-                    if actions.spawn {
-                        self.remote_entity_to_group.insert(*entity, group_id);
-                        if let Some(local_entity) = self.remote_entity_map.get_local(*entity) {
-                            if world.get_entity(*local_entity).is_some() {
-                                warn!("Received spawn for an entity that already exists");
+                    match actions.spawn {
+                        SpawnAction::Spawn => {
+                            self.remote_entity_to_group.insert(*remote_entity, group_id);
+                            if let Some(local_entity) =
+                                self.remote_entity_map.get_local(*remote_entity)
+                            {
+                                if world.get_entity(*local_entity).is_some() {
+                                    warn!("Received spawn for an entity that already exists");
+                                    continue;
+                                }
+                                warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
                                 continue;
                             }
-                            warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
-                            continue;
+                            // TODO: optimization: spawn the bundle of insert components
+
+                            // TODO: spawning all entities with Confirmed:
+                            //  - is inefficient because we don't need the receive tick in most cases (only for prediction/interpolation)
+                            //  - we can't use Without<Confirmed> queries to display all interpolated/predicted entities, because
+                            //    the entities we receive from other clients all have Confirmed added.
+                            //    Doing Or<(With<Interpolated>, With<Predicted>)> is not ideal; what if we want to see a replicated entity that doesn't have
+                            //    interpolation/prediction? Maybe we should introduce new components ReplicatedFrom<Server> and ReplicatedFrom<Client>.
+                            // // we spawn every replicated entity with the `Confirmed` component
+                            // let local_entity = world.spawn(Confirmed {
+                            //     predicted: None,
+                            //     interpolated: None,
+                            //     tick,
+                            // });
+                            let local_entity = world.spawn(Replicated);
+                            self.remote_entity_map
+                                .insert(*remote_entity, local_entity.id());
+                            trace!("Updated remote entity map: {:?}", self.remote_entity_map);
+
+                            debug!(?remote_entity, "Received entity spawn");
+                            events.push_spawn(local_entity.id());
                         }
-                        // TODO: optimization: spawn the bundle of insert components
-
-                        // TODO: spawning all entities with Confirmed:
-                        //  - is inefficient because we don't need the receive tick in most cases (only for prediction/interpolation)
-                        //  - we can't use Without<Confirmed> queries to display all interpolated/predicted entities, because
-                        //    the entities we receive from other clients all have Confirmed added.
-                        //    Doing Or<(With<Interpolated>, With<Predicted>)> is not ideal; what if we want to see a replicated entity that doesn't have
-                        //    interpolation/prediction? Maybe we should introduce new components ReplicatedFrom<Server> and ReplicatedFrom<Client>.
-                        // // we spawn every replicated entity with the `Confirmed` component
-                        // let local_entity = world.spawn(Confirmed {
-                        //     predicted: None,
-                        //     interpolated: None,
-                        //     tick,
-                        // });
-                        let local_entity = world.spawn(Replicated);
-                        self.remote_entity_map.insert(*entity, local_entity.id());
-                        trace!("Updated remote entity map: {:?}", self.remote_entity_map);
-
-                        debug!(remote_entity = ?entity, "Received entity spawn");
-                        events.push_spawn(local_entity.id());
+                        SpawnAction::Reuse(local_entity) => {
+                            let local_entity = Entity::from_bits(local_entity);
+                            if world.get_entity(local_entity).is_none() {
+                                // TODO: ignore the entity in the next steps because it does not exist!
+                                error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
+                                continue;
+                            };
+                            // update the entity mapping
+                            self.remote_entity_map.insert(*remote_entity, local_entity);
+                        }
+                        _ => {}
                     }
                 }
 
@@ -240,7 +256,7 @@ impl ReplicationReceiver {
                     debug!(remote_entity = ?entity, "Received entity actions");
 
                     // despawn
-                    if actions.despawn {
+                    if actions.spawn == SpawnAction::Despawn {
                         debug!(remote_entity = ?entity, "Received entity despawn");
                         if let Some(local_entity) = self.remote_entity_map.remove_by_remote(entity)
                         {
@@ -508,6 +524,7 @@ impl GroupChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::replication::EntityActions;
 
     #[allow(clippy::get_first)]
     #[test]
@@ -557,8 +574,7 @@ mod tests {
             .get(&group_id)
             .unwrap()
             .actions_recv_message_buffer
-            .get(&MessageId(0))
-            .is_some());
+            .contains_key(&MessageId(0)));
 
         // add an updates message
         manager.recv_message(
@@ -638,5 +654,44 @@ mod tests {
         assert_eq!(replication_data.get(0).unwrap().0, Tick(2));
         assert_eq!(replication_data.get(1).unwrap().0, Tick(3));
         assert_eq!(replication_data.get(2).unwrap().0, Tick(4));
+    }
+
+    #[test]
+    fn test_recv_spawn_reuse() {
+        let mut manager = ReplicationReceiver::new();
+        let mut world = World::new();
+        let remote_entity = Entity::from_raw(1000);
+        let local_entity = world.spawn_empty().id();
+        let component_registry = ComponentRegistry::default();
+        let mut events = ConnectionEvents::default();
+        let group_id = ReplicationGroupId(0);
+        let replication = ReplicationMessageData::Actions(EntityActionMessage {
+            sequence_id: MessageId(0),
+            actions: vec![(
+                remote_entity,
+                EntityActions {
+                    spawn: SpawnAction::Reuse(local_entity.to_bits()),
+                    insert: vec![],
+                    remove: Default::default(),
+                    updates: vec![],
+                },
+            )],
+        });
+        manager.apply_world(
+            &mut world,
+            &component_registry,
+            Tick(0),
+            replication,
+            group_id,
+            &mut events,
+        );
+
+        // check that no new entities were spawned
+        assert_eq!(world.entities().len(), 1);
+        // check that the entity mapping was updated
+        assert_eq!(
+            manager.remote_entity_map.get_local(remote_entity).unwrap(),
+            &local_entity
+        );
     }
 }

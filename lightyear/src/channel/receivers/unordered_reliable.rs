@@ -128,7 +128,7 @@ mod tests {
 
         // we process the message
         assert_eq!(receiver.recv_message_buffer.len(), 1);
-        assert!(receiver.recv_message_buffer.get(&MessageId(1)).is_some());
+        assert!(receiver.recv_message_buffer.contains_key(&MessageId(1)));
         assert_eq!(receiver.read_message(), Some(single2.clone()));
 
         // we are still expecting message id 0
@@ -140,7 +140,7 @@ mod tests {
 
         // we process the message
         assert_eq!(receiver.recv_message_buffer.len(), 1);
-        assert!(receiver.recv_message_buffer.get(&MessageId(0)).is_some());
+        assert!(receiver.recv_message_buffer.contains_key(&MessageId(0)));
         assert_eq!(receiver.read_message(), Some(single1.clone()));
         assert_eq!(receiver.pending_recv_message_id, MessageId(2));
         Ok(())

@@ -107,7 +107,7 @@ mod tests {
         // we process the message
 
         assert_eq!(receiver.recv_message_buffer.len(), 1);
-        assert!(receiver.recv_message_buffer.get(&MessageId(1)).is_some());
+        assert!(receiver.recv_message_buffer.contains_key(&MessageId(1)));
         assert_eq!(receiver.read_message(), Some(single2.clone()));
         assert_eq!(receiver.most_recent_message_id, MessageId(1));
 
