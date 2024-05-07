@@ -60,8 +60,7 @@ pub struct Replicate {
 }
 
 /// Defines the target entity for the replication
-#[derive(Component, Default, Clone, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
+#[derive(Default, Clone, Debug, PartialEq, Reflect)]
 pub enum TargetEntity {
     /// Spawn a new entity on the target client
     #[default]
@@ -492,12 +491,6 @@ pub struct PrePredicted {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 #[component(storage = "SparseSet")]
 pub struct ShouldBePredicted;
-
-// TODO: instead of having so many extra components, should we have one ReplicationMetadata message
-// with should_be_predicted: bool, should_be_interpolated: bool, etc.?
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
-pub struct ShouldReuseTargetEntity(Entity);
 
 #[cfg(test)]
 mod tests {

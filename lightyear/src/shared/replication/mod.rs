@@ -42,8 +42,8 @@ pub(crate) mod systems;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
 pub struct EntityActions {
-    pub(crate) spawn: bool,
-    pub(crate) despawn: bool,
+    pub(crate) spawn: SpawnAction,
+    // TODO: maybe do HashMap<NetId, RawData>? for example for ShouldReuseTarget
     pub(crate) insert: Vec<RawData>,
     #[bitcode(with_serde)]
     // TODO: use a ComponentNetId instead of NetId?
@@ -51,11 +51,19 @@ pub struct EntityActions {
     pub(crate) updates: Vec<RawData>,
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+pub(crate) enum SpawnAction {
+    None,
+    Spawn,
+    Despawn,
+    // the u64 is the entity's bits (we cannot use Entity directly because it doesn't implement Encode/Decode)
+    Reuse(u64),
+}
+
 impl Default for EntityActions {
     fn default() -> Self {
         Self {
-            spawn: false,
-            despawn: false,
+            spawn: SpawnAction::None,
             insert: Vec::new(),
             remove: HashSet::new(),
             updates: Vec::new(),

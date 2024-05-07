@@ -40,7 +40,7 @@ use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{
-    NetworkTarget, Replicate, ReplicationGroupId, ShouldBeInterpolated, ShouldReuseTargetEntity,
+    NetworkTarget, Replicate, ReplicationGroupId, ShouldBeInterpolated,
 };
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -288,7 +288,7 @@ impl ConnectionManager {
         group_id: ReplicationGroupId,
         client_id: ClientId,
         data: &C,
-    ) {
+    ) -> Result<()> {
         let net_id = self
             .component_registry()
             .get_net_id::<C>()
@@ -297,6 +297,7 @@ impl ConnectionManager {
         self.connection_mut(client_id)?
             .replication_sender
             .prepare_component_insert(entity, group_id, net_id, raw_data);
+        Ok(())
     }
 }
 
@@ -675,17 +676,6 @@ impl ReplicationSend for ConnectionManager {
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
 
         self.apply_replication(target).try_for_each(|client_id| {
-            // if we don't want to spawn a new entity but instead reuse an existing once, send a marker component
-            // to indicate which entity to reuse
-            if let TargetEntity::Preexisting(remote_entity) = replicate.target_entity {
-                // TODO: only serialize once
-                self.prepare_typed_component_insert(
-                    entity,
-                    group_id,
-                    client_id,
-                    &ShouldReuseTargetEntity(remote_entity),
-                );
-            }
             // if we need to do prediction/interpolation, send a marker component to indicate that to the client
             if replicate.prediction_target.should_send_to(&client_id) {
                 // TODO: the serialized data is always the same; cache it somehow?
@@ -694,7 +684,7 @@ impl ReplicationSend for ConnectionManager {
                     group_id,
                     client_id,
                     &ShouldBePredicted,
-                );
+                )?;
             }
             if replicate.interpolation_target.should_send_to(&client_id) {
                 self.prepare_typed_component_insert(
@@ -702,7 +692,7 @@ impl ReplicationSend for ConnectionManager {
                     group_id,
                     client_id,
                     &ShouldBeInterpolated,
-                );
+                )?;
             }
             let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
             // update the collect changes tick
@@ -711,7 +701,11 @@ impl ReplicationSend for ConnectionManager {
             //     .entry(group)
             //     .or_default()
             //     .update_collect_changes_since_this_tick(system_current_tick);
-            replication_sender.prepare_entity_spawn(entity, group_id);
+            if let TargetEntity::Preexisting(remote_entity) = replicate.target_entity {
+                replication_sender.prepare_entity_spawn_reuse(entity, group_id, remote_entity);
+            } else {
+                replication_sender.prepare_entity_spawn(entity, group_id);
+            }
             // also set the priority for the group when we spawn it
             self.update_priority(group_id, client_id, replicate.replication_group.priority())?;
             Ok(())
