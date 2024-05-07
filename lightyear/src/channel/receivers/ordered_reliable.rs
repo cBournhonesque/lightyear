@@ -106,7 +106,7 @@ mod tests {
         // the message has been buffered, but we are not processing it yet
         // until we have received message 0
         assert_eq!(receiver.recv_message_buffer.len(), 1);
-        assert!(receiver.recv_message_buffer.get(&MessageId(1)).is_some());
+        assert!(receiver.recv_message_buffer.contains_key(&MessageId(1)));
         assert_eq!(receiver.read_message(), None);
         assert_eq!(receiver.pending_recv_message_id, MessageId(0));
 

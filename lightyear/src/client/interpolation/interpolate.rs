@@ -90,7 +90,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
                     ?current_interpolate_tick,
                     "interpolation is beyond previous end tick"
                 );
-                start = end.clone();
+                start.clone_from(&end);
                 // TODO: this clone should be avoidable
                 if let Some(mut component) = component {
                     *component = end_value.clone();
