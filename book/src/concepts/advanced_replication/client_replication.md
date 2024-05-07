@@ -1,12 +1,54 @@
 # Client replication
 
 It is also possible to use lightyear to replicate entities from the client to the server.
-There are different possibilities.
+There are different possibilities. Note that regardless of the approach taken, you will
+need to explicitly enable sending replication from the client, and receiving replication
+on the server:
+
+```rust
+let client_config = client::ClientConfig {
+    /* other fields */
+    replication: lightyear::client::replication::ReplicationConfig {
+        enable_send: true,
+        enable_receive: true,
+    },
+    ..default()
+};
+
+let server_config = server::ServerConfig {
+    /* other fields */
+    replication: lightyear::server::replication::ReplicationConfig {
+        enable_send: true,
+        enable_receive: true,
+    },
+    ..default()
+};
+```
+
+For a detailed example, please see the `client_replication` example.
 
 ## Client authoritative
 
 To replicate a client-entity to the server, it is exactly the same as for a server-entity.
-Just add the `Replicate` component to the entity and it will be replicated to the server.
+Just add the `Replicate` component to the entity and it will be replicated to the server:
+```rust
+fn handle_connection(
+    mut connection_event: EventReader<ConnectEvent>,
+    mut commands: Commands,
+) {
+    for event in connection_event.read() {
+        let local_client_id = event.client_id();
+        commands.spawn((
+            /* your other components here */
+            Replicate {
+                replication_target: NetworkTarget::All,
+                interpolation_target: NetworkTarget::AllExcept(vec![local_client_id]),
+                ..default()
+            },
+        ));
+    }
+}
+```
 
 Note that `prediction_target` and `interpolation_target` will be unused as the server doesn't do any 
 prediction or interpolation.
