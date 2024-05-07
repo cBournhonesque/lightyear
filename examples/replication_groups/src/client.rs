@@ -28,18 +28,6 @@ impl Plugin for ExampleClientPlugin {
         //         .before(InterpolationSet::PrepareInterpolation)
         //         .after(InterpolationSet::DespawnFlush),
         // );
-        // app.add_systems(
-        //     PreUpdate,
-        //     debug_prediction_pre_rollback
-        //         .after(PredictionSet::SpawnHistoryFlush)
-        //         .before(PredictionSet::CheckRollback),
-        // );
-        // app.add_systems(
-        //     PreUpdate,
-        //     debug_prediction_post_rollback
-        //         .after(PredictionSet::CheckRollback)
-        //         .before(PredictionSet::Rollback),
-        // );
         app.add_systems(
             PostUpdate,
             interpolate.in_set(InterpolationSet::Interpolate),
@@ -153,37 +141,6 @@ pub(crate) fn handle_interpolated_spawn(
 ) {
     for mut color in interpolated.iter_mut() {
         color.0.set_s(0.1);
-    }
-}
-
-pub(crate) fn debug_prediction_pre_rollback(
-    tick_manager: Res<TickManager>,
-    parent_query: Query<&PredictionHistory<PlayerPosition>>,
-    tail_query: Query<(&PlayerParent, &PredictionHistory<TailPoints>)>,
-) {
-    trace!(tick = ?tick_manager.tick(),
-        "prediction pre rollback debug");
-    for (parent, tail_history) in tail_query.iter() {
-        let parent_history = parent_query
-            .get(parent.0)
-            .expect("Tail entity has no parent entity!");
-        trace!(?parent_history, "parent");
-        trace!(?tail_history, "tail");
-    }
-}
-
-pub(crate) fn debug_prediction_post_rollback(
-    tick_manager: Res<TickManager>,
-    parent_query: Query<&PredictionHistory<PlayerPosition>>,
-    tail_query: Query<(&PlayerParent, &PredictionHistory<TailPoints>)>,
-) {
-    trace!(tick = ?tick_manager.tick(), "prediction post rollback debug");
-    for (parent, tail_history) in tail_query.iter() {
-        let parent_history = parent_query
-            .get(parent.0)
-            .expect("Tail entity has no parent entity!");
-        trace!(?parent_history, "parent");
-        trace!(?tail_history, "tail");
     }
 }
 
