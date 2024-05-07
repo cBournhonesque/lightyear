@@ -15,8 +15,8 @@ use wtransport::datagram::Datagram;
 use wtransport::endpoint::endpoint_side::Server;
 use wtransport::endpoint::IncomingSession;
 use wtransport::tls::Certificate;
-use wtransport::ServerConfig;
 use wtransport::{Connection, Endpoint};
+use wtransport::{Identity, ServerConfig};
 
 use crate::transport::error::{Error, Result};
 use crate::transport::io::IoState;
@@ -27,7 +27,7 @@ use crate::transport::{
 
 pub(crate) struct WebTransportServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,
-    pub(crate) certificate: Certificate,
+    pub(crate) certificate: Identity,
 }
 
 impl TransportBuilder for WebTransportServerSocketBuilder {
@@ -51,7 +51,7 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
 
         let config = ServerConfig::builder()
             .with_bind_address(self.server_addr)
-            .with_certificate(self.certificate)
+            .with_identity(&self.certificate)
             .build();
         // need to run this with Compat because it requires the tokio reactor
         IoTaskPool::get()
