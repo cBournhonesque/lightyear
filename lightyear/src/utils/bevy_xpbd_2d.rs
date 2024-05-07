@@ -1,18 +1,7 @@
 //! Implement lightyear traits for some common bevy types
-use std::ops::{Add, Mul};
-
-use bevy::prelude::EntityMapper;
 use bevy_xpbd_2d::components::*;
 use bevy_xpbd_2d::math::Scalar;
 use tracing::trace;
-
-use crate::client::components::{LerpFn, SyncComponent};
-use crate::prelude::Message;
-
-// pub use angular_velocity::*;
-// pub use linear_velocity::*;
-// pub use position::*;
-// pub use rotation::*;
 
 pub mod position {
 

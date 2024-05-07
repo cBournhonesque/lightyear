@@ -3,7 +3,7 @@ name = "lightyear"
 version = "0.14.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
-rust-version = "1.65"
+rust-version = "1.76"
 description = "Server-client networking library for the Bevy game engine"
 readme = "../README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
@@ -21,7 +21,6 @@ metrics = [
   "dep:tokio",
 ]
 mock_time = ["dep:mock_instant"]
-render = ["bevy/bevy_render"]
 webtransport = [
   "dep:wtransport",
   "dep:xwt-core",
@@ -183,5 +182,17 @@ approx = "0.5.1"
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
-all-features = true
+# we cannot use all-features = true, because we need to provide additional features for bevy_xpbd_2d
+# when building the docs
+features = [
+  "metrics",
+  "webtransport",
+  "leafwing",
+  "xpbd_2d",
+  "websocket",
+  "steam",
+  "zstd",
+  "bevy_xpbd_2d/2d",
+  "bevy_xpbd_2d/f32",
+]
 rustdoc-args = ["--cfg", "docsrs"]

@@ -574,8 +574,7 @@ mod tests {
             .get(&group_id)
             .unwrap()
             .actions_recv_message_buffer
-            .get(&MessageId(0))
-            .is_some());
+            .contains_key(&MessageId(0)));
 
         // add an updates message
         manager.recv_message(
