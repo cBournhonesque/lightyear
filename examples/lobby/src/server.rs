@@ -84,10 +84,10 @@ fn spawn_player_entity(
     let replicate = Replicate {
         prediction_target: NetworkTarget::Single(client_id),
         interpolation_target: NetworkTarget::AllExceptSingle(client_id),
-        replication_mode: if dedicated_server {
-            ReplicationMode::Room
+        visibility: if dedicated_server {
+            VisibilityMode::InterestManagement
         } else {
-            ReplicationMode::NetworkTarget
+            VisibilityMode::All
         },
         ..default()
     };
@@ -167,6 +167,7 @@ mod game {
 
 mod lobby {
     use lightyear::server::connection::ConnectionManager;
+    use lightyear::server::visibility::room::RoomManager;
 
     use super::*;
 

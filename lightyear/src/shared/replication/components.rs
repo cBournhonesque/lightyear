@@ -13,7 +13,7 @@ use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
 use crate::prelude::ParentSync;
 use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
-use crate::server::room::ClientVisibility;
+use crate::server::visibility::immediate::{ClientVisibility, VisibilityManager};
 
 /// Marker component that indicates that the entity was spawned via replication
 /// (it is being replicated from a remote world)
@@ -37,7 +37,7 @@ pub struct Replicate {
     /// Which clients should interpolated this entity
     pub interpolation_target: NetworkTarget,
     /// How do we find the list of clients to replicate to?
-    pub replication_mode: ReplicationMode,
+    pub visibility: VisibilityMode,
     /// The replication group defines how entities are grouped (sent as a single message) for replication.
     /// This should not be modified after the Replicate component is created
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
@@ -68,13 +68,6 @@ pub enum TargetEntity {
     /// Instead of spawning a new entity, we will apply the replication updates
     /// to the existing remote entity
     Preexisting(Entity),
-}
-
-#[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
-pub(crate) struct ReplicateVisibility {
-    /// List of clients that the entity is currently replicated to.
-    /// Will be updated before the other replication systems
-    pub(crate) clients_cache: HashMap<ClientId, ClientVisibility>,
 }
 
 /// This lets you specify how to customize the replication behaviour for a given component
@@ -281,13 +274,20 @@ impl ReplicationGroup {
 pub struct ReplicationGroupId(pub u64);
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Reflect)]
-pub enum ReplicationMode {
-    /// We will replicate this entity only to clients that are in the same room as the entity
+pub enum VisibilityMode {
+    /// We will replicate this entity to the clients specified in the `replication_target`.
+    /// On top of that, we will apply interest management logic to determine which clients should receive the entity
+    ///
+    /// You can use [`gain_visibility`](VisibilityManager::gain_visibility) and [`lose_visibility`](VisibilityManager::lose_visibility)
+    /// to control the visibility of entities.
+    /// You can also use the [`RoomManager`](RoomManager)
+    ///
     /// (the client still needs to be included in the [`NetworkTarget`], the room is simply an additional constraint)
-    Room,
-    /// We will replicate this entity to clients using only the [`NetworkTarget`], without caring about rooms
+    InterestManagement,
+    /// We will replicate this entity to the client specified in the `replication_target`, without
+    /// running any additional interest management logic
     #[default]
-    NetworkTarget,
+    All,
 }
 
 impl Default for Replicate {
@@ -297,7 +297,7 @@ impl Default for Replicate {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
             interpolation_target: NetworkTarget::None,
-            replication_mode: ReplicationMode::default(),
+            visibility: VisibilityMode::default(),
             replication_group: Default::default(),
             replicate_hierarchy: true,
             target_entity: Default::default(),
