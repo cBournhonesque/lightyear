@@ -49,7 +49,7 @@ pub(crate) enum MessageType {
     Normal,
 }
 
-/// A [`Resource`](bevy::prelude::Resource) that will keep track of all the [`Message`]s that can be sent over the network.
+/// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
 /// A [`Message`] is any type that is serializable and deserializable.
 ///
 ///
