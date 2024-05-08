@@ -18,9 +18,9 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 [dependencies]
 common = { path = "../common" }
 lightyear = { path = "../../lightyear", features = [
-    "steam",
-    "webtransport",
-    "websocket",
+  "steam",
+  "webtransport",
+  "websocket",
 ] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }

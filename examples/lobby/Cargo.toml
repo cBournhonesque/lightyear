@@ -21,10 +21,10 @@ bevy_egui = "0.25.0"
 egui_extras = "0.26.0"
 leafwing-input-manager = "0.13"
 lightyear = { path = "../../lightyear", features = [
-    "webtransport",
-    "websocket",
-    "leafwing",
-    "steam",
+  "webtransport",
+  "websocket",
+  "leafwing",
+  "steam",
 ] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }

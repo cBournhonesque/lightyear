@@ -6,9 +6,9 @@ description = "Common harness for the lightyear examples"
 
 [dependencies]
 lightyear = { path = "../../lightyear", features = [
-    "steam",
-    "webtransport",
-    "websocket",
+  "steam",
+  "webtransport",
+  "websocket",
 ] }
 
 # utils
