@@ -1,0 +1,25 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+description = "Common harness for the lightyear examples"
+
+[dependencies]
+lightyear = { path = "../../lightyear", features = [
+  "steam",
+  "webtransport",
+  "websocket",
+] }
+
+# utils
+anyhow = { version = "1.0.75", features = [] }
+async-compat = "0.2.3"
+cfg-if = "1.0.0"
+clap = { version = "4.5.4", features = ["derive"] }
+crossbeam-channel = "0.5.12"
+serde = { version = "1.0.201", features = ["derive"] }
+
+
+# bevy
+bevy = { version = "0.13" }
+bevy-inspector-egui = "0.24"

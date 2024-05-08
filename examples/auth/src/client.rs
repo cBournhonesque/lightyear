@@ -6,10 +6,9 @@
 //! predicted entity and the server entity)
 use async_compat::Compat;
 use std::io::Read;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::tasks::futures_lite::future;
 use bevy::tasks::{block_on, IoTaskPool, Task};
@@ -20,13 +19,12 @@ use bevy_mod_picking::prelude::{Click, On, Pointer};
 use lightyear::connection::netcode::CONNECT_TOKEN_BYTES;
 use tokio::io::AsyncReadExt;
 
-pub use lightyear::prelude::client::*;
+use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::Direction;
 use crate::protocol::*;
-use crate::shared::shared_config;
-use crate::{shared, ClientTransports, SharedSettings};
+use crate::shared;
 
 pub struct ExampleClientPlugin {
     pub auth_backend_address: SocketAddr,

@@ -84,7 +84,8 @@ impl Plugin for SetupPlugin {
 
         // TODO: how do we make sure that SharedPlugin is only added once if we want to switch between
         //  HostServer and Separate mode?
-        if self.config.shared.mode == Mode::Separate {
+        // if self.config.shared.mode == Mode::Separate {
+        if !app.is_plugin_added::<SharedPlugin>() {
             app
                 // PLUGINS
                 .add_plugins(SharedPlugin {

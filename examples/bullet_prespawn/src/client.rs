@@ -1,8 +1,3 @@
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-
-use bevy::app::PluginGroupBuilder;
-use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionData;
@@ -13,12 +8,12 @@ use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 
 use lightyear::inputs::native::input_buffer::InputBuffer;
-pub use lightyear::prelude::client::*;
+use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_player_movement};
-use crate::{shared, ClientTransports, SharedSettings};
+use crate::shared;
+use crate::shared::{color_from_id, shared_player_movement};
 
 pub struct ExampleClientPlugin;
 

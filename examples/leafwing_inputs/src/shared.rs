@@ -6,6 +6,7 @@ use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlu
 use bevy_xpbd_2d::parry::shape::Ball;
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
+use common::shared::FIXED_TIMESTEP_HZ;
 use leafwing_input_manager::prelude::ActionState;
 use tracing::Level;
 
@@ -15,23 +16,8 @@ use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;
-
-const FRAME_HZ: f64 = 60.0;
-const FIXED_TIMESTEP_HZ: f64 = 64.0;
 const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
-
-pub fn shared_config(mode: Mode) -> SharedConfig {
-    SharedConfig {
-        client_send_interval: Duration::default(),
-        // server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
-        server_send_interval: Duration::from_millis(100),
-        tick: TickConfig {
-            tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
-        },
-        mode,
-    }
-}
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum FixedSet {
@@ -41,6 +27,7 @@ pub enum FixedSet {
     Physics,
 }
 
+#[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {

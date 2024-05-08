@@ -8,22 +8,20 @@
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
 use anyhow::Context;
 use async_compat::Compat;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
 use bevy::utils::{Duration, HashSet};
 use tokio::io::AsyncWriteExt;
 
-pub use lightyear::prelude::server::*;
+use lightyear::prelude::server::*;
 use lightyear::prelude::ClientId::Netcode;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::shared_config;
-use crate::{shared, ServerTransports, SharedSettings};
+use crate::shared;
 
 pub struct ExampleServerPlugin {
     pub protocol_id: u64,

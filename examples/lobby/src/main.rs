@@ -10,169 +10,80 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-
-use std::net::SocketAddr;
-use std::str::FromStr;
-
-use bevy::asset::ron;
-use bevy::log::{Level, LogPlugin};
-use bevy::prelude::*;
-use bevy::DefaultPlugins;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use clap::{Parser, ValueEnum};
-use serde::{Deserialize, Serialize};
-
-use lightyear::prelude::client::{InterpolationConfig, InterpolationDelay};
-use lightyear::prelude::TransportConfig;
-use lightyear::shared::config::Mode;
-use lightyear::shared::log::add_log_layer;
-
 use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
-use crate::settings::*;
-use crate::shared::{shared_config, SharedPlugin};
+use crate::shared::SharedPlugin;
+use bevy::prelude::*;
+use common::app::{Apps, Cli};
+use common::settings::{ServerTransports, Settings};
+use lightyear::prelude::{Deserialize, Serialize};
 
 mod client;
 mod protocol;
 mod server;
-mod settings;
 mod shared;
 
-#[derive(Parser, PartialEq, Debug)]
-enum Cli {
-    #[cfg(not(target_family = "wasm"))]
-    /// Dedicated server
-    Server,
-    /// The program will act as a client. We will also launch the ServerPlugin in the same app
-    /// so that a client can also act as host.
-    Client {
-        #[arg(short, long, default_value = None)]
-        client_id: Option<u64>,
-    },
-}
+pub const HOST_SERVER_PORT: u16 = 5050;
 
-/// We parse the settings.ron file to read the settings, than create the apps and run them
 fn main() {
-    cfg_if::cfg_if! {
-        if #[cfg(target_family = "wasm")] {
-            let client_id = rand::random::<u64>();
-            let cli = Cli::Client {
-                client_id: Some(client_id)
-            };
-        } else {
-            let cli = Cli::parse();
-        }
-    }
+    let mut cli = common::app::cli();
     let settings_str = include_str!("../assets/settings.ron");
-    let settings = ron::de::from_str::<Settings>(settings_str).unwrap();
-    run(settings, cli);
-}
+    let mut settings = common::settings::settings::<Settings>(settings_str);
 
-/// This is the main function
-/// The cli argument is used to determine if we are running as a client or a server (or listen-server)
-/// Then we build the app and run it.
-///
-/// To build a lightyear app you will need to add either the [`client::ClientPlugins`] or [`server::ServerPlugin`]
-/// They can be created by providing a [`client::ClientConfig`] or [`server::ServerConfig`] struct, along with a
-/// shared protocol which defines the messages (Messages, Components, Inputs) that can be sent between client and server.
-fn run(mut settings: Settings, cli: Cli) {
+    // in this example, every client will actually launch in host-server mode
+    // the reason is that we want every client to be able to be the 'host' of a lobby
+    // so every client needs to have the ServerPlugins included in the app
     match cli {
-        #[cfg(not(target_family = "wasm"))]
-        Cli::Server => {
-            let mut app = server_app(settings, vec![]);
-            app.run();
-        }
         Cli::Client { client_id } => {
-            let server_addr = SocketAddr::new(
-                settings.client.server_addr.into(),
-                settings.client.server_port,
-            );
-            // use the cli-provided client id if it exists, otherwise use the settings client id
-            if let Some(client_id) = client_id {
-                settings.client.client_id = client_id;
-            }
-            let net_config = get_client_net_config(&settings);
-            let mut app = combined_app(settings, net_config);
-            app.run();
+            cli = Cli::HostServer { client_id };
+            // when the client acts as host, we will use port UDP:5050 for the transport
+            settings.server.transport = vec![ServerTransports::Udp {
+                local_port: HOST_SERVER_PORT,
+            }];
+        }
+        Cli::Server => {}
+        _ => {
+            panic!("This example only supports the modes Client and Server");
         }
     }
-}
 
-/// Build the server app
-#[cfg(not(target_family = "wasm"))]
-fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>) -> App {
-    let mut app = App::new();
-    if !settings.server.headless {
-        app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
-    } else {
-        app.add_plugins(MinimalPlugins);
-    }
-    app.add_plugins(LogPlugin {
-        level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: Some(add_log_layer),
-    });
-    let mut net_configs = get_server_net_configs(&settings);
-    let extra_net_configs = extra_transport_configs.into_iter().map(|c| {
-        build_server_netcode_config(settings.server.conditioner.as_ref(), &settings.shared, c)
-    });
-    net_configs.extend(extra_net_configs);
-    let server_config = server::ServerConfig {
-        shared: shared_config(Mode::Separate),
-        net: net_configs,
-        ..default()
-    };
-    app.add_plugins((
-        server::ServerPlugins::new(server_config),
+    // build the bevy app (this adds common plugins such as the DefaultPlugins)
+    // and returns the `ClientConfig` and `ServerConfig` so that we can modify them
+    let mut app = common::app::build_app(settings.clone(), cli);
+    // we do not modify the configurations of the plugins, so we can just build
+    // the `ClientPlugins` and `ServerPlugins` plugin groups
+    app.add_lightyear_plugin_groups();
+    // add our plugins
+    app.add_plugins(
+        ExampleClientPlugin { settings },
         ExampleServerPlugin,
         SharedPlugin,
-    ));
-    if settings.server.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
-    app
+    );
+
+    // run the app
+    app.run();
 }
 
-/// An app that contains both the client and server plugins
-#[cfg(not(target_family = "wasm"))]
-fn combined_app(settings: Settings, client_net_config: client::NetConfig) -> App {
-    let mut app = App::new();
-    app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-        level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: Some(add_log_layer),
-    }));
-    if settings.client.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MySettings {
+    pub common: Settings,
 
-    // server plugin
-    let net_configs = get_host_server_net_configs(&settings);
-    let server_config = server::ServerConfig {
-        shared: shared_config(Mode::HostServer),
-        net: net_configs,
-        ..default()
-    };
-    app.add_plugins((
-        server::ServerPlugins::new(server_config),
-        ExampleServerPlugin,
-    ));
+    /// If true, we will predict the client's entities, but also the ball and other clients' entities!
+    /// This is what is done by RocketLeague (see [video](https://www.youtube.com/watch?v=ueEmiDM94IE))
+    ///
+    /// If false, we will predict the client's entities but simple interpolate everything else.
+    pub(crate) predict_all: bool,
 
-    // client plugin
-    let client_config = client::ClientConfig {
-        shared: shared_config(Mode::HostServer),
-        net: client_net_config,
-        interpolation: InterpolationConfig {
-            delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
-            ..default()
-        },
-        ..default()
-    };
-    app.add_plugins((
-        client::ClientPlugins::new(client_config),
-        ExampleClientPlugin { settings },
-    ));
-    // shared plugin
-    app.add_plugins(SharedPlugin);
-    app
+    /// By how many ticks an input press will be delayed?
+    /// This can be useful as a tradeoff between input delay and prediction accuracy.
+    /// If the input delay is greater than the RTT, then there won't ever be any mispredictions/rollbacks.
+    /// See [this article](https://www.snapnet.dev/docs/core-concepts/input-delay-vs-rollback/) for more information.
+    pub(crate) input_delay_ticks: u16,
+
+    /// If visual correction is enabled, we don't instantly snapback to the corrected position
+    /// when we need to rollback. Instead we interpolated between the current position and the
+    /// corrected position.
+    /// This controls the duration of the interpolation; the higher it is, the longer the interpolation
+    /// will take
+    pub(crate) correction_ticks_factor: f32,
 }

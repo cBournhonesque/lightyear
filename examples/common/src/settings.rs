@@ -1,10 +1,13 @@
 //! This module parses the settings.ron file and builds a lightyear configuration from it
-use std::env::join_paths;
+#![allow(unused_variables)]
 use std::net::{Ipv4Addr, SocketAddr};
 
 use async_compat::Compat;
+use bevy::asset::ron;
+use bevy::prelude::Resource;
 use bevy::tasks::IoTaskPool;
 use bevy::utils::Duration;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use lightyear::prelude::client::Authentication;
@@ -12,9 +15,12 @@ use lightyear::prelude::client::Authentication;
 use lightyear::prelude::client::SteamConfig;
 use lightyear::prelude::{CompressionConfig, IoConfig, LinkConditionerConfig, TransportConfig};
 
-#[cfg(not(target_family = "wasm"))]
-use crate::server::Identity;
-use crate::{client, server};
+use lightyear::prelude::{client, server};
+
+/// We parse the settings.ron file to read the settings
+pub fn settings<T: DeserializeOwned>(settings_str: &str) -> T {
+    ron::de::from_str::<T>(settings_str).expect("Could not deserialize the settings file")
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ClientTransports {
@@ -82,11 +88,7 @@ pub struct ServerSettings {
     pub(crate) conditioner: Option<Conditioner>,
 
     /// Which transport to use
-    pub(crate) transport: Vec<ServerTransports>,
-
-    /// The server will listen on this port for incoming tcp authentication requests
-    /// and respond with a [`ConnectToken`](lightyear::prelude::ConnectToken)
-    pub(crate) netcode_auth_port: u16,
+    pub transport: Vec<ServerTransports>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -101,10 +103,10 @@ pub struct ClientSettings {
     pub(crate) client_port: u16,
 
     /// The ip address of the server
-    pub(crate) server_addr: Ipv4Addr,
+    pub server_addr: Ipv4Addr,
 
     /// The port of the server
-    pub(crate) server_port: u16,
+    pub server_port: u16,
 
     /// Which transport to use
     pub(crate) transport: ClientTransports,
@@ -116,16 +118,16 @@ pub struct ClientSettings {
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct SharedSettings {
     /// An id to identify the protocol version
-    pub(crate) protocol_id: u64,
+    pub protocol_id: u64,
 
     /// a 32-byte array to authenticate via the Netcode.io protocol
-    pub(crate) private_key: [u8; 32],
+    pub private_key: [u8; 32],
 
     /// compression options
     pub(crate) compression: CompressionConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Resource, Debug, Clone, Deserialize, Serialize)]
 pub struct Settings {
     pub server: ServerSettings,
     pub client: ClientSettings,
@@ -181,7 +183,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
                 let certificate = IoTaskPool::get()
                     .scope(|s| {
                         s.spawn(Compat::new(async {
-                            Identity::load_pemfiles(
+                            server::Identity::load_pemfiles(
                                 "../certificates/cert.pem",
                                 "../certificates/key.pem",
                             )
@@ -202,7 +204,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
                     },
                 )
             }
-            ServerTransports::WebSocket { local_port } => crate::build_server_netcode_config(
+            ServerTransports::WebSocket { local_port } => build_server_netcode_config(
                 settings.server.conditioner.as_ref(),
                 &settings.shared,
                 TransportConfig::WebSocketServer {
@@ -242,15 +244,11 @@ pub fn build_client_netcode_config(
     transport_config: TransportConfig,
 ) -> client::NetConfig {
     let conditioner = conditioner.map_or(None, |c| Some(c.build()));
-    let auth = if client_id == 0 {
-        Authentication::None
-    } else {
-        Authentication::Manual {
-            server_addr,
-            client_id,
-            private_key: shared.private_key,
-            protocol_id: shared.protocol_id,
-        }
+    let auth = Authentication::Manual {
+        server_addr,
+        client_id,
+        private_key: shared.private_key,
+        protocol_id: shared.protocol_id,
     };
     let netcode_config = client::NetcodeConfig::default();
     let io_config = IoConfig {
@@ -291,7 +289,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
                 client_addr,
                 server_addr,
                 #[cfg(target_family = "wasm")]
-                certificate_digest: certificate_digest.clone().replace(":", ""),
+                certificate_digest: certificate_digest.to_string().replace(":", ""),
             },
         ),
         ClientTransports::WebSocket => build_client_netcode_config(

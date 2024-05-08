@@ -23,15 +23,6 @@ Settings(
         // transport: Steam(
         //     app_id: 480,
         // )
-        host_server_port: 5005,
-        host_server_transport: Udp,
-    ),
-    host_server: HostServerSettings(
-        transport: [
-            Udp(
-                local_port: 5005
-            ),
-        ],
     ),
     server: ServerSettings(
         headless: true,

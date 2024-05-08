@@ -14,7 +14,7 @@ use lightyear::prelude::server::ServerCommands;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::settings::{get_client_net_config, Settings};
+use common::settings::{get_client_net_config, Settings};
 
 pub struct ExampleClientPlugin {
     pub(crate) settings: Settings,
@@ -103,6 +103,8 @@ fn on_disconnect(
     settings: Res<Settings>,
     connection: Res<ClientConnection>,
 ) {
+    let existing_client_id = connection.id();
+
     for entity in entities.iter() {
         commands.entity(entity).despawn_recursive();
     }
@@ -112,7 +114,7 @@ fn on_disconnect(
     commands.stop_server();
 
     // update the client config to connect to the lobby server
-    config.net = get_client_net_config(settings.as_ref());
+    config.net = get_client_net_config(settings.as_ref(), existing_client_id.to_bits());
 }
 
 mod game {
@@ -209,6 +211,7 @@ mod lobby {
     use lightyear::server::config::ServerConfig;
 
     use crate::client::{lobby, AppState};
+    use crate::HOST_SERVER_PORT;
 
     use super::*;
 
@@ -453,7 +456,7 @@ mod lobby {
                             Authentication::Manual { server_addr, .. } => {
                                 *server_addr = SocketAddr::new(
                                     settings.client.server_addr.into(),
-                                    settings.client.host_server_port,
+                                    HOST_SERVER_PORT,
                                 );
                             }
                             _ => {}
