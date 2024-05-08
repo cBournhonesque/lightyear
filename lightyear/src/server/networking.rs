@@ -96,19 +96,22 @@ pub(crate) fn receive(world: &mut World) {
                                             time_manager.update(delta);
                                             trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
-                                            // update server net connections
-                                            // reborrow trick to enable split borrows
-                                            let netservers = &mut *netservers;
-                                            for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
-                                                let _ = netserver
+                                            // update connections
+                                            connection_manager
+                                                .update(time_manager.as_ref(), tick_manager.as_ref());
+
+                                            let servers = world.query::<(Entity, &mut ServerConnection)>().par_iter_mut(world);
+                                            servers.for_each(|(entity, mut server)| {
+                                                // Update the server state
+                                                let _ = server
                                                     .try_update(delta.as_secs_f64())
                                                     .map_err(|e| error!("Error updating netcode server: {:?}", e));
-                                                for client_id in netserver.new_connections().iter().copied() {
-                                                    netservers.client_server_map.insert(client_id, server_idx);
+                                                for client_id in server.new_connections().iter().copied() {
+                                                    netservers.client_server_map.insert(client_id, entity);
                                                     connection_manager.add(client_id);
                                                 }
                                                 // handle disconnections
-                                                for client_id in netserver.new_disconnections().iter().copied() {
+                                                for client_id in server.new_disconnections().iter().copied() {
                                                     if netservers.client_server_map.remove(&client_id).is_some() {
                                                         connection_manager.remove(client_id);
                                                         room_manager.client_disconnect(client_id);
@@ -116,15 +119,9 @@ pub(crate) fn receive(world: &mut World) {
                                                         error!("Client disconnected but could not map client_id to the corresponding netserver");
                                                     }
                                                 };
-                                            }
 
-                                            // update connections
-                                            connection_manager
-                                                .update(time_manager.as_ref(), tick_manager.as_ref());
-
-                                            // RECV_PACKETS: buffer packets into message managers
-                                            for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
-                                                while let Some((packet, client_id)) = netserver.recv() {
+                                                // RECV_PACKETS: buffer packets into message managers
+                                                while let Some((packet, client_id)) = server.recv() {
                                                     // Note: the client_id might not be present in the connection_manager if we receive
                                                     // packets from a client
                                                     // TODO: use connection to apply on BOTH message manager and replication manager
@@ -134,7 +131,7 @@ pub(crate) fn receive(world: &mut World) {
                                                     } else {
                                                         // it's still possible to receive some packets from a client that just disconnected.
                                                         // (multiple packets arrived at the same time from that client)
-                                                        if netserver.new_disconnections().contains(&client_id) {
+                                                        if server.new_disconnections().contains(&client_id) {
                                                             trace!("received packet from client that just got disconnected. Ignoring.");
                                                             // we ignore packets from disconnected clients
                                                             // this is not an error
@@ -144,7 +141,7 @@ pub(crate) fn receive(world: &mut World) {
                                                         }
                                                     }
                                                 }
-                                            }
+                                            });
 
                                             // RECEIVE: read messages and parse them into events
                                             connection_manager
@@ -188,6 +185,7 @@ pub(crate) fn send(
     mut connection_manager: ResMut<ConnectionManager>,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
+    mut servers: Query<&mut ServerConnection>,
 ) {
     trace!("Send packets to clients");
     // finalize any packets that are needed for replication
@@ -205,16 +203,15 @@ pub(crate) fn send(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_id).entered();
-            let netserver_idx = *netservers
+            let server_entity = *netservers
                 .client_server_map
                 .get(client_id)
                 .context("could not find server connection corresponding to client id")?;
-            let netserver = netservers
-                .servers
-                .get_mut(netserver_idx)
+            let mut server = servers
+                .get_mut(server_entity)
                 .context("could not find server with the provided netserver idx")?;
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
-                netserver.send(packet_byte.as_slice(), *client_id)?;
+                server.send(packet_byte.as_slice(), *client_id)?;
             }
             Ok(())
         })
@@ -275,8 +272,7 @@ fn rebuild_server_connections(world: &mut World) {
     world.insert_resource(connection_manager);
 
     // rebuild the server connections and insert them
-    let server_connections = ServerConnections::new(server_config.net);
-    world.insert_resource(server_connections);
+    world.insert_resource(ServerConnections::default());
 }
 
 /// System that runs when we enter the Started state
@@ -289,17 +285,24 @@ fn on_start(world: &mut World) {
         return;
     }
     rebuild_server_connections(world);
-    let _ = world
-        .resource_mut::<ServerConnections>()
-        .start()
-        .inspect_err(|e| error!("Error starting server connections: {:?}", e));
+    world.resource_scope(
+        |world: &mut World, mut connections: Mut<ServerConnections>| {
+            let _ = connections
+                .start(world)
+                .inpect_err(|e| error!("Error starting server connections: {:?}", e));
+        },
+    );
 }
 
 /// System that runs when we enter the Stopped state
-fn on_stop(mut server_connections: ResMut<ServerConnections>) {
-    let _ = server_connections
-        .stop()
-        .inspect_err(|e| error!("Error stopping server connections: {:?}", e));
+fn on_stop(world: &mut World) {
+    world.resource_scope(
+        |world: &mut World, mut connections: Mut<ServerConnections>| {
+            let _ = connections
+                .stop(world)
+                .inspect_err(|e| error!("Error stopping server connections: {:?}", e));
+        },
+    );
 }
 
 pub trait ServerCommands {
