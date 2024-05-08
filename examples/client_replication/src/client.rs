@@ -1,17 +1,11 @@
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
-
-pub use lightyear::prelude::client::*;
+use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::Direction;
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
-use crate::{shared, ClientTransports, SharedSettings};
+use crate::shared::{color_from_id, shared_movement_behaviour};
 
 pub struct ExampleClientPlugin;
 

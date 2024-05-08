@@ -19,8 +19,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::Direction;
 use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, ClientTransports, SharedSettings};
+use crate::shared;
 
 pub struct ExampleClientPlugin;
 
@@ -129,7 +128,7 @@ fn player_movement(
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             for position in position_query.iter_mut() {
-                shared_movement_behaviour(position, input);
+                shared::shared_movement_behaviour(position, input);
             }
         }
     }

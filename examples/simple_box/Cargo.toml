@@ -16,12 +16,12 @@ publish = false
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
+common = { path = "../common" }
 lightyear = { path = "../../lightyear", features = [
-  "steam",
-  "webtransport",
-  "websocket",
+    "steam",
+    "webtransport",
+    "websocket",
 ] }
-async-compat = "0.2.3"
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"
@@ -30,8 +30,5 @@ bevy = { version = "0.13", features = ["bevy_core_pipeline"] }
 bevy_mod_picking = { version = "0.18.2", features = ["backend_bevy_ui"] }
 derive_more = { version = "0.99", features = ["add", "mul"] }
 rand = "0.8.1"
-clap = { version = "4.4", features = ["derive"] }
 metrics-exporter-prometheus = { version = "0.13.0", optional = true }
 bevy-inspector-egui = "0.24"
-cfg-if = "1.0.0"
-crossbeam-channel = "0.5.11"

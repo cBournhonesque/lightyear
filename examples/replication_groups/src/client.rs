@@ -1,20 +1,11 @@
-use std::collections::VecDeque;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::connection::netcode::NetcodeServer;
-pub use lightyear::prelude::client::*;
-use lightyear::prelude::*;
-
 use crate::protocol::Direction;
 use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
-use crate::{shared, ClientTransports, SharedSettings};
+use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 
 pub struct ExampleClientPlugin;
 

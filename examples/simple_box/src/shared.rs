@@ -13,18 +13,6 @@ use lightyear::shared::config::Mode;
 
 use crate::protocol::*;
 
-pub fn shared_config(mode: Mode) -> SharedConfig {
-    SharedConfig {
-        client_send_interval: Duration::default(),
-        server_send_interval: Duration::from_millis(40),
-        // server_send_interval: Duration::from_millis(100),
-        tick: TickConfig {
-            tick_duration: Duration::from_secs_f64(1.0 / 64.0),
-        },
-        mode,
-    }
-}
-
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {

@@ -1,10 +1,13 @@
 //! This module parses the settings.ron file and builds a lightyear configuration from it
-use std::env::join_paths;
+#![allow(unused_variables)]
 use std::net::{Ipv4Addr, SocketAddr};
 
 use async_compat::Compat;
+use bevy::asset::ron;
+use bevy::prelude::Resource;
 use bevy::tasks::IoTaskPool;
 use bevy::utils::Duration;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use lightyear::prelude::client::Authentication;
@@ -12,9 +15,12 @@ use lightyear::prelude::client::Authentication;
 use lightyear::prelude::client::SteamConfig;
 use lightyear::prelude::{CompressionConfig, IoConfig, LinkConditionerConfig, TransportConfig};
 
-#[cfg(not(target_family = "wasm"))]
-use crate::server::Identity;
-use crate::{client, server};
+use lightyear::prelude::{client, server};
+
+/// We parse the settings.ron file to read the settings
+pub fn settings<T: DeserializeOwned>(settings_str: &str) -> T {
+    ron::de::from_str::<T>(settings_str).expect("Could not deserialize the settings file")
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ClientTransports {
@@ -97,7 +103,7 @@ pub struct ClientSettings {
     pub(crate) client_port: u16,
 
     /// The ip address of the server
-    pub(crate) server_addr: Ipv4Addr,
+    pub server_addr: Ipv4Addr,
 
     /// The port of the server
     pub(crate) server_port: u16,
@@ -121,7 +127,7 @@ pub struct SharedSettings {
     pub(crate) compression: CompressionConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Resource, Debug, Clone, Deserialize, Serialize)]
 pub struct Settings {
     pub server: ServerSettings,
     pub client: ClientSettings,
@@ -177,7 +183,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
                 let certificate = IoTaskPool::get()
                     .scope(|s| {
                         s.spawn(Compat::new(async {
-                            Identity::load_pemfiles(
+                            server::Identity::load_pemfiles(
                                 "../certificates/cert.pem",
                                 "../certificates/key.pem",
                             )
@@ -198,7 +204,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
                     },
                 )
             }
-            ServerTransports::WebSocket { local_port } => crate::build_server_netcode_config(
+            ServerTransports::WebSocket { local_port } => build_server_netcode_config(
                 settings.server.conditioner.as_ref(),
                 &settings.shared,
                 TransportConfig::WebSocketServer {

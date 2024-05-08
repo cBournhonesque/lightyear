@@ -33,7 +33,7 @@ use super::config::ServerConfig;
 /// - [`ServerReplicationSendPlugin`]: Handles the replication of entities and resources from the server to the client. This can be
 ///   disabled if you don't need server to client replication.
 pub struct ServerPlugins {
-    config: ServerConfig,
+    pub config: ServerConfig,
 }
 
 impl ServerPlugins {

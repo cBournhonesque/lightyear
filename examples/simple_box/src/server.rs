@@ -6,19 +6,14 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
-use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr};
-
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
-use bevy::utils::Duration;
-
-pub use lightyear::prelude::server::*;
+use bevy::utils::HashMap;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, ServerTransports, SharedSettings};
+use crate::shared;
 
 pub struct ExampleServerPlugin;
 
@@ -114,7 +109,7 @@ pub(crate) fn movement(
             );
             if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
                 if let Ok(position) = position_query.get_mut(*player_entity) {
-                    shared_movement_behaviour(position, input);
+                    shared::shared_movement_behaviour(position, input);
                 }
             }
         }

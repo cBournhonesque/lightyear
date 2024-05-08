@@ -3,9 +3,7 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
-use leafwing_input_manager::orientation::Orientation;
 use leafwing_input_manager::prelude::ActionState;
-use tracing::Level;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
@@ -15,22 +13,7 @@ use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;
 
-const FRAME_HZ: f64 = 60.0;
-const FIXED_TIMESTEP_HZ: f64 = 64.0;
-
 const EPS: f32 = 0.0001;
-
-pub fn shared_config(mode: Mode) -> SharedConfig {
-    SharedConfig {
-        client_send_interval: Duration::default(),
-        server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
-        // server_send_interval: Duration::from_millis(500),
-        tick: TickConfig {
-            tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
-        },
-        mode,
-    }
-}
 
 pub struct SharedPlugin;
 

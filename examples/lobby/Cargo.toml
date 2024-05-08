@@ -14,27 +14,23 @@ publish = false
 
 [features]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
-mock_time = ["lightyear/mock_time"]
 
 [dependencies]
+common = { path = "../common" }
+bevy_egui = "0.25.0"
+egui_extras = "0.26.0"
+leafwing-input-manager = "0.13"
 lightyear = { path = "../../lightyear", features = [
-  "steam",
-  "webtransport",
-  "websocket",
+    "webtransport",
+    "websocket",
+    "leafwing",
+    "steam",
 ] }
-async-compat = "0.2.3"
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"
 tracing-subscriber = "0.3.17"
 bevy = { version = "0.13", features = ["bevy_core_pipeline"] }
-bevy_egui = "0.25.0"
-egui_extras = "0.26.0"
 derive_more = { version = "0.99", features = ["add", "mul"] }
 rand = "0.8.1"
-clap = { version = "4.4", features = ["derive"] }
-mock_instant = "0.4"
 metrics-exporter-prometheus = { version = "0.13.0", optional = true }
-bevy-inspector-egui = "0.24"
-cfg-if = "1.0.0"
-crossbeam-channel = "0.5.11"

@@ -1,19 +1,15 @@
-use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr};
-
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
+use bevy::utils::HashMap;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-
 use lightyear::prelude::client::{Confirmed, Predicted};
-pub use lightyear::prelude::server::*;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
-use crate::{shared, ServerTransports, SharedSettings};
+use crate::shared;
+use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
