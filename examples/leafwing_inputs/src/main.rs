@@ -160,11 +160,6 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
         },
-        replication: client::ReplicationConfig {
-            // enable send because we pre-spawn entities on the client
-            enable_send: true,
-            enable_receive: true,
-        },
         ..default()
     };
     app.add_plugins((
@@ -201,14 +196,10 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     let server_config = server::ServerConfig {
         shared: shared_config(Mode::Separate),
         net: net_configs,
-        replication: lightyear::server::replication::ReplicationConfig {
-            enable_send: true,
-            enable_receive: true,
-        },
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server_config),
+        server::ServerPlugins::new(server_config),
         ExampleServerPlugin {
             predict_all: settings.server.predict_all,
         },
@@ -243,14 +234,10 @@ fn combined_app(
     let server_config = server::ServerConfig {
         shared: shared_config(Mode::HostServer),
         net: net_configs,
-        replication: lightyear::server::replication::ReplicationConfig {
-            enable_send: true,
-            enable_receive: true,
-        },
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server_config),
+        server::ServerPlugins::new(server_config),
         ExampleServerPlugin {
             predict_all: settings.server.predict_all,
         },
@@ -268,11 +255,6 @@ fn combined_app(
         interpolation: InterpolationConfig {
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
-        },
-        replication: client::ReplicationConfig {
-            // enable send because we pre-spawn entities on the client
-            enable_send: true,
-            enable_receive: true,
         },
         ..default()
     };

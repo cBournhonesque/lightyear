@@ -151,7 +151,7 @@ impl LocalBevyStepper {
             }],
             ..default()
         };
-        server_app.add_plugins((ServerPlugin::new(config), ProtocolPlugin));
+        server_app.add_plugins((ServerPlugins::new(config), ProtocolPlugin));
 
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app

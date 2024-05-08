@@ -123,7 +123,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server_config),
+        server::ServerPlugins::new(server_config),
         ExampleServerPlugin,
         SharedPlugin,
     ));
@@ -154,7 +154,7 @@ fn combined_app(settings: Settings, client_net_config: client::NetConfig) -> App
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server_config),
+        server::ServerPlugins::new(server_config),
         ExampleServerPlugin,
     ));
 
