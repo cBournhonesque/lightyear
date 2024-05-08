@@ -486,11 +486,11 @@ pub(crate) fn send_cleanup<R: ReplicationSend>(
 }
 
 pub(crate) fn receive_cleanup<R: ReplicationReceive>(
-    mut sender: ResMut<R>,
+    mut receiver: ResMut<R>,
     tick_manager: Res<TickManager>,
 ) {
     let tick = tick_manager.tick();
-    sender.cleanup(tick);
+    receiver.cleanup(tick);
 }
 
 #[cfg(test)]

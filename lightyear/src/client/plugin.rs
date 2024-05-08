@@ -1,4 +1,13 @@
-//! Defines the client bevy plugin
+//! Defines the [`ClientPlugins`] PluginGroup
+//!
+//! The client consists of multiple different plugins, each with their own responsibilities. These plugins
+//! are grouped into the [`ClientPlugins`] plugin group, which allows you to easily configure and disable
+//! any of the existing plugins.
+//!
+//! This means that users can simply disable existing functionality and replace it with specialized solutions,
+//! while keeping the rest of the features intact.
+//!
+//! Most plugins are truly necessary for the server functionality to work properly, but some could be disabled.
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 
@@ -8,7 +17,7 @@ use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::{ClientReplicationReceivePlugin, ClientReplicationSendPlugin};
-use crate::prelude::server::ServerConfig;
+use crate::prelude::server::{ServerConfig, ServerPlugins};
 use crate::server::events::ServerEventsPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::replication::{ServerReplicationReceivePlugin, ServerReplicationSendPlugin};
