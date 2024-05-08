@@ -3,8 +3,8 @@ use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
 use crate::prelude::{
-    NetworkTarget, PrePredicted, RemoteEntityMap, ReplicationGroup, ReplicationMode,
-    ShouldBePredicted,
+    NetworkTarget, PrePredicted, RemoteEntityMap, ReplicationGroup, ShouldBePredicted,
+    VisibilityMode,
 };
 use crate::shared::replication::components::{
     PerComponentReplicationMetadata, Replicate, ReplicationGroupId, ReplicationGroupIdBuilder,
@@ -49,7 +49,7 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
             .register_type::<ReplicationGroupIdBuilder>()
             .register_type::<ReplicationGroup>()
             .register_type::<ReplicationGroupId>()
-            .register_type::<ReplicationMode>()
+            .register_type::<VisibilityMode>()
             .register_type::<NetworkTarget>()
             .register_type::<ShouldBeInterpolated>()
             .register_type::<PrePredicted>()

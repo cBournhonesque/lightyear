@@ -4,7 +4,8 @@ use bevy::prelude::*;
 use crate::server::events::ServerEventsPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::replication::ServerReplicationPlugin;
-use crate::server::room::RoomPlugin;
+use crate::server::visibility::immediate::VisibilityPlugin;
+use crate::server::visibility::room::RoomPlugin;
 use crate::shared::plugin::SharedPlugin;
 
 use super::config::ServerConfig;
@@ -32,6 +33,7 @@ impl Plugin for ServerPlugin {
             })
             .add_plugins(ServerEventsPlugin)
             .add_plugins(ServerNetworkingPlugin)
+            .add_plugins(VisibilityPlugin)
             .add_plugins(RoomPlugin)
             .add_plugins(ServerReplicationPlugin);
     }

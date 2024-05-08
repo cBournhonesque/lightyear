@@ -13,7 +13,7 @@ use crate::protocol::component::ComponentRegistry;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
-use crate::server::room::RoomManager;
+use crate::server::visibility::room::RoomManager;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, ServerMarker};

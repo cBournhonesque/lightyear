@@ -37,7 +37,7 @@ pub struct ServerReplicationPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ServerReplicationSet {
-    /// You can use this SystemSet to add Replicate components to entities received from clients (to rebroadcast them to other clients)
+    // You can use this SystemSet to add Replicate components to entities received from clients (to rebroadcast them to other clients)
     ClientReplication,
 }
 

@@ -14,9 +14,9 @@ use crate::client::replication::ClientReplicationPlugin;
 use crate::prelude::{ClientId, NetworkTarget, ReplicationGroup, ShouldBePredicted, TickManager};
 use crate::protocol::component::ComponentRegistry;
 use crate::server::replication::ServerReplicationSet;
-use crate::server::room::ClientVisibility;
+use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
 use crate::shared::replication::components::{
-    DespawnTracker, Replicate, ReplicateVisibility, ReplicationGroupId, ReplicationMode,
+    DespawnTracker, Replicate, ReplicationGroupId, VisibilityMode,
 };
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
@@ -27,7 +27,7 @@ use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 pub(crate) struct DespawnMetadata {
     replication_target: NetworkTarget,
     replication_group: ReplicationGroup,
-    replication_mode: ReplicationMode,
+    replication_mode: VisibilityMode,
     /// If mode = Room, the list of clients that could see the entity
     pub(crate) replication_clients_cache: Vec<ClientId>,
 }
@@ -65,13 +65,13 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
         let despawn_metadata = DespawnMetadata {
             replication_target: replicate.replication_target.clone(),
             replication_group: replicate.replication_group,
-            replication_mode: replicate.replication_mode,
+            replication_mode: replicate.visibility,
             replication_clients_cache: vec![],
         };
         sender
             .get_mut_replicate_despawn_cache()
             .insert(entity, despawn_metadata);
-        if replicate.replication_mode == ReplicationMode::Room {
+        if replicate.visibility == VisibilityMode::InterestManagement {
             commands
                 .entity(entity)
                 .insert(ReplicateVisibility::default());
@@ -89,7 +89,7 @@ fn send_entity_despawn<R: ReplicationSend>(
 ) {
     // Despawn entities for clients that lost visibility
     query.iter().for_each(|(entity, replicate, visibility)| {
-        if matches!(replicate.replication_mode, ReplicationMode::Room) {
+        if matches!(replicate.visibility, VisibilityMode::InterestManagement) {
             visibility
                 .unwrap()
                 .clients_cache
@@ -130,7 +130,7 @@ fn send_entity_despawn<R: ReplicationSend>(
             //  to be updated for every replication change! Wait for observers instead.
             //  How did it work on the `main` branch? was there something else making it work? Maybe the
             //  update replicate ran before
-            if despawn_metadata.replication_mode == ReplicationMode::Room {
+            if despawn_metadata.replication_mode == VisibilityMode::InterestManagement {
                 // if the mode was room, only replicate the despawn to clients that were in the same room
                 network_target.intersection(NetworkTarget::Only(
                     despawn_metadata.replication_clients_cache,
@@ -161,10 +161,10 @@ fn send_entity_spawn<R: ReplicationSend>(
 ) {
     // Replicate to already connected clients (replicate only new entities)
     query.iter().for_each(|(entity, replicate, visibility)| {
-        match replicate.replication_mode {
+        match replicate.visibility {
             // for room mode, no need to handle newly-connected clients specially; they just need
             // to be added to the correct room
-            ReplicationMode::Room => {
+            VisibilityMode::InterestManagement => {
                 visibility.unwrap().clients_cache
                     .iter()
                     .for_each(|(client_id, visibility)| {
@@ -213,7 +213,7 @@ fn send_entity_spawn<R: ReplicationSend>(
                         }
                     });
             }
-            ReplicationMode::NetworkTarget => {
+            VisibilityMode::All => {
                 let mut target = replicate.replication_target.clone();
 
                 let new_connected_clients = sender.new_connected_clients().clone();
@@ -281,8 +281,8 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
         }
         // will store (NetworkTarget, is_Insert). We use this to avoid serializing if there are no clients we need to replicate to
         let mut replicate_args = vec![];
-        match replicate.replication_mode {
-            ReplicationMode::Room => {
+        match replicate.visibility {
+            VisibilityMode::InterestManagement => {
                 visibility.unwrap().clients_cache
                     .iter()
                     .for_each(|(client_id, visibility)| {
@@ -316,7 +316,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                         }
                     })
             }
-            ReplicationMode::NetworkTarget => {
+            VisibilityMode::All => {
                 let mut target = replicate.replication_target.clone();
 
                 let new_connected_clients = sender.new_connected_clients().clone();
@@ -416,8 +416,8 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
             if replicate.is_disabled::<C>() {
                 return;
             }
-            match replicate.replication_mode {
-                ReplicationMode::Room => {
+            match replicate.visibility {
+                VisibilityMode::InterestManagement => {
                     visibility
                         .unwrap()
                         .clients_cache
@@ -442,7 +442,7 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
                             }
                         })
                 }
-                ReplicationMode::NetworkTarget => {
+                VisibilityMode::All => {
                     trace!("sending component remove!");
                     let _ = sender
                         .prepare_component_remove(

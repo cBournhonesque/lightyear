@@ -67,7 +67,7 @@ pub(crate) fn init(mut commands: Commands) {
                 CircleMarker,
                 Replicate {
                     // use rooms for replication
-                    replication_mode: ReplicationMode::Room,
+                    visibility: VisibilityMode::InterestManagement,
                     ..default()
                 },
             ));
@@ -89,13 +89,12 @@ pub(crate) fn handle_connections(
         // Add a mapping from client id to entity id (so that when we receive an input from a client,
         // we know which entity to move)
         global.client_id_to_entity_id.insert(client_id, entity.id());
-        // we will create a room for each client. To keep things simple, the room id will be the client id
-        let room_id = client_id.into();
-        room_manager.room_mut(room_id).add_client(client_id);
-        room_manager.room_mut(PLAYER_ROOM).add_client(client_id);
-        // also add the player entity to that room (so that the client can always see their own player)
-        room_manager.room_mut(room_id).add_entity(entity.id());
-        room_manager.room_mut(PLAYER_ROOM).add_entity(entity.id());
+
+        // we can control the player visibility in a more static manner by using rooms
+        // we add all clients to a room, as well as all player entities
+        // this means that all clients will be able to see all player entities
+        room_manager.add_client(client_id, PLAYER_ROOM);
+        room_manager.add_entity(entity.id(), PLAYER_ROOM);
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
@@ -111,27 +110,21 @@ pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>)
     }
 }
 
-/// This is where we perform scope management:
-/// - we will add/remove other entities from the player's room only if they are close
+/// Here we perform more "immediate" interest management: we will make a circle visible to a client
+/// depending on the distance to the client's entity
 pub(crate) fn interest_management(
-    mut room_manager: ResMut<RoomManager>,
+    mut visibility_manager: ResMut<VisibilityManager>,
     player_query: Query<(&PlayerId, Ref<Position>), (Without<CircleMarker>, With<Replicate>)>,
     circle_query: Query<(Entity, &Position), (With<CircleMarker>, With<Replicate>)>,
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {
-            let room_id = client_id.0.into();
-            // let circles_in_room = server.room(room_id).entities();
-            let mut room = room_manager.room_mut(room_id);
             for (circle_entity, circle_position) in circle_query.iter() {
                 let distance = position.distance(**circle_position);
                 if distance < INTEREST_RADIUS {
-                    // add the circle to the player's room
-                    room.add_entity(circle_entity)
+                    visibility_manager.gain_visibility(client_id.0, circle_entity);
                 } else {
-                    // if circles_in_room.contains(&circle_entity) {
-                    room.remove_entity(circle_entity);
-                    // }
+                    visibility_manager.lose_visibility(client_id.0, circle_entity);
                 }
             }
         }

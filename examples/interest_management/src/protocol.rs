@@ -13,7 +13,7 @@ use tracing::info;
 
 use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::ReplicationMode;
+use lightyear::shared::replication::components::VisibilityMode;
 use UserAction;
 
 use crate::shared::color_from_id;
@@ -35,7 +35,7 @@ impl PlayerBundle {
             prediction_target: NetworkTarget::Only(vec![id]),
             interpolation_target: NetworkTarget::AllExcept(vec![id]),
             // use rooms for replication
-            replication_mode: ReplicationMode::Room,
+            visibility: VisibilityMode::InterestManagement,
             ..default()
         };
         // We don't want to replicate the ActionState to the original client, since they are updating it with
