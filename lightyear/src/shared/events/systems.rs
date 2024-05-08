@@ -9,10 +9,10 @@ use crate::shared::events::connection::{
     ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
-use crate::shared::replication::ReplicationSend;
+use crate::shared::replication::ReplicationReceive;
 
 /// System that gathers the replication events received by the local host and sends them to bevy Events
-pub(crate) fn push_component_events<C: Component, R: ReplicationSend>(
+pub(crate) fn push_component_events<C: Component, R: ReplicationReceive>(
     component_registry: Res<ComponentRegistry>,
     mut connection_manager: ResMut<R>,
     mut component_insert_events: EventWriter<ComponentInsertEvent<C, R::EventContext>>,
@@ -40,7 +40,7 @@ pub(crate) fn push_component_events<C: Component, R: ReplicationSend>(
 }
 
 /// System that gathers the replication events received by the local host and sends them to bevy Events
-pub(crate) fn push_entity_events<R: ReplicationSend>(
+pub(crate) fn push_entity_events<R: ReplicationReceive>(
     mut connection_manager: ResMut<R>,
     mut entity_spawn_events: EventWriter<EntitySpawnEvent<R::EventContext>>,
     mut entity_despawn_events: EventWriter<EntityDespawnEvent<R::EventContext>>,
@@ -59,6 +59,6 @@ pub(crate) fn push_entity_events<R: ReplicationSend>(
     );
 }
 
-pub(crate) fn clear_events<R: ReplicationSend>(mut connection_manager: ResMut<R>) {
+pub(crate) fn clear_events<R: ReplicationReceive>(mut connection_manager: ResMut<R>) {
     connection_manager.events().clear()
 }

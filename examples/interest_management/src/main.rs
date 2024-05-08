@@ -158,7 +158,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         ..default()
     };
     app.add_plugins((
-        client::ClientPlugin::new(client_config),
+        client::ClientPlugins::new(client_config),
         ExampleClientPlugin,
         SharedPlugin,
     ));
@@ -246,7 +246,7 @@ fn combined_app(
         ..default()
     };
     app.add_plugins((
-        client::ClientPlugin::new(client_config),
+        client::ClientPlugins::new(client_config),
         ExampleClientPlugin,
     ));
     // shared plugin

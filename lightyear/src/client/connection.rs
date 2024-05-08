@@ -40,8 +40,8 @@ use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::systems::DespawnMetadata;
-use crate::shared::replication::ReplicationMessageData;
 use crate::shared::replication::{ReplicationMessage, ReplicationSend};
+use crate::shared::replication::{ReplicationMessageData, ReplicationPeer, ReplicationReceive};
 use crate::shared::sets::{ClientMarker, ServerMarker};
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
@@ -464,15 +464,23 @@ impl MessageSend for ConnectionManager {
     }
 }
 
-impl ReplicationSend for ConnectionManager {
+impl ReplicationPeer for ConnectionManager {
     type Events = ConnectionEvents;
     type EventContext = ();
     type SetMarker = ClientMarker;
+}
 
+impl ReplicationReceive for ConnectionManager {
     fn events(&mut self) -> &mut Self::Events {
         &mut self.events
     }
 
+    fn cleanup(&mut self, tick: Tick) {
+        self.replication_receiver.cleanup(tick);
+    }
+}
+
+impl ReplicationSend for ConnectionManager {
     fn writer(&mut self) -> &mut BitcodeWriter {
         &mut self.writer
     }
@@ -649,34 +657,6 @@ impl ReplicationSend for ConnectionManager {
     }
     fn cleanup(&mut self, tick: Tick) {
         debug!("Running replication clean");
-        // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
-        // (meaning that there's no need when we receive the update to check if we have already received a previous action)
-        for group_channel in self.replication_sender.group_channels.values_mut() {
-            debug!("Checking group channel: {:?}", group_channel);
-            if let Some(last_action_tick) = group_channel.last_action_tick {
-                if tick - last_action_tick > (i16::MAX / 2) {
-                    debug!(
-                    ?tick,
-                    ?last_action_tick,
-                    ?group_channel,
-                    "Setting the last_action tick to None because there hasn't been any new actions in a while");
-                    group_channel.last_action_tick = None;
-                }
-            }
-        }
-        // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
-        for group_channel in self.replication_receiver.group_channels.values_mut() {
-            debug!("Checking group channel: {:?}", group_channel);
-            if let Some(latest_tick) = group_channel.latest_tick {
-                if tick - latest_tick > (i16::MAX / 2) {
-                    debug!(
-                    ?tick,
-                    ?latest_tick,
-                    ?group_channel,
-                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
-                    group_channel.latest_tick = Some(tick);
-                }
-            }
-        }
+        self.replication_sender.cleanup(tick);
     }
 }

@@ -111,7 +111,7 @@ impl LocalBevyStepper {
                 interpolation: interpolation_config.clone(),
                 ..default()
             };
-            client_app.add_plugins((ClientPlugin::new(config), ProtocolPlugin));
+            client_app.add_plugins((ClientPlugins::new(config), ProtocolPlugin));
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
                 .world

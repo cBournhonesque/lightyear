@@ -105,27 +105,39 @@ pub struct ReplicationMessage {
     pub(crate) data: ReplicationMessageData,
 }
 
-#[doc(hidden)]
-/// Trait for any service that can send replication messages to the remote.
-/// (this trait is used to easily enable both client to server and server to client replication)
-///
-/// The trait is made public because it is needed in the macros
-pub(crate) trait ReplicationSend: Resource {
+/// Trait for a service that participates in replication.
+pub(crate) trait ReplicationPeer: Resource {
     type Events: IterComponentInsertEvent<Self::EventContext>
         + IterComponentRemoveEvent<Self::EventContext>
         + IterComponentUpdateEvent<Self::EventContext>
         + IterEntitySpawnEvent<Self::EventContext>
         + IterEntityDespawnEvent<Self::EventContext>
         + ClearEvents;
-    /// Type of the context associated with the events emitted by this replication plugin
+    /// Type of the context associated with the events emitted/received by this replication peer
     type EventContext: EventContext;
+
     /// Marker to identify the type of the ReplicationSet component
     /// This is mostly relevant in the unified mode, where a ReplicationSet can be added several times
     /// (in the client and the server replication plugins)
     type SetMarker: Debug + Hash + Send + Sync + Eq + Clone;
+}
 
+/// Trait for a service that receives replication messages.
+pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
+    /// The received events buffer
     fn events(&mut self) -> &mut Self::Events;
 
+    /// Do some regular cleanup on the internals of replication
+    /// - account for tick wrapping by resetting some internal ticks for each replication group
+    fn cleanup(&mut self, tick: Tick);
+}
+
+#[doc(hidden)]
+/// Trait for any service that can send replication messages to the remote.
+/// (this trait is used to easily enable both client to server and server to client replication)
+///
+/// The trait is made public because it is needed in the macros
+pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     fn writer(&mut self) -> &mut BitcodeWriter;
 
     fn component_registry(&self) -> &ComponentRegistry;

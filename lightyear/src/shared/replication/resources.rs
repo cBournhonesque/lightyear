@@ -194,6 +194,7 @@ pub(crate) mod receive {
     };
     use crate::shared::message::MessageSend;
     use crate::shared::plugin::Identity;
+    use crate::shared::replication::ReplicationPeer;
     use bevy::prelude::{DetectChangesMut, EventReader, Events, RemovedComponents};
     use tracing::{debug, trace};
 
@@ -211,7 +212,7 @@ pub(crate) mod receive {
         }
     }
 
-    impl<R: ReplicationSend> Plugin for ResourceReceivePlugin<R> {
+    impl<R: ReplicationPeer> Plugin for ResourceReceivePlugin<R> {
         fn build(&self, app: &mut App) {
             app.configure_sets(
                 PreUpdate,

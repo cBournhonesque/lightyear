@@ -72,7 +72,7 @@ fn main() {
 /// The cli argument is used to determine if we are running as a client or a server (or listen-server)
 /// Then we build the app and run it.
 ///
-/// To build a lightyear app you will need to add either the [`client::ClientPlugin`] or [`server::ServerPlugin`]
+/// To build a lightyear app you will need to add either the [`client::ClientPlugins`] or [`server::ServerPlugin`]
 /// They can be created by providing a [`client::ClientConfig`] or [`server::ServerConfig`] struct, along with a
 /// shared protocol which defines the messages (Messages, Components, Inputs) that can be sent between client and server.
 fn run(mut settings: Settings, cli: Cli) {
@@ -169,7 +169,7 @@ fn combined_app(settings: Settings, client_net_config: client::NetConfig) -> App
         ..default()
     };
     app.add_plugins((
-        client::ClientPlugin::new(client_config),
+        client::ClientPlugins::new(client_config),
         ExampleClientPlugin { settings },
     ));
     // shared plugin

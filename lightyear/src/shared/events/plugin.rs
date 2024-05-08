@@ -7,7 +7,7 @@ use crate::shared::events::components::{
     ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent,
 };
 use crate::shared::events::systems::{clear_events, push_entity_events};
-use crate::shared::replication::ReplicationSend;
+use crate::shared::replication::ReplicationReceive;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 pub struct EventsPlugin<R> {
@@ -22,7 +22,7 @@ impl<R> Default for EventsPlugin<R> {
     }
 }
 
-impl<R: ReplicationSend> Plugin for EventsPlugin<R> {
+impl<R: ReplicationReceive> Plugin for EventsPlugin<R> {
     fn build(&self, app: &mut App) {
         // EVENTS
         app.add_event::<ConnectEvent<R::EventContext>>()

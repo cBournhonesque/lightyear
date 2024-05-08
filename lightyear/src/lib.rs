@@ -9,7 +9,7 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 
 ### Install the plugins
 
-`lightyear` provides two plugins: [`ServerPlugin`](prelude::server::ServerPlugin) and [`ClientPlugin`](prelude::client::ClientPlugin) that will handle the networking for you.
+`lightyear` provides two plugins: [`ServerPlugin`](prelude::server::ServerPlugins) and [`ClientPlugin`](prelude::client::ClientPlugins) that will handle the networking for you.
 
 ```rust
 use bevy::utils::Duration;
@@ -21,14 +21,14 @@ use lightyear::prelude::server::*;
 fn run_client_app() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(ClientPlugin::new(ClientConfig::default()))
+        .add_plugins(ClientPlugins::new(ClientConfig::default()))
         .run()
 }
 
 fn run_server_app() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(ServerPlugin::new(ServerConfig::default()))
+        .add_plugins(ServerPlugins::new(ServerConfig::default()))
         .run()
 }
 ```
@@ -228,14 +228,13 @@ pub mod prelude {
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
         pub use crate::client::networking::{ClientCommands, NetworkingState};
-        pub use crate::client::plugin::ClientPlugin;
+        pub use crate::client::plugin::ClientPlugins;
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::despawn::PredictionDespawnCommandsExt;
         pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::rollback::{Rollback, RollbackState};
         pub use crate::client::prediction::Predicted;
-        pub use crate::client::replication::ReplicationConfig;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
             Authentication, ClientConnection, NetClient, NetConfig,
@@ -259,10 +258,8 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         pub use crate::server::networking::{NetworkingState, ServerCommands};
-        pub use crate::server::plugin::ServerPlugin;
-        pub use crate::server::replication::{
-            ReplicationConfig, ServerFilter, ServerReplicationSet,
-        };
+        pub use crate::server::plugin::ServerPlugins;
+        pub use crate::server::replication::{ServerFilter, ServerReplicationSet};
         pub use crate::server::visibility::immediate::VisibilityManager;
         pub use crate::server::visibility::room::{RoomId, RoomManager};
     }
