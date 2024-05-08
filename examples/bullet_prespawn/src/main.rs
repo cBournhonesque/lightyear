@@ -16,9 +16,7 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
-use lightyear::prelude::client::{
-    InterpolationConfig, InterpolationDelay, NetConfig, ReplicationConfig,
-};
+use lightyear::prelude::client::{InterpolationConfig, InterpolationDelay, NetConfig};
 use lightyear::prelude::{Mode, TransportConfig};
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
@@ -154,14 +152,10 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
         },
-        replication: ReplicationConfig {
-            enable_send: true,
-            enable_receive: true,
-        },
         ..default()
     };
     app.add_plugins((
-        client::ClientPlugin::new(client_config),
+        client::ClientPlugins::new(client_config),
         ExampleClientPlugin,
         SharedPlugin,
     ));
@@ -194,14 +188,10 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     let server_config = server::ServerConfig {
         shared: shared_config(Mode::Separate),
         net: net_configs,
-        replication: lightyear::server::replication::ReplicationConfig {
-            enable_send: true,
-            enable_receive: true,
-        },
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server_config),
+        server::ServerPlugins::new(server_config),
         ExampleServerPlugin,
         SharedPlugin,
     ));
@@ -234,14 +224,10 @@ fn combined_app(
     let server_config = server::ServerConfig {
         shared: shared_config(Mode::HostServer),
         net: net_configs,
-        replication: lightyear::server::replication::ReplicationConfig {
-            enable_send: true,
-            enable_receive: true,
-        },
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server_config),
+        server::ServerPlugins::new(server_config),
         ExampleServerPlugin,
     ));
 
@@ -253,14 +239,10 @@ fn combined_app(
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
         },
-        replication: ReplicationConfig {
-            enable_send: true,
-            enable_receive: true,
-        },
         ..default()
     };
     app.add_plugins((
-        client::ClientPlugin::new(client_config),
+        client::ClientPlugins::new(client_config),
         ExampleClientPlugin,
     ));
     // shared plugin

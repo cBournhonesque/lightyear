@@ -10,7 +10,6 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::client::replication::ClientReplicationPlugin;
 use crate::prelude::{ClientId, NetworkTarget, ReplicationGroup, ShouldBePredicted, TickManager};
 use crate::protocol::component::ComponentRegistry;
 use crate::server::replication::ServerReplicationSet;
@@ -18,7 +17,7 @@ use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility
 use crate::shared::replication::components::{
     DespawnTracker, Replicate, ReplicationGroupId, VisibilityMode,
 };
-use crate::shared::replication::ReplicationSend;
+use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 // TODO: replace this with observers
@@ -34,7 +33,7 @@ pub(crate) struct DespawnMetadata {
 
 /// For every entity that removes their Replicate component but are not despawned, remove the component
 /// from our replicate cache (so that the entity's despawns are no longer replicated)
-fn handle_replicate_remove<R: ReplicationSend>(
+pub(crate) fn handle_replicate_remove<R: ReplicationSend>(
     mut commands: Commands,
     mut sender: ResMut<R>,
     mut query: RemovedComponents<Replicate>,
@@ -79,7 +78,7 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
     }
 }
 
-fn send_entity_despawn<R: ReplicationSend>(
+pub(crate) fn send_entity_despawn<R: ReplicationSend>(
     query: Query<(Entity, &Replicate, Option<&ReplicateVisibility>)>,
     system_bevy_ticks: SystemChangeTick,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
@@ -153,7 +152,7 @@ fn send_entity_despawn<R: ReplicationSend>(
     }
 }
 
-fn send_entity_spawn<R: ReplicationSend>(
+pub(crate) fn send_entity_spawn<R: ReplicationSend>(
     system_bevy_ticks: SystemChangeTick,
     component_registry: Res<ComponentRegistry>,
     query: Query<(Entity, Ref<Replicate>, Option<&ReplicateVisibility>)>,
@@ -461,33 +460,6 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
     })
 }
 
-/// add replication systems that are shared between client and server
-pub(crate) fn add_replication_send_systems<R: ReplicationSend>(app: &mut App) {
-    // we need to add despawn trackers immediately for entities for which we add replicate
-    app.add_systems(
-        PreUpdate,
-        handle_replicate_add::<R>.after(ServerReplicationSet::ClientReplication),
-    );
-    app.add_systems(
-        PostUpdate,
-        (
-            // TODO: try to move this to ReplicationSystems as well? entities are spawned only once
-            //  so we can run the system every frame
-            //  putting it here means we might miss entities that are spawned and depspawned within the send_interval? bug or feature?
-            send_entity_spawn::<R>
-                .in_set(InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates),
-            // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
-            //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
-            //  It is ok to run it every frame because it creates at most one message per despawn
-            // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-            (handle_replicate_add::<R>, handle_replicate_remove::<R>)
-                .in_set(InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate),
-            send_entity_despawn::<R>
-                .in_set(InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals),
-        ),
-    );
-}
-
 pub(crate) fn register_replicate_component_send<C: Component, R: ReplicationSend>(app: &mut App) {
     app.add_systems(
         PostUpdate,
@@ -495,19 +467,30 @@ pub(crate) fn register_replicate_component_send<C: Component, R: ReplicationSend
             // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
-            crate::shared::replication::systems::send_component_removed::<C, R>
+            send_component_removed::<C, R>
                 .in_set(InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals),
             // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
             //  and use up all the bandwidth
-            crate::shared::replication::systems::send_component_update::<C, R>
+            send_component_update::<C, R>
                 .in_set(InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates),
         ),
     );
 }
 
-pub(crate) fn cleanup<R: ReplicationSend>(mut sender: ResMut<R>, tick_manager: Res<TickManager>) {
+pub(crate) fn send_cleanup<R: ReplicationSend>(
+    mut sender: ResMut<R>,
+    tick_manager: Res<TickManager>,
+) {
     let tick = tick_manager.tick();
     sender.cleanup(tick);
+}
+
+pub(crate) fn receive_cleanup<R: ReplicationReceive>(
+    mut receiver: ResMut<R>,
+    tick_manager: Res<TickManager>,
+) {
+    let tick = tick_manager.tick();
+    receiver.cleanup(tick);
 }
 
 #[cfg(test)]

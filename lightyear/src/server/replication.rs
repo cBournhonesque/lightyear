@@ -1,5 +1,6 @@
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
+use bevy::utils::Duration;
 
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
@@ -12,28 +13,9 @@ use crate::server::connection::ConnectionManager;
 use crate::server::networking::is_started;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::components::Replicate;
-use crate::shared::replication::plugin::ReplicationPlugin;
+use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
+use crate::shared::replication::plugin::send::ReplicationSendPlugin;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
-
-/// Configuration related to replicating the server's World to clients
-#[derive(Clone, Debug)]
-pub struct ReplicationConfig {
-    /// Set to true to disable replicating this server's entities to clients
-    pub enable_send: bool,
-    pub enable_receive: bool,
-}
-
-impl Default for ReplicationConfig {
-    fn default() -> Self {
-        Self {
-            enable_send: true,
-            enable_receive: false,
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct ServerReplicationPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ServerReplicationSet {
@@ -41,24 +23,43 @@ pub enum ServerReplicationSet {
     ClientReplication,
 }
 
-impl Plugin for ServerReplicationPlugin {
-    fn build(&self, app: &mut App) {
-        let config = app.world.resource::<ServerConfig>();
+#[derive(Default)]
+pub struct ServerReplicationReceivePlugin {
+    pub tick_interval: Duration,
+}
 
+impl Plugin for ServerReplicationReceivePlugin {
+    fn build(&self, app: &mut App) {
         app
             // PLUGIN
-            .add_plugins(ReplicationPlugin::<ConnectionManager>::new(
-                config.shared.tick.tick_duration,
-                config.replication.enable_send,
-                config.replication.enable_receive,
+            .add_plugins(ReplicationReceivePlugin::<ConnectionManager>::new(
+                self.tick_interval,
             ))
-            // SYSTEM SETS
+            // SETS
             .configure_sets(
                 PreUpdate,
                 ServerReplicationSet::ClientReplication
                     .run_if(is_started)
                     .after(InternalMainSet::<ServerMarker>::EmitEvents),
-            )
+            );
+    }
+}
+
+#[derive(Default)]
+pub struct ServerReplicationSendPlugin {
+    pub tick_interval: Duration,
+}
+
+impl Plugin for ServerReplicationSendPlugin {
+    fn build(&self, app: &mut App) {
+        let config = app.world.resource::<ServerConfig>();
+
+        app
+            // PLUGIN
+            .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
+                self.tick_interval,
+            ))
+            // SYSTEM SETS
             .configure_sets(
                 PostUpdate,
                 // on server: we need to set the hash value before replicating the component

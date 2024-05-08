@@ -25,7 +25,7 @@ use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::prediction::plugin::add_prediction_systems;
 use crate::prelude::client::SyncComponent;
-use crate::prelude::server::{ServerConfig, ServerPlugin};
+use crate::prelude::server::{ServerConfig, ServerPlugins};
 use crate::prelude::{
     client, server, AppMessageExt, ChannelDirection, Message, MessageRegistry,
     PreSpawnedPlayerObject, RemoteEntityMap, ReplicateResourceMetadata, Tick,

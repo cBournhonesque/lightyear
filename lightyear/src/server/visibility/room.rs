@@ -1,4 +1,6 @@
-/*! # Room
+/*! Room-based visibility module, where you can use semi-static rooms to manage visibility
+
+# Room
 
 Rooms are used to provide interest management in a semi-static way.
 Entities and Clients can be added to multiple rooms.

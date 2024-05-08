@@ -128,6 +128,26 @@ impl ReplicationSender {
             }
         }
     }
+
+    /// Do some internal bookkeeping:
+    /// - handle tick wrapping
+    pub(crate) fn cleanup(&mut self, tick: Tick) {
+        // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
+        // (meaning that there's no need when we receive the update to check if we have already received a previous action)
+        for group_channel in self.group_channels.values_mut() {
+            debug!("Checking group channel: {:?}", group_channel);
+            if let Some(last_action_tick) = group_channel.last_action_tick {
+                if tick - last_action_tick > (i16::MAX / 2) {
+                    debug!(
+                    ?tick,
+                    ?last_action_tick,
+                    ?group_channel,
+                    "Setting the last_action tick to None because there hasn't been any new actions in a while");
+                    group_channel.last_action_tick = None;
+                }
+            }
+        }
+    }
 }
 
 /// We want:

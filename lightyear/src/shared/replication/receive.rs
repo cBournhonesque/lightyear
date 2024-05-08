@@ -168,6 +168,25 @@ impl ReplicationReceiver {
             .get(&remote_entity)
             .and_then(|group_id| self.group_channels.get(group_id))
     }
+
+    /// Do some internal bookkeeping:
+    /// - handle tick wrapping
+    pub(crate) fn cleanup(&mut self, tick: Tick) {
+        // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
+        for group_channel in self.group_channels.values_mut() {
+            debug!("Checking group channel: {:?}", group_channel);
+            if let Some(latest_tick) = group_channel.latest_tick {
+                if tick - latest_tick > (i16::MAX / 2) {
+                    debug!(
+                    ?tick,
+                    ?latest_tick,
+                    ?group_channel,
+                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
+                    group_channel.latest_tick = Some(tick);
+                }
+            }
+        }
+    }
 }
 
 /// We want:

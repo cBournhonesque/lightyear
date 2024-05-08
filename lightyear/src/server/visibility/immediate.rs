@@ -1,4 +1,6 @@
-/*! # Visibility
+/*! Main visibility module, where you can immediately update the visibility of an entity for a given client
+
+# Visibility
 
 This module provides a [`VisibilityManager`] resource that allows you to update the visibility of entities in an immediate fashion.
 

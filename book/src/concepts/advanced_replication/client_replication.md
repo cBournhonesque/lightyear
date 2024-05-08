@@ -7,6 +7,24 @@ There are different possibilities.
 
 To replicate a client-entity to the server, it is exactly the same as for a server-entity.
 Just add the `Replicate` component to the entity and it will be replicated to the server.
+```rust
+fn handle_connection(
+    mut connection_event: EventReader<ConnectEvent>,
+    mut commands: Commands,
+) {
+    for event in connection_event.read() {
+        let local_client_id = event.client_id();
+        commands.spawn((
+            /* your other components here */
+            Replicate {
+                replication_target: NetworkTarget::All,
+                interpolation_target: NetworkTarget::AllExcept(vec![local_client_id]),
+                ..default()
+            },
+        ));
+    }
+}
+```
 
 Note that `prediction_target` and `interpolation_target` will be unused as the server doesn't do any 
 prediction or interpolation.

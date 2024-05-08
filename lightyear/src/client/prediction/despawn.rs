@@ -238,7 +238,7 @@ pub(crate) fn remove_despawn_marker(
 //             incoming_loss: 0.05,
 //         };
 //         let sync_config = SyncConfig::default().speedup_factor(1.0);
-//         let prediction_config = PredictionConfig::default().disable(false);
+//         let prediction_config = PredictionConfig::default();
 //         let interpolation_delay = Duration::from_millis(100);
 //         let interpolation_config = InterpolationConfig::default().with_delay(InterpolationDelay {
 //             min_delay: interpolation_delay,
@@ -428,7 +428,7 @@ pub(crate) fn remove_despawn_marker(
 //             incoming_loss: 0.05,
 //         };
 //         let sync_config = SyncConfig::default().speedup_factor(1.0);
-//         let prediction_config = PredictionConfig::default().disable(false);
+//         let prediction_config = PredictionConfig::default();
 //         let interpolation_delay = Duration::from_millis(100);
 //         let interpolation_config = InterpolationConfig::default().with_delay(InterpolationDelay {
 //             min_delay: interpolation_delay,

@@ -280,7 +280,7 @@ pub enum VisibilityMode {
     ///
     /// You can use [`gain_visibility`](VisibilityManager::gain_visibility) and [`lose_visibility`](VisibilityManager::lose_visibility)
     /// to control the visibility of entities.
-    /// You can also use the [`RoomManager`](RoomManager)
+    /// You can also use the [`RoomManager`](crate::prelude::server::RoomManager)
     ///
     /// (the client still needs to be included in the [`NetworkTarget`], the room is simply an additional constraint)
     InterestManagement,

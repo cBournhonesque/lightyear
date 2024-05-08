@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use crate::client::replication::ReplicationConfig;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
@@ -50,7 +49,7 @@ impl Default for BevyStepper {
             incoming_loss: 0.0,
         };
         let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
+        let prediction_config = PredictionConfig::default();
         let interpolation_config = InterpolationConfig::default();
         let mut stepper = Self::new(
             shared_config,
@@ -113,13 +112,9 @@ impl BevyStepper {
             shared: shared_config.clone(),
             net: vec![net_config],
             ping: PingConfig::default(),
-            replication: server::ReplicationConfig {
-                enable_send: true,
-                enable_receive: true,
-            },
             ..default()
         };
-        let plugin = server::ServerPlugin::new(config);
+        let plugin = server::ServerPlugins::new(config);
         server_app.add_plugins((plugin, ProtocolPlugin));
 
         // Setup client
@@ -141,13 +136,9 @@ impl BevyStepper {
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
-            replication: client::ReplicationConfig {
-                enable_send: true,
-                enable_receive: true,
-            },
             ..default()
         };
-        let plugin = client::ClientPlugin::new(config);
+        let plugin = client::ClientPlugins::new(config);
         client_app.add_plugins((plugin, ProtocolPlugin));
 
         // Initialize Real time (needed only for the first TimeSystem run)

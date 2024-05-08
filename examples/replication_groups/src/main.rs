@@ -156,7 +156,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         ..default()
     };
     app.add_plugins((
-        client::ClientPlugin::new(client_config),
+        client::ClientPlugins::new(client_config),
         ExampleClientPlugin,
         SharedPlugin,
     ));
@@ -192,7 +192,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server_config),
+        server::ServerPlugins::new(server_config),
         ExampleServerPlugin,
         SharedPlugin,
     ));
@@ -228,7 +228,7 @@ fn combined_app(
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server_config),
+        server::ServerPlugins::new(server_config),
         ExampleServerPlugin,
     ));
 
@@ -243,7 +243,7 @@ fn combined_app(
         ..default()
     };
     app.add_plugins((
-        client::ClientPlugin::new(client_config),
+        client::ClientPlugins::new(client_config),
         ExampleClientPlugin,
     ));
     // shared plugin

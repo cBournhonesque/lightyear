@@ -58,7 +58,7 @@ mod tests {
             incoming_loss: 0.0,
         };
         let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
+        let prediction_config = PredictionConfig::default();
         let interpolation_config = InterpolationConfig::default();
         let mut stepper = BevyStepper::new(
             shared_config,

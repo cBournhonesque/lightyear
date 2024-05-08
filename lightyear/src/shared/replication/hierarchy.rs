@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::prelude::ReplicationGroup;
 use crate::shared::replication::components::Replicate;
-use crate::shared::replication::ReplicationSend;
+use crate::shared::replication::{ReplicationPeer, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
@@ -122,7 +122,7 @@ impl<R> Default for HierarchyReceivePlugin<R> {
     }
 }
 
-impl<R: ReplicationSend> HierarchyReceivePlugin<R> {
+impl<R> HierarchyReceivePlugin<R> {
     /// Update parent/children hierarchy if parent_sync changed
     ///
     /// This only runs on the receiving side
@@ -151,7 +151,7 @@ impl<R: ReplicationSend> HierarchyReceivePlugin<R> {
     }
 }
 
-impl<R: ReplicationSend> Plugin for HierarchyReceivePlugin<R> {
+impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
     fn build(&self, app: &mut App) {
         // REFLECTION
         app.register_type::<ParentSync>();

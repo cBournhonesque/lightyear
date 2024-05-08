@@ -41,8 +41,6 @@ use super::spawn::spawn_predicted_entity;
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Default, Reflect)]
 pub struct PredictionConfig {
-    /// If true, we completely disable the prediction plugin
-    pub disable: bool,
     /// If true, we always rollback whenever we receive a server update, instead of checking
     /// ff the confirmed state matches the predicted state history
     pub always_rollback: bool,
@@ -59,11 +57,6 @@ pub struct PredictionConfig {
 }
 
 impl PredictionConfig {
-    pub fn disable(mut self, disable: bool) -> Self {
-        self.disable = disable;
-        self
-    }
-
     pub fn always_rollback(mut self, always_rollback: bool) -> Self {
         self.always_rollback = always_rollback;
         self
@@ -79,11 +72,6 @@ impl PredictionConfig {
     pub fn with_correction_ticks_factor(mut self, factor: f32) -> Self {
         self.correction_ticks_factor = factor;
         self
-    }
-
-    /// [`Condition`] that returns `true` if the prediction plugin is disabled
-    pub(crate) fn is_disabled_condition(config: Option<Res<ClientConfig>>) -> bool {
-        config.map_or(true, |config| config.prediction.disable)
     }
 }
 
@@ -205,11 +193,8 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // we only run prediction:
         // - if we're not in host-server mode
-        // - if the prediction plugin is not disabled
         // - after the client is synced
-        let should_prediction_run =
-            not(SharedConfig::is_host_server_condition
-                .or_else(PredictionConfig::is_disabled_condition))
+        let should_prediction_run = not(SharedConfig::is_host_server_condition)
             .and_then(is_connected)
             .and_then(client_is_synced);
 
