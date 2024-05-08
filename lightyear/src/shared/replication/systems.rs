@@ -98,7 +98,7 @@ fn send_entity_despawn<R: ReplicationSend>(
                     if replicate.replication_target.should_send_to(client_id)
                         && matches!(visibility, ClientVisibility::Lost)
                     {
-                        debug!("sending entity despawn for entity: {:?}", entity);
+                        debug!("sending entity despawn for entity: {:?} because ClientVisibility::Lost", entity);
                         // TODO: don't unwrap but handle errors
                         let group_id = replicate.replication_group.group_id(Some(entity));
                         let _ = sender

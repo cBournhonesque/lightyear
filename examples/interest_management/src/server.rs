@@ -14,8 +14,8 @@ use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{shared, ServerTransports, SharedSettings};
 
 const GRID_SIZE: f32 = 200.0;
-const NUM_CIRCLES: i32 = 10;
-const INTEREST_RADIUS: f32 = 200.0;
+const NUM_CIRCLES: i32 = 1;
+const INTEREST_RADIUS: f32 = 150.0;
 
 // Special room for the player entities (so that all player entities always see each other)
 const PLAYER_ROOM: RoomId = RoomId(6000);
@@ -31,7 +31,13 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(FixedUpdate, movement);
         app.add_systems(
             Update,
-            (handle_connections, interest_management, receive_message),
+            (
+                handle_connections,
+                // we don't have to run interest management every tick, only every time
+                // the server is ready to send packets
+                interest_management.in_set(MainSet::Send),
+                receive_message,
+            ),
         );
     }
 }
@@ -119,6 +125,7 @@ pub(crate) fn interest_management(
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {
+            // in real game, you would have a spatial index (kd-tree) to only find entities within a certain radius
             for (circle_entity, circle_position) in circle_query.iter() {
                 let distance = position.distance(**circle_position);
                 if distance < INTEREST_RADIUS {

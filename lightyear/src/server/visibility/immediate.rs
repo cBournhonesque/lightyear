@@ -84,9 +84,9 @@ pub(super) mod systems {
         //  removes the visibility, and another one gains it, the visibility is maintained
         for (client, entity) in visibility_events.events.lost.drain() {
             if let Ok(mut cache) = visibility.get_mut(entity) {
-                error!("Want to lose visibility for entity {entity:?} and client {client:?}. Cache: {cache:?}");
+                trace!("Want to lose visibility for entity {entity:?} and client {client:?}. Cache: {cache:?}");
                 if let Some(vis) = cache.clients_cache.get_mut(&client) {
-                    error!("lose visibility for entity {entity:?} and client {client:?}");
+                    trace!("lose visibility for entity {entity:?} and client {client:?}");
                     *vis = ClientVisibility::Lost;
                 }
             }
@@ -100,7 +100,7 @@ pub(super) mod systems {
                         // if the visibility was lost above, then that means that the entity was visible
                         // for this client, so we just maintain it instead
                         if *vis == ClientVisibility::Lost {
-                            error!("visibility for entity {entity:?} and client {client:?} goes from lost to maintained");
+                            trace!("visibility for entity {entity:?} and client {client:?} goes from lost to maintained");
                             *vis = ClientVisibility::Maintained;
                         }
                     })
@@ -113,26 +113,30 @@ pub(super) mod systems {
     /// After replication, update the Replication Cache:
     /// - Visibility Gained becomes Visibility Maintained
     /// - Visibility Lost gets removed from the cache
-    pub fn update_replicate_visibility(mut query: Query<&mut ReplicateVisibility>) {
-        for mut replicate in query.iter_mut() {
+    pub fn update_replicate_visibility(mut query: Query<(Entity, &mut ReplicateVisibility)>) {
+        for (entity, mut replicate) in query.iter_mut() {
             replicate
                 .clients_cache
                 .retain(|client_id, visibility| match visibility {
                     ClientVisibility::Gained => {
-                        error!(
-                            "Visibility for client {client_id:?} goes from gained to maintained"
+                        trace!(
+                            "Visibility for client {client_id:?} and entity {entity:?} goes from gained to maintained"
                         );
                         *visibility = ClientVisibility::Maintained;
                         true
                     }
                     ClientVisibility::Lost => {
-                        error!("remove client {client_id:?} from room cache");
+                        trace!("remove client {client_id:?} and entity {entity:?} from room cache");
                         false
                     }
                     ClientVisibility::Maintained => true,
                 });
+            // error!("replicate.clients_cache: {0:?}", replicate.clients_cache);
         }
     }
+
+    // we cannot only lose visibility if we have gained it before
+    // why are there cases where we lose visibility but the entity is not despawned
 
     /// Whenever the visibility of an entity changes, update the despawn metadata cache
     /// so that we can correctly replicate the despawn to the correct clients

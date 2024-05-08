@@ -103,13 +103,14 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                     )
                         .in_set(InternalMainSet::<R::SetMarker>::Send),
                     (
-                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
-                        InternalReplicationSet::<R::SetMarker>::Buffer,
-                        InternalMainSet::<R::SetMarker>::SendPackets,
-                    )
-                        .chain(),
-                    (
-                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
+                        (
+                            (
+                                InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                                InternalReplicationSet::<R::SetMarker>::Buffer,
+                            )
+                                .chain(),
+                            InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
+                        ),
                         InternalMainSet::<R::SetMarker>::SendPackets,
                     )
                         .chain(),
