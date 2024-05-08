@@ -20,7 +20,7 @@ fn main() {
     let settings_str = include_str!("../assets/settings.ron");
     let settings = settings::<MySettings>(settings_str);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    // and returns the `ClientConfig` and `ServerConfig` so that we can modify them
+    // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
     let mut app = common::app::build_app(settings.common, cli);
 
     // for this example, we will use input delay and a correction function
@@ -41,46 +41,16 @@ fn main() {
         }
         _ => {}
     }
-
     // add `ClientPlugins` and `ServerPlugins` plugin groups
-    app.add_plugin_groups();
-
+    app.add_lightyear_plugin_groups();
     // add our plugins
-    match &mut app {
-        Apps::Client { app, .. } => {
-            app.add_plugins((ExampleClientPlugin, SharedPlugin));
-        }
-        Apps::Server { app, .. } => {
-            app.add_plugins((
-                ExampleServerPlugin {
-                    predict_all: settings.predict_all,
-                },
-                SharedPlugin,
-            ));
-        }
-        Apps::ListenServer {
-            client_app,
-            server_app,
-            ..
-        } => {
-            client_app.add_plugins((ExampleClientPlugin, SharedPlugin));
-            server_app.add_plugins((
-                ExampleServerPlugin {
-                    predict_all: settings.predict_all,
-                },
-                SharedPlugin,
-            ));
-        }
-        Apps::HostServer { app, .. } => {
-            app.add_plugins((
-                ExampleClientPlugin,
-                ExampleServerPlugin {
-                    predict_all: settings.predict_all,
-                },
-                SharedPlugin,
-            ));
-        }
-    }
+    app.add_plugins(
+        ExampleClientPlugin,
+        ExampleServerPlugin {
+            predict_all: settings.predict_all,
+        },
+        SharedPlugin,
+    );
     // run the app
     app.run();
 }

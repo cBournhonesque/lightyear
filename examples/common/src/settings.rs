@@ -88,7 +88,7 @@ pub struct ServerSettings {
     pub(crate) conditioner: Option<Conditioner>,
 
     /// Which transport to use
-    pub(crate) transport: Vec<ServerTransports>,
+    pub transport: Vec<ServerTransports>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -106,7 +106,7 @@ pub struct ClientSettings {
     pub server_addr: Ipv4Addr,
 
     /// The port of the server
-    pub(crate) server_port: u16,
+    pub server_port: u16,
 
     /// Which transport to use
     pub(crate) transport: ClientTransports,
@@ -118,10 +118,10 @@ pub struct ClientSettings {
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct SharedSettings {
     /// An id to identify the protocol version
-    pub(crate) protocol_id: u64,
+    pub protocol_id: u64,
 
     /// a 32-byte array to authenticate via the Netcode.io protocol
-    pub(crate) private_key: [u8; 32],
+    pub private_key: [u8; 32],
 
     /// compression options
     pub(crate) compression: CompressionConfig,

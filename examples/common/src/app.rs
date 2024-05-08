@@ -94,7 +94,8 @@ pub enum Apps {
 }
 
 impl Apps {
-    pub fn add_plugin_groups(&mut self) {
+    /// Add the [`ClientPlugins`] and [`ServerPlugins`] plugin groups to the app
+    pub fn add_lightyear_plugin_groups(&mut self) {
         match self {
             Apps::Client { app, config } => {
                 app.add_plugins(client::ClientPlugins {
@@ -124,12 +125,42 @@ impl Apps {
                 client_config,
                 server_config,
             } => {
+                // TODO: currently we need ServerPlugins to run first, because it adds the
+                //  SharedPlugins. not ideal
                 app.add_plugins(client::ClientPlugins {
                     config: client_config.clone(),
                 });
                 app.add_plugins(server::ServerPlugins {
                     config: server_config.clone(),
                 });
+            }
+        }
+    }
+
+    /// Add the client, server, and shared plugins to the app
+    pub fn add_plugins(
+        &mut self,
+        client_plugin: impl Plugin,
+        server_plugin: impl Plugin,
+        shared_plugin: impl Plugin + Clone,
+    ) {
+        match self {
+            Apps::Client { app, .. } => {
+                app.add_plugins((client_plugin, shared_plugin));
+            }
+            Apps::Server { app, .. } => {
+                app.add_plugins((server_plugin, shared_plugin));
+            }
+            Apps::ListenServer {
+                client_app,
+                server_app,
+                ..
+            } => {
+                client_app.add_plugins((client_plugin, shared_plugin.clone()));
+                server_app.add_plugins((server_plugin, shared_plugin));
+            }
+            Apps::HostServer { app, .. } => {
+                app.add_plugins((client_plugin, server_plugin, shared_plugin));
             }
         }
     }

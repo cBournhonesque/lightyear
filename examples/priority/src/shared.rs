@@ -15,6 +15,7 @@ use crate::protocol::*;
 const MOVE_SPEED: f32 = 10.0;
 const PROP_SIZE: f32 = 5.0;
 
+#[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {

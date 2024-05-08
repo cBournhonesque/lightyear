@@ -15,6 +15,7 @@ use crate::protocol::*;
 
 const EPS: f32 = 0.0001;
 
+#[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {

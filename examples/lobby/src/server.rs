@@ -15,7 +15,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{shared_config, shared_movement_behaviour};
+use crate::shared::shared_movement_behaviour;
 
 pub struct ExampleServerPlugin;
 

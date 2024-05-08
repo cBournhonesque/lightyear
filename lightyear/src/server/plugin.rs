@@ -67,12 +67,14 @@ impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
         app
             // RESOURCES //
-            .insert_resource(self.config.clone())
-            // PLUGINS
-            // NOTE: SharedPlugin needs to be added after config
-            .add_plugins(SharedPlugin {
+            .insert_resource(self.config.clone());
+        // PLUGINS
+        // NOTE: SharedPlugin needs to be added after config
+        if !app.is_plugin_added::<SharedPlugin>() {
+            app.add_plugins(SharedPlugin {
                 // TODO: move shared config out of server_config?
                 config: self.config.shared.clone(),
             });
+        }
     }
 }

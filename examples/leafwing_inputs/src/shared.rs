@@ -27,6 +27,7 @@ pub enum FixedSet {
     Physics,
 }
 
+#[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {

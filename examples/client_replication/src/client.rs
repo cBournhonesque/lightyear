@@ -56,6 +56,7 @@ pub(crate) fn handle_connection(
                 ..default()
             },
         ));
+        info!("Spawning local cursor");
         // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
         commands.spawn(CursorBundle::new(
             client_id,

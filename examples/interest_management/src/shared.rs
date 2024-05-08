@@ -10,6 +10,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 
+#[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {

@@ -211,6 +211,7 @@ mod lobby {
     use lightyear::server::config::ServerConfig;
 
     use crate::client::{lobby, AppState};
+    use crate::HOST_SERVER_PORT;
 
     use super::*;
 
@@ -455,7 +456,7 @@ mod lobby {
                             Authentication::Manual { server_addr, .. } => {
                                 *server_addr = SocketAddr::new(
                                     settings.client.server_addr.into(),
-                                    settings.client.host_server_port,
+                                    HOST_SERVER_PORT,
                                 );
                             }
                             _ => {}
