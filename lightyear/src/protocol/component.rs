@@ -410,6 +410,20 @@ impl ComponentRegistry {
             .context("the component is not part of the protocol")
             .map_or(false, |metadata| metadata.correction.is_some())
     }
+
+    /// Perform a rollback check to determine if a rollback is needed.
+    pub(crate) fn rollback_check<C: Component>(&self, this: &C, that: &C) -> bool {
+        let kind = ComponentKind::of::<C>();
+        let prediction_metadata = self
+            .prediction_map
+            .get(&kind)
+            .context("the component is not part of the protocol")
+            .unwrap();
+        let rollback_check_fn: RollbackCheckFn<C> =
+            unsafe { std::mem::transmute(prediction_metadata.rollback_check) };
+        rollback_check_fn(this, that)
+    }
+
     pub(crate) fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
         let kind = ComponentKind::of::<C>();
         let prediction_metadata = self
