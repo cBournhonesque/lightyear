@@ -5,8 +5,8 @@ use std::ops::Deref;
 use bevy::ecs::entity::Entities;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
-    Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, Mut, PostUpdate,
-    PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, With, Without,
+    Added, App, Changed, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, Mut,
+    PostUpdate, PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, With, Without,
 };
 use tracing::{debug, error, info, trace, warn};
 
@@ -475,6 +475,8 @@ pub(crate) fn register_replicate_component_send<C: Component, R: ReplicationSend
     );
 }
 
+/// Systems that runs internal clean-up on the ReplicationSender
+/// (handle tick wrapping, etc.)
 pub(crate) fn send_cleanup<R: ReplicationSend>(
     mut sender: ResMut<R>,
     tick_manager: Res<TickManager>,
@@ -483,6 +485,8 @@ pub(crate) fn send_cleanup<R: ReplicationSend>(
     sender.cleanup(tick);
 }
 
+/// Systems that runs internal clean-up on the ReplicationReceiver
+/// (handle tick wrapping, etc.)
 pub(crate) fn receive_cleanup<R: ReplicationReceive>(
     mut receiver: ResMut<R>,
     tick_manager: Res<TickManager>,

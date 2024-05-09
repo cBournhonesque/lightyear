@@ -40,8 +40,8 @@ app.add_plugins(InputPlugin::<Inputs>::default());
 
 // components
 app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-    .add_prediction::<PlayerId>(ComponentSyncMode::Once)
-    .add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+    .add_prediction(ComponentSyncMode::Once)
+    .add_interpolation(ComponentSyncMode::Once);
     
 // channels
 app.add_channel::<Channel1>(ChannelSettings {
