@@ -88,8 +88,6 @@ pub(crate) fn receive(world: &mut World) {
                         |world: &mut World, mut time_manager: Mut<TimeManager>| {
                             world.resource_scope(
                                 |world: &mut World, tick_manager: Mut<TickManager>| {
-                                    world.resource_scope(
-                                        |world: &mut World, mut room_manager: Mut<RoomManager>| {
                                             let delta = world.resource::<Time<Virtual>>().delta();
                                             // UPDATE: update server state, send keep-alives, receive packets from io
                                             // update time manager
@@ -111,7 +109,6 @@ pub(crate) fn receive(world: &mut World) {
                                                 for client_id in netserver.new_disconnections().iter().copied() {
                                                     if netservers.client_server_map.remove(&client_id).is_some() {
                                                         connection_manager.remove(client_id);
-                                                        room_manager.client_disconnect(client_id);
                                                     } else {
                                                         error!("Client disconnected but could not map client_id to the corresponding netserver");
                                                     }
@@ -174,7 +171,6 @@ pub(crate) fn receive(world: &mut World) {
                                                     }
                                                 }
                                             }
-                                        });
                                 });
                         });
                 });

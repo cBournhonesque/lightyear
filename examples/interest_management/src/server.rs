@@ -11,7 +11,7 @@ use crate::shared;
 use crate::shared::{color_from_id, shared_movement_behaviour};
 
 const GRID_SIZE: f32 = 200.0;
-const NUM_CIRCLES: i32 = 1;
+const NUM_CIRCLES: i32 = 10;
 const INTEREST_RADIUS: f32 = 150.0;
 
 // Special room for the player entities (so that all player entities always see each other)
