@@ -69,7 +69,7 @@ impl PacketBuilder {
         // TODO: we should actually call finish write to byte align!
         // TODO: CAREFUL, THIS COULD ALLOCATE A BIT MORE TO BYTE ALIGN?
         let payload = Payload::from(write_buffer.finish_write());
-        assert!(payload.len() <= MAX_PACKET_SIZE, "packet = {:?}", packet);
+        debug_assert!(payload.len() <= MAX_PACKET_SIZE, "packet = {:?}", packet);
         Ok(payload)
 
         // packet.encode(&mut self.write_buffer)?;
