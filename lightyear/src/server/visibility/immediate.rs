@@ -26,6 +26,7 @@ use crate::prelude::ClientId;
 use crate::server::networking::is_started;
 use crate::server::visibility::room::{RoomManager, RoomSystemSets};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
+use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 use tracing::trace;
@@ -50,65 +51,104 @@ pub(crate) struct ReplicateVisibility {
 
 #[derive(Debug, Default)]
 struct VisibilityEvents {
-    gained: HashMap<ClientId, Entity>,
-    lost: HashMap<ClientId, Entity>,
+    gained: HashMap<ClientId, EntityHashSet>,
+    lost: HashMap<ClientId, EntityHashSet>,
 }
 
+/// Resource that manages the visibility of entities for clients
+///
+/// You can call the two functions
+/// - [`gain_visibility`](VisibilityManager::gain_visibility)
+/// - [`lose_visibility`](VisibilityManager::lose_visibility)
+///
+/// to update the visibility of an entity for a given client.
 #[derive(Resource, Debug, Default)]
 pub struct VisibilityManager {
     events: VisibilityEvents,
 }
 
 impl VisibilityManager {
+    /// Gain visibility of an entity for a given client.
+    ///
+    /// The visibility status gets cached and will be maintained until is it changed.
     pub fn gain_visibility(&mut self, client: ClientId, entity: Entity) {
-        self.events.gained.insert(client, entity);
+        self.events.lost.entry(client).and_modify(|set| {
+            set.remove(&entity);
+        });
+        self.events.gained.entry(client).or_default().insert(entity);
     }
 
+    /// Lost visibility of an entity for a given client
     pub fn lose_visibility(&mut self, client: ClientId, entity: Entity) {
-        self.events.lost.insert(client, entity);
+        self.events.gained.entry(client).and_modify(|set| {
+            set.remove(&entity);
+        });
+        self.events.lost.entry(client).or_default().insert(entity);
     }
+
+    // NOTE: this might not be needed because we drain the event cache every Send update
+    // /// Remove all visibility events for a given client when they disconnect
+    // ///
+    // /// Called to release the memory associated with the client
+    // pub(crate) fn handle_client_disconnection(&mut self, client: ClientId) {
+    //     self.events.gained.remove(&client);
+    //     self.events.lost.remove(&client);
+    // }
 }
 
 pub(super) mod systems {
     use super::*;
+    use crate::prelude::server::DisconnectEvent;
     use crate::shared::replication::ReplicationSend;
     use bevy::prelude::DetectChanges;
 
+    // NOTE: this might not be needed because we drain the event cache every Send update
+    // /// Clear the internal room buffers when a client disconnects
+    // pub fn handle_client_disconnect(
+    //     mut manager: ResMut<VisibilityManager>,
+    //     mut disconnect_events: EventReader<DisconnectEvent>,
+    // ) {
+    //     for event in disconnect_events.read() {
+    //         let client_id = event.context();
+    //         manager.handle_client_disconnection(*client_id);
+    //     }
+    // }
+
     /// System that updates the visibility cache of each Entity based on the visibility events.
     pub fn update_visibility_from_events(
-        mut visibility_events: ResMut<VisibilityManager>,
+        mut manager: ResMut<VisibilityManager>,
         mut visibility: Query<&mut ReplicateVisibility>,
     ) {
-        if visibility_events.events.gained.is_empty() && visibility_events.events.lost.is_empty() {
+        if manager.events.gained.is_empty() && manager.events.lost.is_empty() {
             return;
         }
-        // NOTE: we handle lost events before gained events so that if one event in the queue
-        //  removes the visibility, and another one gains it, the visibility is maintained
-        for (client, entity) in visibility_events.events.lost.drain() {
-            if let Ok(mut cache) = visibility.get_mut(entity) {
-                trace!("Want to lose visibility for entity {entity:?} and client {client:?}. Cache: {cache:?}");
-                if let Some(vis) = cache.clients_cache.get_mut(&client) {
-                    trace!("lose visibility for entity {entity:?} and client {client:?}");
-                    *vis = ClientVisibility::Lost;
+        trace!("Visibility events: {:?}", manager.events);
+        for (client, mut entities) in manager.events.lost.drain() {
+            entities.drain().for_each(|entity| {
+                if let Ok(mut cache) = visibility.get_mut(entity) {
+                    // Only lose visibility if the client was visible to the entity
+                    // (to avoid multiple despawn messages)
+                    if let Some(vis) = cache.clients_cache.get_mut(&client) {
+                        trace!("lose visibility for entity {entity:?} and client {client:?}");
+                        *vis = ClientVisibility::Lost;
+                    }
                 }
-            }
+            });
         }
-        for (client, entity) in visibility_events.events.gained.drain() {
-            if let Ok(mut cache) = visibility.get_mut(entity) {
-                cache
-                    .clients_cache
-                    .entry(client)
-                    .and_modify(|vis| {
-                        // if the visibility was lost above, then that means that the entity was visible
-                        // for this client, so we just maintain it instead
-                        if *vis == ClientVisibility::Lost {
-                            trace!("visibility for entity {entity:?} and client {client:?} goes from lost to maintained");
-                            *vis = ClientVisibility::Maintained;
-                        }
-                    })
-                    // if the entity was not visible, the visibility is gained
-                    .or_insert(ClientVisibility::Gained);
-            }
+        for (client, mut entities) in manager.events.gained.drain() {
+            entities.drain().for_each(|entity| {
+                if let Ok(mut cache) = visibility.get_mut(entity) {
+                    // if the entity was already visible (Visibility::Maintained), be careful to not set it to
+                    // Visibility::Gained as it would trigger a spawn replication action
+                    //
+                    // we don't need to check if the entity was set to Lost in the same update,
+                    // since calling gain_visibility removes the entity from the lost_visibility queue
+                    cache
+                        .clients_cache
+                        .entry(client)
+                        .or_insert(ClientVisibility::Gained);
+                }
+            });
         }
     }
 
@@ -128,7 +168,7 @@ pub(super) mod systems {
                         true
                     }
                     ClientVisibility::Lost => {
-                        trace!("remove client {client_id:?} and entity {entity:?} from room cache");
+                        trace!("remove client {client_id:?} and entity {entity:?} from visibility cache");
                         false
                     }
                     ClientVisibility::Maintained => true,
@@ -198,6 +238,11 @@ impl Plugin for VisibilityPlugin {
             ),
         );
         // SYSTEMS
+        // NOTE: this might not be needed because we drain the event cache every Send update
+        // app.add_systems(
+        //     PreUpdate,
+        //     systems::handle_client_disconnect.after(InternalMainSet::<ServerMarker>::EmitEvents),
+        // );
         app.add_systems(
             PostUpdate,
             (
@@ -209,6 +254,126 @@ impl Plugin for VisibilityPlugin {
                     .in_set(VisibilitySet::UpdateVisibility),
                 systems::update_replicate_visibility.in_set(VisibilitySet::VisibilityCleanup),
             ),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// Multiple entities gain visibility for a given client
+    #[test]
+    fn test_multiple_visibility_gain() {
+        let mut app = App::new();
+        app.world.init_resource::<VisibilityManager>();
+        let entity1 = app.world.spawn(ReplicateVisibility::default()).id();
+        let entity2 = app.world.spawn(ReplicateVisibility::default()).id();
+        let client = ClientId::Netcode(1);
+
+        app.world
+            .resource_mut::<VisibilityManager>()
+            .gain_visibility(client, entity1);
+        app.world
+            .resource_mut::<VisibilityManager>()
+            .gain_visibility(client, entity2);
+
+        assert_eq!(
+            app.world
+                .resource_mut::<VisibilityManager>()
+                .events
+                .gained
+                .len(),
+            1
+        );
+        assert_eq!(
+            app.world
+                .resource_mut::<VisibilityManager>()
+                .events
+                .gained
+                .get(&client)
+                .unwrap()
+                .len(),
+            2
+        );
+        app.world
+            .run_system_once(systems::update_visibility_from_events);
+        assert_eq!(
+            app.world
+                .resource_mut::<VisibilityManager>()
+                .events
+                .gained
+                .len(),
+            0
+        );
+        assert_eq!(
+            app.world
+                .entity(entity1)
+                .get::<ReplicateVisibility>()
+                .unwrap()
+                .clients_cache
+                .get(&client)
+                .unwrap(),
+            &ClientVisibility::Gained
+        );
+        assert_eq!(
+            app.world
+                .entity(entity2)
+                .get::<ReplicateVisibility>()
+                .unwrap()
+                .clients_cache
+                .get(&client)
+                .unwrap(),
+            &ClientVisibility::Gained
+        );
+
+        // After we used the visibility events, check how they are updated for bookkeeping
+        // - Lost -> removed from cache
+        // - Gained -> Maintained
+        app.world
+            .resource_mut::<VisibilityManager>()
+            .lose_visibility(client, entity1);
+        app.world
+            .run_system_once(systems::update_visibility_from_events);
+        assert_eq!(
+            app.world
+                .entity(entity1)
+                .get::<ReplicateVisibility>()
+                .unwrap()
+                .clients_cache
+                .get(&client)
+                .unwrap(),
+            &ClientVisibility::Lost
+        );
+        assert_eq!(
+            app.world
+                .entity(entity2)
+                .get::<ReplicateVisibility>()
+                .unwrap()
+                .clients_cache
+                .get(&client)
+                .unwrap(),
+            &ClientVisibility::Gained
+        );
+        app.world
+            .run_system_once(systems::update_replicate_visibility);
+        assert!(app
+            .world
+            .entity(entity1)
+            .get::<ReplicateVisibility>()
+            .unwrap()
+            .clients_cache
+            .is_empty());
+        assert_eq!(
+            app.world
+                .entity(entity2)
+                .get::<ReplicateVisibility>()
+                .unwrap()
+                .clients_cache
+                .get(&client)
+                .unwrap(),
+            &ClientVisibility::Maintained
         );
     }
 }

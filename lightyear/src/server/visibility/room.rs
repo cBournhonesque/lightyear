@@ -40,8 +40,8 @@ it just caches the room metadata to keep track of the visibility of entities.
 use bevy::app::App;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{
-    DetectChanges, Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query,
-    RemovedComponents, Res, ResMut, Resource, SystemSet,
+    DetectChanges, Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate,
+    Query, RemovedComponents, Res, ResMut, Resource, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
@@ -51,6 +51,7 @@ use tracing::{error, info, trace};
 
 use crate::connection::id::ClientId;
 use crate::server::connection::ConnectionManager;
+
 use crate::server::networking::is_started;
 use crate::server::visibility::immediate::{VisibilityManager, VisibilitySet};
 use crate::shared::replication::components::{DespawnTracker, Replicate};
@@ -184,10 +185,15 @@ impl Plugin for RoomPlugin {
         );
         // SYSTEMS
         app.add_systems(
+            PreUpdate,
+            systems::handle_client_disconnect.after(InternalMainSet::<ServerMarker>::EmitEvents),
+        );
+        app.add_systems(
             PostUpdate,
             (
-                buffer_room_visibility_events.in_set(RoomSystemSets::UpdateReplicationCaches),
-                clean_entity_despawns.in_set(RoomSystemSets::RoomBookkeeping),
+                systems::buffer_room_visibility_events
+                    .in_set(RoomSystemSets::UpdateReplicationCaches),
+                systems::clean_entity_despawns.in_set(RoomSystemSets::RoomBookkeeping),
             ),
         );
     }
@@ -195,7 +201,7 @@ impl Plugin for RoomPlugin {
 
 impl RoomManager {
     /// Remove the client from all the rooms it was in
-    pub(crate) fn client_disconnect(&mut self, client_id: ClientId) {
+    fn client_disconnect(&mut self, client_id: ClientId) {
         if let Some(rooms) = self.data.client_to_rooms.remove(&client_id) {
             for room_id in rooms {
                 self.remove_client_internal(room_id, client_id);
@@ -414,70 +420,91 @@ impl RoomEvents {
     }
 }
 
-// TODO: (perf) split this into 4 separate functions that access RoomManager in parallel?
-//  (we only use the ids in events, so we can read them in parallel)
-/// Update each entities' replication-client-list based on the room events
-/// Note that the rooms' entities/clients have already been updated at this point
-fn buffer_room_visibility_events(
-    mut room_manager: ResMut<RoomManager>,
-    mut visibility_manager: ResMut<VisibilityManager>,
-) {
-    if !room_manager.events.is_empty() {
-        trace!(?room_manager.events, "Room events");
-    }
-    // enable split borrows by reborrowing Mut
-    let room_manager = &mut *room_manager;
+pub(super) mod systems {
+    use super::*;
+    use crate::server::events::DisconnectEvent;
+    use bevy::prelude::EventReader;
 
-    // NOTE: we handle leave room events before join room events so that if an entity leaves room 1 to join room 2
-    //  and the client is in both rooms, the entity does not get despawned
+    /// Clear the internal room buffers when a client disconnects
+    pub fn handle_client_disconnect(
+        mut room_manager: ResMut<RoomManager>,
+        mut disconnect_events: EventReader<DisconnectEvent>,
+    ) {
+        for event in disconnect_events.read() {
+            let client_id = event.context();
+            room_manager.client_disconnect(*client_id);
+        }
+    }
 
-    // entity left room
-    for (entity, rooms) in room_manager.events.entity_leave_room.drain() {
-        // for each room left, update the entity's client visibility list if the client was in the room
-        rooms.into_iter().for_each(|room_id| {
-            let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.clients.iter().for_each(|client_id| {
-                visibility_manager.lose_visibility(*client_id, entity);
-            });
-        });
-    }
-    // entity joined room
-    for (entity, rooms) in room_manager.events.entity_enter_room.drain() {
-        // for each room joined, update the entity's client visibility list
-        rooms.into_iter().for_each(|room_id| {
-            let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.clients.iter().for_each(|client_id| {
-                visibility_manager.gain_visibility(*client_id, entity);
-            });
-        });
-    }
-    // client left room: update all the entities that are in that room
-    for (client_id, rooms) in room_manager.events.client_leave_room.drain() {
-        rooms.into_iter().for_each(|room_id| {
-            let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.entities.iter().for_each(|entity| {
-                visibility_manager.lose_visibility(client_id, *entity);
-            });
-        });
-    }
-    // client joined room: update all the entities that are in that room
-    for (client_id, rooms) in room_manager.events.client_enter_room.drain() {
-        rooms.into_iter().for_each(|room_id| {
-            let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.entities.iter().for_each(|entity| {
-                visibility_manager.gain_visibility(client_id, *entity);
-            });
-        });
-    }
-}
+    // TODO: (perf) split this into 4 separate functions that access RoomManager in parallel?
+    //  (we only use the ids in events, so we can read them in parallel)
+    /// Update each entities' replication-client-list based on the room events
+    /// Note that the rooms' entities/clients have already been updated at this point
+    pub fn buffer_room_visibility_events(
+        mut room_manager: ResMut<RoomManager>,
+        mut visibility_manager: ResMut<VisibilityManager>,
+    ) {
+        if !room_manager.events.is_empty() {
+            trace!(?room_manager.events, "Room events");
+        }
+        // enable split borrows by reborrowing Mut
+        let room_manager = &mut *room_manager;
 
-/// Clear out the room metadata for any entity that was ever replicated
-fn clean_entity_despawns(
-    mut room_manager: ResMut<RoomManager>,
-    mut despawned: RemovedComponents<DespawnTracker>,
-) {
-    for entity in despawned.read() {
-        room_manager.entity_despawn(entity);
+        // NOTE: we handle leave room events before join room events so that if an entity leaves room 1 to join room 2
+        //  and the client is in both rooms, the entity does not get despawned
+
+        // entity left room
+        for (entity, rooms) in room_manager.events.entity_leave_room.drain() {
+            // for each room left, update the entity's client visibility list if the client was in the room
+            rooms.into_iter().for_each(|room_id| {
+                let room = room_manager.data.rooms.get(&room_id).unwrap();
+                room.clients.iter().for_each(|client_id| {
+                    trace!("entity {entity:?} left room {room:?}. Sending lost visibility to client {client_id:?}");
+                    visibility_manager.lose_visibility(*client_id, entity);
+                });
+            });
+        }
+        // entity joined room
+        for (entity, rooms) in room_manager.events.entity_enter_room.drain() {
+            // for each room joined, update the entity's client visibility list
+            rooms.into_iter().for_each(|room_id| {
+                let room = room_manager.data.rooms.get(&room_id).unwrap();
+                room.clients.iter().for_each(|client_id| {
+                    trace!("entity {entity:?} joined room {room:?}. Sending gained visibility to client {client_id:?}");
+                    visibility_manager.gain_visibility(*client_id, entity);
+                });
+            });
+        }
+        // client left room: update all the entities that are in that room
+        for (client_id, rooms) in room_manager.events.client_leave_room.drain() {
+            rooms.into_iter().for_each(|room_id| {
+                let room = room_manager.data.rooms.get(&room_id).unwrap();
+                room.entities.iter().for_each(|entity| {
+                    trace!("client {client_id:?} left room {room:?}. Sending lost visibility to entity {entity:?}");
+                    visibility_manager.lose_visibility(client_id, *entity);
+                });
+            });
+        }
+        // client joined room: update all the entities that are in that room
+        for (client_id, rooms) in room_manager.events.client_enter_room.drain() {
+            rooms.into_iter().for_each(|room_id| {
+                let room = room_manager.data.rooms.get(&room_id).unwrap();
+                room.entities.iter().for_each(|entity| {
+                    trace!("client {client_id:?} joined room {room:?}. Sending gained visibility to entity {entity:?}");
+                    visibility_manager.gain_visibility(client_id, *entity);
+                });
+            });
+        }
+    }
+
+    /// Clear out the room metadata for any entity that was ever replicated
+    pub fn clean_entity_despawns(
+        mut room_manager: ResMut<RoomManager>,
+        mut despawned: RemovedComponents<DespawnTracker>,
+    ) {
+        for entity in despawned.read() {
+            room_manager.entity_despawn(entity);
+        }
     }
 }
 
@@ -494,6 +521,8 @@ mod tests {
     use crate::shared::replication::components::VisibilityMode;
     use crate::shared::replication::systems::handle_replicate_add;
     use crate::tests::stepper::{BevyStepper, Step};
+
+    use super::systems::buffer_room_visibility_events;
 
     use super::*;
 

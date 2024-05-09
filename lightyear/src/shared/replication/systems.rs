@@ -71,6 +71,7 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
             .get_mut_replicate_despawn_cache()
             .insert(entity, despawn_metadata);
         if replicate.visibility == VisibilityMode::InterestManagement {
+            error!("Adding ReplicateVisibility component for entity {entity:?}");
             commands
                 .entity(entity)
                 .insert(ReplicateVisibility::default());
@@ -288,9 +289,6 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                         if replicate.replication_target.should_send_to(client_id) {
                             let target = replicate.target::<C>(NetworkTarget::Only(vec![*client_id]));
                             match visibility {
-                                // TODO: here we required the component to be clone because we send it to multiple clients.
-                                //  but maybe we can instead serialize it to Bytes early and then have the bytes be shared between clients?
-                                //  or just pass a reference?
                                 ClientVisibility::Gained => {
                                     replicate_args.push((target, true));
                                 }
@@ -308,7 +306,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                                             // to any client
                                             return;
                                         }
-                                        replicate_args.push((target, true));
+                                        replicate_args.push((target, false));
                                     }
                                 }
                             }
