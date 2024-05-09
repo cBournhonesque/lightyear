@@ -75,11 +75,7 @@ impl VisibilityManager {
         self.events.lost.entry(client).and_modify(|set| {
             set.remove(&entity);
         });
-        self.events
-            .gained
-            .entry(client)
-            .or_insert(EntityHashSet::default())
-            .insert(entity);
+        self.events.gained.entry(client).or_default().insert(entity);
     }
 
     /// Lost visibility of an entity for a given client
@@ -87,11 +83,7 @@ impl VisibilityManager {
         self.events.gained.entry(client).and_modify(|set| {
             set.remove(&entity);
         });
-        self.events
-            .lost
-            .entry(client)
-            .or_insert(EntityHashSet::default())
-            .insert(entity);
+        self.events.lost.entry(client).or_default().insert(entity);
     }
 
     // NOTE: this might not be needed because we drain the event cache every Send update
@@ -137,7 +129,7 @@ pub(super) mod systems {
                     // Only lose visibility if the client was visible to the entity
                     // (to avoid multiple despawn messages)
                     if let Some(vis) = cache.clients_cache.get_mut(&client) {
-                        trace!("lose visibility for entity {entity:?} and client {client:?}. Cache: {cache:?}");
+                        trace!("lose visibility for entity {entity:?} and client {client:?}");
                         *vis = ClientVisibility::Lost;
                     }
                 }
