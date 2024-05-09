@@ -1086,7 +1086,6 @@ impl NetServer for Server {
 
 impl Server {
     pub(crate) fn new(config: NetcodeConfig, io_config: IoConfig) -> Self {
-        let private_key = config.private_key.unwrap_or(generate_key());
         // create context
         let context = NetcodeServerContext::default();
         let mut cfg = ServerConfig::with_context(context)
@@ -1099,7 +1098,7 @@ impl Server {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
-        let server = NetcodeServer::with_config(config.protocol_id, private_key, cfg)
+        let server = NetcodeServer::with_config(config.protocol_id, config.private_key, cfg)
             .expect("Could not create server netcode");
 
         Self {

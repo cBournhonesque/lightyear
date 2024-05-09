@@ -119,7 +119,7 @@ impl Replicate {
     /// Replication target for this specific component
     /// This will be the intersection of the provided `entity_target`, and the `target` of the component
     /// if it exists
-    pub fn target<C: Component>(&self, mut entity_target: NetworkTarget) -> NetworkTarget {
+    pub fn target<C: Component>(&self, entity_target: NetworkTarget) -> NetworkTarget {
         let kind = ComponentKind::of::<C>();
         match self.per_component_metadata.get(&kind) {
             None => entity_target,
