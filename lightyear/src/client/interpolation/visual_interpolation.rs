@@ -23,7 +23,7 @@
 //! - To enable VisualInterpolation on a given entity, you need to add the `VisualInterpolateStatus` component to it manually
 //! ```rust,no_run,ignore
 //! fn spawn_entity(mut commands: Commands) {
-//!     commands.spawn().insert(VisualInterpolateState::<Component1>::default());
+//!     commands.spawn().insert(VisualInterpolateStatus::<Component1>::default());
 //! }
 //! ```
 
@@ -52,9 +52,6 @@ impl<C: SyncComponent> Default for VisualInterpolationPlugin<C> {
 
 impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
-        // TODO: put the non-component specific stuff in a different plugin
-        // REFLECTION
-        app.register_type::<VisualInterpolateMarker>();
         // SETS
         app.configure_sets(PreUpdate, InterpolationSet::RestoreVisualInterpolation);
         app.configure_sets(
@@ -107,10 +104,6 @@ impl<C: Component> Default for VisualInterpolateStatus<C> {
         }
     }
 }
-
-/// Marker component to indicate that this entity will be visually interpolated
-#[derive(Component, Debug, Reflect)]
-pub struct VisualInterpolateMarker;
 
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
 //  (to avoid orphan rule)
