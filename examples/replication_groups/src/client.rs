@@ -114,7 +114,7 @@ pub(crate) fn handle_predicted_spawn(
 ) {
     for (entity, mut color) in predicted_heads.iter_mut() {
         color.0.set_s(0.3);
-        // add visual interpolation for the head position of the predited entity
+        // add visual interpolation for the head position of the predicted entity
         // so that the position gets updated smoothly every frame
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)

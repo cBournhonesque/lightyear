@@ -35,7 +35,7 @@
 use bevy::prelude::*;
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
-use crate::prelude::client::InterpolationSet;
+use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::prelude::{ComponentRegistry, TickManager, TimeManager};
 
 pub struct VisualInterpolationPlugin<C: SyncComponent> {
@@ -53,7 +53,15 @@ impl<C: SyncComponent> Default for VisualInterpolationPlugin<C> {
 impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
         // SETS
-        app.configure_sets(PreUpdate, InterpolationSet::RestoreVisualInterpolation);
+        app.configure_sets(
+            PreUpdate,
+            // make sure that we restore the actual component value before we perform a rollback check
+            (
+                InterpolationSet::RestoreVisualInterpolation,
+                PredictionSet::CheckRollback,
+            )
+                .chain(),
+        );
         app.configure_sets(
             FixedPostUpdate,
             InterpolationSet::UpdateVisualInterpolationState,
