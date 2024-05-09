@@ -156,6 +156,21 @@ pub struct ReplicationMetadata {
 pub struct PredictionMetadata {
     pub prediction_mode: ComponentSyncMode,
     pub correction: Option<unsafe fn()>,
+    /// Function used to compare the confirmed component with the predicted component's history
+    /// to determine if a rollback is needed.
+    /// Will default to a PartialEq implementation, but can be overriden.
+    pub rollback_check: unsafe fn(),
+}
+
+impl PredictionMetadata {
+    fn default_from<C: PartialEq>(mode: ComponentSyncMode) -> Self {
+        let equality_check: RollbackCheckFn<C> = <C as PartialEq>::eq;
+        Self {
+            prediction_mode: mode,
+            correction: None,
+            rollback_check: unsafe { std::mem::transmute(equality_check) },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -174,7 +189,13 @@ type RawWriteFn = fn(
     &mut ConnectionEvents,
 ) -> anyhow::Result<()>;
 
-type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
+/// Function used to interpolate from one component state (`start`) to another (`other`)
+/// t goes from 0.0 (`start`) to 1.0 (`other`)
+pub type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
+
+/// Function used to check if a rollback is needed, by comparing the server's value with the client's predicted value.
+/// Defaults to PartialEq::eq
+type RollbackCheckFn<C> = fn(this: &C, that: &C) -> bool;
 
 pub trait Linear {
     fn lerp(start: &Self, other: &Self, t: f32) -> Self;
@@ -254,28 +275,34 @@ impl ComponentRegistry {
         erased_fns.add_map_entities::<C>();
     }
 
-    pub(crate) fn set_prediction_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
+    pub(crate) fn set_prediction_mode<C: SyncComponent>(&mut self, mode: ComponentSyncMode) {
+        let kind = ComponentKind::of::<C>();
+        let default_equality_fn = <C as PartialEq>::eq;
+        self.prediction_map
+            .entry(kind)
+            .or_insert_with(|| PredictionMetadata::default_from::<C>(mode));
+    }
+
+    pub(crate) fn set_rollback_check<C: Component + PartialEq>(
+        &mut self,
+        rollback_check: RollbackCheckFn<C>,
+    ) {
         let kind = ComponentKind::of::<C>();
         self.prediction_map
             .entry(kind)
-            .or_insert_with(|| PredictionMetadata {
-                prediction_mode: mode,
-                correction: None,
-            });
+            .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
+            .rollback_check = unsafe { std::mem::transmute(rollback_check) };
     }
 
-    pub(crate) fn set_linear_correction<C: Component + Linear>(&mut self) {
+    pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
         self.set_correction(<C as Linear>::lerp);
     }
 
-    pub(crate) fn set_correction<C: Component>(&mut self, correction_fn: LerpFn<C>) {
+    pub(crate) fn set_correction<C: Component + PartialEq>(&mut self, correction_fn: LerpFn<C>) {
         let kind = ComponentKind::of::<C>();
         self.prediction_map
             .entry(kind)
-            .or_insert_with(|| PredictionMetadata {
-                prediction_mode: ComponentSyncMode::Full,
-                correction: None,
-            })
+            .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
             .correction = Some(unsafe { std::mem::transmute(correction_fn) });
     }
 
@@ -520,6 +547,11 @@ pub trait AppComponentExt {
     /// Add a `Correction` behaviour to this component.
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>);
 
+    /// Add a custom function to use for checking if a rollback is needed.
+    /// (By default we use the PartialEq::eq function, but you can use this to override the
+    ///  equality check. For example, you might want to add a threshold for floating point numbers)
+    fn add_rollback_check<C: SyncComponent>(&mut self, rollback_check: RollbackCheckFn<C>);
+
     /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
     /// themselves (the interpolation_fn will not be used)
     fn add_custom_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode);
@@ -577,6 +609,17 @@ impl<C> ComponentRegistration<'_, C> {
         C: SyncComponent,
     {
         self.app.add_correction_fn::<C>(correction_fn);
+        self
+    }
+
+    /// Add a custom function to use for checking if a rollback is needed.
+    /// (By default we use the PartialEq::eq function, but you can use this to override the
+    ///  equality check. For example, you might want to add a threshold for floating point numbers)
+    pub fn add_rollback_check(self, rollback_check: RollbackCheckFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.app.add_rollback_check::<C>(rollback_check);
         self
     }
 
@@ -656,6 +699,11 @@ impl AppComponentExt for App {
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         registry.set_correction::<C>(correction_fn);
+    }
+
+    fn add_rollback_check<C: SyncComponent>(&mut self, rollback_check: RollbackCheckFn<C>) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_rollback_check::<C>(rollback_check);
     }
 
     fn add_custom_interpolation<C: SyncComponent>(
