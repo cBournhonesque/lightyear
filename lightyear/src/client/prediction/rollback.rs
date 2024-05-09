@@ -102,6 +102,7 @@ impl Rollback {
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn check_rollback<C: SyncComponent>(
+    component_registry: Res<ComponentRegistry>,
     // TODO: have a way to only get the updates of entities that are predicted?
     tick_manager: Res<TickManager>,
     connection: Res<ConnectionManager>,
@@ -174,7 +175,9 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 }),
                 // confirm exist. rollback if history value is different
                 Some(c) => history_value.map_or(true, |history_value| match history_value {
-                    ComponentState::Updated(history_value) => history_value != *c,
+                    ComponentState::Updated(history_value) => {
+                        !component_registry.rollback_check(&history_value, c)
+                    }
                     ComponentState::Removed => true,
                 }),
             };
