@@ -688,7 +688,7 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
             .context("io is not initialized, did you call connect?")?;
         self.client
             .try_update(delta_ms, io)
-            .inspect_err(|e| error!("error updating client: {:?}", e))
+            .inspect_err(|e| error!("error updating netcode client: {:?}", e))
             .context("could not update client")
     }
 

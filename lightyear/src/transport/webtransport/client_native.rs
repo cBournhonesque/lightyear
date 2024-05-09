@@ -1,5 +1,6 @@
 #![cfg(not(target_family = "wasm"))]
 //! WebTransport client implementation.
+use async_channel::Receiver;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -10,10 +11,11 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info, trace, warn};
 use wtransport;
 use wtransport::datagram::Datagram;
+use wtransport::error::{ConnectingError, ConnectionError};
 use wtransport::ClientConfig;
 
 use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
+use crate::transport::io::{IoEvent, IoEventReceiver, IoState};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
@@ -25,13 +27,13 @@ pub(crate) struct WebTransportClientSocketBuilder {
 }
 
 impl TransportBuilder for WebTransportClientSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
         // channels used to cancel the task
         let (close_tx, mut close_rx) = mpsc::channel(1);
         // channels used to check the status of the io task
-        let (status_tx, status_rx) = async_channel::bounded(1);
+        let (event_tx, event_rx) = async_channel::bounded(1);
 
         IoTaskPool::get().spawn(Compat::new(async move {
             let config = ClientConfig::builder()
@@ -48,7 +50,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 Ok(e) => {e}
                 Err(e) => {
                     error!("Error creating webtransport endpoint: {:?}", e);
-                    let _ = status_tx.send(Some(e.into())).await;
+                    let _ = event_tx.send(IoEvent::Disconnected(e.into())).await;
                     return
                 }
             };
@@ -56,7 +58,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
             tokio::select! {
                 _ = close_rx.recv() => {
                     info!("WebTransport connection closed. Reason: client requested disconnection.");
-                    let _ = status_tx.send(Some(std::io::Error::other("received close signal").into())).await;
+                    let _ = event_tx.send(IoEvent::Disconnected(std::io::Error::other("received close signal").into())).await;
                     return
                 }
                 connection = endpoint.connect(&server_url) => {
@@ -64,12 +66,12 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                         Ok(c) => {c}
                         Err(e) => {
                             error!("Error creating webtransport connection: {:?}", e);
-                            let _ = status_tx.send(Some(std::io::Error::other(e).into())).await;
+                            let _ = event_tx.send(IoEvent::Disconnected(std::io::Error::other(e).into())).await;
                             return
                         }
                     };
                     // signal that the io is connected
-                    status_tx.send(None).await.unwrap();
+                    event_tx.send(IoEvent::Connected).await.unwrap();
                     info!("Connected.");
 
                     let connection = Arc::new(connection);
@@ -90,7 +92,9 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                                     from_server_sender.send(data).unwrap();
                                 }
                                 Err(e) => {
+                                    // all the ConnectionErrors are related to the connection being close, so we can close the task
                                     error!("receive_datagram connection error: {:?}", e);
+                                    return;
                                 }
                             }
                         }
@@ -108,12 +112,24 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                     }));
                     // Wait for a close signal from the close channel, or for the quic connection to be closed
                     tokio::select! {
-                        reason = connection.closed() => {info!("WebTransport connection closed. Reason: {reason:?}")},
-                        _ = close_rx.recv() => {info!("WebTransport connection closed. Reason: client requested disconnection.");}
+                        reason = connection.closed() => {
+                            info!("WebTransport connection closed. Reason: {reason:?}. Shutting down webtransport tasks.");
+                            event_tx.send(IoEvent::Disconnected(Error::WebTransport(ConnectingError::ConnectionError(reason)))).await.unwrap();
+                        },
+                        _ = close_rx.recv() => {
+                            info!("WebTransport connection closed. Reason: client requested disconnection. Shutting down webtransport tasks.");
+                            event_tx.send(IoEvent::Disconnected(std::io::Error::other("received close signal").into())).await.unwrap();
+                        }
                     }
                     // close the other tasks
+
+                    // NOTE: for some reason calling `cancel()` doesn't work (the task still keeps running indefinitely)
+                    //  instead we just drop the task handle
+                    // drop(recv_handle);
+                    // drop(send_handle);
                     recv_handle.cancel().await;
                     send_handle.cancel().await;
+                    info!("WebTransport tasks shut down.");
                 }
             }
             }))
@@ -132,9 +148,8 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 receiver,
                 close_sender: close_tx,
             }),
-            IoState::Connecting {
-                error_channel: status_rx,
-            },
+            IoState::Connecting,
+            Some(IoEventReceiver { receiver: event_rx }),
         ))
     }
 }

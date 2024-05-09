@@ -1,12 +1,12 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
+use async_channel::Receiver;
 use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, SocketAddr};
 
 use bevy::app::{App, Plugin};
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
 use bevy::prelude::{Real, Res, Resource, Time};
-use crossbeam_channel::{Receiver, Sender};
 #[cfg(feature = "metrics")]
 use metrics;
 use tracing::info;
@@ -31,6 +31,7 @@ pub struct Io {
     pub(crate) receiver: BoxedReceiver,
     pub(crate) close_fn: Option<BoxedCloseFn>,
     pub(crate) state: IoState,
+    pub(crate) event_receiver: Option<IoEventReceiver>,
     pub(crate) stats: IoStats,
 }
 
@@ -67,6 +68,7 @@ impl Io {
         if let Some(close_fn) = std::mem::take(&mut self.close_fn) {
             close_fn()?;
         }
+        self.state = IoState::Disconnected;
         Ok(())
     }
 }
@@ -171,11 +173,19 @@ impl Plugin for IoDiagnosticsPlugin {
     }
 }
 
-/// Tracks the state of creating the Io
+/// Tracks the state of the Io
+#[derive(Debug)]
 pub(crate) enum IoState {
-    Connecting {
-        error_channel: async_channel::Receiver<Option<Error>>,
-    },
+    Connecting,
     Connected,
     Disconnected,
+}
+
+pub(crate) struct IoEventReceiver {
+    pub(crate) receiver: Receiver<IoEvent>,
+}
+
+pub(crate) enum IoEvent {
+    Connected,
+    Disconnected(Error),
 }

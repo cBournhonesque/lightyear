@@ -28,7 +28,7 @@ use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
 use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
+use crate::transport::io::{IoEvent, IoEventReceiver, IoState};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET, MTU,
@@ -39,7 +39,7 @@ pub(crate) struct WebSocketClientSocketBuilder {
 }
 
 impl TransportBuilder for WebSocketClientSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
         let (serverbound_tx, mut serverbound_rx) = unbounded_channel::<Message>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Message>();
         let (close_tx, mut close_rx) = mpsc::channel(1);
@@ -64,11 +64,15 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
                 {
                     Ok((ws_stream, _)) => ws_stream,
                     Err(e) => {
-                        status_tx.send(Some(e.into())).await.unwrap();
+                        status_tx
+                            .send(IoEvent::Disconnected(e.into()))
+                            .await
+                            .unwrap();
                         return;
                     }
                 };
                 info!("WebSocket handshake has been successfully completed");
+                status_tx.send(IoEvent::Connected).await.unwrap();
                 let (mut write, mut read) = ws_stream.split();
 
                 let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
@@ -98,6 +102,12 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
                 }));
                 // wait for a signal that the io should be closed
                 close_rx.recv().await;
+                status_tx
+                    .send(IoEvent::Disconnected(
+                        std::io::Error::other("websocket closed").into(),
+                    ))
+                    .await
+                    .unwrap();
                 info!("Close websocket connection");
                 send_handle.cancel().await;
                 recv_handle.cancel().await;
@@ -110,9 +120,10 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
                 receiver,
                 close_sender: close_tx,
             }),
-            IoState::Connecting {
-                error_channel: status_rx,
-            },
+            IoState::Connecting,
+            Some(IoEventReceiver {
+                receiver: status_rx,
+            }),
         ))
     }
 }

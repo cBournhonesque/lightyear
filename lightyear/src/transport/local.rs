@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::transport::io::IoState;
+use crate::transport::io::{IoEventReceiver, IoState};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET,
@@ -19,7 +19,7 @@ pub(crate) struct LocalChannelBuilder {
 }
 
 impl TransportBuilder for LocalChannelBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
         Ok((
             TransportEnum::LocalChannel(LocalChannel {
                 sender: LocalChannelSender { send: self.send },
@@ -29,6 +29,7 @@ impl TransportBuilder for LocalChannelBuilder {
                 },
             }),
             IoState::Connected,
+            None,
         ))
     }
 }

@@ -19,7 +19,7 @@ use wtransport::{Connection, Endpoint};
 use wtransport::{Identity, ServerConfig};
 
 use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
+use crate::transport::io::{IoEvent, IoEventReceiver, IoState};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
@@ -31,7 +31,7 @@ pub(crate) struct WebTransportServerSocketBuilder {
 }
 
 impl TransportBuilder for WebTransportServerSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
         let (to_client_sender, to_client_receiver) =
             mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
         let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();
@@ -59,12 +59,15 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
                 let endpoint = match wtransport::Endpoint::server(config) {
                     Ok(e) => e,
                     Err(e) => {
-                        status_tx.send(Some(e.into())).await.unwrap();
+                        status_tx
+                            .send(IoEvent::Disconnected(e.into()))
+                            .await
+                            .unwrap();
                         return;
                     }
                 };
-
                 info!("Starting server webtransport task");
+                status_tx.send(IoEvent::Connected).await.unwrap();
                 loop {
                     // clone the channel for each client
                     let from_client_sender = from_client_sender.clone();
@@ -91,9 +94,10 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
                 sender,
                 receiver,
             }),
-            IoState::Connecting {
-                error_channel: status_rx,
-            },
+            IoState::Connecting,
+            Some(IoEventReceiver {
+                receiver: status_rx,
+            }),
         ))
     }
 }
