@@ -124,9 +124,13 @@ impl Replicate {
         match self.per_component_metadata.get(&kind) {
             None => entity_target,
             Some(metadata) => {
-                entity_target.intersection(metadata.target.clone());
-                trace!(?kind, "final target: {:?}", entity_target);
-                entity_target
+                let target = metadata.target.clone();
+                trace!(
+                    ?kind,
+                    "replication target override for component {:?}: {target:?}",
+                    std::any::type_name::<C>()
+                );
+                target
             }
         }
     }
