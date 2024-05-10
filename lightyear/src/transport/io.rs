@@ -6,7 +6,8 @@ use std::net::{IpAddr, SocketAddr};
 
 use bevy::app::{App, Plugin};
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
-use bevy::prelude::{Real, Res, Resource, Time};
+use bevy::prelude::{Deref, DerefMut, Real, Res, Resource, Time};
+use crossbeam_channel::Sender;
 #[cfg(feature = "metrics")]
 use metrics;
 use tracing::info;
@@ -19,9 +20,7 @@ use crate::transport::middleware::PacketReceiverWrapper;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 use super::error::{Error, Result};
-use super::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, TransportBuilder, TransportBuilderEnum, LOCAL_SOCKET,
-};
+use super::{BoxedCloseFn, BoxedReceiver, BoxedSender, LOCAL_SOCKET};
 
 /// Connected io layer that can send/receive bytes
 #[derive(Resource)]
@@ -31,7 +30,7 @@ pub struct Io {
     pub(crate) receiver: BoxedReceiver,
     pub(crate) close_fn: Option<BoxedCloseFn>,
     pub(crate) state: IoState,
-    pub(crate) event_receiver: Option<IoEventReceiver>,
+    pub(crate) event_receiver: Option<ClientIoEventReceiver>,
     pub(crate) stats: IoStats,
 }
 
@@ -181,11 +180,39 @@ pub(crate) enum IoState {
     Disconnected,
 }
 
-pub(crate) struct IoEventReceiver {
-    pub(crate) receiver: Receiver<IoEvent>,
-}
+#[derive(Deref, DerefMut)]
+pub(crate) struct ClientIoEventReceiver(Receiver<ClientIoEvent>);
 
-pub(crate) enum IoEvent {
+/// Events that will be sent from the io thread to the main thread
+/// (so that we can update the netcode state when the io changes)
+pub(crate) enum ClientIoEvent {
     Connected,
     Disconnected(Error),
+}
+
+#[derive(Deref, DerefMut)]
+pub(crate) struct ClientNetworkEventSender(Sender<ClientIoEvent>);
+
+#[derive(Deref, DerefMut)]
+pub(crate) struct ServerIoEventReceiver(Receiver<ServerIoEvent>);
+
+/// Events that will be sent from the io thread to the main thread
+pub(crate) enum ServerIoEvent {
+    ServerConnected,
+    ServerDisconnected(Error),
+    /// the io thread for a given client got disconnected
+    ClientDisconnected(SocketAddr),
+}
+
+#[derive(Deref, DerefMut)]
+pub(crate) struct ServerNetworkEventSender(async_channel::Sender<ServerNetworkEvent>);
+
+/// Event sent from the main thread to the io thread
+/// (usually to close the io thread if the main thread requested the server to stop,
+/// or to close a client's io thread if the client requested a disconnection)
+pub(crate) enum ServerNetworkEvent {
+    /// The server is stopped, we should stop the io thread
+    ServerDisconnected,
+    /// A client id has sent a disconnection packet, we should stop the io thread
+    ClientDisconnected(SocketAddr),
 }

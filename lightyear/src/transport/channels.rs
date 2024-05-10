@@ -7,10 +7,12 @@ use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::info;
 
-use crate::transport::io::{IoEventReceiver, IoState};
+use crate::transport::io::{
+    ClientIoEventReceiver, IoState, ServerIoEventReceiver, ServerNetworkEventSender,
+};
+use crate::transport::server::{ServerTransportBuilder, ServerTransportEnum};
 use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, LOCAL_SOCKET,
+    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET,
 };
 
 use super::error::{Error, Result};
@@ -51,9 +53,21 @@ impl Channels {
     }
 }
 
-impl TransportBuilder for Channels {
-    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
-        Ok((TransportEnum::Channels(self), IoState::Connected, None))
+impl ServerTransportBuilder for Channels {
+    fn start(
+        self,
+    ) -> Result<(
+        ServerTransportEnum,
+        IoState,
+        Option<ServerIoEventReceiver>,
+        Option<ServerNetworkEventSender>,
+    )> {
+        Ok((
+            ServerTransportEnum::Channels(self),
+            IoState::Connected,
+            None,
+            None,
+        ))
     }
 }
 
@@ -62,8 +76,8 @@ impl Transport for Channels {
         LOCAL_SOCKET
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        (Box::new(self.sender), Box::new(self.receiver), None)
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self.sender), Box::new(self.receiver))
     }
 }
 

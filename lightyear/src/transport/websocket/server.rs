@@ -21,22 +21,32 @@ use tracing::{info, trace};
 use tracing_log::log::error;
 
 use crate::transport::error::{Error, Result};
-use crate::transport::io::{IoEvent, IoEventReceiver, IoState};
+use crate::transport::io::{
+    ClientIoEvent, ClientIoEventReceiver, IoState, ServerIoEvent, ServerIoEventReceiver,
+    ServerNetworkEventSender,
+};
+use crate::transport::server::{ServerTransportBuilder, ServerTransportEnum};
 use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, MTU,
+    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
 };
 
 pub(crate) struct WebSocketServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,
 }
 
-impl TransportBuilder for WebSocketServerSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
+impl ServerTransportBuilder for WebSocketServerSocketBuilder {
+    fn start(
+        self,
+    ) -> Result<(
+        ServerTransportEnum,
+        IoState,
+        Option<ServerIoEventReceiver>,
+        Option<ServerNetworkEventSender>,
+    )> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
         let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
         // channels used to check the status of the io task
-        let (status_tx, status_rx) = async_channel::bounded(1);
+        let (status_tx, status_rx) = async_channel::unbounded();
 
         let sender = WebSocketServerSocketSender {
             server_addr: self.server_addr,
@@ -54,14 +64,17 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
                     Ok(l) => l,
                     Err(e) => {
                         status_tx
-                            .send(IoEvent::Disconnected(e.into()))
+                            .send(ServerIoEvent::ServerDisconnected(e.into()))
                             .await
                             .unwrap();
                         return;
                     }
                 };
                 info!("Starting server websocket task");
-                status_tx.send(IoEvent::Connected).await.unwrap();
+                status_tx
+                    .send(ServerIoEvent::ServerConnected)
+                    .await
+                    .unwrap();
                 while let Ok((stream, addr)) = listener.accept().await {
                     let clientbound_tx_map = clientbound_tx_map.clone();
                     let serverbound_tx = serverbound_tx.clone();
@@ -120,15 +133,14 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
             }))
             .detach();
         Ok((
-            TransportEnum::WebSocketServer(WebSocketServerSocket {
+            ServerTransportEnum::WebSocketServer(WebSocketServerSocket {
                 local_addr: self.server_addr,
                 sender,
                 receiver,
             }),
             IoState::Connecting,
-            Some(IoEventReceiver {
-                receiver: status_rx,
-            }),
+            Some(ServerIoEventReceiver(status_rx)),
+            None,
         ))
     }
 }
@@ -168,8 +180,8 @@ impl Transport for WebSocketServerSocket {
         self.local_addr
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        (Box::new(self.sender), Box::new(self.receiver), None)
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self.sender), Box::new(self.receiver))
     }
 }
 

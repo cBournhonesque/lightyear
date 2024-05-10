@@ -57,7 +57,7 @@ impl MultiBevyStepper {
         // client net config 1: use local channels
         let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
         let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
-        let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
+        let client_io = IoConfig::from_transport(ClientTransport::LocalChannel {
             recv: from_server_recv,
             send: to_server_send,
         });
@@ -70,14 +70,14 @@ impl MultiBevyStepper {
 
         // TODO: maybe we don't need the server Channels transport and instead we can just have multiple
         //  concurrent LocalChannel connections? seems easier to reason about!
-        let server_io_1 = IoConfig::from_transport(TransportConfig::Channels {
+        let server_io_1 = IoConfig::from_transport(ClientTransport::Channels {
             channels: vec![client_params],
         });
 
         // client net config 2: use local channels
         let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
         let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
-        let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
+        let client_io = IoConfig::from_transport(ClientTransport::LocalChannel {
             recv: from_server_recv,
             send: to_server_send,
         });
@@ -88,7 +88,7 @@ impl MultiBevyStepper {
             io: client_io,
         };
 
-        let server_io_2 = IoConfig::from_transport(TransportConfig::Channels {
+        let server_io_2 = IoConfig::from_transport(ClientTransport::Channels {
             channels: vec![client_params],
         });
 

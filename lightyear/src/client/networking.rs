@@ -28,7 +28,7 @@ use crate::shared::replication::components::Replicated;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
-use crate::transport::io::{IoEvent, IoState};
+use crate::transport::io::{ClientIoEvent, IoState};
 
 #[derive(Default)]
 pub(crate) struct ClientNetworkingPlugin;
@@ -271,7 +271,7 @@ pub enum NetworkingState {
     Connected,
 }
 
-/// Listen to [`IoEvent`]s and update the [`IoState`] and [`NetworkingState`] accordingly
+/// Listen to [`ClientIoEvent`]s and update the [`IoState`] and [`NetworkingState`] accordingly
 fn listen_io_state(
     mut next_state: ResMut<NextState<NetworkingState>>,
     mut netclient: ResMut<ClientConnection>,
@@ -279,12 +279,12 @@ fn listen_io_state(
     let mut disconnect = false;
     if let Some(io) = netclient.io_mut() {
         if let Some(receiver) = io.event_receiver.as_mut() {
-            match receiver.receiver.try_recv() {
-                Ok(IoEvent::Connected) => {
+            match receiver.try_recv() {
+                Ok(ClientIoEvent::Connected) => {
                     debug!("Io is connected!");
                     io.state = IoState::Connected;
                 }
-                Ok(IoEvent::Disconnected(e)) => {
+                Ok(ClientIoEvent::Disconnected(e)) => {
                     error!("Error from io: {}", e);
                     io.state = IoState::Disconnected;
                     disconnect = true;
@@ -345,7 +345,7 @@ fn on_disconnect(
     mut commands: Commands,
     received_entities: Query<Entity, Or<(With<Replicated>, With<Predicted>, With<Interpolated>)>>,
 ) {
-    debug!("Running OnDisconnect schedule");
+    info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
     received_entities
         .iter()

@@ -5,10 +5,14 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 use async_channel::Receiver;
 
-use crate::transport::io::{IoEventReceiver, IoState};
+use crate::transport::client::{ClientTransportBuilder, ClientTransportEnum};
+use crate::transport::io::{
+    ClientIoEventReceiver, ClientNetworkEventSender, IoState, ServerIoEventReceiver,
+    ServerNetworkEventSender,
+};
+use crate::transport::server::{ServerTransportBuilder, ServerTransportEnum};
 use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, MTU,
+    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
 };
 
 use super::error::Result;
@@ -17,8 +21,8 @@ pub struct UdpSocketBuilder {
     pub(crate) local_addr: SocketAddr,
 }
 
-impl TransportBuilder for UdpSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
+impl UdpSocketBuilder {
+    fn build(self) -> Result<UdpSocket> {
         let udp_socket = std::net::UdpSocket::bind(self.local_addr)?;
         let local_addr = udp_socket.local_addr()?;
         let socket = Arc::new(Mutex::new(udp_socket));
@@ -28,13 +32,45 @@ impl TransportBuilder for UdpSocketBuilder {
             buffer: [0; MTU],
         };
         let receiver = sender.clone();
+        Ok(UdpSocket {
+            local_addr,
+            sender,
+            receiver,
+        })
+    }
+}
+
+impl ClientTransportBuilder for UdpSocketBuilder {
+    fn connect(
+        self,
+    ) -> Result<(
+        ClientTransportEnum,
+        IoState,
+        Option<ClientIoEventReceiver>,
+        Option<ClientNetworkEventSender>,
+    )> {
         Ok((
-            TransportEnum::UdpSocket(UdpSocket {
-                local_addr,
-                sender,
-                receiver,
-            }),
+            ClientTransportEnum::UdpSocket(self.build()?),
             IoState::Connected,
+            None,
+            None,
+        ))
+    }
+}
+
+impl ServerTransportBuilder for UdpSocketBuilder {
+    fn start(
+        self,
+    ) -> Result<(
+        ServerTransportEnum,
+        IoState,
+        Option<ServerIoEventReceiver>,
+        Option<ServerNetworkEventSender>,
+    )> {
+        Ok((
+            ServerTransportEnum::UdpSocket(self.build()?),
+            IoState::Connected,
+            None,
             None,
         ))
     }
@@ -52,8 +88,8 @@ impl Transport for UdpSocket {
         self.local_addr
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        (Box::new(self.sender), Box::new(self.receiver), None)
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self.sender), Box::new(self.receiver))
     }
 }
 
@@ -105,26 +141,28 @@ mod tests {
     use anyhow::Context;
     use bevy::utils::Duration;
 
+    use crate::transport::client::ClientTransportBuilder;
     use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
     use crate::transport::middleware::PacketReceiverWrapper;
+    use crate::transport::server::ServerTransportBuilder;
     use crate::transport::udp::UdpSocketBuilder;
-    use crate::transport::{PacketReceiver, PacketSender, Transport, TransportBuilder};
+    use crate::transport::{PacketReceiver, PacketSender, Transport};
 
     #[test]
     fn test_udp_socket() -> Result<(), anyhow::Error> {
         // let the OS assign a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
-        let (client_socket, _, _) = UdpSocketBuilder { local_addr }
+        let (client_socket, _, _, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let client_addr = client_socket.local_addr();
-        let (mut client_sender, _, _) = client_socket.split();
+        let (mut client_sender, _) = client_socket.split();
 
-        let (server_socket, _, _) = UdpSocketBuilder { local_addr }
-            .connect()
+        let (server_socket, _, _, _) = UdpSocketBuilder { local_addr }
+            .start()
             .context("could not connect to socket")?;
         let server_addr = server_socket.local_addr();
-        let (_, mut server_receiver, _) = server_socket.split();
+        let (_, mut server_receiver) = server_socket.split();
 
         let msg = b"hello world";
         client_sender.send(msg, &server_addr)?;
@@ -147,17 +185,17 @@ mod tests {
         // let the OS assign a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
-        let (client_socket, _, _) = UdpSocketBuilder { local_addr }
+        let (client_socket, _, _, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let client_addr = client_socket.local_addr();
-        let (mut client_sender, _, _) = client_socket.split();
+        let (mut client_sender, _) = client_socket.split();
 
-        let (server_socket, _, _) = UdpSocketBuilder { local_addr }
-            .connect()
+        let (server_socket, _, _, _) = UdpSocketBuilder { local_addr }
+            .start()
             .context("could not connect to socket")?;
         let server_addr = server_socket.local_addr();
-        let (_, server_receiver, _) = server_socket.split();
+        let (_, server_receiver) = server_socket.split();
 
         let mut conditioned_server_receiver = LinkConditioner::new(LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),

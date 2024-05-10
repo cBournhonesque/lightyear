@@ -612,12 +612,12 @@ impl<Ctx> NetcodeClient<Ctx> {
             "client sending {} disconnect packets to server",
             self.cfg.num_disconnect_packets
         );
-        self.reset(ClientState::Disconnected);
         if io.state == IoState::Connected {
             for _ in 0..self.cfg.num_disconnect_packets {
                 self.send_packet(DisconnectPacket::create(), io)?;
             }
         }
+        self.reset(ClientState::Disconnected);
         Ok(())
     }
 

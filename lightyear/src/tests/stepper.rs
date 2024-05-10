@@ -84,13 +84,13 @@ impl BevyStepper {
         // channels to receive a message from/to server
         let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
         let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
-        let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
+        let client_io = IoConfig::from_transport(ClientTransport::LocalChannel {
             send: to_server_send,
             recv: from_server_recv,
         })
         .with_conditioner(conditioner.clone());
 
-        let server_io = IoConfig::from_transport(TransportConfig::Channels {
+        let server_io = IoConfig::from_transport(ClientTransport::Channels {
             channels: vec![(addr, to_server_recv, from_server_send)],
         })
         .with_conditioner(conditioner.clone());

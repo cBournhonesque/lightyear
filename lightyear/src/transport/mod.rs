@@ -8,7 +8,7 @@ use error::Result;
 
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
-use crate::transport::io::{IoEventReceiver, IoState};
+use crate::transport::io::IoState;
 use crate::transport::local::{LocalChannel, LocalChannelBuilder};
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
@@ -68,71 +68,105 @@ pub(crate) type BoxedReceiver = Box<dyn PacketReceiver + Send + Sync>;
 // pub(crate) type BoxedCloseFn = Box<dyn CloseFn>;
 pub(crate) type BoxedCloseFn = Box<dyn (Fn() -> Result<()>) + Send + Sync>;
 
-/// Transport combines a PacketSender and a PacketReceiver
-///
-/// This trait is used to abstract the raw transport layer that sends and receives packets.
-/// There are multiple implementations of this trait, such as UdpSocket, WebSocket, WebTransport, etc.
-#[enum_dispatch]
-pub(crate) trait TransportBuilder: Send + Sync {
-    /// Attempt to:
-    /// - connect to the remote (for clients)
-    /// - listen to incoming connections (for server)
-    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)>;
-
-    // TODO maybe add a `async fn ready() -> bool` function?
-}
-
 #[enum_dispatch]
 pub(crate) trait Transport {
     /// Return the local socket address for this transport
     fn local_addr(&self) -> SocketAddr;
 
-    /// Split the transport into a sender, receiver and close function
+    /// Split the transport into a sender, receiver.
     ///
     /// This is useful to have parallel mutable access to the sender and the retriever
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>);
+    fn split(self) -> (BoxedSender, BoxedReceiver);
 }
 
-#[enum_dispatch(TransportBuilder)]
-pub(crate) enum TransportBuilderEnum {
-    #[cfg(not(target_family = "wasm"))]
-    UdpSocket(UdpSocketBuilder),
-    #[cfg(feature = "webtransport")]
-    WebTransportClient(WebTransportClientSocketBuilder),
-    #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-    WebTransportServer(WebTransportServerSocketBuilder),
-    #[cfg(feature = "websocket")]
-    WebSocketClient(WebSocketClientSocketBuilder),
-    #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-    WebSocketServer(WebSocketServerSocketBuilder),
-    Channels(Channels),
-    LocalChannel(LocalChannelBuilder),
-    Dummy(DummyIo),
+pub(crate) mod client {
+    use super::*;
+    use crate::transport::io::{ClientIoEventReceiver, ClientNetworkEventSender};
+
+    /// Transport combines a PacketSender and a PacketReceiver
+    ///
+    /// This trait is used to abstract the raw transport layer that sends and receives packets.
+    /// There are multiple implementations of this trait, such as UdpSocket, WebSocket, WebTransport, etc.
+    #[enum_dispatch]
+    pub(crate) trait ClientTransportBuilder: Send + Sync {
+        /// Attempt to connect to the remote
+        fn connect(
+            self,
+        ) -> Result<(
+            ClientTransportEnum,
+            IoState,
+            Option<ClientIoEventReceiver>,
+            Option<ClientNetworkEventSender>,
+        )>;
+    }
+
+    #[enum_dispatch(ClientTransportBuilder)]
+    pub(crate) enum ClientTransportBuilderEnum {
+        #[cfg(not(target_family = "wasm"))]
+        UdpSocket(UdpSocketBuilder),
+        #[cfg(feature = "webtransport")]
+        WebTransportClient(WebTransportClientSocketBuilder),
+        #[cfg(feature = "websocket")]
+        WebSocketClient(WebSocketClientSocketBuilder),
+        LocalChannel(LocalChannelBuilder),
+        Dummy(DummyIo),
+    }
+
+    #[allow(clippy::large_enum_variant)]
+    #[enum_dispatch(Transport)]
+    pub(crate) enum ClientTransportEnum {
+        #[cfg(not(target_family = "wasm"))]
+        UdpSocket(UdpSocket),
+        #[cfg(feature = "webtransport")]
+        WebTransportClient(WebTransportClientSocket),
+        #[cfg(feature = "websocket")]
+        WebSocketClient(WebSocketClientSocket),
+        LocalChannel(LocalChannel),
+        Dummy(DummyIo),
+    }
 }
 
-// impl Default for TransportBuilderEnum {
-//     fn default() -> Self {
-//         Self::Dummy(DummyIo)
-//     }
-// }
+pub(crate) mod server {
+    use super::*;
+    use crate::transport::io::{ServerIoEventReceiver, ServerNetworkEventSender};
 
-// TODO: maybe box large items?
-#[allow(clippy::large_enum_variant)]
-#[enum_dispatch(Transport)]
-pub(crate) enum TransportEnum {
-    #[cfg(not(target_family = "wasm"))]
-    UdpSocket(UdpSocket),
-    #[cfg(feature = "webtransport")]
-    WebTransportClient(WebTransportClientSocket),
-    #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-    WebTransportServer(WebTransportServerSocket),
-    #[cfg(feature = "websocket")]
-    WebSocketClient(WebSocketClientSocket),
-    #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-    WebSocketServer(WebSocketServerSocket),
-    Channels(Channels),
-    LocalChannel(LocalChannel),
-    Dummy(DummyIo),
+    #[enum_dispatch]
+    pub(crate) trait ServerTransportBuilder: Send + Sync {
+        /// Attempt to listen for incoming connections
+        fn start(
+            self,
+        ) -> Result<(
+            ServerTransportEnum,
+            IoState,
+            Option<ServerIoEventReceiver>,
+            Option<ServerNetworkEventSender>,
+        )>;
+    }
+
+    #[enum_dispatch(ServerTransportBuilder)]
+    pub(crate) enum ServerTransportBuilderEnum {
+        #[cfg(not(target_family = "wasm"))]
+        UdpSocket(UdpSocketBuilder),
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+        WebTransportServer(WebTransportServerSocketBuilder),
+        #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
+        WebSocketServer(WebSocketServerSocketBuilder),
+        Channels(Channels),
+        Dummy(DummyIo),
+    }
+
+    #[allow(clippy::large_enum_variant)]
+    #[enum_dispatch(Transport)]
+    pub(crate) enum ServerTransportEnum {
+        #[cfg(not(target_family = "wasm"))]
+        UdpSocket(UdpSocket),
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+        WebTransportServer(WebTransportServerSocket),
+        #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
+        WebSocketServer(WebSocketServerSocket),
+        Channels(Channels),
+        Dummy(DummyIo),
+    }
 }
 
 /// Send data to a remote address
