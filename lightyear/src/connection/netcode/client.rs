@@ -12,7 +12,7 @@ use crate::prelude::client::NetworkingState;
 use crate::prelude::IoConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
-use crate::transport::io::Io;
+use crate::transport::io::{Io, IoState};
 use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
 use super::{
@@ -612,10 +612,12 @@ impl<Ctx> NetcodeClient<Ctx> {
             "client sending {} disconnect packets to server",
             self.cfg.num_disconnect_packets
         );
-        for _ in 0..self.cfg.num_disconnect_packets {
-            self.send_packet(DisconnectPacket::create(), io)?;
-        }
         self.reset(ClientState::Disconnected);
+        if io.state == IoState::Connected {
+            for _ in 0..self.cfg.num_disconnect_packets {
+                self.send_packet(DisconnectPacket::create(), io)?;
+            }
+        }
         Ok(())
     }
 
@@ -667,6 +669,8 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
             // close and drop the io
             io.close().context("Could not close the io")?;
             std::mem::take(&mut self.io);
+        } else {
+            self.client.reset(ClientState::Disconnected);
         }
         Ok(())
     }
@@ -688,7 +692,7 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
             .context("io is not initialized, did you call connect?")?;
         self.client
             .try_update(delta_ms, io)
-            .inspect_err(|e| error!("error updating client: {:?}", e))
+            .inspect_err(|e| error!("error updating netcode client: {:?}", e))
             .context("could not update client")
     }
 

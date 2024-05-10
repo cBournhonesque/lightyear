@@ -18,7 +18,7 @@ use web_sys::{
 };
 
 use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
+use crate::transport::io::{IoEventReceiver, IoState};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET, MTU,
@@ -29,7 +29,7 @@ pub(crate) struct WebSocketClientSocketBuilder {
 }
 
 impl TransportBuilder for WebSocketClientSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<Vec<u8>>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Vec<u8>>();
         let (close_tx, mut close_rx) = mpsc::channel(1);
@@ -113,6 +113,7 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
                 close_sender: close_tx,
             }),
             IoState::Connected,
+            None,
         ))
     }
 }

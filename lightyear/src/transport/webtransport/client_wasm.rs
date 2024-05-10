@@ -12,7 +12,7 @@ use tracing::{debug, error, info, trace};
 use xwt_core::prelude::*;
 
 use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
+use crate::transport::io::{IoEvent, IoEventReceiver, IoState};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
@@ -25,7 +25,7 @@ pub struct WebTransportClientSocketBuilder {
 }
 
 impl TransportBuilder for WebTransportClientSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
         // TODO: This can exhaust all available memory unless there is some other way to limit the amount of in-flight data in place
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
@@ -62,7 +62,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 Err(e) => {
                     error!("Error creating webtransport connection: {:?}", e);
                     status_tx
-                        .send(Some(
+                        .send(IoEvent::Disconnected(
                             std::io::Error::other("error creating webtransport connection").into(),
                         ))
                         .await
@@ -75,7 +75,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 Err(e) => {
                     error!("Error connecting to server: {:?}", e);
                     status_tx
-                        .send(Some(
+                        .send(IoEvent::Disconnected(
                             std::io::Error::other(
                                 "error connecting webtransport endpoint to server",
                             )
@@ -87,7 +87,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 }
             };
             // signal that the io is connected
-            status_tx.send(None).await.unwrap();
+            status_tx.send(IoEvent::Connected).await.unwrap();
             let connection = Rc::new(connection);
             send.send(connection.clone()).unwrap();
             send2.send(connection.clone()).unwrap();
@@ -149,10 +149,12 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 tokio::select! {
                     reason = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => {
                         info!("WebTransport connection closed. Reason: {reason:?}")
+                        status_tx.send(IoEvent::Disconnected(std::io::Error::other(format!("Error: {:?}", reason)).into())).await.unwrap();
                     },
                     _ = close_rx.recv() => {
                         connection.transport.close();
                         info!("WebTransport connection closed. Reason: client requested disconnection.");
+                        status_tx.send(IoEvent::Disconnected(std::io::Error::other("received close signal").into())).await.unwrap();
                     }
                 }
             });
@@ -170,9 +172,10 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 receiver,
                 close_sender: close_tx,
             }),
-            IoState::Connecting {
-                error_channel: status_rx,
-            },
+            IoState::Connecting,
+            Some(IoEventReceiver {
+                receiver: status_rx,
+            }),
         ))
     }
 }

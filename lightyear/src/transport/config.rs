@@ -77,13 +77,13 @@ pub enum TransportConfig {
 }
 
 /// We provide a manual implementation because wtranport's `Identity` does not implement Clone
-impl ::core::clone::Clone for TransportConfig {
+impl Clone for TransportConfig {
     #[inline]
     fn clone(&self) -> TransportConfig {
         match self {
             #[cfg(not(target_family = "wasm"))]
             TransportConfig::UdpSocket(__self_0) => {
-                TransportConfig::UdpSocket(::core::clone::Clone::clone(__self_0))
+                TransportConfig::UdpSocket(Clone::clone(__self_0))
             }
             #[cfg(feature = "webtransport")]
             TransportConfig::WebTransportClient {
@@ -92,40 +92,40 @@ impl ::core::clone::Clone for TransportConfig {
                 #[cfg(target_family = "wasm")]
                     certificate_digest: __self_2,
             } => TransportConfig::WebTransportClient {
-                client_addr: ::core::clone::Clone::clone(__self_0),
-                server_addr: ::core::clone::Clone::clone(__self_1),
+                client_addr: Clone::clone(__self_0),
+                server_addr: Clone::clone(__self_1),
                 #[cfg(target_family = "wasm")]
-                certificate_digest: ::core::clone::Clone::clone(__self_2),
+                certificate_digest: Clone::clone(__self_2),
             },
             #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             TransportConfig::WebTransportServer {
                 server_addr: __self_0,
                 certificate: __self_1,
             } => TransportConfig::WebTransportServer {
-                server_addr: ::core::clone::Clone::clone(__self_0),
+                server_addr: Clone::clone(__self_0),
                 certificate: __self_1.clone_identity(),
             },
             #[cfg(feature = "websocket")]
             TransportConfig::WebSocketClient {
                 server_addr: __self_0,
             } => TransportConfig::WebSocketClient {
-                server_addr: ::core::clone::Clone::clone(__self_0),
+                server_addr: Clone::clone(__self_0),
             },
             #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
             TransportConfig::WebSocketServer {
                 server_addr: __self_0,
             } => TransportConfig::WebSocketServer {
-                server_addr: ::core::clone::Clone::clone(__self_0),
+                server_addr: Clone::clone(__self_0),
             },
             TransportConfig::Channels { channels: __self_0 } => TransportConfig::Channels {
-                channels: ::core::clone::Clone::clone(__self_0),
+                channels: Clone::clone(__self_0),
             },
             TransportConfig::LocalChannel {
                 recv: __self_0,
                 send: __self_1,
             } => TransportConfig::LocalChannel {
-                recv: ::core::clone::Clone::clone(__self_0),
-                send: ::core::clone::Clone::clone(__self_1),
+                recv: Clone::clone(__self_0),
+                send: Clone::clone(__self_1),
             },
             TransportConfig::Dummy => TransportConfig::Dummy,
         }
@@ -240,7 +240,7 @@ impl IoConfig {
     }
 
     pub fn connect(self) -> Result<Io> {
-        let (transport, state) = self.transport.build().connect()?;
+        let (transport, state, event_receiver) = self.transport.build().connect()?;
         let local_addr = transport.local_addr();
         #[allow(unused_mut)]
         let (mut sender, receiver, close_fn) = transport.split();
@@ -267,6 +267,7 @@ impl IoConfig {
             receiver,
             close_fn,
             state,
+            event_receiver,
             stats: IoStats::default(),
         })
     }

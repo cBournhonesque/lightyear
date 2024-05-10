@@ -21,7 +21,7 @@ use tracing::{info, trace};
 use tracing_log::log::error;
 
 use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
+use crate::transport::io::{IoEvent, IoEventReceiver, IoState};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
@@ -32,7 +32,7 @@ pub(crate) struct WebSocketServerSocketBuilder {
 }
 
 impl TransportBuilder for WebSocketServerSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
         let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
         // channels used to check the status of the io task
@@ -53,11 +53,15 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
                 let listener = match TcpListener::bind(self.server_addr).await {
                     Ok(l) => l,
                     Err(e) => {
-                        status_tx.send(Some(e.into())).await.unwrap();
+                        status_tx
+                            .send(IoEvent::Disconnected(e.into()))
+                            .await
+                            .unwrap();
                         return;
                     }
                 };
                 info!("Starting server websocket task");
+                status_tx.send(IoEvent::Connected).await.unwrap();
                 while let Ok((stream, addr)) = listener.accept().await {
                     let clientbound_tx_map = clientbound_tx_map.clone();
                     let serverbound_tx = serverbound_tx.clone();
@@ -121,9 +125,10 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
                 sender,
                 receiver,
             }),
-            IoState::Connecting {
-                error_channel: status_rx,
-            },
+            IoState::Connecting,
+            Some(IoEventReceiver {
+                receiver: status_rx,
+            }),
         ))
     }
 }
