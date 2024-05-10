@@ -4,7 +4,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use async_compat::Compat;
 use bevy::asset::ron;
-use bevy::prelude::{default, Resource};
+use bevy::prelude::Resource;
 use bevy::tasks::IoTaskPool;
 use bevy::utils::Duration;
 use serde::de::DeserializeOwned;
@@ -147,7 +147,6 @@ pub fn build_server_netcode_config(
         })
     });
     let netcode_config = server::NetcodeConfig::default()
-        .with_client_timeout_secs(10)
         .with_protocol_id(shared.protocol_id)
         .with_key(shared.private_key);
     let io_config = IoConfig {
@@ -251,10 +250,7 @@ pub fn build_client_netcode_config(
         private_key: shared.private_key,
         protocol_id: shared.protocol_id,
     };
-    let netcode_config = client::NetcodeConfig {
-        client_timeout_secs: 10,
-        ..default()
-    };
+    let netcode_config = client::NetcodeConfig::default();
     let io_config = IoConfig {
         transport: transport_config,
         conditioner,

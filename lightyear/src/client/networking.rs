@@ -166,7 +166,6 @@ pub(crate) fn receive(world: &mut World) {
                                                         if netclient.state() == NetworkingState::Disconnected {
                                                             // we just disconnected, do a state transition
                                                             if state.get() != &NetworkingState::Disconnected {
-                                                                info!("Setting the next state to disconnected because of client connection error");
                                                                 next_state.set(NetworkingState::Disconnected);
                                                             }
                                                         }
