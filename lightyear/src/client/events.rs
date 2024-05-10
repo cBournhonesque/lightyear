@@ -31,6 +31,7 @@ impl Plugin for ClientEventsPlugin {
         app
             // EVENTS
             .add_event::<ConnectEvent>()
+            .add_event::<DisconnectEvent>()
             // PLUGIN
             .add_plugins(EventsPlugin::<ConnectionManager>::default());
     }
@@ -64,7 +65,9 @@ impl ConnectEvent {
 }
 
 /// Bevy [`Event`] emitted on the client on the frame where the connection is disconnected
-pub type DisconnectEvent = crate::shared::events::components::DisconnectEvent<()>;
+#[derive(Event, Default)]
+pub struct DisconnectEvent;
+
 /// Bevy [`Event`] emitted on the client to indicate the user input for the tick
 pub type InputEvent<I> = crate::shared::events::components::InputEvent<I, ()>;
 /// Bevy [`Event`] emitted on the client when a EntitySpawn replication message is received

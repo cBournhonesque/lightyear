@@ -431,8 +431,7 @@ pub(super) mod systems {
         mut disconnect_events: EventReader<DisconnectEvent>,
     ) {
         for event in disconnect_events.read() {
-            let client_id = event.context();
-            room_manager.client_disconnect(*client_id);
+            room_manager.client_disconnect(event.client_id);
         }
     }
 

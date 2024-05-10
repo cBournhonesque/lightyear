@@ -19,19 +19,14 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Global {
-            client_id_to_entity_id: Default::default(),
-        });
         app.add_systems(Startup, (init, start_server));
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(Update, (send_message, handle_connections));
+        app.add_systems(
+            Update,
+            (send_message, handle_connections, handle_disconnections),
+        );
     }
-}
-
-#[derive(Resource)]
-pub(crate) struct Global {
-    pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
 /// Start the server
@@ -60,32 +55,44 @@ fn init(mut commands: Commands) {
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
-    mut disconnections: EventReader<DisconnectEvent>,
-    mut global: ResMut<Global>,
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = *connection.context();
+        let client_id = connection.client_id;
         // server and client are running in the same app, no need to replicate to the local client
         let replicate = Replicate {
+            controlled_by: NetworkTarget::Single(client_id),
             prediction_target: NetworkTarget::Single(client_id),
             interpolation_target: NetworkTarget::AllExceptSingle(client_id),
             ..default()
         };
         let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
-        // Add a mapping from client id to entity id
-        global.client_id_to_entity_id.insert(client_id, entity.id());
         info!("Create entity {:?} for client {:?}", entity.id(), client_id);
     }
+}
+
+/// Handle client disconnections: we want to despawn every entity that was controlled by that client.
+///
+/// Lightyear creates one entity per client, which contains metadata associated with that client.
+/// You can find that entity by calling `ConnectionManager::client_entity(client_id)`.
+///
+/// That client entity contains the `ControlledEntities` component, which is a set of entities that are controlled by that client.
+///
+/// By default, lightyear automatically despawns all the `ControlledEntities` when the client disconnects;
+/// but in this example we will also do it manually to showcase how it can be done.
+pub(crate) fn handle_disconnections(
+    mut commands: Commands,
+    mut disconnections: EventReader<DisconnectEvent>,
+    manager: Res<ConnectionManager>,
+    client_query: Query<&ControlledEntities>,
+) {
     for disconnection in disconnections.read() {
-        let client_id = disconnection.context();
-        // TODO: handle this automatically in lightyear
-        //  - provide a Owned component in lightyear that can specify that an entity is owned by a specific player?
-        //  - maybe have the client-id to entity-mapping in the global metadata?
-        //  - despawn automatically those entities when the client disconnects
-        if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
-            if let Some(mut entity) = commands.get_entity(entity) {
-                entity.despawn();
+        info!("Client {:?} disconnected", disconnection.client_id);
+        if let Ok(client_entity) = manager.client_entity(disconnection.client_id) {
+            if let Ok(controlled_entities) = client_query.get(client_entity) {
+                for entity in controlled_entities.iter() {
+                    commands.entity(*entity).despawn();
+                }
             }
         }
     }
@@ -93,9 +100,8 @@ pub(crate) fn handle_connections(
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<&mut PlayerPosition>,
+    mut position_query: Query<(&Replicate, &mut PlayerPosition)>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    global: Res<Global>,
     tick_manager: Res<TickManager>,
 ) {
     for input in input_reader.read() {
@@ -107,8 +113,10 @@ pub(crate) fn movement(
                 client_id,
                 tick_manager.tick()
             );
-            if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
-                if let Ok(position) = position_query.get_mut(*player_entity) {
+            // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
+            //  entities here
+            for (replicate, position) in position_query.iter_mut() {
+                if replicate.controlled_by.targets(client_id) {
                     shared::shared_movement_behaviour(position, input);
                 }
             }

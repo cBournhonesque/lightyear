@@ -10,6 +10,7 @@ use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::{ChannelRegistry, MainSet, MessageRegistry, Mode, TickManager, TimeManager};
 use crate::protocol::component::ComponentRegistry;
+use crate::server::clients::ControlledEntities;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
@@ -103,12 +104,18 @@ pub(crate) fn receive(world: &mut World) {
                                                     .map_err(|e| error!("Error updating netcode server: {:?}", e));
                                                 for client_id in netserver.new_connections().iter().copied() {
                                                     netservers.client_server_map.insert(client_id, server_idx);
-                                                    connection_manager.add(client_id);
+                                                    // spawn an entity for the client
+                                                    let client_entity = world.spawn(ControlledEntities::default()).id();
+                                                    connection_manager.add(client_id, client_entity);
                                                 }
                                                 // handle disconnections
                                                 for client_id in netserver.new_disconnections().iter().copied() {
                                                     if netservers.client_server_map.remove(&client_id).is_some() {
                                                         connection_manager.remove(client_id);
+                                                        // NOTE: we don't despawn the entity right away to let the user react to
+                                                        // the disconnect event
+                                                        // TODO: use observers/component_hooks to react automatically on the client despawn?
+                                                        // world.despawn(client_entity);
                                                     } else {
                                                         error!("Client disconnected but could not map client_id to the corresponding netserver");
                                                     }
@@ -156,18 +163,18 @@ pub(crate) fn receive(world: &mut World) {
                                                 if connection_manager.events.has_connections() {
                                                     let mut connect_event_writer =
                                                         world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
-                                                    for client_id in connection_manager.events.iter_connections() {
-                                                        debug!("Client connected event: {}", client_id);
-                                                        connect_event_writer.send(ConnectEvent::new(client_id));
+                                                    for connect_event in connection_manager.events.iter_connections() {
+                                                        debug!("Client connected event: {}", connect_event.client_id);
+                                                        connect_event_writer.send(connect_event);
                                                     }
                                                 }
 
                                                 if connection_manager.events.has_disconnections() {
                                                     let mut connect_event_writer =
                                                         world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
-                                                    for client_id in connection_manager.events.iter_disconnections() {
-                                                        debug!("Client disconnected event: {}", client_id);
-                                                        connect_event_writer.send(DisconnectEvent::new(client_id));
+                                                    for disconnect_event in connection_manager.events.iter_disconnections() {
+                                                        debug!("Client disconnected event: {}", disconnect_event.client_id);
+                                                        connect_event_writer.send(disconnect_event);
                                                     }
                                                 }
                                             }

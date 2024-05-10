@@ -26,6 +26,11 @@ pub struct Replicated;
 #[component(storage = "SparseSet")]
 pub(crate) struct DespawnTracker;
 
+/// Marker component to indicate that the entity is under the control of the local peer
+#[derive(Component, Clone, Copy, PartialEq, Debug, Reflect, Serialize, Deserialize)]
+#[component(storage = "SparseSet")]
+pub struct Controlled;
+
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
 #[derive(Component, Clone, PartialEq, Debug, Reflect)]
@@ -36,6 +41,8 @@ pub struct Replicate {
     pub prediction_target: NetworkTarget,
     /// Which clients should interpolated this entity
     pub interpolation_target: NetworkTarget,
+    /// Which client(s) control this entity?
+    pub controlled_by: NetworkTarget,
     /// How do we find the list of clients to replicate to?
     pub visibility: VisibilityMode,
     /// The replication group defines how entities are grouped (sent as a single message) for replication.
@@ -59,10 +66,10 @@ pub struct Replicate {
     pub per_component_metadata: HashMap<ComponentKind, PerComponentReplicationMetadata>,
 }
 
-/// Defines the target entity for the replication
+/// Defines the target entity for the replication.
 #[derive(Default, Clone, Debug, PartialEq, Reflect)]
 pub enum TargetEntity {
-    /// Spawn a new entity on the target client
+    /// Spawn a new entity on the remote peer
     #[default]
     Spawn,
     /// Instead of spawning a new entity, we will apply the replication updates
@@ -97,6 +104,11 @@ impl Default for PerComponentReplicationMetadata {
 impl Replicate {
     pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
         self.replication_group.group_id(entity)
+    }
+
+    /// Returns true if the entity is controlled by the specified client
+    pub fn is_controlled_by(&self, client_id: &ClientId) -> bool {
+        self.controlled_by.targets(client_id)
     }
 
     /// Returns true if we don't want to replicate the component
@@ -301,6 +313,7 @@ impl Default for Replicate {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
             interpolation_target: NetworkTarget::None,
+            controlled_by: NetworkTarget::None,
             visibility: VisibilityMode::default(),
             replication_group: Default::default(),
             replicate_hierarchy: true,
@@ -345,7 +358,7 @@ pub enum NetworkTarget {
 
 impl NetworkTarget {
     /// Return true if we should replicate to the specified client
-    pub(crate) fn should_send_to(&self, client_id: &ClientId) -> bool {
+    pub fn targets(&self, client_id: &ClientId) -> bool {
         match self {
             NetworkTarget::All => true,
             NetworkTarget::AllExceptSingle(single) => client_id != single,
@@ -506,13 +519,13 @@ mod tests {
         let client_1 = ClientId::Netcode(1);
         let client_2 = ClientId::Netcode(2);
         let mut target = NetworkTarget::All;
-        assert!(target.should_send_to(&client_0));
+        assert!(target.targets(&client_0));
         target.exclude(vec![client_1, client_2]);
         assert_eq!(target, NetworkTarget::AllExcept(vec![client_1, client_2]));
 
         target = NetworkTarget::AllExcept(vec![client_0]);
-        assert!(!target.should_send_to(&client_0));
-        assert!(target.should_send_to(&client_1));
+        assert!(!target.targets(&client_0));
+        assert!(target.targets(&client_1));
         target.exclude(vec![client_0, client_1]);
         assert!(matches!(target, NetworkTarget::AllExcept(_)));
 
@@ -522,15 +535,15 @@ mod tests {
         }
 
         target = NetworkTarget::Only(vec![client_0]);
-        assert!(target.should_send_to(&client_0));
-        assert!(!target.should_send_to(&client_1));
+        assert!(target.targets(&client_0));
+        assert!(!target.targets(&client_1));
         target.exclude(vec![client_1]);
         assert_eq!(target, NetworkTarget::Only(vec![client_0]));
         target.exclude(vec![client_0, client_2]);
         assert_eq!(target, NetworkTarget::None);
 
         target = NetworkTarget::None;
-        assert!(!target.should_send_to(&client_0));
+        assert!(!target.targets(&client_0));
         target.exclude(vec![client_1]);
         assert_eq!(target, NetworkTarget::None);
     }

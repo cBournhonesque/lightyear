@@ -56,10 +56,13 @@ pub(crate) fn handle_replicate_remove<R: ReplicationSend>(
 pub(crate) fn handle_replicate_add<R: ReplicationSend>(
     mut sender: ResMut<R>,
     mut commands: Commands,
-    query: Query<(Entity, &Replicate), (Added<Replicate>, Without<DespawnTracker>)>,
+    // We use `(With<Replicate>, Without<DespawnTracker>)` as an optimization to
+    // only get the subset of entities that have had Replicate added
+    // (`Added<Replicate>` queries through each entity that has `Replicate`)
+    query: Query<(Entity, &Replicate), (With<Replicate>, Without<DespawnTracker>)>,
 ) {
     for (entity, replicate) in query.iter() {
-        debug!("Replicate component was added");
+        debug!("Replicate component was added for entity {entity:?}");
         commands.entity(entity).insert(DespawnTracker);
         let despawn_metadata = DespawnMetadata {
             replication_target: replicate.replication_target.clone(),
@@ -95,7 +98,7 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
                 .clients_cache
                 .iter()
                 .for_each(|(client_id, visibility)| {
-                    if replicate.replication_target.should_send_to(client_id)
+                    if replicate.replication_target.targets(client_id)
                         && matches!(visibility, ClientVisibility::Lost)
                     {
                         debug!("sending entity despawn for entity: {:?} because ClientVisibility::Lost", entity);
@@ -168,7 +171,7 @@ pub(crate) fn send_entity_spawn<R: ReplicationSend>(
                 visibility.unwrap().clients_cache
                     .iter()
                     .for_each(|(client_id, visibility)| {
-                        if replicate.replication_target.should_send_to(client_id) {
+                        if replicate.replication_target.targets(client_id) {
                             match visibility {
                                 ClientVisibility::Gained => {
                                     trace!(
@@ -286,7 +289,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                 visibility.unwrap().clients_cache
                     .iter()
                     .for_each(|(client_id, visibility)| {
-                        if replicate.replication_target.should_send_to(client_id) {
+                        if replicate.replication_target.targets(client_id) {
                             let target = replicate.target::<C>(NetworkTarget::Only(vec![*client_id]));
                             match visibility {
                                 ClientVisibility::Gained => {
@@ -420,7 +423,7 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
                         .clients_cache
                         .iter()
                         .for_each(|(client_id, visibility)| {
-                            if replicate.replication_target.should_send_to(client_id) {
+                            if replicate.replication_target.targets(client_id) {
                                 // TODO: maybe send no matter the vis?
                                 if matches!(visibility, ClientVisibility::Maintained) {
                                     let _ = sender

@@ -52,6 +52,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             if replicate.is_changed() && replicate.replicate_hierarchy {
                 // iterate through all descendents of the entity
                 for child in children_query.iter_descendants(parent_entity) {
+                    trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
                     let mut replicate = replicate.clone();
                     // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id
                     replicate.replication_group = ReplicationGroup::new_id(parent_entity.to_bits());
@@ -277,6 +278,9 @@ mod tests {
 
     #[test]
     fn test_propagate_hierarchy() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
         let (mut stepper, grandparent, parent, child) = setup_hierarchy();
 
         stepper
@@ -335,7 +339,7 @@ mod tests {
             stepper
                 .server_app
                 .world
-                .entity_mut(client_parent)
+                .entity_mut(parent)
                 .get::<Replicate>(),
             Some(&Replicate {
                 replication_group: ReplicationGroup::new_id(grandparent.to_bits()),
@@ -346,7 +350,7 @@ mod tests {
             stepper
                 .server_app
                 .world
-                .entity_mut(client_child)
+                .entity_mut(child)
                 .get::<Replicate>(),
             Some(&Replicate {
                 replication_group: ReplicationGroup::new_id(grandparent.to_bits()),

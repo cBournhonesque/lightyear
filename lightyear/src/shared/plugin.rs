@@ -11,7 +11,7 @@ use crate::prelude::{
 };
 use crate::server::config::ServerConfig;
 use crate::shared::config::SharedConfig;
-use crate::shared::replication::components::ShouldBeInterpolated;
+use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
 use crate::transport::middleware::compression::CompressionConfig;
@@ -109,6 +109,7 @@ impl Plugin for SharedPlugin {
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
         app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
             .add_map_entities();
+        app.register_component::<Controlled>(ChannelDirection::Bidirectional);
         // check that the protocol was built correctly
         app.world.resource::<ComponentRegistry>().check();
     }
