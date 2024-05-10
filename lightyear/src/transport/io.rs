@@ -65,10 +65,10 @@ impl Io {
     }
 
     pub fn close(&mut self) -> Result<()> {
+        self.state = IoState::Disconnected;
         if let Some(close_fn) = std::mem::take(&mut self.close_fn) {
             close_fn()?;
         }
-        self.state = IoState::Disconnected;
         Ok(())
     }
 }
@@ -174,7 +174,7 @@ impl Plugin for IoDiagnosticsPlugin {
 }
 
 /// Tracks the state of the Io
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum IoState {
     Connecting,
     Connected,

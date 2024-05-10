@@ -153,6 +153,7 @@ pub(crate) fn receive(world: &mut World) {
                                                         if netclient.state() == NetworkingState::Connected {
                                                             // we just connected, do a state transition
                                                             if state.get() != &NetworkingState::Connected {
+                                                                debug!("Setting the networking state to connected");
                                                                 next_state.set(NetworkingState::Connected);
                                                             }
 
@@ -276,7 +277,7 @@ fn listen_io_state(
     mut next_state: ResMut<NextState<NetworkingState>>,
     mut netclient: ResMut<ClientConnection>,
 ) {
-    // first check the status of the io
+    let mut disconnect = false;
     if let Some(io) = netclient.io_mut() {
         if let Some(receiver) = io.event_receiver.as_mut() {
             match receiver.receiver.try_recv() {
@@ -285,24 +286,26 @@ fn listen_io_state(
                     io.state = IoState::Connected;
                 }
                 Ok(IoEvent::Disconnected(e)) => {
-                    error!("Error starting the io: {}", e);
+                    error!("Error from io: {}", e);
                     io.state = IoState::Disconnected;
-                    info!("Setting the next state to disconnected because of io");
-                    next_state.set(NetworkingState::Disconnected);
+                    disconnect = true;
                 }
-                // we are still connecting the io, and there is no error yet
                 Err(TryRecvError::Empty) => {
-                    debug!("we are still connecting the io, and there is no error yet");
+                    trace!("we are still connecting the io, and there is no error yet");
                 }
-                // we are still connecting the io, but the channel has been closed, this looks
-                // like an error
                 Err(TryRecvError::Closed) => {
                     error!("Io status channel has been closed when it shouldn't be");
-                    info!("Setting the next state to disconnected because of io");
-                    next_state.set(NetworkingState::Disconnected);
+                    disconnect = true;
                 }
             }
         }
+    }
+    if disconnect {
+        debug!("Going to NetworkingState::Disconnected because of io error.");
+        next_state.set(NetworkingState::Disconnected);
+        let _ = netclient
+            .disconnect()
+            .inspect_err(|e| debug!("error disconnecting netclient: {e:?}"));
     }
 }
 
@@ -314,7 +317,7 @@ fn on_connect(
     config: Res<ClientConfig>,
     mut server_connect_event_writer: Option<ResMut<Events<crate::server::events::ConnectEvent>>>,
 ) {
-    info!(
+    debug!(
         "Running OnConnect schedule with client id: {:?}",
         netcode.id()
     );
@@ -322,7 +325,7 @@ fn on_connect(
 
     // in host-server mode, we also want to send a connect event to the server
     if config.shared.mode == Mode::HostServer {
-        info!("send connect event to server");
+        debug!("send connect event to server");
         server_connect_event_writer
             .as_mut()
             .unwrap()
@@ -343,7 +346,7 @@ fn on_disconnect(
     mut commands: Commands,
     received_entities: Query<Entity, Or<(With<Replicated>, With<Predicted>, With<Interpolated>)>>,
 ) {
-    info!("Running OnDisconnect schedule");
+    debug!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
     received_entities
         .iter()
@@ -388,19 +391,19 @@ pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
 /// since the `StateTransition` schedule runs after `PreUpdate`
 pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
-    let res = netclient.as_ref().map_or(true, |c| {
+    netclient.as_ref().map_or(true, |c| {
         c.state() == NetworkingState::Disconnected
             || c.io()
                 .map_or(true, |io| matches!(io.state, IoState::Disconnected))
-    });
-    error!("Is Disconnected: {res:?}");
-    if let Some(c) = netclient.as_ref() {
-        error!("ClientConnection state: {:?}", c.state());
-        if let Some(io) = c.io() {
-            error!("Io state: {:?}", io.state);
-        }
-    }
-    res
+    })
+    // error!("Is Disconnected: {res:?}");
+    // if let Some(c) = netclient.as_ref() {
+    //     error!("ClientConnection state: {:?}", c.state());
+    //     if let Some(io) = c.io() {
+    //         error!("Io state: {:?}", io.state);
+    //     }
+    // }
+    // res
 }
 
 /// This runs only when we enter the [`Connecting`](NetworkingState::Connecting) state.

@@ -129,7 +129,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                     // drop(send_handle);
                     recv_handle.cancel().await;
                     send_handle.cancel().await;
-                    info!("WebTransport tasks shut down.");
+                    debug!("WebTransport tasks shut down.");
                 }
             }
             }))
