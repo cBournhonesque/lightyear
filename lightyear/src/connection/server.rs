@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
+use std::net::SocketAddr;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
@@ -45,6 +46,8 @@ pub trait NetServer: Send + Sync {
     fn new_disconnections(&self) -> Vec<ClientId>;
 
     fn io(&self) -> Option<&Io>;
+
+    fn io_mut(&mut self) -> Option<&mut Io>;
 }
 
 /// A wrapper around a `Box<dyn NetServer>`
@@ -144,6 +147,10 @@ impl NetServer for ServerConnection {
 
     fn io(&self) -> Option<&Io> {
         self.server.io()
+    }
+
+    fn io_mut(&mut self) -> Option<&mut Io> {
+        self.server.io_mut()
     }
 }
 

@@ -32,7 +32,7 @@ impl Io {
     }
 }
 
-#[derive(Deref, DerefMut)]
+#[derive(Deref, DerefMut, Clone)]
 pub(crate) struct ServerIoEventReceiver(pub(crate) async_channel::Receiver<ServerIoEvent>);
 
 /// Events that will be sent from the io thread to the main thread
@@ -43,5 +43,5 @@ pub(crate) enum ServerIoEvent {
 }
 
 /// Events that will be sent from the main thread to the io thread
-#[derive(Deref, DerefMut)]
+#[derive(Deref, DerefMut, Clone)]
 pub(crate) struct ServerNetworkEventSender(pub(crate) async_channel::Sender<ServerIoEvent>);

@@ -6,6 +6,7 @@ use crate::packet::packet::Packet;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::io::Io;
+use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
 use bevy::utils::HashMap;
 use std::collections::VecDeque;
@@ -246,6 +247,10 @@ impl NetServer for Server {
     }
 
     fn io(&self) -> Option<&Io> {
+        None
+    }
+
+    fn io_mut(&mut self) -> Option<&mut Io> {
         None
     }
 }
