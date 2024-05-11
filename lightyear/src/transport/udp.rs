@@ -2,18 +2,14 @@
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
+use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
+use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
+use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
+use crate::transport::io::IoState;
+use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 use anyhow::Context;
 use async_channel::Receiver;
-
-use crate::transport::client::{ClientTransportBuilder, ClientTransportEnum};
-use crate::transport::io::{
-    ClientIoEventReceiver, ClientNetworkEventSender, IoState, ServerIoEventReceiver,
-    ServerNetworkEventSender,
-};
-use crate::transport::server::{ServerTransportBuilder, ServerTransportEnum};
-use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
-};
 
 use super::error::Result;
 
@@ -138,13 +134,13 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
 
+    use crate::client::io::transport::ClientTransportBuilder;
+    use crate::server::io::transport::ServerTransportBuilder;
     use anyhow::Context;
     use bevy::utils::Duration;
 
-    use crate::transport::client::ClientTransportBuilder;
     use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
     use crate::transport::middleware::PacketReceiverWrapper;
-    use crate::transport::server::ServerTransportBuilder;
     use crate::transport::udp::UdpSocketBuilder;
     use crate::transport::{PacketReceiver, PacketSender, Transport};
 

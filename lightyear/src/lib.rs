@@ -202,8 +202,6 @@ pub mod prelude {
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
     pub use crate::shared::time_manager::TimeManager;
-    pub use crate::transport::config::{ClientTransport, IoConfig};
-    pub use crate::transport::io::Io;
     pub use crate::transport::middleware::compression::CompressionConfig;
     pub use crate::transport::middleware::conditioner::LinkConditionerConfig;
 
@@ -227,6 +225,8 @@ pub mod prelude {
         pub use crate::client::interpolation::{
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
+        pub use crate::client::io::config::ClientTransport;
+        pub use crate::client::io::Io;
         pub use crate::client::networking::{ClientCommands, NetworkingState};
         pub use crate::client::plugin::ClientPlugins;
         pub use crate::client::prediction::correction::Correction;
@@ -237,7 +237,7 @@ pub mod prelude {
         pub use crate::client::prediction::Predicted;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
-            Authentication, ClientConnection, NetClient, NetConfig,
+            Authentication, ClientConnection, IoConfig, NetClient, NetConfig,
         };
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::client::SteamConfig;
@@ -247,7 +247,7 @@ pub mod prelude {
         pub use wtransport::tls::Identity;
 
         pub use crate::connection::server::{
-            NetConfig, NetServer, ServerConnection, ServerConnections,
+            IoConfig, NetConfig, NetServer, ServerConnection, ServerConnections,
         };
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::SteamConfig;
@@ -257,6 +257,8 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
+        pub use crate::server::io::config::ServerTransport;
+        pub use crate::server::io::Io;
         pub use crate::server::networking::{NetworkingState, ServerCommands};
         pub use crate::server::plugin::ServerPlugins;
         pub use crate::server::replication::{ServerFilter, ServerReplicationSet};

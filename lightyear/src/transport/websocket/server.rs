@@ -20,15 +20,11 @@ use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use tracing::{info, trace};
 use tracing_log::log::error;
 
+use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
+use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::error::{Error, Result};
-use crate::transport::io::{
-    ClientIoEvent, ClientIoEventReceiver, IoState, ServerIoEvent, ServerIoEventReceiver,
-    ServerNetworkEventSender,
-};
-use crate::transport::server::{ServerTransportBuilder, ServerTransportEnum};
-use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
-};
+use crate::transport::io::IoState;
+use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 pub(crate) struct WebSocketServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,

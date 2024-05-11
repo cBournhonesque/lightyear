@@ -14,14 +14,11 @@ use wtransport::datagram::Datagram;
 use wtransport::error::{ConnectingError, ConnectionError};
 use wtransport::ClientConfig;
 
-use crate::transport::client::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::transport::error::{Error, Result};
-use crate::transport::io::{
-    ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender, IoState,
-};
-use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
-};
+use crate::transport::io::IoState;
+use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 pub(crate) struct WebTransportClientSocketBuilder {
     pub(crate) client_addr: SocketAddr,
@@ -40,7 +37,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
         // channels used to cancel the task
-        let (close_tx, mut close_rx) = crossbeam_channel::bounded(1);
+        let (close_tx, close_rx) = async_channel::bounded(1);
         // channels used to check the status of the io task
         let (event_tx, event_rx) = async_channel::bounded(1);
 

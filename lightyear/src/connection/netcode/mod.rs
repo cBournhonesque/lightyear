@@ -44,34 +44,33 @@
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
 
  ```
-*  use std::{thread, time::{Instant, Duration}, net::SocketAddr};
-*  use crate::lightyear::connection::netcode::{generate_key, NetcodeServer, MAX_PACKET_SIZE};
-*
-*  use lightyear::prelude::{IoConfig, ClientTransport};
-*  use crate::lightyear::transport::io::Io;
-*
-*  // Create an io
-*  let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
-*  let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).connect().unwrap();
-*
-*  // Create a server
-*  let protocol_id = 0x11223344;
-*  let private_key = generate_key(); // you can also provide your own key
-*  let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-*
-*  // Run the server at 60Hz
-*  let start = Instant::now();
-*  let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
-*  loop {
-*      let elapsed = start.elapsed().as_secs_f64();
-*      server.update(elapsed, &mut io);
-*      while let Some((packet, from)) = server.recv() {
-*         // ...
-*      }
-*      # break;
-*      thread::sleep(tick_rate);
-*  }
-*  ```
+use std::{thread, time::{Instant, Duration}, net::SocketAddr};
+use crate::lightyear::connection::netcode::{generate_key, NetcodeServer, MAX_PACKET_SIZE};
+use lightyear::prelude::server::*;
+use crate::lightyear::transport::io::BaseIo;
+
+// Create an io
+let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
+let mut io = IoConfig::from_transport(ServerTransport::UdpSocket(client_addr)).start().unwrap();
+
+// Create a server
+let protocol_id = 0x11223344;
+let private_key = generate_key(); // you can also provide your own key
+let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
+
+// Run the server at 60Hz
+let start = Instant::now();
+let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
+loop {
+    let elapsed = start.elapsed().as_secs_f64();
+    server.update(elapsed, &mut io);
+    while let Some((packet, from)) = server.recv() {
+       // ...
+    }
+    # break;
+    thread::sleep(tick_rate);
+}
+```
 
  ## Client
 
@@ -86,13 +85,12 @@
 
  ```
 use std::{thread, time::{Instant, Duration}, net::SocketAddr};
-use lightyear::prelude::{IoConfig, TransportConfig};
+use lightyear::prelude::client::*;
 use crate::lightyear::connection::netcode::{generate_key, ConnectToken, NetcodeClient, MAX_PACKET_SIZE};
-use crate::lightyear::transport::io::Io;
 
 // Create an io
 let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
-let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).connect().unwrap();
+let mut io = IoConfig::from_transport(ClientTransport::UdpSocket(client_addr)).connect().unwrap();
 
 // Generate a connection token for the client
 let protocol_id = 0x11223344;

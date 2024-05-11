@@ -13,10 +13,11 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::interpolation::Interpolated;
+use crate::client::io::ClientIoEvent;
 use crate::client::prediction::Predicted;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
-use crate::connection::server::ServerConnections;
+use crate::connection::server::{IoConfig, ServerConnections};
 use crate::prelude::{
     ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager,
 };
@@ -28,7 +29,7 @@ use crate::shared::replication::components::Replicated;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
-use crate::transport::io::{ClientIoEvent, IoState};
+use crate::transport::io::IoState;
 
 #[derive(Default)]
 pub(crate) struct ClientNetworkingPlugin;
@@ -36,6 +37,8 @@ pub(crate) struct ClientNetworkingPlugin;
 impl Plugin for ClientNetworkingPlugin {
     fn build(&self, app: &mut App) {
         app
+            // REFLECTION
+            .register_type::<IoConfig>()
             // STATE
             .init_state::<NetworkingState>()
             // SYSTEM SETS
@@ -278,7 +281,7 @@ fn listen_io_state(
 ) {
     let mut disconnect = false;
     if let Some(io) = netclient.io_mut() {
-        if let Some(receiver) = io.event_receiver.as_mut() {
+        if let Some(receiver) = io.context.event_receiver.as_mut() {
             match receiver.try_recv() {
                 Ok(ClientIoEvent::Connected) => {
                     debug!("Io is connected!");

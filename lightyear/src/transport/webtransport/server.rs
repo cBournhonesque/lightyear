@@ -18,15 +18,11 @@ use wtransport::tls::Certificate;
 use wtransport::{Connection, Endpoint};
 use wtransport::{Identity, ServerConfig};
 
+use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
+use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::error::{Error, Result};
-use crate::transport::io::{
-    ClientIoEvent, ClientIoEventReceiver, IoState, ServerIoEvent, ServerIoEventReceiver,
-    ServerNetworkEventSender,
-};
-use crate::transport::server::{ServerTransportBuilder, ServerTransportEnum};
-use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
-};
+use crate::transport::io::IoState;
+use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 pub(crate) struct WebTransportServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,
@@ -46,7 +42,7 @@ impl ServerTransportBuilder for WebTransportServerSocketBuilder {
             mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
         let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();
         // channels used to cancel the task
-        let (close_tx, mut close_rx) = async_channel::unbounded();
+        let (close_tx, close_rx) = async_channel::unbounded();
         // channels used to check the status of the io task
         let (status_tx, status_rx) = async_channel::unbounded();
         let to_client_senders = Arc::new(Mutex::new(HashMap::new()));

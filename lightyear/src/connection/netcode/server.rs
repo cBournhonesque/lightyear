@@ -8,12 +8,12 @@ use tracing::{debug, error, trace};
 
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
-use crate::connection::server::NetServer;
-use crate::prelude::IoConfig;
+use crate::connection::server::{IoConfig, NetServer};
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::config::NetcodeConfig;
-use crate::transport::io::Io;
+use crate::server::io::Io;
+use crate::transport::io::BaseIo;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 use super::{
@@ -351,10 +351,10 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use std::net::{SocketAddr, Ipv4Addr};
 /// # use bevy::utils::{Instant, Duration};
 /// # use std::thread;
-/// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
-/// let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(
+/// # use lightyear::prelude::server::{IoConfig, ServerTransport};
+/// let mut io = IoConfig::from_transport(ServerTransport::UdpSocket(
 ///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)
-/// )).connect().unwrap();
+/// )).start().unwrap();
 /// let private_key = generate_key();
 /// let protocol_id = 0x123456789ABCDEF0;
 /// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
@@ -826,14 +826,14 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// # Example
     /// ```
     /// # use crate::lightyear::connection::netcode::{NetcodeServer, ServerConfig, MAX_PACKET_SIZE};
-    /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
     /// # use std::net::{SocketAddr, Ipv4Addr};
     /// # use bevy::utils::Instant;
+    /// # use lightyear::prelude::server::*;
     /// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
     /// # let protocol_id = 0x123456789ABCDEF0;
     /// # let private_key = [42u8; 32];
     /// # let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).connect().unwrap();
+    /// # let mut io = IoConfig::from_transport(ServerTransport::UdpSocket(addr)).start().unwrap();
     /// #
     /// let start = Instant::now();
     /// loop {
@@ -998,7 +998,7 @@ pub struct Server {
 impl NetServer for Server {
     fn start(&mut self) -> anyhow::Result<()> {
         let io_config = self.io_config.clone();
-        let io = io_config.connect().context("could not start io")?;
+        let io = io_config.start().context("could not start io")?;
         self.io = Some(io);
         Ok(())
     }

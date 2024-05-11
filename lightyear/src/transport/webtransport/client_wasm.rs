@@ -11,14 +11,13 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info, trace};
 use xwt_core::prelude::*;
 
-use crate::transport::client::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
+use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
+use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::error::{Error, Result};
-use crate::transport::io::{
-    ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender, IoState,
-};
-use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
-};
+use crate::transport::io::IoState;
+use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 pub struct WebTransportClientSocketBuilder {
     pub(crate) client_addr: SocketAddr,

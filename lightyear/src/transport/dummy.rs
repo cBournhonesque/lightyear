@@ -1,14 +1,12 @@
 //! Dummy io for connections that provide their own way of sending and receiving raw bytes (for example steamworks).
-use crate::transport::client::{ClientTransportBuilder, ClientTransportEnum};
-use crate::transport::io::{
-    ClientIoEventReceiver, ClientNetworkEventSender, IoState, ServerIoEventReceiver,
-    ServerNetworkEventSender,
-};
-use crate::transport::server::{ServerTransportBuilder, ServerTransportEnum};
+use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
+use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
+use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
+use crate::transport::io::IoState;
 use crate::transport::udp::{UdpSocket, UdpSocketBuffer, UdpSocketBuilder};
 use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    LOCAL_SOCKET, MTU,
+    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET, MTU,
 };
 use std::net::SocketAddr;
 

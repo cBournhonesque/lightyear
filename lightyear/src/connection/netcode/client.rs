@@ -6,13 +6,13 @@ use anyhow::Context;
 use bevy::prelude::Resource;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::connection::client::NetClient;
+use crate::client::io::Io;
+use crate::connection::client::{IoConfig, NetClient};
 use crate::connection::id;
 use crate::prelude::client::NetworkingState;
-use crate::prelude::IoConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
-use crate::transport::io::{Io, IoState};
+use crate::transport::io::IoState;
 use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
 use super::{
@@ -170,9 +170,9 @@ pub enum ClientState {
 /// # use std::net::{Ipv4Addr, SocketAddr};
 /// # use std::time::{Instant, Duration};
 /// # use std::thread;
-/// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
+/// # use lightyear::prelude::client::{ClientTransport, IoConfig};
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-/// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).connect().unwrap();
+/// # let mut io = IoConfig::from_transport(ClientTransport::UdpSocket(addr)).connect().unwrap();
 /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
 /// # let token_bytes = server.token(0, addr).generate().unwrap().try_into_bytes().unwrap();
 /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
@@ -566,12 +566,12 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// # use bevy::utils::{Instant, Duration};
     /// # use std::thread;
     /// # use lightyear::connection::netcode::NetcodeServer;
-    /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
+    /// # use lightyear::prelude::client::{ClientTransport, IoConfig};
     /// # let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
     /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
-    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).connect().unwrap();
+    /// # let mut io = IoConfig::from_transport(ClientTransport::UdpSocket(client_addr)).connect().unwrap();
     /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
     /// client.connect();
     ///

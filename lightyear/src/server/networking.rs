@@ -7,7 +7,9 @@ use tracing::{debug, error, trace, trace_span};
 use crate::client::config::ClientConfig;
 use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
+use crate::connection::server::{
+    IoConfig, NetConfig, NetServer, ServerConnection, ServerConnections,
+};
 use crate::prelude::{ChannelRegistry, MainSet, MessageRegistry, Mode, TickManager, TimeManager};
 use crate::protocol::component::ComponentRegistry;
 use crate::server::config::ServerConfig;
@@ -32,6 +34,8 @@ pub(crate) struct ServerNetworkingPlugin;
 impl Plugin for ServerNetworkingPlugin {
     fn build(&self, app: &mut App) {
         app
+            // REFLECTION
+            .register_type::<IoConfig>()
             // STATE
             .init_state::<NetworkingState>()
             // SYSTEM SETS

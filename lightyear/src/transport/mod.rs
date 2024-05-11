@@ -6,6 +6,9 @@ use enum_dispatch::enum_dispatch;
 
 use error::Result;
 
+// required import for enum dispatch to work
+use crate::client::io::transport::ClientTransportEnum;
+use crate::server::io::transport::ServerTransportEnum;
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
 use crate::transport::io::IoState;
@@ -63,10 +66,6 @@ pub(crate) const MTU: usize = 1472;
 
 pub(crate) type BoxedSender = Box<dyn PacketSender + Send + Sync>;
 pub(crate) type BoxedReceiver = Box<dyn PacketReceiver + Send + Sync>;
-// pub(crate) trait CloseFn: Send + Sync {}
-// impl<T: Fn() -> Result<()> + Send + Sync> CloseFn for T {}
-// pub(crate) type BoxedCloseFn = Box<dyn CloseFn>;
-pub(crate) type BoxedCloseFn = Box<dyn (Fn() -> Result<()>) + Send + Sync>;
 
 #[enum_dispatch]
 pub(crate) trait Transport {
@@ -77,96 +76,6 @@ pub(crate) trait Transport {
     ///
     /// This is useful to have parallel mutable access to the sender and the retriever
     fn split(self) -> (BoxedSender, BoxedReceiver);
-}
-
-pub(crate) mod client {
-    use super::*;
-    use crate::transport::io::{ClientIoEventReceiver, ClientNetworkEventSender};
-
-    /// Transport combines a PacketSender and a PacketReceiver
-    ///
-    /// This trait is used to abstract the raw transport layer that sends and receives packets.
-    /// There are multiple implementations of this trait, such as UdpSocket, WebSocket, WebTransport, etc.
-    #[enum_dispatch]
-    pub(crate) trait ClientTransportBuilder: Send + Sync {
-        /// Attempt to connect to the remote
-        fn connect(
-            self,
-        ) -> Result<(
-            ClientTransportEnum,
-            IoState,
-            Option<ClientIoEventReceiver>,
-            Option<ClientNetworkEventSender>,
-        )>;
-    }
-
-    #[enum_dispatch(ClientTransportBuilder)]
-    pub(crate) enum ClientTransportBuilderEnum {
-        #[cfg(not(target_family = "wasm"))]
-        UdpSocket(UdpSocketBuilder),
-        #[cfg(feature = "webtransport")]
-        WebTransportClient(WebTransportClientSocketBuilder),
-        #[cfg(feature = "websocket")]
-        WebSocketClient(WebSocketClientSocketBuilder),
-        LocalChannel(LocalChannelBuilder),
-        Dummy(DummyIo),
-    }
-
-    #[allow(clippy::large_enum_variant)]
-    #[enum_dispatch(Transport)]
-    pub(crate) enum ClientTransportEnum {
-        #[cfg(not(target_family = "wasm"))]
-        UdpSocket(UdpSocket),
-        #[cfg(feature = "webtransport")]
-        WebTransportClient(WebTransportClientSocket),
-        #[cfg(feature = "websocket")]
-        WebSocketClient(WebSocketClientSocket),
-        LocalChannel(LocalChannel),
-        Dummy(DummyIo),
-    }
-}
-
-pub(crate) mod server {
-    use super::*;
-    use crate::transport::io::{ServerIoEventReceiver, ServerNetworkEventSender};
-
-    #[enum_dispatch]
-    pub(crate) trait ServerTransportBuilder: Send + Sync {
-        /// Attempt to listen for incoming connections
-        fn start(
-            self,
-        ) -> Result<(
-            ServerTransportEnum,
-            IoState,
-            Option<ServerIoEventReceiver>,
-            Option<ServerNetworkEventSender>,
-        )>;
-    }
-
-    #[enum_dispatch(ServerTransportBuilder)]
-    pub(crate) enum ServerTransportBuilderEnum {
-        #[cfg(not(target_family = "wasm"))]
-        UdpSocket(UdpSocketBuilder),
-        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-        WebTransportServer(WebTransportServerSocketBuilder),
-        #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-        WebSocketServer(WebSocketServerSocketBuilder),
-        Channels(Channels),
-        Dummy(DummyIo),
-    }
-
-    #[allow(clippy::large_enum_variant)]
-    #[enum_dispatch(Transport)]
-    pub(crate) enum ServerTransportEnum {
-        #[cfg(not(target_family = "wasm"))]
-        UdpSocket(UdpSocket),
-        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-        WebTransportServer(WebTransportServerSocket),
-        #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-        WebSocketServer(WebSocketServerSocket),
-        Channels(Channels),
-        Dummy(DummyIo),
-    }
 }
 
 /// Send data to a remote address
