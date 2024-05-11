@@ -22,10 +22,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, (init, start_server));
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(
-            Update,
-            (send_message, handle_connections, handle_disconnections),
-        );
+        app.add_systems(Update, (send_message, handle_connections));
     }
 }
 
@@ -80,6 +77,7 @@ pub(crate) fn handle_connections(
 ///
 /// By default, lightyear automatically despawns all the `ControlledEntities` when the client disconnects;
 /// but in this example we will also do it manually to showcase how it can be done.
+/// (however we don't actually run the system)
 pub(crate) fn handle_disconnections(
     mut commands: Commands,
     mut disconnections: EventReader<DisconnectEvent>,
@@ -87,7 +85,7 @@ pub(crate) fn handle_disconnections(
     client_query: Query<&ControlledEntities>,
 ) {
     for disconnection in disconnections.read() {
-        info!("Client {:?} disconnected", disconnection.client_id);
+        debug!("Client {:?} disconnected", disconnection.client_id);
         if let Ok(client_entity) = manager.client_entity(disconnection.client_id) {
             if let Ok(controlled_entities) = client_query.get(client_entity) {
                 for entity in controlled_entities.iter() {

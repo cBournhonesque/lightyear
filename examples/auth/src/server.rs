@@ -82,13 +82,13 @@ fn handle_connect_events(
     mut disconnect_events: EventReader<DisconnectEvent>,
 ) {
     for event in connect_events.read() {
-        if let Netcode(client_id) = event.context() {
-            client_ids.0.write().unwrap().insert(*client_id);
+        if let Netcode(client_id) = event.client_id {
+            client_ids.0.write().unwrap().insert(client_id);
         }
     }
     for event in disconnect_events.read() {
-        if let Netcode(client_id) = event.context() {
-            client_ids.0.write().unwrap().remove(client_id);
+        if let Netcode(client_id) = event.client_id {
+            client_ids.0.write().unwrap().remove(&client_id);
         }
     }
 }

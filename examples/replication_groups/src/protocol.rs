@@ -45,10 +45,9 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Single(id),
-                // interpolation_target: NetworkTarget::None,
                 interpolation_target: NetworkTarget::AllExceptSingle(id),
+                controlled_by: NetworkTarget::Single(id),
                 // the default is: the replication group id is a u64 value generated from the entity (`entity.to_bits()`)
                 replication_group: ReplicationGroup::default(),
                 ..default()
@@ -68,9 +67,8 @@ impl TailBundle {
             points: TailPoints(points),
             length: TailLength(length),
             replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
+                controlled_by: NetworkTarget::Single(id),
                 prediction_target: NetworkTarget::Single(id),
-                // interpolation_target: NetworkTarget::None,
                 interpolation_target: NetworkTarget::AllExceptSingle(id),
                 // replicate this entity within the same replication group as the parent
                 replication_group: ReplicationGroup::default().set_id(parent.to_bits()),

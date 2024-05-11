@@ -352,7 +352,7 @@ fn on_connect_host_server(
 ) {
     // spawn an entity for the client
     let client_entity = commands.spawn(ControlledEntities::default()).id();
-    debug!("send connect event to server");
+    error!("send connect event to server");
     server_connect_event_writer.send(crate::server::events::ConnectEvent {
         client_id: netcode.id(),
         entity: client_entity,
@@ -393,11 +393,12 @@ fn on_disconnect_host_server(
     mut server_disconnect_event_writer: ResMut<Events<crate::server::events::DisconnectEvent>>,
 ) {
     let client_id = netcode.id();
-    let client_entity = std::mem::take(&mut metadata.client_entity).unwrap();
-    server_disconnect_event_writer.send(crate::server::events::DisconnectEvent {
-        client_id,
-        entity: client_entity,
-    });
+    if let Some(client_entity) = std::mem::take(&mut metadata.client_entity) {
+        server_disconnect_event_writer.send(crate::server::events::DisconnectEvent {
+            client_id,
+            entity: client_entity,
+        });
+    }
 }
 
 /// This run condition is provided to check if the client is connected.

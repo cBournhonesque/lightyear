@@ -24,7 +24,6 @@ impl Plugin for ExampleServerPlugin {
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, (movement, delete_player));
-        app.add_systems(Update, handle_disconnections);
     }
 }
 
@@ -44,22 +43,6 @@ pub(crate) fn init(mut commands: Commands) {
             ..default()
         }),
     );
-}
-
-/// Server disconnection system, delete all player entities upon disconnection
-pub(crate) fn handle_disconnections(
-    mut disconnections: EventReader<DisconnectEvent>,
-    mut commands: Commands,
-    player_entities: Query<(Entity, &PlayerId)>,
-) {
-    for disconnection in disconnections.read() {
-        let client_id = disconnection.context();
-        for (entity, player_id) in player_entities.iter() {
-            if player_id.0 == *client_id {
-                commands.entity(entity).despawn();
-            }
-        }
-    }
 }
 
 /// Read client inputs and move players

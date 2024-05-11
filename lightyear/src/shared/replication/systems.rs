@@ -74,7 +74,7 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
             .get_mut_replicate_despawn_cache()
             .insert(entity, despawn_metadata);
         if replicate.visibility == VisibilityMode::InterestManagement {
-            error!("Adding ReplicateVisibility component for entity {entity:?}");
+            debug!("Adding ReplicateVisibility component for entity {entity:?}");
             commands
                 .entity(entity)
                 .insert(ReplicateVisibility::default());

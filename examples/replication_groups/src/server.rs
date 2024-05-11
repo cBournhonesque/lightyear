@@ -14,18 +14,11 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Global>();
         app.add_systems(Startup, init);
-        // the physics/FixedUpdates systems that consume inputs should be run in this set
+        // the simulation systems that can be rolled back must run in FixedUpdate
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_systems(Update, handle_connections);
-        // app.add_systems(Update, debug_inputs);
     }
-}
-
-#[derive(Resource, Default)]
-pub(crate) struct Global {
-    pub client_id_to_entity_id: HashMap<ClientId, (Entity, Entity)>,
 }
 
 /// Start the server
@@ -50,12 +43,10 @@ pub(crate) fn init(mut commands: Commands) {
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
-    mut disconnections: EventReader<DisconnectEvent>,
-    mut global: ResMut<Global>,
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = *connection.context();
+        let client_id = connection.client_id;
         // Generate pseudo random color from client id.
         let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
@@ -73,26 +64,13 @@ pub(crate) fn handle_connections(
                 tail_length,
             ))
             .id();
-        // Add a mapping from client id to entity id
-        global
-            .client_id_to_entity_id
-            .insert(client_id, (player_entity, tail_entity));
-    }
-    for disconnection in disconnections.read() {
-        let client_id = disconnection.context();
-        if let Some((player_entity, tail_entity)) = global.client_id_to_entity_id.remove(client_id)
-        {
-            commands.entity(player_entity).despawn();
-            commands.entity(tail_entity).despawn();
-        }
     }
 }
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<&mut PlayerPosition>,
+    mut position_query: Query<(&Replicate, &mut PlayerPosition)>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    global: Res<Global>,
     tick_manager: Res<TickManager>,
 ) {
     for input in input_reader.read() {
@@ -104,15 +82,13 @@ pub(crate) fn movement(
                 client_id,
                 tick_manager.tick()
             );
-            if let Some((player_entity, _)) = global.client_id_to_entity_id.get(client_id) {
-                if let Ok(position) = position_query.get_mut(*player_entity) {
-                    shared_movement_behaviour(position, input);
+            // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
+            //  entities here
+            for (replicate, position) in position_query.iter_mut() {
+                if replicate.controlled_by.targets(client_id) {
+                    shared::shared_movement_behaviour(position, input);
                 }
             }
         }
     }
 }
-
-// pub(crate) fn debug_inputs(server: Res<Server>) {
-//     info!(tick = ?server.tick(), inputs = ?server.get_input_buffer(1), "debug");
-// }

@@ -33,6 +33,7 @@ impl PlayerBundle {
         let mut replicate = Replicate {
             prediction_target: NetworkTarget::Single(id),
             interpolation_target: NetworkTarget::AllExceptSingle(id),
+            controlled_by: NetworkTarget::Single(id),
             ..default()
         };
         // We don't want to replicate the ActionState to the original client, since they are updating it with
