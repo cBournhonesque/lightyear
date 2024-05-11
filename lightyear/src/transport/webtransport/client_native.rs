@@ -14,24 +14,30 @@ use wtransport::datagram::Datagram;
 use wtransport::error::{ConnectingError, ConnectionError};
 use wtransport::ClientConfig;
 
+use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::transport::error::{Error, Result};
-use crate::transport::io::{IoEvent, IoEventReceiver, IoState};
-use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, MTU,
-};
+use crate::transport::io::IoState;
+use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 pub(crate) struct WebTransportClientSocketBuilder {
     pub(crate) client_addr: SocketAddr,
     pub(crate) server_addr: SocketAddr,
 }
 
-impl TransportBuilder for WebTransportClientSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
+impl ClientTransportBuilder for WebTransportClientSocketBuilder {
+    fn connect(
+        self,
+    ) -> Result<(
+        ClientTransportEnum,
+        IoState,
+        Option<ClientIoEventReceiver>,
+        Option<ClientNetworkEventSender>,
+    )> {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
         // channels used to cancel the task
-        let (close_tx, mut close_rx) = mpsc::channel(1);
+        let (close_tx, close_rx) = async_channel::bounded(1);
         // channels used to check the status of the io task
         let (event_tx, event_rx) = async_channel::bounded(1);
 
@@ -50,7 +56,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 Ok(e) => {e}
                 Err(e) => {
                     error!("Error creating webtransport endpoint: {:?}", e);
-                    let _ = event_tx.send(IoEvent::Disconnected(e.into())).await;
+                    let _ = event_tx.send(ClientIoEvent::Disconnected(e.into())).await;
                     return
                 }
             };
@@ -58,7 +64,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
             tokio::select! {
                 _ = close_rx.recv() => {
                     info!("WebTransport connection closed. Reason: client requested disconnection.");
-                    let _ = event_tx.send(IoEvent::Disconnected(std::io::Error::other("received close signal").into())).await;
+                    let _ = event_tx.send(ClientIoEvent::Disconnected(std::io::Error::other("received close signal").into())).await;
                     return
                 }
                 connection = endpoint.connect(&server_url) => {
@@ -66,12 +72,12 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                         Ok(c) => {c}
                         Err(e) => {
                             error!("Error creating webtransport connection: {:?}", e);
-                            let _ = event_tx.send(IoEvent::Disconnected(std::io::Error::other(e).into())).await;
+                            let _ = event_tx.send(ClientIoEvent::Disconnected(std::io::Error::other(e).into())).await;
                             return
                         }
                     };
                     // signal that the io is connected
-                    event_tx.send(IoEvent::Connected).await.unwrap();
+                    event_tx.send(ClientIoEvent::Connected).await.unwrap();
                     info!("Connected.");
 
                     let connection = Arc::new(connection);
@@ -114,11 +120,10 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                     tokio::select! {
                         reason = connection.closed() => {
                             info!("WebTransport connection closed. Reason: {reason:?}. Shutting down webtransport tasks.");
-                            event_tx.send(IoEvent::Disconnected(Error::WebTransport(ConnectingError::ConnectionError(reason)))).await.unwrap();
+                            event_tx.send(ClientIoEvent::Disconnected(Error::WebTransport(ConnectingError::ConnectionError(reason)))).await.unwrap();
                         },
                         _ = close_rx.recv() => {
                             info!("WebTransport connection closed. Reason: client requested disconnection. Shutting down webtransport tasks.");
-                            event_tx.send(IoEvent::Disconnected(std::io::Error::other("received close signal").into())).await.unwrap();
                         }
                     }
                     // close the other tasks
@@ -142,14 +147,14 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
             buffer: [0; MTU],
         };
         Ok((
-            TransportEnum::WebTransportClient(WebTransportClientSocket {
+            ClientTransportEnum::WebTransportClient(WebTransportClientSocket {
                 local_addr: self.client_addr,
                 sender,
                 receiver,
-                close_sender: close_tx,
             }),
             IoState::Connecting,
-            Some(IoEventReceiver { receiver: event_rx }),
+            Some(ClientIoEventReceiver(event_rx)),
+            Some(ClientNetworkEventSender(close_tx)),
         ))
     }
 }
@@ -159,7 +164,6 @@ pub struct WebTransportClientSocket {
     local_addr: SocketAddr,
     sender: WebTransportClientPacketSender,
     receiver: WebTransportClientPacketReceiver,
-    close_sender: mpsc::Sender<()>,
 }
 
 impl Transport for WebTransportClientSocket {
@@ -167,17 +171,8 @@ impl Transport for WebTransportClientSocket {
         self.local_addr
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        let close_fn = move || {
-            self.close_sender
-                .blocking_send(())
-                .map_err(|e| Error::from(std::io::Error::other(format!("close error: {:?}", e))))
-        };
-        (
-            Box::new(self.sender),
-            Box::new(self.receiver),
-            Some(Box::new(close_fn)),
-        )
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self.sender), Box::new(self.receiver))
     }
 }
 

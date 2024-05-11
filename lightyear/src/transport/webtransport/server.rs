@@ -1,14 +1,14 @@
 //! WebTransport client implementation.
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
-use tokio::sync::mpsc;
+use bevy::utils::HashMap;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace};
 use wtransport;
 use wtransport::datagram::Datagram;
@@ -18,26 +18,35 @@ use wtransport::tls::Certificate;
 use wtransport::{Connection, Endpoint};
 use wtransport::{Identity, ServerConfig};
 
+use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
+use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::error::{Error, Result};
-use crate::transport::io::{IoEvent, IoEventReceiver, IoState};
-use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, MTU,
-};
+use crate::transport::io::IoState;
+use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 pub(crate) struct WebTransportServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,
     pub(crate) certificate: Identity,
 }
 
-impl TransportBuilder for WebTransportServerSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
+impl ServerTransportBuilder for WebTransportServerSocketBuilder {
+    fn start(
+        self,
+    ) -> Result<(
+        ServerTransportEnum,
+        IoState,
+        Option<ServerIoEventReceiver>,
+        Option<ServerNetworkEventSender>,
+    )> {
         let (to_client_sender, to_client_receiver) =
             mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
         let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();
+        // channels used to cancel the task
+        let (close_tx, close_rx) = async_channel::unbounded();
         // channels used to check the status of the io task
-        let (status_tx, status_rx) = async_channel::bounded(1);
+        let (status_tx, status_rx) = async_channel::unbounded();
         let to_client_senders = Arc::new(Mutex::new(HashMap::new()));
+        let addr_to_task = Arc::new(Mutex::new(HashMap::new()));
 
         let sender = WebTransportServerSocketSender {
             server_addr: self.server_addr,
@@ -60,44 +69,75 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
                     Ok(e) => e,
                     Err(e) => {
                         status_tx
-                            .send(IoEvent::Disconnected(e.into()))
+                            .send(ServerIoEvent::ServerDisconnected(e.into()))
                             .await
                             .unwrap();
                         return;
                     }
                 };
                 info!("Starting server webtransport task");
-                status_tx.send(IoEvent::Connected).await.unwrap();
+                status_tx.send(ServerIoEvent::ServerConnected).await.unwrap();
                 loop {
-                    // clone the channel for each client
-                    let from_client_sender = from_client_sender.clone();
-                    let to_client_senders = to_client_senders.clone();
-
-                    // new client connecting
-                    let incoming_session = endpoint.accept().await;
-
-                    // TODO: when a client disconnects (i.e. the connection is closed), close the task here as well
-                    IoTaskPool::get()
-                        .spawn(Compat::new(WebTransportServerSocket::handle_client(
-                            incoming_session,
-                            from_client_sender,
-                            to_client_senders,
-                        )))
-                        .detach();
+                    tokio::select! {
+                        // event from netcode
+                        Ok(event) = close_rx.recv() => {
+                            match event {
+                                ServerIoEvent::ServerDisconnected(e) => {
+                                    debug!("Stopping webtransport io task. Reason: {:?}", e);
+                                    drop(addr_to_task);
+                                    return;
+                                }
+                                ServerIoEvent::ClientDisconnected(addr) => {
+                                    debug!("Stopping webtransport io task associated with address: {:?} because we received a disconnection signal from netcode", addr);
+                                    addr_to_task.lock().unwrap().remove(&addr);
+                                }
+                                _ => {}
+                            }
+                        }
+                        // new client connecting
+                        incoming_session = endpoint.accept() => {
+                            let Ok(session_request) = incoming_session
+                                .await
+                                .inspect_err(|e| {
+                                    error!("failed to accept new client: {:?}", e);
+                                }) else {
+                                continue;
+                            };
+                            let Ok(connection) = session_request
+                                .accept()
+                                .await
+                                .inspect_err(|e| {
+                                    error!("failed to accept new client: {:?}", e);
+                                }) else {
+                                continue;
+                            };
+                            let client_addr = connection.remote_address();
+                            let connection = Arc::new(connection);
+                            let from_client_sender = from_client_sender.clone();
+                            let to_client_senders = to_client_senders.clone();
+                            let task = IoTaskPool::get()
+                                .spawn(Compat::new(WebTransportServerSocket::handle_client(
+                                    connection,
+                                    from_client_sender,
+                                    to_client_senders,
+                                    status_tx.clone(),
+                                )));
+                            addr_to_task.lock().unwrap().insert(client_addr, task);
+                        }
+                    }
                 }
             }))
             .detach();
 
         Ok((
-            TransportEnum::WebTransportServer(WebTransportServerSocket {
+            ServerTransportEnum::WebTransportServer(WebTransportServerSocket {
                 local_addr: self.server_addr,
                 sender,
                 receiver,
             }),
             IoState::Connecting,
-            Some(IoEventReceiver {
-                receiver: status_rx,
-            }),
+            Some(ServerIoEventReceiver(status_rx)),
+            Some(ServerNetworkEventSender(close_tx)),
         ))
     }
 }
@@ -111,27 +151,12 @@ pub struct WebTransportServerSocket {
 
 impl WebTransportServerSocket {
     pub async fn handle_client(
-        incoming_session: IncomingSession,
+        connection: Arc<Connection>,
         from_client_sender: UnboundedSender<(Datagram, SocketAddr)>,
         to_client_channels: Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Box<[u8]>>>>>,
+        status_tx: async_channel::Sender<ServerIoEvent>,
     ) {
-        let session_request = incoming_session
-            .await
-            .map_err(|e| {
-                error!("failed to accept new client: {:?}", e);
-            })
-            .unwrap();
-
-        let connection = session_request
-            .accept()
-            .await
-            .map_err(|e| {
-                error!("failed to accept new client: {:?}", e);
-            })
-            .unwrap();
-        let connection = Arc::new(connection);
         let client_addr = connection.remote_address();
-
         info!(
             "Spawning new task to create connection with client: {}",
             client_addr
@@ -186,10 +211,13 @@ impl WebTransportServerSocket {
             "Connection with {} closed. Reason: {:?}",
             client_addr, reason
         );
+        // notify netcode that the io task got disconnected
+        let _ = status_tx
+            .send(ServerIoEvent::ClientDisconnected(client_addr))
+            .await;
         to_client_channels.lock().unwrap().remove(&client_addr);
         debug!("Dropping tasks");
         // the handles being dropped cancels the tasks
-        // TODO: need to disconnect the client in netcode
     }
 }
 
@@ -198,8 +226,8 @@ impl Transport for WebTransportServerSocket {
         self.local_addr
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        (Box::new(self.sender), Box::new(self.receiver), None)
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self.sender), Box::new(self.receiver))
     }
 }
 

@@ -108,7 +108,7 @@ pub(crate) mod decompression {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{IoConfig, TransportConfig};
+    use crate::prelude::{SharedIoConfig, TransportConfig};
     use crate::transport::middleware::compression::CompressionConfig;
     use crate::transport::LOCAL_SOCKET;
 
@@ -117,7 +117,7 @@ mod tests {
         let (send, recv) = crossbeam_channel::unbounded();
 
         let config = TransportConfig::LocalChannel { send, recv };
-        let io_config = IoConfig {
+        let io_config = SharedIoConfig {
             transport: config,
             conditioner: None,
             compression: CompressionConfig::Zstd { level: 0 },

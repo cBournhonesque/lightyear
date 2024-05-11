@@ -17,22 +17,30 @@ use web_sys::{
     BinaryType, CloseEvent, ErrorEvent, MessageEvent, WebSocket,
 };
 
+use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::transport::error::{Error, Result};
-use crate::transport::io::{IoEventReceiver, IoState};
+use crate::transport::io::IoState;
 use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, LOCAL_SOCKET, MTU,
+    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET, MTU,
 };
 
 pub(crate) struct WebSocketClientSocketBuilder {
     pub(crate) server_addr: SocketAddr,
 }
 
-impl TransportBuilder for WebSocketClientSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)> {
+impl ClientTransportBuilder for WebSocketClientSocketBuilder {
+    fn connect(
+        self,
+    ) -> Result<(
+        ClientTransportEnum,
+        IoState,
+        Option<ClientIoEventReceiver>,
+        Option<ClientNetworkEventSender>,
+    )> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<Vec<u8>>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Vec<u8>>();
-        let (close_tx, mut close_rx) = mpsc::channel(1);
+        let (close_tx, mut close_rx) = crossbeam_channel::bounded(1);
 
         let sender = WebSocketClientSocketSender { serverbound_tx };
 
@@ -107,13 +115,10 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
         listen_close_signal_callback.forget();
 
         Ok((
-            TransportEnum::WebSocketClient(WebSocketClientSocket {
-                sender,
-                receiver,
-                close_sender: close_tx,
-            }),
+            ClientTransportEnum::WebSocketClient(WebSocketClientSocket { sender, receiver }),
             IoState::Connected,
             None,
+            Some(ClientNetworkEventSender(close_tx)),
         ))
     }
 }
@@ -121,7 +126,6 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
 pub struct WebSocketClientSocket {
     sender: WebSocketClientSocketSender,
     receiver: WebSocketClientSocketReceiver,
-    close_sender: mpsc::Sender<()>,
 }
 
 impl Transport for WebSocketClientSocket {
@@ -129,17 +133,8 @@ impl Transport for WebSocketClientSocket {
         LOCAL_SOCKET
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        let close_fn = move || {
-            self.close_sender
-                .blocking_send(())
-                .map_err(|e| Error::from(std::io::Error::other(format!("close error: {:?}", e))))
-        };
-        (
-            Box::new(self.sender),
-            Box::new(self.receiver),
-            Some(Box::new(close_fn)),
-        )
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self.sender), Box::new(self.receiver))
     }
 }
 

@@ -208,7 +208,7 @@ pub fn build_app(settings: Settings, cli: Cli) -> Apps {
             let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
             let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
             // we will communicate between the client and server apps via channels
-            let transport_config = TransportConfig::LocalChannel {
+            let transport_config = client::ClientTransport::LocalChannel {
                 recv: from_server_recv,
                 send: to_server_send,
             };
@@ -223,7 +223,7 @@ pub fn build_app(settings: Settings, cli: Cli) -> Apps {
             let (client_app, client_config) = client_app(settings.clone(), net_config);
 
             // create server app
-            let extra_transport_configs = vec![TransportConfig::Channels {
+            let extra_transport_configs = vec![server::ServerTransport::Channels {
                 // even if we communicate via channels, we need to provide a socket address for the client
                 channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
             }];
@@ -278,7 +278,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
 #[cfg(not(target_family = "wasm"))]
 fn server_app(
     settings: Settings,
-    extra_transport_configs: Vec<TransportConfig>,
+    extra_transport_configs: Vec<server::ServerTransport>,
 ) -> (App, ServerConfig) {
     let mut app = App::new();
     if !settings.server.headless {
@@ -313,7 +313,7 @@ fn server_app(
 #[cfg(not(target_family = "wasm"))]
 fn combined_app(
     settings: Settings,
-    extra_transport_configs: Vec<TransportConfig>,
+    extra_transport_configs: Vec<server::ServerTransport>,
     client_net_config: client::NetConfig,
 ) -> (App, ClientConfig, ServerConfig) {
     let mut app = App::new();
