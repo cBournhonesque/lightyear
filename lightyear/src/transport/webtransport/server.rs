@@ -96,19 +96,21 @@ impl ServerTransportBuilder for WebTransportServerSocketBuilder {
                         }
                         // new client connecting
                         incoming_session = endpoint.accept() => {
-                            let session_request = incoming_session
+                            let Ok(session_request) = incoming_session
                                 .await
-                                .map_err(|e| {
+                                .inspect_err(|e| {
                                     error!("failed to accept new client: {:?}", e);
-                                })
-                                .unwrap();
-                            let connection = session_request
+                                }) else {
+                                continue;
+                            };
+                            let Ok(connection) = session_request
                                 .accept()
                                 .await
-                                .map_err(|e| {
+                                .inspect_err(|e| {
                                     error!("failed to accept new client: {:?}", e);
-                                })
-                                .unwrap();
+                                }) else {
+                                continue;
+                            };
                             let client_addr = connection.remote_address();
                             let connection = Arc::new(connection);
                             let from_client_sender = from_client_sender.clone();
@@ -118,6 +120,7 @@ impl ServerTransportBuilder for WebTransportServerSocketBuilder {
                                     connection,
                                     from_client_sender,
                                     to_client_senders,
+                                    status_tx.clone(),
                                 )));
                             addr_to_task.lock().unwrap().insert(client_addr, task);
                         }
@@ -151,6 +154,7 @@ impl WebTransportServerSocket {
         connection: Arc<Connection>,
         from_client_sender: UnboundedSender<(Datagram, SocketAddr)>,
         to_client_channels: Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Box<[u8]>>>>>,
+        status_tx: async_channel::Sender<ServerIoEvent>,
     ) {
         let client_addr = connection.remote_address();
         info!(
@@ -207,6 +211,10 @@ impl WebTransportServerSocket {
             "Connection with {} closed. Reason: {:?}",
             client_addr, reason
         );
+        // notify netcode that the io task got disconnected
+        let _ = status_tx
+            .send(ServerIoEvent::ClientDisconnected(client_addr))
+            .await;
         to_client_channels.lock().unwrap().remove(&client_addr);
         debug!("Dropping tasks");
         // the handles being dropped cancels the tasks

@@ -1,5 +1,6 @@
 //! Defines the server bevy systems and run conditions
 use anyhow::{anyhow, Context};
+use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
@@ -15,6 +16,7 @@ use crate::protocol::component::ComponentRegistry;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
+use crate::server::io::ServerIoEvent;
 use crate::server::visibility::room::RoomManager;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
@@ -102,6 +104,31 @@ pub(crate) fn receive(world: &mut World) {
                                             // reborrow trick to enable split borrows
                                             let netservers = &mut *netservers;
                                             for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
+                                                // TODO: maybe run this before receive, like for clients?
+                                                // if the io task for any connection failed, disconnect the client in netcode
+                                                let mut to_disconnect = vec![];
+                                                if let Some(io) = netserver.io_mut() {
+                                                    if let Some(receiver) = &mut io.context.event_receiver {
+                                                        match receiver.try_recv() {
+                                                            Ok(event) => {
+                                                                match event {
+                                                                    ServerIoEvent::ClientDisconnected(client_id) => {
+                                                                        error!("Disconnect client {client_id:?} because io task failed");
+                                                                        to_disconnect.push(client_id);
+                                                                    }
+                                                                    ServerIoEvent::ServerDisconnected(e) => {
+                                                                        error!("Disconnect server because of io error: {:?}", e);
+                                                                        world.resource_mut::<NextState<NetworkingState>>().set(NetworkingState::Stopped);
+                                                                    }
+                                                                    _ => {}
+                                                                }
+                                                            }
+                                                            Err(TryRecvError::Empty) => {}
+                                                            Err(TryRecvError::Closed) => {}
+                                                        }
+                                                    }
+                                                }
+
                                                 let _ = netserver
                                                     .try_update(delta.as_secs_f64())
                                                     .map_err(|e| error!("Error updating netcode server: {:?}", e));

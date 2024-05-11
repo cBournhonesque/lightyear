@@ -89,7 +89,7 @@ impl ServerTransportBuilder for WebSocketServerSocketBuilder {
                                     return;
                                 }
                                 ServerIoEvent::ClientDisconnected(addr) => {
-                                    error!("Stopping webtransport io task associated with address: {:?} because we received a disconnection signal from netcode", addr);
+                                    debug!("Stopping webtransport io task associated with address: {:?} because we received a disconnection signal from netcode", addr);
                                     addr_to_task.lock().unwrap().remove(&addr);
                                     clientbound_tx_map.lock().unwrap().remove(&addr);
                                 }
@@ -100,7 +100,7 @@ impl ServerTransportBuilder for WebSocketServerSocketBuilder {
                             let clientbound_tx_map = clientbound_tx_map.clone();
                             let serverbound_tx = serverbound_tx.clone();
                             let task = IoTaskPool::get().spawn(Compat::new(
-                                WebSocketServerSocket::handle_client(addr, stream, serverbound_tx, clientbound_tx_map)
+                                WebSocketServerSocket::handle_client(addr, stream, serverbound_tx, clientbound_tx_map, status_tx.clone())
                             ));
                             addr_to_task.lock().unwrap().insert(addr, task);
                         }
@@ -155,10 +155,14 @@ impl WebSocketServerSocket {
         stream: TcpStream,
         serverbound_tx: UnboundedSender<(SocketAddr, Message)>,
         clientbound_tx_map: Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Message>>>>,
+        status_tx: async_channel::Sender<ServerIoEvent>,
     ) {
-        let ws_stream = tokio_tungstenite::accept_async(stream)
+        let Ok(ws_stream) = tokio_tungstenite::accept_async(stream)
             .await
-            .expect("Error during the websocket handshake occurred");
+            .inspect_err(|e| error!("An error occured during the websocket handshake: {e:?}"))
+        else {
+            return;
+        };
         info!("New WebSocket connection: {}", addr);
 
         let (clientbound_tx, mut clientbound_rx) = unbounded_channel::<Message>();
@@ -201,6 +205,10 @@ impl WebSocketServerSocket {
 
         info!("Connection with {} closed", addr);
         clientbound_tx_map.lock().unwrap().remove(&addr);
+        // notify netcode that the io task got disconnected
+        let _ = status_tx
+            .send(ServerIoEvent::ClientDisconnected(addr))
+            .await;
         // dropping the task handles cancels them
     }
 }
