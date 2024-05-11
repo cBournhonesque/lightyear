@@ -4,7 +4,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context};
 use bevy::prelude::Resource;
-use futures_util::TryFutureExt;
 use tracing::{debug, error, trace};
 
 use crate::connection::id;
@@ -235,7 +234,7 @@ pub type Callback<Ctx> = Box<dyn FnMut(ClientId, SocketAddr, &mut Ctx) + Send + 
 /// use crate::lightyear::connection::netcode::{NetcodeServer, ServerConfig};
 ///
 /// let thread_safe_counter = Arc::new(Mutex::new(0));
-/// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, ctx| {
+/// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, _, ctx| {
 ///     let mut counter = ctx.lock().unwrap();
 ///     *counter += 1;
 ///     println!("client {} connected, counter: {idx}", counter);
@@ -1004,7 +1003,11 @@ impl NetServer for Server {
     fn start(&mut self) -> anyhow::Result<()> {
         let io_config = self.io_config.clone();
         let io = io_config.start().context("could not start io")?;
-        self.server.cfg.context.sender = io.context.event_sender.clone();
+        self.server
+            .cfg
+            .context
+            .sender
+            .clone_from(&io.context.event_sender);
         self.io = Some(io);
         Ok(())
     }
