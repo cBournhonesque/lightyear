@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use lightyear::prelude::client::Authentication;
 #[cfg(not(target_family = "wasm"))]
 use lightyear::prelude::client::SteamConfig;
-use lightyear::prelude::{CompressionConfig, IoConfig, LinkConditionerConfig, TransportConfig};
+use lightyear::prelude::{CompressionConfig, LinkConditionerConfig};
 
 use lightyear::prelude::{client, server};
 
@@ -137,7 +137,7 @@ pub struct Settings {
 pub fn build_server_netcode_config(
     conditioner: Option<&Conditioner>,
     shared: &SharedSettings,
-    transport_config: TransportConfig,
+    transport_config: server::ServerTransport,
 ) -> server::NetConfig {
     let conditioner = conditioner.map_or(None, |c| {
         Some(LinkConditionerConfig {
@@ -149,7 +149,7 @@ pub fn build_server_netcode_config(
     let netcode_config = server::NetcodeConfig::default()
         .with_protocol_id(shared.protocol_id)
         .with_key(shared.private_key);
-    let io_config = IoConfig {
+    let io_config = server::IoConfig {
         transport: transport_config,
         conditioner,
         compression: shared.compression,
@@ -172,7 +172,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
             ServerTransports::Udp { local_port } => build_server_netcode_config(
                 settings.server.conditioner.as_ref(),
                 &settings.shared,
-                TransportConfig::UdpSocket(SocketAddr::new(
+                server::ServerTransport::UdpSocket(SocketAddr::new(
                     Ipv4Addr::UNSPECIFIED.into(),
                     *local_port,
                 )),
@@ -198,7 +198,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
                 build_server_netcode_config(
                     settings.server.conditioner.as_ref(),
                     &settings.shared,
-                    TransportConfig::WebTransportServer {
+                    server::ServerTransport::WebTransportServer {
                         server_addr: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port),
                         certificate,
                     },
@@ -207,7 +207,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
             ServerTransports::WebSocket { local_port } => build_server_netcode_config(
                 settings.server.conditioner.as_ref(),
                 &settings.shared,
-                TransportConfig::WebSocketServer {
+                server::ServerTransport::WebSocketServer {
                     server_addr: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port),
                 },
             ),
@@ -241,7 +241,7 @@ pub fn build_client_netcode_config(
     server_addr: SocketAddr,
     conditioner: Option<&Conditioner>,
     shared: &SharedSettings,
-    transport_config: TransportConfig,
+    transport_config: client::ClientTransport,
 ) -> client::NetConfig {
     let conditioner = conditioner.map_or(None, |c| Some(c.build()));
     let auth = Authentication::Manual {
@@ -251,7 +251,7 @@ pub fn build_client_netcode_config(
         protocol_id: shared.protocol_id,
     };
     let netcode_config = client::NetcodeConfig::default();
-    let io_config = IoConfig {
+    let io_config = client::IoConfig {
         transport: transport_config,
         conditioner,
         compression: shared.compression,
@@ -278,14 +278,14 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
             server_addr,
             settings.client.conditioner.as_ref(),
             &settings.shared,
-            TransportConfig::UdpSocket(client_addr),
+            client::ClientTransport::UdpSocket(client_addr),
         ),
         ClientTransports::WebTransport { certificate_digest } => build_client_netcode_config(
             client_id,
             server_addr,
             settings.client.conditioner.as_ref(),
             &settings.shared,
-            TransportConfig::WebTransportClient {
+            client::ClientTransport::WebTransportClient {
                 client_addr,
                 server_addr,
                 #[cfg(target_family = "wasm")]
@@ -297,7 +297,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
             server_addr,
             settings.client.conditioner.as_ref(),
             &settings.shared,
-            TransportConfig::WebSocketClient { server_addr },
+            client::ClientTransport::WebSocketClient { server_addr },
         ),
         #[cfg(not(target_family = "wasm"))]
         ClientTransports::Steam { app_id } => client::NetConfig::Steam {

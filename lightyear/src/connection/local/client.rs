@@ -1,7 +1,8 @@
+use crate::client::io::Io;
 use crate::client::networking::NetworkingState;
 use crate::connection::client::NetClient;
 use crate::packet::packet::Packet;
-use crate::prelude::{ClientId, Io};
+use crate::prelude::ClientId;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::Result;
 use std::net::SocketAddr;

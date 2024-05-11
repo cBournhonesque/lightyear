@@ -1,13 +1,13 @@
-//! Bevy [`bevy::prelude::Plugin`] used by both the server and the client
+//! Bevy [`Plugin`] used by both the server and the client
 use crate::client::config::ClientConfig;
 use crate::connection::server::ServerConnections;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::prelude::{
-    AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, IoConfig,
-    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
-    PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
+    AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig,
+    MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject,
+    ShouldBePredicted, TickConfig,
 };
 use crate::server::config::ServerConfig;
 use crate::shared::config::SharedConfig;
@@ -73,8 +73,7 @@ impl Plugin for SharedPlugin {
             .register_type::<TickConfig>()
             .register_type::<PingConfig>()
             .register_type::<LinkConditionerConfig>()
-            .register_type::<CompressionConfig>()
-            .register_type::<IoConfig>();
+            .register_type::<CompressionConfig>();
 
         // RESOURCES
         // NOTE: this tick duration must be the same as any previous existing fixed timesteps

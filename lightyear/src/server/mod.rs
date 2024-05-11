@@ -11,6 +11,8 @@ pub mod events;
 
 pub mod input;
 
+pub(crate) mod io;
+
 pub mod plugin;
 
 #[cfg_attr(docsrs, doc(cfg(feature = "leafwing")))]

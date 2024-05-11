@@ -6,9 +6,12 @@ use enum_dispatch::enum_dispatch;
 
 use error::Result;
 
+// required import for enum dispatch to work
+use crate::client::io::transport::ClientTransportEnum;
+use crate::server::io::transport::ServerTransportEnum;
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
-use crate::transport::io::{IoEventReceiver, IoState};
+use crate::transport::io::IoState;
 use crate::transport::local::{LocalChannel, LocalChannelBuilder};
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
@@ -63,76 +66,16 @@ pub(crate) const MTU: usize = 1472;
 
 pub(crate) type BoxedSender = Box<dyn PacketSender + Send + Sync>;
 pub(crate) type BoxedReceiver = Box<dyn PacketReceiver + Send + Sync>;
-// pub(crate) trait CloseFn: Send + Sync {}
-// impl<T: Fn() -> Result<()> + Send + Sync> CloseFn for T {}
-// pub(crate) type BoxedCloseFn = Box<dyn CloseFn>;
-pub(crate) type BoxedCloseFn = Box<dyn (Fn() -> Result<()>) + Send + Sync>;
-
-/// Transport combines a PacketSender and a PacketReceiver
-///
-/// This trait is used to abstract the raw transport layer that sends and receives packets.
-/// There are multiple implementations of this trait, such as UdpSocket, WebSocket, WebTransport, etc.
-#[enum_dispatch]
-pub(crate) trait TransportBuilder: Send + Sync {
-    /// Attempt to:
-    /// - connect to the remote (for clients)
-    /// - listen to incoming connections (for server)
-    fn connect(self) -> Result<(TransportEnum, IoState, Option<IoEventReceiver>)>;
-
-    // TODO maybe add a `async fn ready() -> bool` function?
-}
 
 #[enum_dispatch]
 pub(crate) trait Transport {
     /// Return the local socket address for this transport
     fn local_addr(&self) -> SocketAddr;
 
-    /// Split the transport into a sender, receiver and close function
+    /// Split the transport into a sender, receiver.
     ///
     /// This is useful to have parallel mutable access to the sender and the retriever
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>);
-}
-
-#[enum_dispatch(TransportBuilder)]
-pub(crate) enum TransportBuilderEnum {
-    #[cfg(not(target_family = "wasm"))]
-    UdpSocket(UdpSocketBuilder),
-    #[cfg(feature = "webtransport")]
-    WebTransportClient(WebTransportClientSocketBuilder),
-    #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-    WebTransportServer(WebTransportServerSocketBuilder),
-    #[cfg(feature = "websocket")]
-    WebSocketClient(WebSocketClientSocketBuilder),
-    #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-    WebSocketServer(WebSocketServerSocketBuilder),
-    Channels(Channels),
-    LocalChannel(LocalChannelBuilder),
-    Dummy(DummyIo),
-}
-
-// impl Default for TransportBuilderEnum {
-//     fn default() -> Self {
-//         Self::Dummy(DummyIo)
-//     }
-// }
-
-// TODO: maybe box large items?
-#[allow(clippy::large_enum_variant)]
-#[enum_dispatch(Transport)]
-pub(crate) enum TransportEnum {
-    #[cfg(not(target_family = "wasm"))]
-    UdpSocket(UdpSocket),
-    #[cfg(feature = "webtransport")]
-    WebTransportClient(WebTransportClientSocket),
-    #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-    WebTransportServer(WebTransportServerSocket),
-    #[cfg(feature = "websocket")]
-    WebSocketClient(WebSocketClientSocket),
-    #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-    WebSocketServer(WebSocketServerSocket),
-    Channels(Channels),
-    LocalChannel(LocalChannel),
-    Dummy(DummyIo),
+    fn split(self) -> (BoxedSender, BoxedReceiver);
 }
 
 /// Send data to a remote address

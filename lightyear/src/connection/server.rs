@@ -1,13 +1,18 @@
 use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
+use std::net::SocketAddr;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::server::SteamConfig;
 use crate::packet::packet::Packet;
-use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
+use crate::prelude::client::ClientTransport;
+use crate::prelude::server::ServerTransport;
+use crate::prelude::LinkConditionerConfig;
 use crate::server::config::NetcodeConfig;
+use crate::server::io::Io;
+use crate::transport::config::SharedIoConfig;
 
 pub trait NetServer: Send + Sync {
     /// Start the server
@@ -41,6 +46,8 @@ pub trait NetServer: Send + Sync {
     fn new_disconnections(&self) -> Vec<ClientId>;
 
     fn io(&self) -> Option<&Io>;
+
+    fn io_mut(&mut self) -> Option<&mut Io>;
 }
 
 /// A wrapper around a `Box<dyn NetServer>`
@@ -48,6 +55,8 @@ pub trait NetServer: Send + Sync {
 pub struct ServerConnection {
     server: Box<dyn NetServer>,
 }
+
+pub type IoConfig = SharedIoConfig<ServerTransport>;
 
 /// Configuration for the server connection
 #[derive(Clone, Debug)]
@@ -138,6 +147,10 @@ impl NetServer for ServerConnection {
 
     fn io(&self) -> Option<&Io> {
         self.server.io()
+    }
+
+    fn io_mut(&mut self) -> Option<&mut Io> {
+        self.server.io_mut()
     }
 }
 
