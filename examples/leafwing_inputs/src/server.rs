@@ -35,7 +35,6 @@ impl Plugin for ExampleServerPlugin {
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedSet::Main));
-        app.add_systems(Update, handle_disconnections);
     }
 }
 
@@ -67,22 +66,6 @@ fn init(mut commands: Commands, global: Res<Global>) {
         // if true, we predict the ball on clients
         global.predict_all,
     ));
-}
-
-/// Server disconnection system, delete all player entities upon disconnection
-pub(crate) fn handle_disconnections(
-    mut disconnections: EventReader<DisconnectEvent>,
-    mut commands: Commands,
-    player_entities: Query<(Entity, &PlayerId)>,
-) {
-    for disconnection in disconnections.read() {
-        let client_id = disconnection.context();
-        for (entity, player_id) in player_entities.iter() {
-            if player_id.0 == *client_id {
-                commands.entity(entity).despawn();
-            }
-        }
-    }
 }
 
 /// Read client inputs and move players
@@ -128,6 +111,7 @@ pub(crate) fn replicate_players(
             let mut replicate = Replicate {
                 // we want to replicate back to the original client, since they are using a pre-predicted entity
                 replication_target: NetworkTarget::All,
+                controlled_by: NetworkTarget::Single(client_id),
                 // make sure that all entities that are predicted are part of the same replication group
                 replication_group: REPLICATION_GROUP,
                 ..default()

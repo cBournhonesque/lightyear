@@ -21,9 +21,6 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Global {
-            client_id_to_entity_id: Default::default(),
-        });
         app.insert_resource(Lobbies::default());
         app.add_systems(
             Startup,
@@ -73,13 +70,13 @@ fn start_dedicated_server(mut commands: Commands) {
 /// Spawn an entity for a given client
 fn spawn_player_entity(
     commands: &mut Commands,
-    mut global: Mut<Global>,
     client_id: ClientId,
     dedicated_server: bool,
 ) -> Entity {
     let replicate = Replicate {
         prediction_target: NetworkTarget::Single(client_id),
         interpolation_target: NetworkTarget::AllExceptSingle(client_id),
+        controlled_by: NetworkTarget::Single(client_id),
         visibility: if dedicated_server {
             VisibilityMode::InterestManagement
         } else {
@@ -88,8 +85,6 @@ fn spawn_player_entity(
         ..default()
     };
     let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
-    // Add a mapping from client id to entity id
-    global.client_id_to_entity_id.insert(client_id, entity.id());
     info!("Create entity {:?} for client {:?}", entity.id(), client_id);
     entity.id()
 }
@@ -103,12 +98,10 @@ mod game {
     pub(crate) fn handle_connections(
         mut connections: EventReader<ConnectEvent>,
         server: ResMut<ConnectionManager>,
-        mut global: ResMut<Global>,
         mut commands: Commands,
     ) {
         for connection in connections.read() {
-            let client_id = *connection.context();
-            spawn_player_entity(&mut commands, global.reborrow(), client_id, false);
+            spawn_player_entity(&mut commands, connection.client_id, false);
         }
     }
 
@@ -116,30 +109,21 @@ mod game {
     pub(crate) fn handle_disconnections(
         mut disconnections: EventReader<DisconnectEvent>,
         server: ResMut<ConnectionManager>,
-        mut global: ResMut<Global>,
-        mut commands: Commands,
         mut lobbies: Option<ResMut<Lobbies>>,
     ) {
         for disconnection in disconnections.read() {
-            let client_id = disconnection.context();
-            if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
-                if let Some(mut entity) = commands.get_entity(entity) {
-                    entity.despawn();
-                }
-            }
             // NOTE: games hosted by players will disappear from the lobby list since the host
             //  is not connected anymore
             if let Some(lobbies) = lobbies.as_mut() {
-                lobbies.remove_client(*client_id);
+                lobbies.remove_client(disconnection.client_id);
             }
         }
     }
 
     /// Read client inputs and move players
     pub(crate) fn movement(
-        mut position_query: Query<&mut PlayerPosition>,
+        mut position_query: Query<(&Replicate, &mut PlayerPosition)>,
         mut input_reader: EventReader<InputEvent<Inputs>>,
-        global: Res<Global>,
         tick_manager: Res<TickManager>,
     ) {
         for input in input_reader.read() {
@@ -151,8 +135,10 @@ mod game {
                     client_id,
                     tick_manager.tick()
                 );
-                if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
-                    if let Ok(position) = position_query.get_mut(*player_entity) {
+                // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
+                //  entities here
+                for (replicate, position) in position_query.iter_mut() {
+                    if replicate.controlled_by.targets(client_id) {
                         shared_movement_behaviour(position, input);
                     }
                 }
@@ -175,7 +161,6 @@ mod lobby {
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
         mut commands: Commands,
-        mut global: ResMut<Global>,
     ) {
         for lobby_join in events.read() {
             let client_id = *lobby_join.context();
@@ -186,7 +171,7 @@ mod lobby {
             room_manager.add_client(client_id, RoomId(lobby_id as u64));
             if lobby.in_game {
                 // if the game has already started, we need to spawn the player entity
-                let entity = spawn_player_entity(&mut commands, global.reborrow(), client_id, true);
+                let entity = spawn_player_entity(&mut commands, client_id, true);
                 room_manager.add_entity(entity, RoomId(lobby_id as u64));
             }
         }
@@ -220,7 +205,6 @@ mod lobby {
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
         mut commands: Commands,
-        mut global: ResMut<Global>,
     ) {
         for event in events.read() {
             let client_id = event.context();
@@ -240,8 +224,7 @@ mod lobby {
             if !lobby.players.contains(client_id) {
                 lobby.players.push(*client_id);
                 if host.is_none() {
-                    let entity =
-                        spawn_player_entity(&mut commands, global.reborrow(), *client_id, true);
+                    let entity = spawn_player_entity(&mut commands, *client_id, true);
                     room_manager.add_entity(entity, room_id);
                     room_manager.add_client(*client_id, room_id);
                 }
@@ -258,8 +241,7 @@ mod lobby {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
                         error!("Spawning player {player:?} entity for game");
-                        let entity =
-                            spawn_player_entity(&mut commands, global.reborrow(), *player, true);
+                        let entity = spawn_player_entity(&mut commands, *player, true);
                         room_manager.add_entity(entity, room_id);
                     }
                 }

@@ -19,6 +19,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
+use crate::prelude::server::DisconnectEvent;
 use crate::prelude::{
     Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ShouldBePredicted, TargetEntity,
 };
@@ -33,14 +34,14 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::server::config::PacketConfig;
-use crate::server::events::ServerEvents;
+use crate::server::events::{ConnectEvent, ServerEvents};
 use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{
-    NetworkTarget, Replicate, ReplicationGroupId, ShouldBeInterpolated,
+    Controlled, NetworkTarget, Replicate, ReplicationGroupId, ShouldBeInterpolated,
 };
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -97,6 +98,16 @@ impl ConnectionManager {
             packet_config,
             ping_config,
         }
+    }
+
+    /// Return the [`Entity`] associated with the given [`ClientId`]
+    pub fn client_entity(&self, client_id: ClientId) -> Result<Entity> {
+        self.connection(client_id).map(|c| c.entity)
+    }
+
+    /// Return the list of connected [`ClientId`]s
+    pub fn connected_clients(&self) -> impl Iterator<Item = ClientId> + '_ {
+        self.connections.keys().copied()
     }
 
     /// Find the list of clients that should receive the replication message
@@ -158,18 +169,22 @@ impl ConnectionManager {
     }
 
     /// Add a new [`Connection`] to the list of connections with the given [`ClientId`]
-    pub(crate) fn add(&mut self, client_id: ClientId) {
+    pub(crate) fn add(&mut self, client_id: ClientId, client_entity: Entity) {
         if let Entry::Vacant(e) = self.connections.entry(client_id) {
             #[cfg(feature = "metrics")]
             metrics::gauge!("connected_clients").increment(1.0);
 
             info!("New connection from id: {}", client_id);
             let connection = Connection::new(
+                client_entity,
                 &self.channel_registry,
                 self.packet_config.clone(),
                 self.ping_config.clone(),
             );
-            self.events.push_connection(client_id);
+            self.events.add_connect_event(ConnectEvent {
+                client_id,
+                entity: client_entity,
+            });
             self.new_clients.push(client_id);
             e.insert(connection);
         } else {
@@ -177,13 +192,20 @@ impl ConnectionManager {
         }
     }
 
-    pub(crate) fn remove(&mut self, client_id: ClientId) {
+    /// Remove the connection associated with the given [`ClientId`],
+    /// and returns the [`Entity`] associated with the client
+    pub(crate) fn remove(&mut self, client_id: ClientId) -> Entity {
         #[cfg(feature = "metrics")]
         metrics::gauge!("connected_clients").decrement(1.0);
 
         info!("Client {} disconnected", client_id);
-        self.events.push_disconnection(client_id);
+        let entity = self
+            .client_entity(client_id)
+            .expect("client entity not found");
+        self.events
+            .add_disconnect_event(DisconnectEvent { client_id, entity });
         self.connections.remove(&client_id);
+        entity
     }
 
     pub(crate) fn buffer_message(
@@ -194,7 +216,7 @@ impl ConnectionManager {
     ) -> Result<()> {
         self.connections
             .iter_mut()
-            .filter(|(id, _)| target.should_send_to(id))
+            .filter(|(id, _)| target.targets(id))
             // TODO: is it worth it to use Arc<Vec<u8>> or Bytes to have a free clone?
             //  at some point the bytes will have to be copied into the final message, so maybe do it now?
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
@@ -303,7 +325,10 @@ impl ConnectionManager {
 
 /// Wrapper that handles the connection between the server and a client
 pub struct Connection {
-    pub message_manager: MessageManager,
+    /// We create one entity per connected client, so that users
+    /// can store metadata about the client using the ECS
+    entity: Entity,
+    pub(crate) message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
     pub(crate) events: ConnectionEvents,
@@ -324,6 +349,7 @@ pub struct Connection {
 
 impl Connection {
     pub(crate) fn new(
+        entity: Entity,
         channel_registry: &ChannelRegistry,
         packet_config: PacketConfig,
         ping_config: PingConfig,
@@ -344,6 +370,7 @@ impl Connection {
             ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
         let replication_receiver = ReplicationReceiver::new();
         Self {
+            entity,
             message_manager,
             replication_sender,
             replication_receiver,
@@ -684,11 +711,15 @@ impl ReplicationSend for ConnectionManager {
     ) -> Result<()> {
         trace!(?entity, "Prepare entity spawn to client");
         let group_id = replicate.replication_group.group_id(Some(entity));
-        // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
 
+        // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         self.apply_replication(target).try_for_each(|client_id| {
+            // let the client know that this entity is controlled by them
+            if replicate.controlled_by.targets(&client_id) {
+                self.prepare_typed_component_insert(entity, group_id, client_id, &Controlled)?;
+            }
             // if we need to do prediction/interpolation, send a marker component to indicate that to the client
-            if replicate.prediction_target.should_send_to(&client_id) {
+            if replicate.prediction_target.targets(&client_id) {
                 // TODO: the serialized data is always the same; cache it somehow?
                 self.prepare_typed_component_insert(
                     entity,
@@ -697,7 +728,7 @@ impl ReplicationSend for ConnectionManager {
                     &ShouldBePredicted,
                 )?;
             }
-            if replicate.interpolation_target.should_send_to(&client_id) {
+            if replicate.interpolation_target.targets(&client_id) {
                 self.prepare_typed_component_insert(
                     entity,
                     group_id,

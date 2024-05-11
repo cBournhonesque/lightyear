@@ -251,6 +251,7 @@ pub mod prelude {
         };
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::SteamConfig;
+        pub use crate::server::clients::ControlledEntities;
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
         pub use crate::server::connection::ConnectionManager;
         pub use crate::server::events::{

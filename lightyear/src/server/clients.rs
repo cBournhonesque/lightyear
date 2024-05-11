@@ -1,0 +1,109 @@
+//! The server spawns an entity per connected client to store metadata about them.
+//!
+//! This module contains components and systems to manage the metadata on client entities.
+use crate::prelude::ClientId;
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
+use bevy::ecs::entity::{EntityHashMap, EntityHashSet};
+use bevy::prelude::*;
+use bevy::utils::HashMap;
+
+/// List of entities under the control of a client
+#[derive(Component, Default, Debug, Deref, DerefMut)]
+pub struct ControlledEntities(pub EntityHashSet);
+
+pub(crate) struct ClientsMetadataPlugin;
+
+mod systems {
+    use super::*;
+    use crate::prelude::{NetworkTarget, Replicate};
+    use crate::server::clients::ControlledEntities;
+    use crate::server::connection::ConnectionManager;
+    use crate::server::events::DisconnectEvent;
+    use tracing::{debug, error, trace};
+
+    pub(super) fn handle_replicate_update(
+        sender: Res<ConnectionManager>,
+        // TODO: have a more fine-grained change detection..
+        //  or should we split the replicate component into multiple sub components?
+        query: Query<(Entity, &Replicate), Changed<Replicate>>,
+        mut client_query: Query<&mut ControlledEntities>,
+    ) {
+        let update_controlled_entities =
+            |entity: Entity,
+             client_id: ClientId,
+             client_query: &mut Query<&mut ControlledEntities>,
+             sender: &ConnectionManager| {
+                trace!(
+                    "Adding entity {:?} to client {:?}'s controlled entities",
+                    entity,
+                    client_id
+                );
+                if let Ok(client_entity) = sender.client_entity(client_id) {
+                    if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
+                        // first check if it already contains, to not trigger change detection needlessly
+                        if controlled_entities.contains(&entity) {
+                            return;
+                        }
+                        controlled_entities.insert(entity);
+                    }
+                }
+            };
+
+        for (entity, replicate) in query.iter() {
+            match &replicate.controlled_by {
+                NetworkTarget::None => {}
+                NetworkTarget::Single(client_id) => {
+                    update_controlled_entities(entity, *client_id, &mut client_query, &sender);
+                }
+                NetworkTarget::Only(client_ids) => client_ids.iter().for_each(|client_id| {
+                    update_controlled_entities(entity, *client_id, &mut client_query, &sender);
+                }),
+                _ => {
+                    let client_ids: Vec<ClientId> = sender.connected_clients().collect();
+                    client_ids.iter().for_each(|client_id| {
+                        update_controlled_entities(entity, *client_id, &mut client_query, &sender);
+                    });
+                }
+            }
+        }
+    }
+
+    /// When a client disconnect, we despawn all the entities it controlled
+    pub(super) fn handle_client_disconnect(
+        mut commands: Commands,
+        client_query: Query<&ControlledEntities>,
+        mut events: EventReader<DisconnectEvent>,
+    ) {
+        for event in events.read() {
+            // despawn all the controlled entities for the disconnected client
+            if let Ok(controlled_entities) = client_query.get(event.entity) {
+                error!(
+                    "Despawning all entities controlled by client {:?}",
+                    event.client_id
+                );
+                for entity in controlled_entities.iter() {
+                    error!(
+                        "Despawning entity {entity:?} controlled by client {:?}",
+                        event.client_id
+                    );
+                    commands.entity(*entity).despawn_recursive();
+                }
+            }
+            // despawn the entity itself
+            commands.entity(event.entity).despawn_recursive();
+        }
+    }
+}
+
+impl Plugin for ClientsMetadataPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            PostUpdate,
+            systems::handle_replicate_update
+                .in_set(InternalReplicationSet::<ServerMarker>::HandleReplicateUpdate),
+        );
+        // we handle this in the `Last` `SystemSet` to let the user handle the disconnect event
+        // however they want first, before the client entity gets despawned
+        app.add_systems(Last, systems::handle_client_disconnect);
+    }
+}

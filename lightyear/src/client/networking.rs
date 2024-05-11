@@ -22,6 +22,7 @@ use crate::prelude::{
     ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
+use crate::server::clients::ControlledEntities;
 use crate::server::networking::is_started;
 use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
@@ -41,6 +42,8 @@ impl Plugin for ClientNetworkingPlugin {
             .register_type::<IoConfig>()
             // STATE
             .init_state::<NetworkingState>()
+            // RESOURCE
+            .init_resource::<HostServerMetadata>()
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
@@ -111,10 +114,22 @@ impl Plugin for ClientNetworkingPlugin {
         app.add_systems(OnEnter(NetworkingState::Connecting), connect);
 
         // CONNECTED
-        app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
+        app.add_systems(
+            OnEnter(NetworkingState::Connected),
+            (
+                on_connect,
+                on_connect_host_server.run_if(SharedConfig::is_host_server_condition),
+            ),
+        );
 
         // DISCONNECTED
-        app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+        app.add_systems(
+            OnEnter(NetworkingState::Disconnected),
+            (
+                on_disconnect,
+                on_disconnect_host_server.run_if(SharedConfig::is_host_server_condition),
+            ),
+        );
     }
 }
 
@@ -311,28 +326,38 @@ fn listen_io_state(
     }
 }
 
+/// Holds metadata necessary when running in HostServer mode
+#[derive(Resource, Default)]
+struct HostServerMetadata {
+    /// entity for the client running as host-server
+    client_entity: Option<Entity>,
+}
+
 /// System that runs when we enter the Connected state
 /// Updates the ConnectEvent events
-fn on_connect(
-    mut connect_event_writer: EventWriter<ConnectEvent>,
-    netcode: Res<ClientConnection>,
-    config: Res<ClientConfig>,
-    mut server_connect_event_writer: Option<ResMut<Events<crate::server::events::ConnectEvent>>>,
-) {
+fn on_connect(mut connect_event_writer: EventWriter<ConnectEvent>, netcode: Res<ClientConnection>) {
     debug!(
         "Running OnConnect schedule with client id: {:?}",
         netcode.id()
     );
     connect_event_writer.send(ConnectEvent::new(netcode.id()));
+}
 
-    // in host-server mode, we also want to send a connect event to the server
-    if config.shared.mode == Mode::HostServer {
-        debug!("send connect event to server");
-        server_connect_event_writer
-            .as_mut()
-            .unwrap()
-            .send(crate::server::events::ConnectEvent::new(netcode.id()));
-    }
+/// Same as on-connect, but only runs if we are in host-server mode
+fn on_connect_host_server(
+    mut commands: Commands,
+    netcode: Res<ClientConnection>,
+    mut metadata: ResMut<HostServerMetadata>,
+    mut server_connect_event_writer: ResMut<Events<crate::server::events::ConnectEvent>>,
+) {
+    // spawn an entity for the client
+    let client_entity = commands.spawn(ControlledEntities::default()).id();
+    error!("send connect event to server");
+    server_connect_event_writer.send(crate::server::events::ConnectEvent {
+        client_id: netcode.id(),
+        entity: client_entity,
+    });
+    metadata.client_entity = Some(client_entity);
 }
 
 /// System that runs when we enter the Disconnected state
@@ -341,10 +366,6 @@ fn on_disconnect(
     mut connection_manager: ResMut<ConnectionManager>,
     mut disconnect_event_writer: EventWriter<DisconnectEvent>,
     mut netcode: ResMut<ClientConnection>,
-    config: Res<ClientConfig>,
-    mut server_disconnect_event_writer: Option<
-        ResMut<Events<crate::server::events::DisconnectEvent>>,
-    >,
     mut commands: Commands,
     received_entities: Query<Entity, Or<(With<Replicated>, With<Predicted>, With<Interpolated>)>>,
 ) {
@@ -362,17 +383,22 @@ fn on_disconnect(
 
     // no need to update the io state, because we will recreate a new `ClientConnection`
     // for the next connection attempt
-    disconnect_event_writer.send(DisconnectEvent::new(()));
-
-    // in host-server mode, we also want to send a connect event to the server
-    if config.shared.mode == Mode::HostServer {
-        server_disconnect_event_writer
-            .as_mut()
-            .unwrap()
-            .send(crate::server::events::DisconnectEvent::new(netcode.id()));
-    }
-
+    disconnect_event_writer.send(DisconnectEvent);
     // TODO: remove ClientConnection and ConnectionManager resources?
+}
+
+fn on_disconnect_host_server(
+    netcode: Res<ClientConnection>,
+    mut metadata: ResMut<HostServerMetadata>,
+    mut server_disconnect_event_writer: ResMut<Events<crate::server::events::DisconnectEvent>>,
+) {
+    let client_id = netcode.id();
+    if let Some(client_entity) = std::mem::take(&mut metadata.client_entity) {
+        server_disconnect_event_writer.send(crate::server::events::DisconnectEvent {
+            client_id,
+            entity: client_entity,
+        });
+    }
 }
 
 /// This run condition is provided to check if the client is connected.

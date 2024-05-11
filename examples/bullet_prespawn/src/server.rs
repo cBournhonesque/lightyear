@@ -23,7 +23,6 @@ impl Plugin for ExampleServerPlugin {
         );
         // the physics/FixedUpdates systems that consume inputs should be run in the `FixedUpdate` schedule
         // app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(Update, handle_disconnections);
     }
 }
 
@@ -43,22 +42,6 @@ pub(crate) fn init(mut commands: Commands) {
             ..default()
         }),
     );
-}
-
-/// Server disconnection system, delete all player entities upon disconnection
-pub(crate) fn handle_disconnections(
-    mut disconnections: EventReader<DisconnectEvent>,
-    mut commands: Commands,
-    player_entities: Query<(Entity, &PlayerId)>,
-) {
-    for disconnection in disconnections.read() {
-        let client_id = disconnection.context();
-        for (entity, player_id) in player_entities.iter() {
-            if player_id.0 == *client_id {
-                commands.entity(entity).despawn();
-            }
-        }
-    }
 }
 
 // // The client input only gets applied to predicted entities that we own
@@ -92,6 +75,10 @@ pub(crate) fn replicate_players(
                 prediction_target: NetworkTarget::Single(*client_id),
                 // we want the other clients to apply interpolation for the player
                 interpolation_target: NetworkTarget::AllExceptSingle(*client_id),
+                // let the server know that this entity is controlled by client `client_id`
+                // - the client will have a Controlled component for this entity when it's replicated
+                // - when the client disconnects, this entity will be despawned
+                controlled_by: NetworkTarget::Single(*client_id),
                 // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
                 replication_group: ReplicationGroup::new_id(client_id.to_bits()),
                 ..default()

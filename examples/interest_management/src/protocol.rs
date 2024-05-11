@@ -32,8 +32,9 @@ impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
         let color = color_from_id(id);
         let mut replicate = Replicate {
-            prediction_target: NetworkTarget::Only(vec![id]),
+            prediction_target: NetworkTarget::Single(id),
             interpolation_target: NetworkTarget::AllExcept(vec![id]),
+            controlled_by: NetworkTarget::Single(id),
             // use rooms for replication
             visibility: VisibilityMode::InterestManagement,
             ..default()

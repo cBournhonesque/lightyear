@@ -82,28 +82,17 @@ pub(crate) fn init(mut commands: Commands) {
 pub(crate) fn handle_connections(
     mut room_manager: ResMut<RoomManager>,
     mut connections: EventReader<ConnectEvent>,
-    mut disconnections: EventReader<DisconnectEvent>,
-    mut global: ResMut<Global>,
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = *connection.context();
+        let client_id = connection.client_id;
         let entity = commands.spawn(PlayerBundle::new(client_id, Vec2::ZERO));
-        // Add a mapping from client id to entity id (so that when we receive an input from a client,
-        // we know which entity to move)
-        global.client_id_to_entity_id.insert(client_id, entity.id());
 
         // we can control the player visibility in a more static manner by using rooms
         // we add all clients to a room, as well as all player entities
         // this means that all clients will be able to see all player entities
         room_manager.add_client(client_id, PLAYER_ROOM);
         room_manager.add_entity(entity.id(), PLAYER_ROOM);
-    }
-    for disconnection in disconnections.read() {
-        let client_id = disconnection.context();
-        if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
-            commands.entity(entity).despawn();
-        }
     }
 }
 

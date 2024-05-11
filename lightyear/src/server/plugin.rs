@@ -8,6 +8,7 @@
 //! while keeping the rest of the features intact.
 //!
 //! Most plugins are truly necessary for the server functionality to work properly, but some could be disabled.
+use crate::server::clients::ClientsMetadataPlugin;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 
@@ -54,6 +55,7 @@ impl PluginGroup for ServerPlugins {
             .add(ServerNetworkingPlugin)
             .add(VisibilityPlugin)
             .add(RoomPlugin)
+            .add(ClientsMetadataPlugin)
             .add(ServerReplicationReceivePlugin { tick_interval })
             .add(ServerReplicationSendPlugin { tick_interval })
     }
