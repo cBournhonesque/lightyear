@@ -132,9 +132,9 @@ struct RoomData {
 #[derive(Debug, Default)]
 pub struct Room {
     /// list of clients that are in the room
-    clients: HashSet<ClientId>,
+    pub clients: HashSet<ClientId>,
     /// list of entities that are in the room
-    entities: EntityHashSet<Entity>,
+    pub entities: EntityHashSet<Entity>,
 }
 
 /// Manager responsible for handling rooms
@@ -251,6 +251,13 @@ impl RoomManager {
     /// Get a room by its [`RoomId`]
     pub fn get_room(&self, room_id: RoomId) -> Option<&Room> {
         self.data.rooms.get(&room_id)
+    }
+
+    /// Get a room by its [`RoomId`]
+    ///
+    /// Panics if the room does not exist.
+    pub fn room(&self, room_id: RoomId) -> &Room {
+        self.data.rooms.get(&room_id).unwrap()
     }
 
     fn add_client_internal(&mut self, room_id: RoomId, client_id: ClientId) {
