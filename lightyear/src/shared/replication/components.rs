@@ -1,7 +1,7 @@
 //! Components used for replication
 use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::QueryFilter;
-use bevy::prelude::{Component, Entity, EntityMapper, Or, Reflect, With};
+use bevy::prelude::{Bundle, Component, Entity, EntityMapper, Or, Reflect, With};
 use bevy::utils::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -33,41 +33,79 @@ pub struct Controlled;
 
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
-#[derive(Component, Clone, PartialEq, Debug, Reflect)]
+#[derive(Bundle, Clone, PartialEq, Debug, Reflect)]
 pub struct Replicate {
     /// Which clients should this entity be replicated to
-    pub replication_target: NetworkTarget,
-    /// Which clients should predict this entity
-    pub prediction_target: NetworkTarget,
-    /// Which clients should interpolated this entity
-    pub interpolation_target: NetworkTarget,
+    pub replication_target: ReplicationTarget,
     /// Which client(s) control this entity?
-    pub controlled_by: NetworkTarget,
-    /// How do we find the list of clients to replicate to?
+    pub controlled_by: ControlledBy,
+    /// How do we control the visibility of the entity?
     pub visibility: VisibilityMode,
     /// The replication group defines how entities are grouped (sent as a single message) for replication.
-    /// This should not be modified after the Replicate component is created
+    ///
+    /// After the entity is first replicated, the replication group of the entity should not be modified.
+    /// (but more entities can be added to the replication group)
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
-    pub replication_group: ReplicationGroup,
-    /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
-    /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
-    /// and `ParentSync` components to the children yourself
-    pub replicate_hierarchy: bool,
-
+    pub group: ReplicationGroup,
+    /// How should the hierarchy of the entity (parents/children) be replicated?
+    pub hierarchy: ReplicateHierachy,
     /// Defines the target entity for the replication.
     /// In most cases, you will want to spawn a new entity on the target client
     pub target_entity: TargetEntity,
+    // // TODO: could it be dangerous to use component kind here? (because the value could vary between rust versions)
+    // //  should be ok, because this is not networked
+    // /// Lets you override the replication modalities for a specific component
+    // #[reflect(ignore)]
+    // pub per_component_metadata: HashMap<ComponentKind, PerComponentReplicationMetadata>,
+}
 
-    // TODO: could it be dangerous to use component kind here? (because the value could vary between rust versions)
-    //  should be ok, because this is not networked
-    /// Lets you override the replication modalities for a specific component
-    #[reflect(ignore)]
-    pub per_component_metadata: HashMap<ComponentKind, PerComponentReplicationMetadata>,
+/// Component that indicates which clients the entity should be replicated to.
+#[derive(Component, Clone, Debug, PartialEq, Reflect)]
+pub struct ReplicationTarget {
+    /// Which clients should this entity be replicated to
+    pub replication: NetworkTarget,
+    /// Which clients should predict this entity (unused for client to server replication)
+    pub prediction: NetworkTarget,
+    /// Which clients should interpolate this entity (unused for client to server replication)
+    pub interpolation: NetworkTarget,
+}
+
+impl Default for ReplicationTarget {
+    fn default() -> Self {
+        Self {
+            replication: NetworkTarget::All,
+            prediction: NetworkTarget::None,
+            interpolation: NetworkTarget::None,
+        }
+    }
+}
+
+/// Component storing metadata about which clients have control over the entity
+///
+/// This is only used for server to client replication.
+#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
+pub struct ControlledBy {
+    /// Which client(s) control this entity?
+    target: NetworkTarget,
+}
+
+/// Component to have more fine-grained control over the visibility of an entity
+/// (which clients do we replicate this entity to?)
+///
+/// This has no effect for client to server replication.
+#[derive(Component, Clone, Debug, PartialEq, Reflect)]
+pub struct Visibility {
+    /// Control if we do fine-grained or coarse-grained visibility
+    mode: VisibilityMode,
+    // TODO: should we store the visibility cache here if visibility_mode = InterestManagement?
 }
 
 /// Defines the target entity for the replication.
-#[derive(Default, Clone, Debug, PartialEq, Reflect)]
+///
+/// This can be used if you want to replicate this entity on an entity that already
+/// exists in the remote world.
+#[derive(Component, Default, Clone, Copy, Debug, PartialEq, Reflect)]
 pub enum TargetEntity {
     /// Spawn a new entity on the remote peer
     #[default]
@@ -77,9 +115,24 @@ pub enum TargetEntity {
     Preexisting(Entity),
 }
 
+/// Component that defines how the hierarchy of an entity (parent/children) should be replicated
+#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+pub struct ReplicateHierachy {
+    /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
+    /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
+    /// and `ParentSync` components to the children yourself
+    recursive: bool,
+}
+
+impl Default for ReplicateHierachy {
+    fn default() -> Self {
+        Self { recursive: true }
+    }
+}
+
 /// This lets you specify how to customize the replication behaviour for a given component
 #[derive(Clone, Debug, PartialEq, Reflect)]
-pub struct PerComponentReplicationMetadata {
+pub struct PerComponentReplicationMetadata<C> {
     /// If true, do not replicate the component. (By default, all components of this entity that are present in the
     /// [`ComponentRegistry`] will be replicated.
     disabled: bool,
@@ -90,119 +143,121 @@ pub struct PerComponentReplicationMetadata {
     /// Custom replication target for this component. We will replicate to the intersection of
     /// the entity's replication target and this target
     target: NetworkTarget,
+    _marker: std::marker::PhantomData<C>,
 }
-impl Default for PerComponentReplicationMetadata {
+impl<C> Default for PerComponentReplicationMetadata<C> {
     fn default() -> Self {
         Self {
             disabled: false,
             replicate_once: false,
             target: NetworkTarget::All,
+            _marker: Default::default(),
         }
     }
 }
 
 impl Replicate {
     pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
-        self.replication_group.group_id(entity)
+        self.group.group_id(entity)
     }
 
     /// Returns true if the entity is controlled by the specified client
     pub fn is_controlled_by(&self, client_id: &ClientId) -> bool {
         self.controlled_by.targets(client_id)
     }
-
-    /// Returns true if we don't want to replicate the component
-    pub fn is_disabled<C: Component>(&self) -> bool {
-        let kind = ComponentKind::of::<C>();
-        self.per_component_metadata
-            .get(&kind)
-            .is_some_and(|metadata| metadata.disabled)
-    }
-
-    /// If true, the component will be replicated only once, when the entity is spawned.
-    /// We do not replicate component updates
-    pub fn is_replicate_once<C: Component>(&self) -> bool {
-        let kind = ComponentKind::of::<C>();
-        self.per_component_metadata
-            .get(&kind)
-            .is_some_and(|metadata| metadata.replicate_once)
-    }
-
-    /// Replication target for this specific component
-    /// This will be the intersection of the provided `entity_target`, and the `target` of the component
-    /// if it exists
-    pub fn target<C: Component>(&self, entity_target: NetworkTarget) -> NetworkTarget {
-        let kind = ComponentKind::of::<C>();
-        match self.per_component_metadata.get(&kind) {
-            None => entity_target,
-            Some(metadata) => {
-                let target = metadata.target.clone();
-                trace!(
-                    ?kind,
-                    "replication target override for component {:?}: {target:?}",
-                    std::any::type_name::<C>()
-                );
-                target
-            }
-        }
-    }
-
-    /// Disable the replication of a component for this entity
-    pub fn disable_component<C: Component>(&mut self) {
-        let kind = ComponentKind::of::<C>();
-        self.per_component_metadata
-            .entry(kind)
-            .or_default()
-            .disabled = true;
-    }
-
-    /// Enable the replication of a component for this entity
-    pub fn enable_component<C: Component>(&mut self) {
-        let kind = ComponentKind::of::<C>();
-        self.per_component_metadata
-            .entry(kind)
-            .or_default()
-            .disabled = false;
-        // if we are back at the default, remove the entry
-        if self.per_component_metadata.get(&kind).unwrap()
-            == &PerComponentReplicationMetadata::default()
-        {
-            self.per_component_metadata.remove(&kind);
-        }
-    }
-
-    pub fn enable_replicate_once<C: Component>(&mut self) {
-        let kind = ComponentKind::of::<C>();
-        self.per_component_metadata
-            .entry(kind)
-            .or_default()
-            .replicate_once = true;
-    }
-
-    pub fn disable_replicate_once<C: Component>(&mut self) {
-        let kind = ComponentKind::of::<C>();
-        self.per_component_metadata
-            .entry(kind)
-            .or_default()
-            .replicate_once = false;
-        // if we are back at the default, remove the entry
-        if self.per_component_metadata.get(&kind).unwrap()
-            == &PerComponentReplicationMetadata::default()
-        {
-            self.per_component_metadata.remove(&kind);
-        }
-    }
-
-    pub fn add_target<C: Component>(&mut self, target: NetworkTarget) {
-        let kind = ComponentKind::of::<C>();
-        self.per_component_metadata.entry(kind).or_default().target = target;
-        // if we are back at the default, remove the entry
-        if self.per_component_metadata.get(&kind).unwrap()
-            == &PerComponentReplicationMetadata::default()
-        {
-            self.per_component_metadata.remove(&kind);
-        }
-    }
+    //
+    // /// Returns true if we don't want to replicate the component
+    // pub fn is_disabled<C: Component>(&self) -> bool {
+    //     let kind = ComponentKind::of::<C>();
+    //     self.per_component_metadata
+    //         .get(&kind)
+    //         .is_some_and(|metadata| metadata.disabled)
+    // }
+    //
+    // /// If true, the component will be replicated only once, when the entity is spawned.
+    // /// We do not replicate component updates
+    // pub fn is_replicate_once<C: Component>(&self) -> bool {
+    //     let kind = ComponentKind::of::<C>();
+    //     self.per_component_metadata
+    //         .get(&kind)
+    //         .is_some_and(|metadata| metadata.replicate_once)
+    // }
+    //
+    // /// Replication target for this specific component
+    // /// This will be the intersection of the provided `entity_target`, and the `target` of the component
+    // /// if it exists
+    // pub fn target<C: Component>(&self, entity_target: NetworkTarget) -> NetworkTarget {
+    //     let kind = ComponentKind::of::<C>();
+    //     match self.per_component_metadata.get(&kind) {
+    //         None => entity_target,
+    //         Some(metadata) => {
+    //             let target = metadata.target.clone();
+    //             trace!(
+    //                 ?kind,
+    //                 "replication target override for component {:?}: {target:?}",
+    //                 std::any::type_name::<C>()
+    //             );
+    //             target
+    //         }
+    //     }
+    // }
+    //
+    // /// Disable the replication of a component for this entity
+    // pub fn disable_component<C: Component>(&mut self) {
+    //     let kind = ComponentKind::of::<C>();
+    //     self.per_component_metadata
+    //         .entry(kind)
+    //         .or_default()
+    //         .disabled = true;
+    // }
+    //
+    // /// Enable the replication of a component for this entity
+    // pub fn enable_component<C: Component>(&mut self) {
+    //     let kind = ComponentKind::of::<C>();
+    //     self.per_component_metadata
+    //         .entry(kind)
+    //         .or_default()
+    //         .disabled = false;
+    //     // if we are back at the default, remove the entry
+    //     if self.per_component_metadata.get(&kind).unwrap()
+    //         == &PerComponentReplicationMetadata::default()
+    //     {
+    //         self.per_component_metadata.remove(&kind);
+    //     }
+    // }
+    //
+    // pub fn enable_replicate_once<C: Component>(&mut self) {
+    //     let kind = ComponentKind::of::<C>();
+    //     self.per_component_metadata
+    //         .entry(kind)
+    //         .or_default()
+    //         .replicate_once = true;
+    // }
+    //
+    // pub fn disable_replicate_once<C: Component>(&mut self) {
+    //     let kind = ComponentKind::of::<C>();
+    //     self.per_component_metadata
+    //         .entry(kind)
+    //         .or_default()
+    //         .replicate_once = false;
+    //     // if we are back at the default, remove the entry
+    //     if self.per_component_metadata.get(&kind).unwrap()
+    //         == &PerComponentReplicationMetadata::default()
+    //     {
+    //         self.per_component_metadata.remove(&kind);
+    //     }
+    // }
+    //
+    // pub fn add_target<C: Component>(&mut self, target: NetworkTarget) {
+    //     let kind = ComponentKind::of::<C>();
+    //     self.per_component_metadata.entry(kind).or_default().target = target;
+    //     // if we are back at the default, remove the entry
+    //     if self.per_component_metadata.get(&kind).unwrap()
+    //         == &PerComponentReplicationMetadata::default()
+    //     {
+    //         self.per_component_metadata.remove(&kind);
+    //     }
+    // }
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
@@ -217,7 +272,11 @@ pub enum ReplicationGroupIdBuilder {
     Group(u64),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Reflect)]
+/// Component to specify the replication group of an entity
+///
+/// If multiple entities are part of the same replication group, they will be sent together in the same message.
+/// It is guaranteed that these entities will be updated at the same time on the remote world.
+#[derive(Component, Debug, Copy, Clone, PartialEq, Reflect)]
 pub struct ReplicationGroup {
     id_builder: ReplicationGroupIdBuilder,
     /// the priority of the accumulation group
@@ -310,21 +369,18 @@ impl Default for Replicate {
     fn default() -> Self {
         #[allow(unused_mut)]
         let mut replicate = Self {
-            replication_target: NetworkTarget::All,
-            prediction_target: NetworkTarget::None,
-            interpolation_target: NetworkTarget::None,
-            controlled_by: NetworkTarget::None,
+            replication_target: ReplicationTarget::default(),
+            controlled_by: ControlledBy::default(),
             visibility: VisibilityMode::default(),
-            replication_group: Default::default(),
-            replicate_hierarchy: true,
+            group: ReplicationGroup::default(),
+            hierarchy: ReplicateHierachy::default(),
             target_entity: Default::default(),
-            per_component_metadata: HashMap::default(),
         };
-        // TODO: what's the point in replicating them once since they don't change?
-        //  or is it because they are removed and we don't want to replicate the removal?
-        // those metadata components should only be replicated once
-        replicate.enable_replicate_once::<ShouldBePredicted>();
-        replicate.enable_replicate_once::<ShouldBeInterpolated>();
+        // // TODO: what's the point in replicating them once since they don't change?
+        // //  or is it because they are removed and we don't want to replicate the removal?
+        // // those metadata components should only be replicated once
+        // replicate.enable_replicate_once::<ShouldBePredicted>();
+        // replicate.enable_replicate_once::<ShouldBeInterpolated>();
         // cfg_if! {
         //     // the ActionState components are replicated only once when the entity is spawned
         //     // then they get updated by the user inputs, not by replication!
@@ -491,6 +547,7 @@ impl NetworkTarget {
     }
 }
 
+/// Marker component that tells the client to spawn an Interpolated entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[component(storage = "SparseSet")]
 pub struct ShouldBeInterpolated;
@@ -505,6 +562,7 @@ pub struct PrePredicted {
     pub(crate) client_entity: Option<Entity>,
 }
 
+/// Marker component that tells the client to spawn a Predicted entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 #[component(storage = "SparseSet")]
 pub struct ShouldBePredicted;

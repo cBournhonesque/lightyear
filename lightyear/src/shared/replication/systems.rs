@@ -15,7 +15,7 @@ use crate::protocol::component::ComponentRegistry;
 use crate::server::replication::ServerReplicationSet;
 use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
 use crate::shared::replication::components::{
-    DespawnTracker, Replicate, ReplicationGroupId, VisibilityMode,
+    DespawnTracker, Replicate, ReplicationGroupId, ReplicationTarget, VisibilityMode,
 };
 use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
@@ -83,7 +83,12 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
 }
 
 pub(crate) fn send_entity_despawn<R: ReplicationSend>(
-    query: Query<(Entity, &Replicate, Option<&ReplicateVisibility>)>,
+    query: Query<(
+        Entity,
+        &ReplicationTarget,
+        &ReplicationGroup,
+        &ReplicateVisibility,
+    )>,
     system_bevy_ticks: SystemChangeTick,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
     //  not just entities that had despawn tracker once
@@ -91,19 +96,22 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
     mut sender: ResMut<R>,
 ) {
     // Despawn entities for clients that lost visibility
-    query.iter().for_each(|(entity, replicate, visibility)| {
-        if matches!(replicate.visibility, VisibilityMode::InterestManagement) {
+    query.iter().for_each(
+        |(entity, replication_target, replication_group, visibility)| {
+            // no need to check if the visibility mode is InterestManagement, because the ReplicateVisibility component
+            // is only present if that is the case
             visibility
-                .unwrap()
                 .clients_cache
                 .iter()
                 .for_each(|(client_id, visibility)| {
-                    if replicate.replication_target.targets(client_id)
+                    if replication_target.targets(client_id)
                         && matches!(visibility, ClientVisibility::Lost)
                     {
-                        debug!("sending entity despawn for entity: {:?} because ClientVisibility::Lost", entity);
-                        // TODO: don't unwrap but handle errors
-                        let group_id = replicate.replication_group.group_id(Some(entity));
+                        debug!(
+                        "sending entity despawn for entity: {:?} because ClientVisibility::Lost",
+                        entity
+                    );
+                        let group_id = replication_group.group_id(Some(entity));
                         let _ = sender
                             .prepare_entity_despawn(
                                 entity,
@@ -111,13 +119,13 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
                                 NetworkTarget::Only(vec![*client_id]),
                                 system_bevy_ticks.this_run(),
                             )
-                            .map_err(|e| {
+                            .inspect_err(|e| {
                                 error!("error sending entity despawn: {:?}", e);
                             });
                     }
                 });
-        }
-    });
+        },
+    );
 
     // TODO: check for banned replicate component?
     // Despawn entities when the entity got despawned on local world
@@ -500,6 +508,14 @@ pub(crate) fn receive_cleanup<R: ReplicationReceive>(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::prelude::server::ConnectionManager;
+
+    #[test]
+    fn test_entity_spawn() {
+        let sender = ConnectionManager::new();
+    }
+
     // TODO: how to check that no despawn message is sent?
     // /// Check that when replicated entities in other rooms than the current client are despawned,
     // /// the despawn is not sent to the client
