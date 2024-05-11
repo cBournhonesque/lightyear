@@ -1011,7 +1011,15 @@ impl NetServer for Server {
 
     fn stop(&mut self) -> anyhow::Result<()> {
         if let Some(mut io) = self.io.take() {
+            if let Some(sender) = &mut self.server.cfg.context.sender {
+                sender
+                    .send_blocking(ServerIoEvent::ServerDisconnected(
+                        crate::transport::error::Error::UserRequest,
+                    ))
+                    .context("Could not send 'ServerStopped' event to io")?;
+            }
             self.server.disconnect_all(&mut io)?;
+            self.server.cfg.context.sender = None;
             // close and drop the io
             io.close().context("Could not close the io")?;
         }
@@ -1095,8 +1103,9 @@ impl Server {
             .on_disconnect(|id, addr, ctx| {
                 // notify the io that a client got disconnected
                 if let Some(sender) = &mut ctx.sender {
+                    debug!("Notify the io that client {id:?} got disconnected, so that we can stop the corresponding task");
                     let _ = sender
-                        .send(ServerIoEvent::ClientDisconnected(addr))
+                        .send_blocking(ServerIoEvent::ClientDisconnected(addr))
                         .inspect_err(|e| {
                             error!("Error sending 'ClientDisconnected' event to io: {:?}", e)
                         });

@@ -14,6 +14,8 @@ pub enum Error {
     WebSocket(#[from] tokio_tungstenite::tungstenite::error::Error),
     #[error("could not send message via channel: {0}")]
     Channel(String),
+    #[error("requested by user")]
+    UserRequest,
 }
 
 #[allow(unused_qualifications)]

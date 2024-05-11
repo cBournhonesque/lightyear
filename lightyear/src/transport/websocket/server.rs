@@ -89,8 +89,9 @@ impl ServerTransportBuilder for WebSocketServerSocketBuilder {
                                     return;
                                 }
                                 ServerIoEvent::ClientDisconnected(addr) => {
-                                    debug!("Stopping webtransport io task associated with address: {:?} because we received a disconnection signal from netcode", addr);
+                                    error!("Stopping webtransport io task associated with address: {:?} because we received a disconnection signal from netcode", addr);
                                     addr_to_task.lock().unwrap().remove(&addr);
+                                    clientbound_tx_map.lock().unwrap().remove(&addr);
                                 }
                                 _ => {}
                             }
