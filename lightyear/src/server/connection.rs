@@ -19,7 +19,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
-use crate::prelude::server::DisconnectEvent;
+use crate::prelude::server::{DisconnectEvent, RoomId, RoomManager};
 use crate::prelude::{
     Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ShouldBePredicted, TargetEntity,
 };
@@ -108,6 +108,36 @@ impl ConnectionManager {
     /// Return the list of connected [`ClientId`]s
     pub fn connected_clients(&self) -> impl Iterator<Item = ClientId> + '_ {
         self.connections.keys().copied()
+    }
+
+    /// Queues up a message to be sent to all clients matching the specific [`NetworkTarget`]
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
+    }
+
+    /// Send a message to all clients in a room
+    pub fn send_message_to_room<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        room_id: RoomId,
+        room_manager: &RoomManager,
+    ) -> Result<()> {
+        let room = room_manager.get_room(room_id).context("room not found")?;
+        let target = NetworkTarget::Only(room.clients.iter().copied().collect());
+        self.send_message_to_target::<C, M>(message, target)
+    }
+
+    /// Queues up a message to be sent to a client
+    pub fn send_message<C: Channel, M: Message>(
+        &mut self,
+        client_id: ClientId,
+        message: &M,
+    ) -> Result<()> {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
     }
 
     /// Find the list of clients that should receive the replication message
@@ -222,15 +252,6 @@ impl ConnectionManager {
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
     }
 
-    /// Queues up a message to be sent to all clients matching the specific [`NetworkTarget`]
-    pub fn send_message_to_target<C: Channel, M: Message>(
-        &mut self,
-        message: &M,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
-    }
-
     pub(crate) fn erased_send_message_to_target<M: Message>(
         &mut self,
         message: &M,
@@ -242,15 +263,6 @@ impl ConnectionManager {
             .serialize(message, &mut self.writer)
             .context("could not serialize message")?;
         self.buffer_message(message_bytes, channel_kind, target)
-    }
-
-    /// Queues up a message to be sent to a client
-    pub fn send_message<C: Channel, M: Message>(
-        &mut self,
-        client_id: ClientId,
-        message: &M,
-    ) -> Result<()> {
-        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
     }
 
     /// Buffer all the replication messages to send.
