@@ -176,7 +176,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 // confirm exist. rollback if history value is different
                 Some(c) => history_value.map_or(true, |history_value| match history_value {
                     ComponentState::Updated(history_value) => {
-                        !component_registry.rollback_check(&history_value, c)
+                        component_registry.should_rollback(&history_value, c)
                     }
                     ComponentState::Removed => true,
                 }),

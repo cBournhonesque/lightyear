@@ -157,18 +157,18 @@ pub struct PredictionMetadata {
     pub prediction_mode: ComponentSyncMode,
     pub correction: Option<unsafe fn()>,
     /// Function used to compare the confirmed component with the predicted component's history
-    /// to determine if a rollback is needed.
-    /// Will default to a PartialEq implementation, but can be overriden.
-    pub rollback_check: unsafe fn(),
+    /// to determine if a rollback is needed. Returns true if we should do a rollback.
+    /// Will default to a PartialEq::ne implementation, but can be overriden.
+    pub should_rollback: unsafe fn(),
 }
 
 impl PredictionMetadata {
     fn default_from<C: PartialEq>(mode: ComponentSyncMode) -> Self {
-        let equality_check: RollbackCheckFn<C> = <C as PartialEq>::eq;
+        let should_rollback: RollbackCheckFn<C> = <C as PartialEq>::ne;
         Self {
             prediction_mode: mode,
             correction: None,
-            rollback_check: unsafe { std::mem::transmute(equality_check) },
+            should_rollback: unsafe { std::mem::transmute(should_rollback) },
         }
     }
 }
@@ -291,7 +291,7 @@ impl ComponentRegistry {
         self.prediction_map
             .entry(kind)
             .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
-            .rollback_check = unsafe { std::mem::transmute(rollback_check) };
+            .should_rollback = unsafe { std::mem::transmute(rollback_check) };
     }
 
     pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
@@ -411,8 +411,8 @@ impl ComponentRegistry {
             .map_or(false, |metadata| metadata.correction.is_some())
     }
 
-    /// Perform a rollback check to determine if a rollback is needed.
-    pub(crate) fn rollback_check<C: Component>(&self, this: &C, that: &C) -> bool {
+    /// Returns true if we should do a rollback
+    pub(crate) fn should_rollback<C: Component>(&self, this: &C, that: &C) -> bool {
         let kind = ComponentKind::of::<C>();
         let prediction_metadata = self
             .prediction_map
@@ -420,7 +420,7 @@ impl ComponentRegistry {
             .context("the component is not part of the protocol")
             .unwrap();
         let rollback_check_fn: RollbackCheckFn<C> =
-            unsafe { std::mem::transmute(prediction_metadata.rollback_check) };
+            unsafe { std::mem::transmute(prediction_metadata.should_rollback) };
         rollback_check_fn(this, that)
     }
 
