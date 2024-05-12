@@ -10,7 +10,9 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::prelude::{ClientId, NetworkTarget, ReplicationGroup, ShouldBePredicted, TickManager};
+use crate::prelude::{
+    ClientId, NetworkTarget, ReplicationGroup, ShouldBePredicted, TargetEntity, TickManager,
+};
 use crate::protocol::component::ComponentRegistry;
 use crate::server::replication::ServerReplicationSet;
 use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
@@ -82,6 +84,7 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
     }
 }
 
+// TODO: also send despawn if the target changed?
 pub(crate) fn send_entity_despawn<R: ReplicationSend>(
     query: Query<(
         Entity,
@@ -162,110 +165,6 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
                 });
         }
     }
-}
-
-pub(crate) fn send_entity_spawn<R: ReplicationSend>(
-    system_bevy_ticks: SystemChangeTick,
-    component_registry: Res<ComponentRegistry>,
-    query: Query<(Entity, Ref<Replicate>, Option<&ReplicateVisibility>)>,
-    mut sender: ResMut<R>,
-) {
-    // Replicate to already connected clients (replicate only new entities)
-    query.iter().for_each(|(entity, replicate, visibility)| {
-        match replicate.visibility {
-            // for room mode, no need to handle newly-connected clients specially; they just need
-            // to be added to the correct room
-            VisibilityMode::InterestManagement => {
-                visibility.unwrap().clients_cache
-                    .iter()
-                    .for_each(|(client_id, visibility)| {
-                        if replicate.replication_target.targets(client_id) {
-                            match visibility {
-                                ClientVisibility::Gained => {
-                                    trace!(
-                                        ?entity,
-                                        ?client_id,
-                                        "send entity spawn to client who just gained visibility"
-                                    );
-                                    let _ = sender
-                                        .prepare_entity_spawn(
-                                            entity,
-                                            &replicate,
-                                            NetworkTarget::Only(vec![*client_id]),
-                                            system_bevy_ticks.this_run(),
-                                        )
-                                        .map_err(|e| {
-                                            error!("error sending entity spawn: {:?}", e);
-                                        });
-                                }
-                                ClientVisibility::Lost => {}
-                                ClientVisibility::Maintained => {
-                                    // TODO: is this even reachable?
-                                    // only try to replicate if the replicate component was just added
-                                    if replicate.is_added() {
-                                        trace!(
-                                            ?entity,
-                                            ?client_id,
-                                            "send entity spawn to client who maintained visibility"
-                                        );
-                                        let _ = sender
-                                            .prepare_entity_spawn(
-                                                entity,
-                                                replicate.deref(),
-                                                NetworkTarget::Only(vec![*client_id]),
-                                                system_bevy_ticks.this_run(),
-                                            )
-                                            .map_err(|e| {
-                                                error!("error sending entity spawn: {:?}", e);
-                                            });
-                                    }
-                                }
-                            }
-                        }
-                    });
-            }
-            VisibilityMode::All => {
-                let mut target = replicate.replication_target.clone();
-
-                let new_connected_clients = sender.new_connected_clients().clone();
-                if !new_connected_clients.is_empty() {
-                    // replicate to the newly connected clients that match our target
-                    let mut new_connected_target = target.clone();
-                    new_connected_target
-                        .intersection(NetworkTarget::Only(new_connected_clients.clone()));
-                    debug!(?entity, target = ?new_connected_target, "Replicate to newly connected clients");
-                    // replicate all entities to newly connected clients
-                    let _ = sender
-                        .prepare_entity_spawn(
-                            entity,
-                            &replicate,
-                            new_connected_target,
-                            system_bevy_ticks.this_run(),
-                        )
-                        .map_err(|e| {
-                            error!("error sending entity spawn: {:?}", e);
-                        });
-                    // don't re-send to newly connection client
-                    target.exclude(new_connected_clients.clone());
-                }
-
-                // only try to replicate if the replicate component was just added
-                if replicate.is_added() {
-                    trace!(?entity, "send entity spawn");
-                    let _ = sender
-                        .prepare_entity_spawn(
-                            entity,
-                            replicate.deref(),
-                            target,
-                            system_bevy_ticks.this_run(),
-                        )
-                        .map_err(|e| {
-                            error!("error sending entity spawn: {:?}", e);
-                        });
-                }
-            }
-        }
-    })
 }
 
 /// This system sends updates for all components that were added or changed
@@ -509,11 +408,31 @@ pub(crate) fn receive_cleanup<R: ReplicationReceive>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::server::ConnectionManager;
+    use crate::prelude::{client, server};
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
 
     #[test]
     fn test_entity_spawn() {
-        let sender = ConnectionManager::new();
+        let mut stepper = BevyStepper::default();
+
+        // 1. spawn an entity with visibility::All
+        let entity = stepper
+            .server_app
+            .world
+            .spawn((Replicate::default(), Component1(0.0)))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        assert!(stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(entity)
+            .is_some());
     }
 
     // TODO: how to check that no despawn message is sent?

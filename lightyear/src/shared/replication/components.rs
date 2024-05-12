@@ -1,7 +1,8 @@
 //! Components used for replication
 use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::QueryFilter;
-use bevy::prelude::{Bundle, Component, Entity, EntityMapper, Or, Reflect, With};
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::{Bundle, Component, Entity, EntityMapper, Or, Query, Reflect, With};
 use bevy::utils::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -49,15 +50,28 @@ pub struct Replicate {
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
     pub group: ReplicationGroup,
     /// How should the hierarchy of the entity (parents/children) be replicated?
-    pub hierarchy: ReplicateHierachy,
-    /// Defines the target entity for the replication.
-    /// In most cases, you will want to spawn a new entity on the target client
-    pub target_entity: TargetEntity,
+    pub hierarchy: ReplicateHierarchy,
     // // TODO: could it be dangerous to use component kind here? (because the value could vary between rust versions)
     // //  should be ok, because this is not networked
     // /// Lets you override the replication modalities for a specific component
     // #[reflect(ignore)]
     // pub per_component_metadata: HashMap<ComponentKind, PerComponentReplicationMetadata>,
+}
+
+#[derive(SystemParam)]
+struct ReplicateSystemParam<'w, 's> {
+    query: Query<
+        'w,
+        's,
+        (
+            &'static ReplicationTarget,
+            &'static ControlledBy,
+            &'static VisibilityMode,
+            &'static ReplicationGroup,
+            &'static ReplicateHierarchy,
+            &'static TargetEntity,
+        ),
+    >,
 }
 
 /// Component that indicates which clients the entity should be replicated to.
@@ -90,6 +104,13 @@ pub struct ControlledBy {
     target: NetworkTarget,
 }
 
+impl ControlledBy {
+    /// Returns true if the entity is controlled by the specified client
+    pub fn targets(&self, client_id: &ClientId) -> bool {
+        self.target.targets(client_id)
+    }
+}
+
 /// Component to have more fine-grained control over the visibility of an entity
 /// (which clients do we replicate this entity to?)
 ///
@@ -105,6 +126,8 @@ pub struct Visibility {
 ///
 /// This can be used if you want to replicate this entity on an entity that already
 /// exists in the remote world.
+///
+/// This component is not part of the `Replicate` bundle as this is very infrequent.
 #[derive(Component, Default, Clone, Copy, Debug, PartialEq, Reflect)]
 pub enum TargetEntity {
     /// Spawn a new entity on the remote peer
@@ -117,14 +140,14 @@ pub enum TargetEntity {
 
 /// Component that defines how the hierarchy of an entity (parent/children) should be replicated
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
-pub struct ReplicateHierachy {
+pub struct ReplicateHierarchy {
     /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
     /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
     /// and `ParentSync` components to the children yourself
-    recursive: bool,
+    pub recursive: bool,
 }
 
-impl Default for ReplicateHierachy {
+impl Default for ReplicateHierarchy {
     fn default() -> Self {
         Self { recursive: true }
     }
@@ -373,8 +396,7 @@ impl Default for Replicate {
             controlled_by: ControlledBy::default(),
             visibility: VisibilityMode::default(),
             group: ReplicationGroup::default(),
-            hierarchy: ReplicateHierachy::default(),
-            target_entity: Default::default(),
+            hierarchy: ReplicateHierarchy::default(),
         };
         // // TODO: what's the point in replicating them once since they don't change?
         // //  or is it because they are removed and we don't want to replicate the removal?
@@ -413,6 +435,15 @@ pub enum NetworkTarget {
 }
 
 impl NetworkTarget {
+    /// Returns true if the target is empty
+    pub fn is_empty(&self) -> bool {
+        match self {
+            NetworkTarget::None => true,
+            NetworkTarget::Only(ids) => ids.is_empty(),
+            _ => false,
+        }
+    }
+
     /// Return true if we should replicate to the specified client
     pub fn targets(&self, client_id: &ClientId) -> bool {
         match self {
@@ -426,10 +457,10 @@ impl NetworkTarget {
     }
 
     /// Compute the intersection of this target with another one (A ∩ B)
-    pub(crate) fn intersection(&mut self, target: NetworkTarget) {
+    pub(crate) fn intersection(&mut self, target: &NetworkTarget) {
         match self {
             NetworkTarget::All => {
-                *self = target;
+                *self = target.clone();
             }
             NetworkTarget::AllExceptSingle(existing_client_id) => {
                 let mut a = NetworkTarget::AllExcept(vec![*existing_client_id]);
@@ -442,13 +473,13 @@ impl NetworkTarget {
                 }
                 NetworkTarget::AllExceptSingle(target_client_id) => {
                     let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
-                    new_excluded_ids.insert(target_client_id);
+                    new_excluded_ids.insert(*target_client_id);
                     *existing_client_ids = Vec::from_iter(new_excluded_ids);
                 }
                 NetworkTarget::AllExcept(target_client_ids) => {
                     let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
-                    target_client_ids.into_iter().for_each(|id| {
-                        new_excluded_ids.insert(id);
+                    target_client_ids.iter().for_each(|id| {
+                        new_excluded_ids.insert(*id);
                     });
                     *existing_client_ids = Vec::from_iter(new_excluded_ids);
                 }
@@ -461,10 +492,10 @@ impl NetworkTarget {
                     *self = NetworkTarget::Only(Vec::from_iter(new_included_ids));
                 }
                 NetworkTarget::Single(target_client_id) => {
-                    if existing_client_ids.contains(&target_client_id) {
+                    if existing_client_ids.contains(target_client_id) {
                         *self = NetworkTarget::None;
                     } else {
-                        *self = NetworkTarget::Single(target_client_id);
+                        *self = NetworkTarget::Single(*target_client_id);
                     }
                 }
             },
@@ -486,8 +517,8 @@ impl NetworkTarget {
                 }
                 NetworkTarget::All => {}
                 NetworkTarget::Single(target_client_id) => {
-                    if existing_client_ids.contains(&target_client_id) {
-                        *self = NetworkTarget::Single(target_client_id);
+                    if existing_client_ids.contains(target_client_id) {
+                        *self = NetworkTarget::Single(*target_client_id);
                     } else {
                         *self = NetworkTarget::None;
                     }
@@ -508,8 +539,102 @@ impl NetworkTarget {
         }
     }
 
+    /// Compute the union of this target with another one (A U B)
+    pub(crate) fn union(&mut self, target: NetworkTarget) {
+        match self {
+            NetworkTarget::All => {}
+            NetworkTarget::AllExceptSingle(existing_client_id) => {
+                if target.targets(existing_client_id) {
+                    *self = NetworkTarget::All;
+                }
+            }
+            NetworkTarget::AllExcept(existing_client_ids) => match target {
+                NetworkTarget::None => {}
+                NetworkTarget::AllExceptSingle(target_client_id) => {
+                    if existing_client_ids.contains(&target_client_id) {
+                        *self = NetworkTarget::AllExceptSingle(target_client_id);
+                    } else {
+                        *self = NetworkTarget::All;
+                    }
+                }
+                NetworkTarget::AllExcept(target_client_ids) => {
+                    let new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
+                    let target_excluded_ids = HashSet::from_iter(target_client_ids.clone());
+                    let intersection = existing_client_ids
+                        .intersection(&target_excluded_ids)
+                        .collect();
+                    *existing_client_ids = intersection;
+                }
+                NetworkTarget::All => {
+                    *self = NetworkTarget::All;
+                }
+                NetworkTarget::Only(target_client_ids) => {
+                    let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
+                    target_client_ids.into_iter().for_each(|id| {
+                        new_excluded_ids.remove(id);
+                    });
+                    *existing_client_ids = Vec::from_iter(new_excluded_ids);
+                }
+                NetworkTarget::Single(target_client_id) => {
+                    *existing_client_ids.retain(|id| id != target_client_id);
+                }
+            },
+            NetworkTarget::Only(existing_client_ids) => match target {
+                NetworkTarget::None => {}
+                NetworkTarget::AllExceptSingle(target_client_id) => {
+                    if existing_client_ids.contains(target_client_id) {
+                        *self = NetworkTarget::All;
+                    } else {
+                        *self = NetworkTarget::AllExceptSingle(target_client_id);
+                    }
+                }
+                NetworkTarget::AllExcept(target_client_ids) => {
+                    let mut target_excluded_ids = HashSet::from_iter(target_client_ids.clone());
+                    existing_client_ids.iter().for_each(|id| {
+                        target_excluded_ids.remove(id);
+                    });
+                    match target_excluded_ids.len() {
+                        0 => {
+                            *self = NetworkTarget::All;
+                        }
+                        1 => {
+                            *self = NetworkTarget::AllExceptSingle(
+                                *target_excluded_ids.iter().next().unwrap(),
+                            );
+                        }
+                        _ => {
+                            *self = NetworkTarget::AllExcept(Vec::from_iter(target_excluded_ids));
+                        }
+                    }
+                }
+                NetworkTarget::All => {
+                    *self = NetworkTarget::All;
+                }
+                NetworkTarget::Single(target_client_id) => {
+                    if !existing_client_ids.contains(&target_client_id) {
+                        existing_client_ids.push(target_client_id);
+                    }
+                }
+                NetworkTarget::Only(target_client_ids) => {
+                    let new_included_ids = HashSet::from_iter(existing_client_ids.clone());
+                    let target_included_ids = HashSet::from_iter(target_client_ids.clone());
+                    let union = new_included_ids.union(&target_included_ids);
+                    *existing_client_ids = union.collect::<Vec<_>>();
+                }
+            },
+            NetworkTarget::Single(existing_client_id) => {
+                let mut a = NetworkTarget::Only(vec![*existing_client_id]);
+                a.union(target);
+                *self = a;
+            }
+            NetworkTarget::None => {
+                *self = target;
+            }
+        }
+    }
+
     /// Compute the difference of this target with another one (A - B)
-    pub(crate) fn exclude(&mut self, client_ids: Vec<ClientId>) {
+    pub(crate) fn exclude(&mut self, mut client_ids: impl IntoIterator<Item = ClientId>) {
         match self {
             NetworkTarget::All => {
                 *self = NetworkTarget::AllExcept(client_ids);
@@ -612,11 +737,11 @@ mod tests {
         let client_1 = ClientId::Netcode(1);
         let client_2 = ClientId::Netcode(2);
         let mut target = NetworkTarget::All;
-        target.intersection(NetworkTarget::AllExcept(vec![client_1, client_2]));
+        target.intersection(&NetworkTarget::AllExcept(vec![client_1, client_2]));
         assert_eq!(target, NetworkTarget::AllExcept(vec![client_1, client_2]));
 
         target = NetworkTarget::AllExcept(vec![client_0]);
-        target.intersection(NetworkTarget::AllExcept(vec![client_0, client_1]));
+        target.intersection(&NetworkTarget::AllExcept(vec![client_0, client_1]));
         assert!(matches!(target, NetworkTarget::AllExcept(_)));
 
         if let NetworkTarget::AllExcept(ids) = target {
@@ -625,19 +750,52 @@ mod tests {
         }
 
         target = NetworkTarget::AllExcept(vec![client_0, client_1]);
-        target.intersection(NetworkTarget::Only(vec![client_0, client_2]));
+        target.intersection(&NetworkTarget::Only(vec![client_0, client_2]));
         assert_eq!(target, NetworkTarget::Only(vec![client_2]));
 
         target = NetworkTarget::Only(vec![client_0, client_1]);
-        target.intersection(NetworkTarget::Only(vec![client_0, client_2]));
+        target.intersection(&NetworkTarget::Only(vec![client_0, client_2]));
         assert_eq!(target, NetworkTarget::Only(vec![client_0]));
 
         target = NetworkTarget::Only(vec![client_0, client_1]);
-        target.intersection(NetworkTarget::AllExcept(vec![client_0, client_2]));
+        target.intersection(&NetworkTarget::AllExcept(vec![client_0, client_2]));
         assert_eq!(target, NetworkTarget::Only(vec![client_1]));
 
         target = NetworkTarget::None;
-        target.intersection(NetworkTarget::AllExcept(vec![client_0, client_2]));
+        target.intersection(&NetworkTarget::AllExcept(vec![client_0, client_2]));
         assert_eq!(target, NetworkTarget::None);
+    }
+
+    #[test]
+    fn test_union() {
+        let client_0 = ClientId::Netcode(0);
+        let client_1 = ClientId::Netcode(1);
+        let client_2 = ClientId::Netcode(2);
+        let mut target = NetworkTarget::All;
+        target.union(NetworkTarget::AllExcept(vec![client_1, client_2]));
+        assert_eq!(target, NetworkTarget::All);
+
+        target = NetworkTarget::AllExcept(vec![client_0]);
+        target.union(NetworkTarget::Only(vec![client_0, client_1]));
+        assert_eq!(target, NetworkTarget::All);
+
+        target = NetworkTarget::AllExcept(vec![client_0, client_1]);
+        target.union(NetworkTarget::Only(vec![client_0, client_2]));
+        assert_eq!(target, NetworkTarget::AllExceptSingle(client_1));
+
+        target = NetworkTarget::Only(vec![client_0, client_1]);
+        target.union(NetworkTarget::Only(vec![client_0, client_2]));
+        assert_eq!(
+            target,
+            NetworkTarget::Only(vec![client_0, client_1, client_2])
+        );
+
+        target = NetworkTarget::Only(vec![client_0, client_1]);
+        target.union(NetworkTarget::AllExcept(vec![client_0, client_2]));
+        assert_eq!(target, NetworkTarget::AllExceptSingle(client_1));
+
+        target = NetworkTarget::None;
+        target.union(NetworkTarget::AllExcept(vec![client_0, client_2]));
+        assert_eq!(target, NetworkTarget::AllExcept(vec![client_0, client_2]));
     }
 }

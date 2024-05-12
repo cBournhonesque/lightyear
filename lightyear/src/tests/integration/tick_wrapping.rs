@@ -68,13 +68,7 @@ fn test_sync_after_tick_wrap() {
     let server_entity = stepper
         .server_app
         .world
-        .spawn((
-            Component1(0.0),
-            Replicate {
-                replication_target: NetworkTarget::All,
-                ..default()
-            },
-        ))
+        .spawn((Component1(0.0), Replicate::default()))
         .id();
 
     // advance 200 ticks to wrap ticks around u16::MAX
@@ -159,13 +153,7 @@ fn test_sync_after_tick_half_wrap() {
     let server_entity = stepper
         .server_app
         .world
-        .spawn((
-            Component1(0.0),
-            Replicate {
-                replication_target: NetworkTarget::All,
-                ..default()
-            },
-        ))
+        .spawn((Component1(0.0), Replicate::default()))
         .id();
 
     for i in 0..200 {

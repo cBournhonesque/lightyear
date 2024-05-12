@@ -140,30 +140,9 @@ pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
 pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     fn writer(&mut self) -> &mut BitcodeWriter;
 
-    fn component_registry(&self) -> &ComponentRegistry;
-
-    /// Set the priority for a given replication group, for a given client
-    /// This IS the client-facing API that users must use to update the priorities for a given client.
-    ///
-    /// If multiple entities in the group have different priorities, then the latest updated priority will take precedence
-    fn update_priority(
-        &mut self,
-        replication_group_id: ReplicationGroupId,
-        client_id: ClientId,
-        priority: f32,
-    ) -> Result<()>;
-
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
     fn new_connected_clients(&self) -> Vec<ClientId>;
-
-    fn prepare_entity_spawn(
-        &mut self,
-        entity: Entity,
-        replicate: &Replicate,
-        target: NetworkTarget,
-        system_current_tick: BevyTick,
-    ) -> Result<()>;
 
     fn prepare_entity_despawn(
         &mut self,

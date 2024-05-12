@@ -485,59 +485,8 @@ impl ReplicationSend for ConnectionManager {
         &mut self.writer
     }
 
-    fn component_registry(&self) -> &ComponentRegistry {
-        &self.component_registry
-    }
-
-    fn update_priority(
-        &mut self,
-        replication_group_id: ReplicationGroupId,
-        client_id: ClientId,
-        priority: f32,
-    ) -> Result<()> {
-        self.replication_sender
-            .update_base_priority(replication_group_id, priority);
-        Ok(())
-    }
-
     fn new_connected_clients(&self) -> Vec<ClientId> {
         vec![]
-    }
-
-    fn prepare_entity_spawn(
-        &mut self,
-        entity: Entity,
-        replicate: &Replicate,
-        target: NetworkTarget,
-        system_current_tick: BevyTick,
-    ) -> Result<()> {
-        trace!(?entity, "Prepare entity spawn to server");
-        let group_id = replicate.replication_group.group_id(Some(entity));
-        let replication_sender = &mut self.replication_sender;
-        // update the collect changes tick
-        // (we can collect changes only since the last actions because all updates will wait for that action to be spawned)
-        // TODO: I don't think it's correct to update the change-tick since the latest action!
-        // replication_sender
-        //     .group_channels
-        //     .entry(group)
-        //     .or_default()
-        //     .update_collect_changes_since_this_tick(system_current_tick);
-        match replicate.target_entity {
-            TargetEntity::Spawn => {
-                replication_sender.prepare_entity_spawn(entity, group_id);
-            }
-            TargetEntity::Preexisting(remote_entity) => {
-                replication_sender.prepare_entity_spawn_reuse(entity, group_id, remote_entity);
-            }
-        }
-        // also set the priority for the group when we spawn it
-        self.update_priority(
-            group_id,
-            // the client id argument is ignored on the client
-            ClientId::Local(0),
-            replicate.replication_group.priority(),
-        )?;
-        Ok(())
     }
 
     fn prepare_entity_despawn(

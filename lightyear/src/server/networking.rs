@@ -300,7 +300,6 @@ fn rebuild_server_connections(world: &mut World) {
 
     // insert a new connection manager (to reset message numbers, ping manager, etc.)
     let connection_manager = ConnectionManager::new(
-        world.resource::<ComponentRegistry>().clone(),
         world.resource::<MessageRegistry>().clone(),
         world.resource::<ChannelRegistry>().clone(),
         server_config.packet,

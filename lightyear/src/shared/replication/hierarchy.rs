@@ -3,8 +3,10 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::prelude::ReplicationGroup;
-use crate::shared::replication::components::Replicate;
+use crate::prelude::{ReplicationGroup, VisibilityMode};
+use crate::shared::replication::components::{
+    ControlledBy, Replicate, ReplicateHierarchy, ReplicationTarget,
+};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
@@ -43,23 +45,45 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
     fn propagate_replicate(
         mut commands: Commands,
         // query the root parent of the hierarchy
-        parent_query: Query<(Entity, Ref<Replicate>), (Without<Parent>, With<Children>)>,
+        parent_query: Query<
+            (
+                Entity,
+                Ref<ReplicateHierarchy>,
+                &ReplicationTarget,
+                &ControlledBy,
+                &VisibilityMode,
+            ),
+            (Without<Parent>, With<Children>),
+        >,
         children_query: Query<&Children>,
     ) {
-        for (parent_entity, replicate) in parent_query.iter() {
-            // TODO: we only want to do this if the `replicate_hierarchy` field has changed, not other fields!
-            //  maybe use a different component?
-            if replicate.is_changed() && replicate.replicate_hierarchy {
+        for (
+            parent_entity,
+            replicate_hierarchy,
+            replication_target,
+            controlled_by,
+            visibility_mode,
+        ) in parent_query.iter()
+        {
+            if replicate_hierarchy.is_changed() && replicate_hierarchy.recursive {
                 // iterate through all descendents of the entity
                 for child in children_query.iter_descendants(parent_entity) {
                     trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
-                    let mut replicate = replicate.clone();
-                    // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id
-                    replicate.replication_group = ReplicationGroup::new_id(parent_entity.to_bits());
+                    let replicate = Replicate {
+                        replication_target: replication_target.clone(),
+                        controlled_by: controlled_by.clone(),
+                        visibility: visibility_mode.clone(),
+                        // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id
+                        group: ReplicationGroup::new_id(parent_entity.to_bits()),
+                        hierarchy: ReplicateHierarchy { recursive: true },
+                        ..default()
+                    };
                     // no need to set the correct parent as it will be set later in the `update_parent_sync` system
                     commands.entity(child).insert((replicate, ParentSync(None)));
                 }
             }
+            // TODO: should we update the parent's replication group? we actually can't.. replication groups
+            //  aren't supposed to be updated
         }
     }
 
@@ -174,6 +198,7 @@ mod tests {
     use bevy::prelude::{default, Entity, With};
 
     use crate::prelude::{Replicate, ReplicationGroup};
+    use crate::shared::replication::components::ReplicateHierarchy;
     use crate::shared::replication::hierarchy::ParentSync;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
@@ -201,10 +226,10 @@ mod tests {
         let (mut stepper, grandparent, parent, child) = setup_hierarchy();
 
         let replicate = Replicate {
-            replicate_hierarchy: false,
+            hierarchy: ReplicateHierarchy { recursive: false },
             // make sure that child and parent are replicated in the same group, so that both entities are spawned
             // before entity mapping is done
-            replication_group: ReplicationGroup::new_id(0),
+            group: ReplicationGroup::new_id(0),
             ..default()
         };
         stepper
@@ -340,22 +365,16 @@ mod tests {
                 .server_app
                 .world
                 .entity_mut(parent)
-                .get::<Replicate>(),
-            Some(&Replicate {
-                replication_group: ReplicationGroup::new_id(grandparent.to_bits()),
-                ..Default::default()
-            })
+                .get::<ReplicationGroup>(),
+            Some(&ReplicationGroup::new_id(grandparent.to_bits()))
         );
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity_mut(child)
-                .get::<Replicate>(),
-            Some(&Replicate {
-                replication_group: ReplicationGroup::new_id(grandparent.to_bits()),
-                ..Default::default()
-            })
+                .get::<ReplicationGroup>(),
+            Some(&ReplicationGroup::new_id(grandparent.to_bits()))
         );
     }
 }
