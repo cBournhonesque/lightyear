@@ -7,19 +7,16 @@ use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
 use bevy::ecs::system::Command;
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, EntityMapper, IntoSystemConfigs,
-    IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate, Query, Ref, Res, ResMut, Resource,
-    SystemSet, With, World,
+    Commands, Component, DetectChanges, EntityMapper, IntoSystemConfigs, IntoSystemSetConfigs,
+    Plugin, PostUpdate, PreUpdate, Res, ResMut, Resource, SystemSet,
 };
+pub use command::{ReplicateResourceExt, StopReplicateResourceExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tracing::error;
 
-pub use command::{ReplicateResourceExt, StopReplicateResourceExt};
-
-use crate::prelude::{ChannelKind, Message, NetworkTarget};
+use crate::prelude::{ChannelKind, Message};
 use crate::protocol::BitSerializable;
-use crate::shared::replication::components::Replicate;
+use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
@@ -314,19 +311,13 @@ pub(crate) mod receive {
 
 #[cfg(test)]
 mod tests {
-    use bevy::ecs::system::RunSystemOnce;
-    use bevy::prelude::{apply_deferred, Commands, OnEnter, Resource};
-    use serde::{Deserialize, Serialize};
-    use std::marker::PhantomData;
-    use tracing::error;
-
-    use crate::prelude::client::NetworkingState;
-    use crate::prelude::{AppComponentExt, NetworkTarget, Replicate};
+    use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::resources::ReplicateResourceExt;
-    use crate::tests::protocol::{Channel1, Component1, Resource1, Resource2};
+    use crate::tests::protocol::{Channel1, Resource1, Resource2};
     use crate::tests::stepper::{BevyStepper, Step};
+    use bevy::prelude::Commands;
 
-    use super::{ReplicateResourceMetadata, StopReplicateResourceExt};
+    use super::StopReplicateResourceExt;
 
     #[test]
     fn test_resource_replication_via_commands() {

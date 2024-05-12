@@ -2,11 +2,9 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::networking::is_connected;
 use crate::client::sync::client_is_synced;
-use crate::prelude::client::InterpolationDelay;
 use crate::prelude::SharedConfig;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
@@ -54,13 +52,14 @@ mod receive {
 mod send {
     use super::*;
     use crate::prelude::{
-        ClientId, ComponentRegistry, NetworkTarget, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, VisibilityMode,
+        ClientId, ComponentRegistry, ReplicationGroup, ShouldBePredicted, TargetEntity,
+        VisibilityMode,
     };
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::components::{
         Controlled, ControlledBy, ReplicationTarget, ShouldBeInterpolated,
     };
+    use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
 
     #[derive(Default)]

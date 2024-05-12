@@ -20,7 +20,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
-use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget, TargetEntity};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationGroup, TargetEntity};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::MessageRegistry;
@@ -37,9 +37,10 @@ use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
+use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::systems::DespawnMetadata;
+use crate::shared::replication::systems::ReplicateCache;
 use crate::shared::replication::{ReplicationMessage, ReplicationSend};
 use crate::shared::replication::{ReplicationMessageData, ReplicationPeer, ReplicationReceive};
 use crate::shared::sets::{ClientMarker, ServerMarker};
@@ -80,7 +81,7 @@ pub struct ConnectionManager {
 
     /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
     /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
-    replicate_component_cache: EntityHashMap<DespawnMetadata>,
+    replicate_component_cache: EntityHashMap<ReplicateCache>,
 
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
@@ -540,17 +541,11 @@ impl ReplicationSend for ConnectionManager {
         &mut self,
         entity: Entity,
         component_kind: ComponentNetId,
-        replicate: &Replicate,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()> {
-        let group_id = replicate.replication_group.group_id(Some(entity));
+        let group_id = group.group_id(Some(entity));
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
-        // self.replication_sender
-        //     .group_channels
-        //     .entry(group)
-        //     .or_default()
-        //     .update_collect_changes_since_this_tick(system_current_tick);
         self.replication_sender
             .prepare_component_remove(entity, group_id, component_kind);
         Ok(())
@@ -601,7 +596,7 @@ impl ReplicationSend for ConnectionManager {
         let _span = trace_span!("buffer_replication_messages").entered();
         self.buffer_replication_messages(tick, bevy_tick)
     }
-    fn get_mut_replicate_despawn_cache(&mut self) -> &mut EntityHashMap<DespawnMetadata> {
+    fn get_mut_replicate_cache(&mut self) -> &mut EntityHashMap<ReplicateCache> {
         &mut self.replicate_component_cache
     }
     fn cleanup(&mut self, tick: Tick) {

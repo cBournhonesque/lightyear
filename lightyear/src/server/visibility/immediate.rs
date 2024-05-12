@@ -189,7 +189,7 @@ pub(super) mod systems {
         for (entity, visibility) in query.iter_mut() {
             if visibility.is_changed() {
                 if let Some(despawn_metadata) = connection_manager
-                    .get_mut_replicate_despawn_cache()
+                    .get_mut_replicate_cache()
                     .get_mut(&entity)
                 {
                     let new_cache = visibility.clients_cache.keys().copied().collect();

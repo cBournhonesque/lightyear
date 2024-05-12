@@ -11,11 +11,12 @@ use bevy::utils::HashSet;
 use serde::{Deserialize, Serialize};
 
 use bitcode::{Decode, Encode};
+use network_target::NetworkTarget;
 
 use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{NetworkTarget, Tick};
+use crate::prelude::{ReplicationGroup, Tick};
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::EventContext;
@@ -26,14 +27,15 @@ use crate::shared::events::connection::{
     ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
-use crate::shared::replication::components::{Replicate, ReplicationGroupId};
-use crate::shared::replication::systems::DespawnMetadata;
+use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
+use crate::shared::replication::systems::ReplicateCache;
 
 pub mod components;
 
 mod commands;
 pub mod entity_map;
 pub(crate) mod hierarchy;
+pub(crate) mod network_target;
 pub(crate) mod plugin;
 pub(crate) mod receive;
 pub(crate) mod resources;
@@ -147,9 +149,8 @@ pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replication_group_id: ReplicationGroupId,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_component_insert(
@@ -157,20 +158,18 @@ pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
         entity: Entity,
         kind: ComponentNetId,
         component: RawData,
-        replicate: &Replicate,
+        component_registry: &ComponentRegistry,
+        replication_target: &ReplicationTarget,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        // bevy_tick for the current system run (we send component updates since the most recent bevy_tick of
-        //  last update ack OR last action sent)
-        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_component_remove(
         &mut self,
         entity: Entity,
         component_kind: ComponentNetId,
-        replicate: &Replicate,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     #[allow(clippy::too_many_arguments)]
@@ -179,7 +178,7 @@ pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
         entity: Entity,
         kind: ComponentNetId,
         component: RawData,
-        replicate: &Replicate,
+        group: &ReplicationGroup,
         target: NetworkTarget,
         // bevy_tick when the component changes
         component_change_tick: BevyTick,
@@ -197,7 +196,7 @@ pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     /// But the receiving systems might expect both components to be present at the same time.
     fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
 
-    fn get_mut_replicate_despawn_cache(&mut self) -> &mut EntityHashMap<DespawnMetadata>;
+    fn get_mut_replicate_cache(&mut self) -> &mut EntityHashMap<ReplicateCache>;
 
     /// Do some regular cleanup on the internals of replication
     /// - account for tick wrapping by resetting some internal ticks for each replication group

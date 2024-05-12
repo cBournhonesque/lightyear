@@ -12,7 +12,6 @@ use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::is_started;
 use crate::server::prediction::compute_hash;
-use crate::shared::replication::components::Replicate;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
@@ -52,15 +51,16 @@ mod receive {
 mod send {
     use super::*;
     use crate::prelude::{
-        ComponentRegistry, NetworkTarget, ReplicationGroup, ShouldBePredicted, TargetEntity,
-        VisibilityMode,
+        ComponentRegistry, ReplicationGroup, ShouldBePredicted, TargetEntity, VisibilityMode,
     };
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::components::{
         Controlled, ControlledBy, ReplicationTarget, ShouldBeInterpolated,
     };
+    use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
     use bevy::ecs::system::SystemChangeTick;
+
     #[derive(Default)]
     pub struct ServerReplicationSendPlugin {
         pub tick_interval: Duration,
@@ -178,7 +178,7 @@ mod send {
                 // for room mode, no need to handle newly-connected clients specially; they just need
                 // to be added to the correct room
                 Some(visibility) => {
-                    let client_ids =  visibility.clients_cache
+                    visibility.clients_cache
                         .iter()
                         .filter_map(|(client_id, visibility)| {
                             if replication_target.replication.targets(client_id) {
@@ -206,14 +206,9 @@ mod send {
                                 }
                             }
                             return None;
-                        }).collect();
-                    if !client_ids.is_empty() {
-                        NetworkTarget::Only(client_ids)
-                    } else {
-                        NetworkTarget::None
-                    }
+                        }).collect()
                 }
-                VisibilityMode::All => {
+                None => {
                     let mut target = NetworkTarget::None;
                     // only try to replicate if the replicate component was just added
                     if replication_target.is_added() {
@@ -239,7 +234,7 @@ mod send {
             trace!(?entity, "Prepare entity spawn to client");
             let group_id = group.group_id(Some(entity));
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            sender.apply_replication(target).try_for_each(|client_id| {
+            let _ = sender.apply_replication(target).try_for_each(|client_id| {
                 // let the client know that this entity is controlled by them
                 if controlled_by.targets(&client_id) {
                     sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled)?;
@@ -269,7 +264,7 @@ mod send {
                     sender.connection_mut(client_id)?.replication_sender.prepare_entity_spawn_reuse(
                         entity,
                         group_id,
-                        remote_entity,
+                        *remote_entity,
                     );
                 } else {
                     sender.connection_mut(client_id)?.replication_sender
@@ -279,7 +274,9 @@ mod send {
                 // also set the priority for the group when we spawn it
                 sender.connection_mut(client_id)?.replication_sender.update_base_priority(group_id, group.priority())?;
                 Ok(())
-            })
+            }).inspect_err(|e| {
+                error!("error sending entity spawn: {:?}", e);
+            });
         });
     }
 }

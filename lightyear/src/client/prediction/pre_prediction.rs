@@ -12,8 +12,9 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
-use crate::prelude::{NetworkTarget, ShouldBePredicted, Tick};
+use crate::prelude::{ShouldBePredicted, Tick};
 use crate::shared::replication::components::{PrePredicted, Replicate};
+use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 #[derive(Default)]

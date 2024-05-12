@@ -2,10 +2,9 @@
 //!
 //! This module contains components and systems to manage the metadata on client entities.
 use crate::prelude::ClientId;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
-use bevy::ecs::entity::{EntityHashMap, EntityHashSet};
+use crate::shared::sets::{InternalReplicationSet, ServerMarker};
+use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
 
 /// List of entities under the control of a client
 #[derive(Component, Default, Debug, Deref, DerefMut)]
@@ -15,10 +14,11 @@ pub(crate) struct ClientsMetadataPlugin;
 
 mod systems {
     use super::*;
-    use crate::prelude::{NetworkTarget, Replicate};
+    use crate::prelude::Replicate;
     use crate::server::clients::ControlledEntities;
     use crate::server::connection::ConnectionManager;
     use crate::server::events::DisconnectEvent;
+    use crate::shared::replication::network_target::NetworkTarget;
     use tracing::{debug, error, trace};
 
     pub(super) fn handle_replicate_update(

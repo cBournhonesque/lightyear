@@ -10,22 +10,23 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::prelude::{
-    ClientId, NetworkTarget, ReplicationGroup, ShouldBePredicted, TargetEntity, TickManager,
-};
-use crate::protocol::component::ComponentRegistry;
+use crate::prelude::server::ConnectionManager;
+use crate::prelude::{ClientId, ReplicationGroup, ShouldBePredicted, TargetEntity, TickManager};
+use crate::protocol::component::{ComponentNetId, ComponentRegistry};
+use crate::serialize::RawData;
 use crate::server::replication::ServerReplicationSet;
 use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
 use crate::shared::replication::components::{
     DespawnTracker, Replicate, ReplicationGroupId, ReplicationTarget, VisibilityMode,
 };
+use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 // TODO: replace this with observers
 /// Metadata that holds Replicate-information (so that when the entity is despawned we know
 /// how to replicate the despawn)
-pub(crate) struct DespawnMetadata {
+pub(crate) struct ReplicateCache {
     replication_target: NetworkTarget,
     replication_group: ReplicationGroup,
     replication_mode: VisibilityMode,
@@ -44,7 +45,7 @@ pub(crate) fn handle_replicate_remove<R: ReplicationSend>(
     for entity in query.read() {
         if entity_check.contains(entity) {
             debug!("handling replicate component remove (delete from cache)");
-            sender.get_mut_replicate_despawn_cache().remove(&entity);
+            sender.get_mut_replicate_cache().remove(&entity);
             commands.entity(entity).remove::<ReplicateVisibility>();
         }
     }
@@ -61,21 +62,29 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
     // We use `(With<Replicate>, Without<DespawnTracker>)` as an optimization to
     // only get the subset of entities that have had Replicate added
     // (`Added<Replicate>` queries through each entity that has `Replicate`)
-    query: Query<(Entity, &Replicate), (With<Replicate>, Without<DespawnTracker>)>,
+    query: Query<
+        (
+            Entity,
+            &ReplicationTarget,
+            &ReplicationGroup,
+            &VisibilityMode,
+        ),
+        (With<ReplicationTarget>, Without<DespawnTracker>),
+    >,
 ) {
-    for (entity, replicate) in query.iter() {
+    for (entity, replication_target, group, visibility_mode) in query.iter() {
         debug!("Replicate component was added for entity {entity:?}");
         commands.entity(entity).insert(DespawnTracker);
-        let despawn_metadata = DespawnMetadata {
-            replication_target: replicate.replication_target.clone(),
-            replication_group: replicate.replication_group,
-            replication_mode: replicate.visibility,
+        let despawn_metadata = ReplicateCache {
+            replication_target: replication_target.replication.clone(),
+            replication_group: *group,
+            replication_mode: *visibility_mode,
             replication_clients_cache: vec![],
         };
         sender
-            .get_mut_replicate_despawn_cache()
+            .get_mut_replicate_cache()
             .insert(entity, despawn_metadata);
-        if replicate.visibility == VisibilityMode::InterestManagement {
+        if visibility_mode == &VisibilityMode::InterestManagement {
             debug!("Adding ReplicateVisibility component for entity {entity:?}");
             commands
                 .entity(entity)
@@ -92,75 +101,73 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
         &ReplicationGroup,
         &ReplicateVisibility,
     )>,
-    system_bevy_ticks: SystemChangeTick,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
     //  not just entities that had despawn tracker once
     mut despawn_removed: RemovedComponents<DespawnTracker>,
     mut sender: ResMut<R>,
 ) {
-    // Despawn entities for clients that lost visibility
-    query.iter().for_each(
-        |(entity, replication_target, replication_group, visibility)| {
+    // Send entity-despawn for entities that still exist for clients that lost visibility
+    query
+        .iter()
+        .for_each(|(entity, replication_target, group, visibility)| {
             // no need to check if the visibility mode is InterestManagement, because the ReplicateVisibility component
             // is only present if that is the case
-            visibility
+            let target = visibility
                 .clients_cache
                 .iter()
-                .for_each(|(client_id, visibility)| {
+                .filter_map(|(client_id, visibility)| {
                     if replication_target.targets(client_id)
                         && matches!(visibility, ClientVisibility::Lost)
                     {
                         debug!(
-                        "sending entity despawn for entity: {:?} because ClientVisibility::Lost",
-                        entity
-                    );
-                        let group_id = replication_group.group_id(Some(entity));
-                        let _ = sender
-                            .prepare_entity_despawn(
-                                entity,
-                                group_id,
-                                NetworkTarget::Only(vec![*client_id]),
-                                system_bevy_ticks.this_run(),
-                            )
-                            .inspect_err(|e| {
-                                error!("error sending entity despawn: {:?}", e);
-                            });
-                    }
-                });
-        },
-    );
+                            "sending entity despawn for entity: {:?} because ClientVisibility::Lost",
+                            entity
+                        );
+                        return Some(*client_id);
 
-    // TODO: check for banned replicate component?
-    // Despawn entities when the entity got despawned on local world
+                    }
+                    return None
+                }).collect();
+
+            if !target.is_empty() {
+                let _ = sender
+                    .prepare_entity_despawn(
+                        entity,
+                        group,
+                        target
+                    )
+                    .inspect_err(|e| {
+                        error!("error sending entity despawn: {:?}", e);
+                    });
+            }
+
+        });
+
+    // Despawn entities when the entity gets despawned on local world
     for entity in despawn_removed.read() {
-        trace!("despawn tracker removed!");
+        trace!("DespawnTracker component got removed, preparing entity despawn message!");
         // TODO: we still don't want to replicate the despawn if the entity was not in the same room as the client!
         // only replicate the despawn if the entity still had a Replicate component
-        if let Some(despawn_metadata) = sender.get_mut_replicate_despawn_cache().remove(&entity) {
+        if let Some(replicate_cache) = sender.get_mut_replicate_cache().remove(&entity) {
             // TODO: DO NOT SEND ENTITY DESPAWN TO THE CLIENT WHO JUST DISCONNECTED!
-            let mut network_target = despawn_metadata.replication_target;
+            let mut network_target = replicate_cache.replication_target;
 
             // TODO: for this to work properly, we need the replicate stored in `sender.get_mut_replicate_component_cache()`
             //  to be updated for every replication change! Wait for observers instead.
             //  How did it work on the `main` branch? was there something else making it work? Maybe the
             //  update replicate ran before
-            if despawn_metadata.replication_mode == VisibilityMode::InterestManagement {
+            if replicate_cache.replication_mode == VisibilityMode::InterestManagement {
                 // if the mode was room, only replicate the despawn to clients that were in the same room
                 network_target.intersection(NetworkTarget::Only(
-                    despawn_metadata.replication_clients_cache,
+                    replicate_cache.replication_clients_cache,
                 ));
             }
             trace!(?entity, ?network_target, "send entity despawn");
-            let group_id = despawn_metadata.replication_group.group_id(Some(entity));
+            let group_id = replicate_cache.replication_group.group_id(Some(entity));
             let _ = sender
-                .prepare_entity_despawn(
-                    entity,
-                    group_id,
-                    network_target,
-                    system_bevy_ticks.this_run(),
-                )
-                // TODO: bubble up errors to user via ConnectionEvents
-                .map_err(|e| {
+                .prepare_entity_despawn(entity, group_id, network_target)
+                // TODO: bubble up errors to user via ConnectionEvents?
+                .inspect_err(|e| {
                     error!("error sending entity despawn: {:?}", e);
                 });
         }
@@ -179,191 +186,199 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
 /// NOTE: cannot use ConnectEvents because they are reset every frame
 pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
     registry: Res<ComponentRegistry>,
-    query: Query<(Entity, Ref<C>, Ref<Replicate>, Option<&ReplicateVisibility>)>,
+    query: Query<(
+        Entity,
+        Ref<C>,
+        Ref<ReplicationTarget>,
+        &ReplicationGroup,
+        Option<&ReplicateVisibility>,
+    )>,
     system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
 ) {
     let kind = registry.net_id::<C>();
-    query.iter().for_each(|(entity, component, replicate, visibility)| {
-        // do not replicate components that are disabled
-        if replicate.is_disabled::<C>() {
-            return;
-        }
-        // will store (NetworkTarget, is_Insert). We use this to avoid serializing if there are no clients we need to replicate to
-        let mut replicate_args = vec![];
-        match replicate.visibility {
-            VisibilityMode::InterestManagement => {
-                visibility.unwrap().clients_cache
-                    .iter()
-                    .for_each(|(client_id, visibility)| {
-                        if replicate.replication_target.targets(client_id) {
-                            let target = replicate.target::<C>(NetworkTarget::Only(vec![*client_id]));
-                            match visibility {
-                                ClientVisibility::Gained => {
-                                    replicate_args.push((target, true));
-                                }
-                                ClientVisibility::Lost => {}
-                                ClientVisibility::Maintained => {
-                                    // send a component_insert for components that were newly added
-                                    if component.is_added() {
-                                        replicate_args.push((target, true));
-                                    } else {
-                                        // only update components that were not newly added
+    query
+        .iter()
+        .for_each(|(entity, component, replication_target, group, visibility)| {
+            // TODO: READD THIS
+            // // do not replicate components that are disabled
+            // if replicate.is_disabled::<C>() {
+            //     return;
+            // }
 
-                                        // do not send updates for these components, only inserts/removes
-                                        if replicate.is_replicate_once::<C>() {
-                                            // we can exit the function immediately because we know we don't want to replicate
-                                            // to any client
-                                            return;
+            let (insert_target, update_target): (NetworkTarget, NetworkTarget) = match visibility {
+                Some(visibility) => {
+                    let mut insert_clients = vec![];
+                    let mut update_clients = vec![];
+                    visibility
+                        .clients_cache
+                        .iter()
+                        .for_each(|(client_id, visibility)| {
+                            if replication_target.replication.targets(client_id) {
+                                // TODO: RE-ADD CUSTOM TARGET
+                                match visibility {
+                                    ClientVisibility::Gained => {
+                                        insert_clients.push(*client_id);
+                                    }
+                                    ClientVisibility::Lost => {}
+                                    ClientVisibility::Maintained => {
+                                        // send a component_insert for components that were newly added
+                                        if component.is_added() {
+                                            insert_clients.push(*client_id);
+                                        } else {
+                                            // only update components that were not newly added
+
+                                            // TODO: readd-this
+                                            // // do not send updates for these components, only inserts/removes
+                                            // if replicate.is_replicate_once::<C>() {
+                                            //     // we can exit the function immediately because we know we don't want to replicate
+                                            //     // to any client
+                                            //     return;
+                                            // }
+                                            update_clients.push(*client_id);
                                         }
-                                        replicate_args.push((target, false));
                                     }
                                 }
                             }
-                        }
-                    })
-            }
-            VisibilityMode::All => {
-                let mut target = replicate.replication_target.clone();
-
-                let new_connected_clients = sender.new_connected_clients().clone();
-                // replicate all components to newly connected clients
-                if !new_connected_clients.is_empty() {
-                    // replicate to the newly connected clients that match our target
-                    let mut new_connected_target = target.clone();
-                    new_connected_target
-                        .intersection(NetworkTarget::Only(new_connected_clients.clone()));
-                    replicate_args.push((replicate.target::<C>(new_connected_target), true));
-                    // don't re-send to newly connection client
-                    target.exclude(new_connected_clients.clone());
+                        });
+                    (NetworkTarget::from(insert_clients), NetworkTarget::from(update_clients))
                 }
+                None => {
+                    let (mut insert_target, mut update_target) =
+                        (NetworkTarget::None, NetworkTarget::None);
 
-                let target = replicate.target::<C>(target);
-                // send a component_insert for components that were newly added
-                // or if replicate was newly added.
-                // TODO: ideally what we should be checking is: is the component newly added
-                //  for the client we are sending to?
-                //  Otherwise another solution would be to also insert the component on ComponentUpdate if it's missing
-                //  Or should we just have ComponentInsert and ComponentUpdate be the same thing? Or we check
-                //  on the receiver's entity world mut to know if we emit a ComponentInsert or a ComponentUpdate?
-                if component.is_added() || replicate.is_added() {
-                    trace!("component is added");
-                    replicate_args.push((target, true));
-                } else {
-                    // do not send updates for these components, only inserts/removes
-                    if replicate.is_replicate_once::<C>() {
-                        trace!(?entity,
-                            "not replicating updates for {:?} because it is marked as replicate_once",
-                            kind
-                        );
-                        // we can exit the function immediately because we know we don't want to replicate
-                        // to any client
-                        return;
+                    // send a component_insert for components that were newly added
+                    // or if replicate was newly added.
+                    // TODO: ideally what we should be checking is: is the component newly added
+                    //  for the client we are sending to?
+                    //  Otherwise another solution would be to also insert the component on ComponentUpdate if it's missing
+                    //  Or should we just have ComponentInsert and ComponentUpdate be the same thing? Or we check
+                    //  on the receiver's entity world mut to know if we emit a ComponentInsert or a ComponentUpdate?
+                    if component.is_added() || replication_target.is_added() {
+                        trace!("component is added or replication_target is added");
+                        insert_target.union(&replication_target.replication);
+                    } else {
+                        // TODO: re-add this
+                        // // do not send updates for these components, only inserts/removes
+                        // if replicate.is_replicate_once::<C>() {
+                        //     trace!(?entity,
+                        //         "not replicating updates for {:?} because it is marked as replicate_once",
+                        //         kind
+                        //     );
+                        //     // we can exit the function immediately because we know we don't want to replicate
+                        //     // to any client
+                        //     return;
+                        // }
+
+                        // otherwise send an update for all components that changed since the
+                        // last update we have ack-ed
+                        update_target.union(&replication_target.replication);
                     }
-                    // otherwise send an update for all components that changed since the
-                    // last update we have ack-ed
-                    replicate_args.push((target, false));
+
+                    let new_connected_clients = sender.new_connected_clients();
+                    // replicate all components to newly connected clients
+                    if !new_connected_clients.is_empty() {
+                        // replicate to the newly connected clients that match our target
+                        let mut new_connected_target = NetworkTarget::Only(new_connected_clients);
+                        new_connected_target.intersection(&replication_target.replication);
+                        debug!(?entity, target = ?new_connected_target, "Replicate to newly connected clients");
+                        update_target.union(&new_connected_target);
+                    }
+                    (insert_target, update_target)
                 }
-            }
-        }
+            };
 
-        if !replicate_args.is_empty() {
-            // serialize component
-            let writer = sender.writer();
-            let raw_data = registry.serialize(component.as_ref(), writer).expect("Could not serialize component");
+            if !insert_target.is_empty() || !update_target.is_empty() {
+                // serialize component
+                let writer = sender.writer();
+                let raw_data = registry
+                    .serialize(component.as_ref(), writer)
+                    .expect("Could not serialize component");
 
-            replicate_args.into_iter().for_each(|(target, is_insert)| {
-                if is_insert {
+                if !insert_target.is_empty() {
                     let _ = sender
                         .prepare_component_insert(
                             entity,
                             kind,
                             // TODO: avoid the clone by using Arc<u8>?
                             raw_data.clone(),
-                            replicate.as_ref(),
-                            target,
-                            system_bevy_ticks.this_run(),
+                            &registry,
+                            replication_target.as_ref(),
+                            &group,
+                            insert_target
                         )
-                        .map_err(|e| {
+                        .inspect_err(|e| {
                             error!("error sending component insert: {:?}", e);
                         });
-                } else {
+                }
+                if !update_target.is_empty() {
                     let _ = sender
                         .prepare_component_update(
                             entity,
                             kind,
-                            raw_data.clone(),
-                            replicate.as_ref(),
-                            target,
+                            raw_data,
+                            &group,
+                            update_target,
                             component.last_changed(),
                             system_bevy_ticks.this_run(),
                         )
-                        .map_err(|e| {
+                        .inspect_err(|e| {
                             error!("error sending component update: {:?}", e);
                         });
                 }
-            });
-        }
-    });
+            }
+        });
 }
 
 /// This system sends updates for all components that were removed
 pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
     registry: Res<ComponentRegistry>,
     // only remove the component for entities that are being actively replicated
-    query: Query<(&Replicate, Option<&ReplicateVisibility>)>,
-    system_bevy_ticks: SystemChangeTick,
+    query: Query<(
+        &ReplicationTarget,
+        &ReplicationGroup,
+        Option<&ReplicateVisibility>,
+    )>,
     mut removed: RemovedComponents<C>,
     mut sender: ResMut<R>,
 ) {
     let kind = registry.net_id::<C>();
     removed.read().for_each(|entity| {
-        if let Ok((replicate, visibility)) = query.get(entity) {
-            // do not replicate components that are disabled
-            if replicate.is_disabled::<C>() {
-                return;
-            }
-            match replicate.visibility {
-                VisibilityMode::InterestManagement => {
+        if let Ok((replication_target, group, visibility)) = query.get(entity) {
+            // TODO: re-add this!
+            // // do not replicate components that are disabled
+            // if replicate.is_disabled::<C>() {
+            //     return;
+            // }
+            let target = match visibility {
+                Some(visibility) => {
                     visibility
-                        .unwrap()
                         .clients_cache
                         .iter()
-                        .for_each(|(client_id, visibility)| {
-                            if replicate.replication_target.targets(client_id) {
+                        .filter_map(|(client_id, visibility)| {
+                            if replication_target.replication.targets(client_id) {
                                 // TODO: maybe send no matter the vis?
                                 if matches!(visibility, ClientVisibility::Maintained) {
-                                    let _ = sender
-                                        .prepare_component_remove(
-                                            entity,
-                                            kind,
-                                            replicate,
-                                            replicate
-                                                .target::<C>(NetworkTarget::Only(vec![*client_id])),
-                                            system_bevy_ticks.this_run(),
-                                        )
-                                        .map_err(|e| {
-                                            error!("error sending component remove: {:?}", e);
-                                        });
+                                    // TODO: USE THE CUSTOM REPLICATE TARGET FOR THIS COMPONENT IF PRESENT!
+                                    return Some(*client_id);
                                 }
-                            }
+                            };
+                            return None;
                         })
+                        .collect()
                 }
-                VisibilityMode::All => {
+                None => {
                     trace!("sending component remove!");
-                    let _ = sender
-                        .prepare_component_remove(
-                            entity,
-                            kind,
-                            replicate,
-                            replicate.target::<C>(replicate.replication_target.clone()),
-                            system_bevy_ticks.this_run(),
-                        )
-                        .map_err(|e| {
-                            error!("error sending component remove: {:?}", e);
-                        });
+                    // TODO: USE THE CUSTOM REPLICATE TARGET FOR THIS COMPONENT IF PRESENT!
+                    replication_target.replication.clone()
                 }
+            };
+            if target.is_empty() {
+                return;
             }
+            let group_id = group.group_id(Some(entity));
+            debug!(?entity, ?kind, "Sending RemoveComponent");
+            let _ = sender.prepare_component_remove(entity, kind, group, target);
         }
     })
 }
@@ -408,7 +423,7 @@ pub(crate) fn receive_cleanup<R: ReplicationReceive>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::{client, server};
+    use crate::prelude::client;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

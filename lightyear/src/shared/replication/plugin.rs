@@ -130,11 +130,6 @@ pub(crate) mod send {
             app.add_systems(
                 PostUpdate,
                 (
-                    // TODO: try to move this to ReplicationSystems as well? entities are spawned only once
-                    //  so we can run the system every frame
-                    //  putting it here means we might miss entities that are spawned and depspawned within the send_interval? bug or feature?
-                    systems::send_entity_spawn::<R>
-                        .in_set(InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates),
                     // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
                     //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
                     //  It is ok to run it every frame because it creates at most one message per despawn
@@ -158,14 +153,15 @@ pub(crate) mod send {
 
 pub(crate) mod shared {
     use crate::prelude::{
-        NetworkTarget, PrePredicted, RemoteEntityMap, Replicate, ReplicationGroup,
-        ShouldBePredicted, TargetEntity, VisibilityMode,
+        PrePredicted, RemoteEntityMap, Replicate, ReplicationGroup, ShouldBePredicted,
+        TargetEntity, VisibilityMode,
     };
     use crate::shared::replication::components::{
         PerComponentReplicationMetadata, ReplicationGroupId, ReplicationGroupIdBuilder,
         ShouldBeInterpolated,
     };
     use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
+    use crate::shared::replication::network_target::NetworkTarget;
     use bevy::prelude::{App, Plugin};
 
     pub(crate) struct SharedPlugin;
