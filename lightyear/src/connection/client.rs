@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 use bevy::ecs::system::SystemParam;
@@ -13,7 +14,7 @@ use crate::connection::id::ClientId;
 use crate::connection::netcode::ConnectToken;
 
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-use crate::connection::steam::client::SteamConfig;
+use crate::connection::steam::{client::SteamConfig, steamworks_client::SteamworksClient};
 use crate::packet::packet::Packet;
 
 use crate::prelude::client::ClientTransport;
@@ -88,6 +89,8 @@ pub enum NetConfig {
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     Steam {
         #[reflect(ignore)]
+        steamworks_client: Option<Arc<RwLock<SteamworksClient>>>,
+        #[reflect(ignore)]
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
     },
@@ -132,12 +135,19 @@ impl NetConfig {
             }
             #[cfg(all(feature = "steam", not(target_family = "wasm")))]
             NetConfig::Steam {
+                steamworks_client,
                 config,
                 conditioner,
             } => {
                 // TODO: handle errors
-                let client = super::steam::client::Client::new(config, conditioner)
-                    .expect("could not create steam client");
+                let client = super::steam::client::Client::new(
+                    steamworks_client.unwrap_or_else(|| {
+                        Arc::new(RwLock::new(SteamworksClient::new(config.app_id)))
+                    }),
+                    config,
+                    conditioner,
+                )
+                .expect("could not create steam client");
                 ClientConnection {
                     client: NetClientDispatch::Steam(client),
                 }

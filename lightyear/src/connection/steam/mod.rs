@@ -3,13 +3,9 @@ use steamworks::networking_types::{NetworkingConfigEntry, NetworkingConfigValue}
 
 pub(crate) mod client;
 pub(crate) mod server;
+pub(crate) mod steamworks_client;
 
-// NOTE: it looks like there's SingleClient can actually be called on multiple threads
-// - https://partner.steamgames.com/doc/api/steam_api#SteamAPI_RunCallbacks
-pub(crate) struct SingleClientThreadSafe(steamworks::SingleClient);
-
-unsafe impl Sync for SingleClientThreadSafe {}
-unsafe impl Send for SingleClientThreadSafe {}
+pub use steamworks_client::SteamworksClient;
 
 pub(crate) fn get_networking_options(
     conditioner: &Option<LinkConditionerConfig>,
