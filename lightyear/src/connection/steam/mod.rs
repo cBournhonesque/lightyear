@@ -5,8 +5,6 @@ pub(crate) mod client;
 pub(crate) mod server;
 pub(crate) mod steamworks_client;
 
-pub use steamworks_client::SteamworksClient;
-
 pub(crate) fn get_networking_options(
     conditioner: &Option<LinkConditionerConfig>,
 ) -> Vec<NetworkingConfigEntry> {

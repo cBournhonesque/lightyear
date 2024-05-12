@@ -257,7 +257,7 @@ pub mod prelude {
             Authentication, ClientConnection, IoConfig, NetClient, NetConfig,
         };
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-        pub use crate::connection::steam::client::SteamConfig;
+        pub use crate::connection::steam::client::{SocketConfig, SteamConfig};
     }
     pub mod server {
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
@@ -287,6 +287,9 @@ pub mod prelude {
         pub use crate::server::visibility::immediate::VisibilityManager;
         pub use crate::server::visibility::room::{RoomId, RoomManager};
     }
+
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    pub use crate::connection::steam::steamworks_client::SteamworksClient;
 }
 
 use prelude::*;

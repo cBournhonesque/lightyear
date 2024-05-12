@@ -15,9 +15,9 @@ use std::sync::{Arc, OnceLock, RwLock};
 use steamworks::networking_sockets::{NetConnection, NetworkingSockets};
 use steamworks::networking_types::{
     NetConnectionEnd, NetConnectionInfo, NetworkingConfigEntry, NetworkingConfigValue,
-    NetworkingConnectionState, SendFlags,
+    NetworkingConnectionState, NetworkingIdentity, SendFlags,
 };
-use steamworks::{ClientManager, SingleClient};
+use steamworks::{ClientManager, SingleClient, SteamId};
 use tracing::{info, warn};
 
 use super::get_networking_options;
@@ -27,16 +27,29 @@ const MAX_MESSAGE_BATCH_SIZE: usize = 512;
 
 #[derive(Debug, Clone)]
 pub struct SteamConfig {
-    pub server_addr: SocketAddr,
+    pub socket_config: SocketConfig,
     pub app_id: u32,
 }
 
 impl Default for SteamConfig {
     fn default() -> Self {
         Self {
-            server_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 27015)),
-            // app id of the public Space Wars demo app
+            socket_config: Default::default(),
             app_id: 480,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum SocketConfig {
+    Ip { server_addr: SocketAddr },
+    P2P { virtual_port: i32, steam_id: u64 },
+}
+
+impl Default for SocketConfig {
+    fn default() -> Self {
+        SocketConfig::Ip {
+            server_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 27015)),
         }
     }
 }
@@ -88,20 +101,42 @@ impl Client {
 
 impl NetClient for Client {
     fn connect(&mut self) -> Result<()> {
-        let options = get_networking_options(&self.conditioner);
-        self.connection = Some(
-            self.steamworks_client
-                .read()
-                .expect("could not get steamworks client")
-                .get_client()
-                .networking_sockets()
-                .connect_by_ip_address(self.config.server_addr, vec![])
-                .context("failed to create connection")?,
-        );
-        info!(
-            "Opened steam connection to server at address: {}",
-            self.config.server_addr
-        );
+        // TODO: using the NetworkingConfigEntry options seems to cause an issue. See: https://github.com/Noxime/steamworks-rs/issues/169
+        // let options = get_networking_options(&self.conditioner);
+
+        match self.config.socket_config {
+            SocketConfig::Ip { server_addr } => {
+                self.connection = Some(
+                    self.steamworks_client
+                        .read()
+                        .expect("could not get steamworks client")
+                        .get_client()
+                        .networking_sockets()
+                        .connect_by_ip_address(server_addr, vec![])
+                        .context("failed to create ip connection")?,
+                );
+                info!(
+                    "Opened steam connection to server at address: {}",
+                    server_addr
+                );
+            }
+            SocketConfig::P2P {
+                virtual_port,
+                steam_id,
+            } => {
+                self.steamworks_client
+                    .read()
+                    .expect("could not get steamworks client")
+                    .get_client()
+                    .networking_sockets()
+                    .connect_p2p(
+                        NetworkingIdentity::new_steam_id(SteamId::from_raw(steam_id)),
+                        virtual_port,
+                        vec![],
+                    )
+                    .context("failed to create p2p connection")?;
+            }
+        }
         Ok(())
     }
 
