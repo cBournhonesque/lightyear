@@ -10,7 +10,7 @@ use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
-mod receive {
+pub(crate) mod receive {
     use super::*;
     #[derive(Default)]
     pub struct ClientReplicationReceivePlugin {
@@ -49,7 +49,7 @@ mod receive {
     }
 }
 
-mod send {
+pub(crate) mod send {
     use super::*;
     use crate::prelude::{
         ClientId, ComponentRegistry, ReplicationGroup, ShouldBePredicted, TargetEntity,

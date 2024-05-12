@@ -16,13 +16,10 @@ use crate::client::events::ClientEventsPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
-use crate::client::replication::{ClientReplicationReceivePlugin, ClientReplicationSendPlugin};
+use crate::client::replication::{
+    receive::ClientReplicationReceivePlugin, send::ClientReplicationSendPlugin,
+};
 use crate::prelude::server::{ServerConfig, ServerPlugins};
-use crate::server::events::ServerEventsPlugin;
-use crate::server::networking::ServerNetworkingPlugin;
-use crate::server::replication::{ServerReplicationReceivePlugin, ServerReplicationSendPlugin};
-use crate::server::visibility::immediate::VisibilityPlugin;
-use crate::server::visibility::room::RoomPlugin;
 use crate::shared::config::Mode;
 use crate::shared::plugin::SharedPlugin;
 

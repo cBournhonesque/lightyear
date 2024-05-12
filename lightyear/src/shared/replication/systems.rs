@@ -34,12 +34,12 @@ pub(crate) struct ReplicateCache {
     pub(crate) replication_clients_cache: Vec<ClientId>,
 }
 
-/// For every entity that removes their Replicate component but are not despawned, remove the component
+/// For every entity that removes their ReplicationTarget component but are not despawned, remove the component
 /// from our replicate cache (so that the entity's despawns are no longer replicated)
 pub(crate) fn handle_replicate_remove<R: ReplicationSend>(
     mut commands: Commands,
     mut sender: ResMut<R>,
-    mut query: RemovedComponents<Replicate>,
+    mut query: RemovedComponents<ReplicationTarget>,
     entity_check: &Entities,
 ) {
     for entity in query.read() {
@@ -112,11 +112,11 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
         .for_each(|(entity, replication_target, group, visibility)| {
             // no need to check if the visibility mode is InterestManagement, because the ReplicateVisibility component
             // is only present if that is the case
-            let target = visibility
+            let target: NetworkTarget = visibility
                 .clients_cache
                 .iter()
                 .filter_map(|(client_id, visibility)| {
-                    if replication_target.targets(client_id)
+                    if replication_target.replication.targets(client_id)
                         && matches!(visibility, ClientVisibility::Lost)
                     {
                         debug!(
@@ -158,14 +158,13 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
             //  update replicate ran before
             if replicate_cache.replication_mode == VisibilityMode::InterestManagement {
                 // if the mode was room, only replicate the despawn to clients that were in the same room
-                network_target.intersection(NetworkTarget::Only(
+                network_target.intersection(&NetworkTarget::Only(
                     replicate_cache.replication_clients_cache,
                 ));
             }
             trace!(?entity, ?network_target, "send entity despawn");
-            let group_id = replicate_cache.replication_group.group_id(Some(entity));
             let _ = sender
-                .prepare_entity_despawn(entity, group_id, network_target)
+                .prepare_entity_despawn(entity, &replicate_cache.replication_group, network_target)
                 // TODO: bubble up errors to user via ConnectionEvents?
                 .inspect_err(|e| {
                     error!("error sending entity despawn: {:?}", e);

@@ -22,7 +22,7 @@ pub enum ServerReplicationSet {
     ClientReplication,
 }
 
-mod receive {
+pub(crate) mod receive {
     use super::*;
 
     #[derive(Default)]
@@ -48,7 +48,7 @@ mod receive {
     }
 }
 
-mod send {
+pub(crate) mod send {
     use super::*;
     use crate::prelude::{
         ComponentRegistry, ReplicationGroup, ShouldBePredicted, TargetEntity, VisibilityMode,
@@ -129,7 +129,9 @@ mod send {
     ) {
         let local_client = connection.id();
         for (entity, replication_target, pre_predicted) in query.iter() {
-            if (replication_target.is_changed()) && replication_target.targets(&local_client) {
+            if (replication_target.is_changed())
+                && replication_target.replication.targets(&local_client)
+            {
                 if pre_predicted.is_some_and(|pre_predicted| pre_predicted.client_entity.is_none())
                 {
                     // PrePredicted's client_entity is None if it's a pre-predicted entity that was spawned by the local client
@@ -234,7 +236,7 @@ mod send {
             trace!(?entity, "Prepare entity spawn to client");
             let group_id = group.group_id(Some(entity));
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            let _ = sender.apply_replication(target).try_for_each(|client_id| {
+            let _ = sender.apply_replication(target).map(|client_id| {
                 // let the client know that this entity is controlled by them
                 if controlled_by.targets(&client_id) {
                     sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled)?;
@@ -272,10 +274,12 @@ mod send {
                 }
 
                 // also set the priority for the group when we spawn it
-                sender.connection_mut(client_id)?.replication_sender.update_base_priority(group_id, group.priority())?;
+                sender.connection_mut(client_id)?.replication_sender.update_base_priority(group_id, group.priority());
                 Ok(())
-            }).inspect_err(|e| {
-                error!("error sending entity spawn: {:?}", e);
+            }).inspect(|e: &anyhow::Result<()>| {
+                if e.is_err() {
+                    error!("error sending entity spawn: {:?}", e);
+                }
             });
         });
     }

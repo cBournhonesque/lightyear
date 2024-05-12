@@ -763,12 +763,10 @@ impl ReplicationSend for ConnectionManager {
 
         // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
         let mut actual_target = target;
-        let should_be_predicted_kind = self
-            .component_registry()
+        let should_be_predicted_kind = component_registry
             .get_net_id::<ShouldBePredicted>()
             .context("ShouldBePredicted is not registered")?;
-        let pre_spawned_player_object_kind = self
-            .component_registry()
+        let pre_spawned_player_object_kind = component_registry
             .get_net_id::<PreSpawnedPlayerObject>()
             .context("PreSpawnedPlayerObject is not registered")?;
         if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {

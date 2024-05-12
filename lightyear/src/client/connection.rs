@@ -36,7 +36,7 @@ use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
-use crate::shared::replication::components::{Replicate, ReplicationGroupId};
+use crate::shared::replication::components::{Replicate, ReplicationGroupId, ReplicationTarget};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -493,20 +493,13 @@ impl ReplicationSend for ConnectionManager {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replication_group_id: ReplicationGroupId,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()> {
+        let group_id = group.group_id(Some(entity));
         // trace!(?entity, "Send entity despawn for tick {:?}", self.tick());
         let replication_sender = &mut self.replication_sender;
-        // update the collect changes tick
-        // replication_sender
-        //     .group_channels
-        //     .entry(group)
-        //     .or_default()
-        //     .update_collect_changes_since_this_tick(system_current_tick);
-        replication_sender.prepare_entity_despawn(entity, replication_group_id);
-        // Prediction/interpolation
+        replication_sender.prepare_entity_despawn(entity, group_id);
         Ok(())
     }
 
@@ -515,23 +508,18 @@ impl ReplicationSend for ConnectionManager {
         entity: Entity,
         kind: ComponentNetId,
         component: RawData,
-        replicate: &Replicate,
+        component_registry: &ComponentRegistry,
+        replication_target: &ReplicationTarget,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()> {
-        let group_id = replicate.replication_group.group_id(Some(entity));
+        let group_id = group.group_id(Some(entity));
         // debug!(
         //     ?entity,
         //     component = ?kind,
         //     tick = ?self.tick_manager.tick(),
         //     "Inserting single component"
         // );
-        // update the collect changes tick
-        // self.replication_sender
-        //     .group_channels
-        //     .entry(group)
-        //     .or_default()
-        //     .update_collect_changes_since_this_tick(system_current_tick);
         self.replication_sender
             .prepare_component_insert(entity, group_id, kind, component);
         Ok(())
@@ -556,12 +544,12 @@ impl ReplicationSend for ConnectionManager {
         entity: Entity,
         kind: ComponentNetId,
         component: RawData,
-        replicate: &Replicate,
+        group: &ReplicationGroup,
         target: NetworkTarget,
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        let group_id = replicate.group_id(Some(entity));
+        let group_id = group.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         let collect_changes_since_this_tick = self
             .replication_sender

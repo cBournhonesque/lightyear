@@ -171,7 +171,7 @@ pub(crate) mod shared {
             // REFLECTION
             app.register_type::<Replicate>()
                 .register_type::<TargetEntity>()
-                .register_type::<PerComponentReplicationMetadata>()
+                // .register_type::<PerComponentReplicationMetadata>()
                 .register_type::<ReplicationGroupIdBuilder>()
                 .register_type::<ReplicationGroup>()
                 .register_type::<ReplicationGroupId>()

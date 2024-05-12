@@ -18,14 +18,16 @@ mod systems {
     use crate::server::clients::ControlledEntities;
     use crate::server::connection::ConnectionManager;
     use crate::server::events::DisconnectEvent;
+    use crate::shared::replication::components::ControlledBy;
     use crate::shared::replication::network_target::NetworkTarget;
     use tracing::{debug, error, trace};
 
-    pub(super) fn handle_replicate_update(
+    // TODO: remove entity from ControlledBy when ControlledBy gets removed! (via observers)?
+    // TODO: remove entity in controlled by lists after the component gets updated
+
+    pub(super) fn handle_controlled_by_update(
         sender: Res<ConnectionManager>,
-        // TODO: have a more fine-grained change detection..
-        //  or should we split the replicate component into multiple sub components?
-        query: Query<(Entity, &Replicate), Changed<Replicate>>,
+        query: Query<(Entity, &ControlledBy), Changed<ControlledBy>>,
         mut client_query: Query<&mut ControlledEntities>,
     ) {
         let update_controlled_entities =
@@ -49,8 +51,8 @@ mod systems {
                 }
             };
 
-        for (entity, replicate) in query.iter() {
-            match &replicate.controlled_by {
+        for (entity, controlled_by) in query.iter() {
+            match &controlled_by.target {
                 NetworkTarget::None => {}
                 NetworkTarget::Single(client_id) => {
                     update_controlled_entities(entity, *client_id, &mut client_query, &sender);
@@ -99,7 +101,7 @@ impl Plugin for ClientsMetadataPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PostUpdate,
-            systems::handle_replicate_update
+            systems::handle_controlled_by_update
                 .in_set(InternalReplicationSet::<ServerMarker>::HandleReplicateUpdate),
         );
         // we handle this in the `Last` `SystemSet` to let the user handle the disconnect event

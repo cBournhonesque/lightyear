@@ -102,7 +102,7 @@ impl Default for ReplicationTarget {
 #[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct ControlledBy {
     /// Which client(s) control this entity?
-    target: NetworkTarget,
+    pub target: NetworkTarget,
 }
 
 impl ControlledBy {
@@ -372,7 +372,7 @@ impl ReplicationGroup {
 )]
 pub struct ReplicationGroupId(pub u64);
 
-#[derive(Clone, Copy, Default, Debug, PartialEq, Reflect)]
+#[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
 pub enum VisibilityMode {
     /// We will replicate this entity to the clients specified in the `replication_target`.
     /// On top of that, we will apply interest management logic to determine which clients should receive the entity

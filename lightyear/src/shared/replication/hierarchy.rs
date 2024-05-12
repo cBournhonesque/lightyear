@@ -3,7 +3,7 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::prelude::{ReplicationGroup, VisibilityMode};
+use crate::prelude::{Replicated, ReplicationGroup, VisibilityMode};
 use crate::shared::replication::components::{
     ControlledBy, Replicate, ReplicateHierarchy, ReplicationTarget,
 };
@@ -91,7 +91,9 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
     /// (run this in post-update before replicating, to account for any hierarchy changed initiated by the user)
     ///
     /// This only runs on the sending side
-    fn update_parent_sync(mut query: Query<(Ref<Parent>, &mut ParentSync), With<Replicate>>) {
+    fn update_parent_sync(
+        mut query: Query<(Ref<Parent>, &mut ParentSync), With<ReplicateHierarchy>>,
+    ) {
         for (parent, mut parent_sync) in query.iter_mut() {
             if parent.is_changed() || parent_sync.is_added() {
                 trace!(
@@ -109,7 +111,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
     /// This only runs on the sending side
     fn removal_system(
         mut removed_parents: RemovedComponents<Parent>,
-        mut hierarchy: Query<&mut ParentSync, With<Replicate>>,
+        mut hierarchy: Query<&mut ParentSync, With<ReplicateHierarchy>>,
     ) {
         for entity in removed_parents.read() {
             if let Ok(mut parent_sync) = hierarchy.get_mut(entity) {
@@ -155,7 +157,7 @@ impl<R> HierarchyReceivePlugin<R> {
         mut commands: Commands,
         hierarchy: Query<
             (Entity, &ParentSync, Option<&Parent>),
-            (Changed<ParentSync>, Without<Replicate>),
+            (Changed<ParentSync>, Without<Replicated>),
         >,
     ) {
         for (entity, parent_sync, parent) in hierarchy.iter() {

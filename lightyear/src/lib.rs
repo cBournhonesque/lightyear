@@ -263,7 +263,7 @@ pub mod prelude {
         pub use crate::server::io::Io;
         pub use crate::server::networking::{NetworkingState, ServerCommands};
         pub use crate::server::plugin::ServerPlugins;
-        pub use crate::server::replication::{ServerFilter, ServerReplicationSet};
+        pub use crate::server::replication::{send::ServerFilter, ServerReplicationSet};
         pub use crate::server::visibility::immediate::VisibilityManager;
         pub use crate::server::visibility::room::{RoomId, RoomManager};
     }
