@@ -267,7 +267,7 @@ pub mod prelude {
             IoConfig, NetConfig, NetServer, ServerConnection, ServerConnections,
         };
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-        pub use crate::connection::steam::server::SteamConfig;
+        pub use crate::connection::steam::server::{SocketConfig, SteamConfig};
         pub use crate::server::clients::ControlledEntities;
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
         pub use crate::server::connection::ConnectionManager;
