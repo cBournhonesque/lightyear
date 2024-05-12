@@ -59,7 +59,6 @@ pub enum SocketConfig {
     },
     P2P {
         virtual_port: i32,
-        use_relay_network: bool,
     },
 }
 
@@ -150,13 +149,7 @@ impl NetServer for Server {
                 );
                 info!("Steam socket started on {:?}", server_addr);
             }
-            SocketConfig::P2P {
-                virtual_port,
-                use_relay_network,
-            } => {
-                if use_relay_network {
-                    // self.client.networking_utils().init_relay_network_access();
-                }
+            SocketConfig::P2P { virtual_port } => {
                 self.listen_socket = Some(
                     self.steamworks_client
                         .read()
