@@ -60,12 +60,14 @@ pub type ComponentNetId = NetId;
 /// You register components by calling the [`register_component`](AppComponentExt::register_component) method directly on the App.
 /// You can provide a [`ChannelDirection`] to specify if the component should be sent from the client to the server, from the server to the client, or both.
 ///
+/// A component needs to implement the `Serialize`, `Deserialize` and `PartialEq` traits.
+///
 /// ```rust
 /// use bevy::prelude::*;
 /// use serde::{Deserialize, Serialize};
 /// use lightyear::prelude::*;
 ///
-/// #[derive(Component, Serialize, Deserialize)]
+/// #[derive(Component, PartialEq, Serialize, Deserialize)]
 /// struct MyComponent;
 ///
 /// fn add_components(app: &mut App) {
@@ -247,7 +249,7 @@ impl ComponentRegistry {
         }
     }
 
-    pub(crate) fn register_component<C: Component + Message>(&mut self) {
+    pub(crate) fn register_component<C: Component + Message + PartialEq>(&mut self) {
         let component_kind = self.kind_map.add::<C>();
         self.serialize_fns_map
             .insert(component_kind, ErasedSerializeFns::new::<C>());
@@ -468,7 +470,7 @@ impl ComponentRegistry {
         (replication_metadata.write)(self, reader, net_id, entity_world_mut, entity_map, events)
     }
 
-    pub(crate) fn write<C: Component>(
+    pub(crate) fn write<C: Component + PartialEq>(
         &self,
         reader: &mut BitcodeReader,
         net_id: ComponentNetId,
@@ -483,9 +485,11 @@ impl ComponentRegistry {
         let tick = Tick(0);
         // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
         if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-            events.push_update_component(entity, net_id, tick);
-            // TODO: use set_if_neq for PartialEq
-            *c = component;
+            // only apply the update if the component is different, to not trigger change detection
+            if c.as_ref() != &component {
+                events.push_update_component(entity, net_id, tick);
+                *c = component;
+            }
         } else {
             events.push_insert_component(entity, net_id, tick);
             entity_world_mut.insert(component);
@@ -546,7 +550,7 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
 pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
-    fn register_component<C: Component + Message>(
+    fn register_component<C: Component + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C>;
@@ -677,7 +681,7 @@ impl<C> ComponentRegistration<'_, C> {
 }
 
 impl AppComponentExt for App {
-    fn register_component<C: Component + Message>(
+    fn register_component<C: Component + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C> {
