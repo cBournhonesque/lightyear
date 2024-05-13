@@ -117,7 +117,7 @@ pub(crate) fn replicate_players(
                 // we want the other clients to apply interpolation for the player
                 replication_target.interpolation = NetworkTarget::AllExceptSingle(client_id);
             }
-            let mut replicate = Replicate {
+            let replicate = Replicate {
                 target: replication_target,
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(client_id),
