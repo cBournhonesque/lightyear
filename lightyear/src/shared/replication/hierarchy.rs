@@ -70,7 +70,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                 for child in children_query.iter_descendants(parent_entity) {
                     trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
                     let replicate = Replicate {
-                        replication_target: replication_target.clone(),
+                        target: replication_target.clone(),
                         controlled_by: controlled_by.clone(),
                         visibility: visibility_mode.clone(),
                         // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id

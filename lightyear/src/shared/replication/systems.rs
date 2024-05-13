@@ -486,7 +486,7 @@ mod tests {
             .world
             .entity_mut(server_entity)
             .insert(Replicate {
-                replication_target: ReplicationTarget {
+                target: ReplicationTarget {
                     replication: NetworkTarget::All,
                     prediction: NetworkTarget::All,
                     interpolation: NetworkTarget::All,
@@ -628,7 +628,7 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                replication_target: ReplicationTarget {
+                target: ReplicationTarget {
                     replication: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
                     ..default()
                 },
@@ -841,7 +841,7 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                replication_target: ReplicationTarget {
+                target: ReplicationTarget {
                     replication: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
                     ..default()
                 },
@@ -1464,7 +1464,7 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                replication_target: ReplicationTarget {
+                target: ReplicationTarget {
                     replication: NetworkTarget::None,
                     ..default()
                 },

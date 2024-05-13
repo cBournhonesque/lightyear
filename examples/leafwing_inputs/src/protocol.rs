@@ -42,13 +42,16 @@ impl PlayerBundle {
             position: Position(position),
             color: ColorComponent(color),
             replicate: Replicate {
+                target: ReplicationTarget {
+                    // TODO: improve this! this should depend on the predict_all settings
+                    // We still need to specify the interpolation/prediction target for this local entity
+                    // in the case where we're running in HostServer mode
+                    prediction: NetworkTarget::All,
+                    ..default()
+                },
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                replication_group: REPLICATION_GROUP,
-                // TODO: improve this! this should depend on the predict_all settings
-                // We still need to specify the interpolation/prediction target for this local entity
-                // in the case where we're running in HostServer mode
-                prediction_target: NetworkTarget::All,
+                group: REPLICATION_GROUP,
                 ..default()
             },
             physics: PhysicsBundle::player(),
@@ -73,16 +76,19 @@ pub(crate) struct BallBundle {
 
 impl BallBundle {
     pub(crate) fn new(position: Vec2, color: Color, predicted: bool) -> Self {
-        let mut replicate = Replicate {
-            replication_target: NetworkTarget::All,
+        let mut replication_target = ReplicationTarget::default();
+        let mut group = ReplicationGroup::default();
+        if predicted {
+            replication_target.prediction = NetworkTarget::All;
+            group = REPLICATION_GROUP;
+        } else {
+            replication_target.interpolation = NetworkTarget::All;
+        }
+        let replicate = Replicate {
+            target: replication_target,
+            group,
             ..default()
         };
-        if predicted {
-            replicate.prediction_target = NetworkTarget::All;
-            replicate.replication_group = REPLICATION_GROUP;
-        } else {
-            replicate.interpolation_target = NetworkTarget::All;
-        }
         Self {
             position: Position(position),
             color: ColorComponent(color),

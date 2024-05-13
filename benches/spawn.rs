@@ -58,7 +58,7 @@ fn spawn_local(bencher: Bencher, n: usize) {
                 (
                     Component1(0.0),
                     Replicate {
-                        replication_target: NetworkTarget::All,
+                        target: NetworkTarget::All,
                         ..default()
                     },
                 );
@@ -114,7 +114,7 @@ fn spawn_multi_clients(bencher: Bencher, n: usize) {
                 (
                     Component1(0.0),
                     Replicate {
-                        replication_target: NetworkTarget::All,
+                        target: NetworkTarget::All,
                         ..default()
                     },
                 );

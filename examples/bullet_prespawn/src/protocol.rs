@@ -40,11 +40,14 @@ impl PlayerBundle {
             transform: Transform::from_xyz(position.x, position.y, 0.0),
             color: ColorComponent(color),
             replicate: Replicate {
+                target: ReplicationTarget {
+                    // For HostServer mode, remember to also set prediction/interpolation targets for other clients
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                    ..default()
+                },
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                replication_group: ReplicationGroup::new_id(id.to_bits()),
-                // For HostServer mode, remember to also set prediction/interpolation targets for other clients
-                interpolation_target: NetworkTarget::AllExceptSingle(id),
+                group: ReplicationGroup::new_id(id.to_bits()),
                 ..default()
             },
             inputs: InputManagerBundle::<PlayerActions> {

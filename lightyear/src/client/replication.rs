@@ -102,19 +102,22 @@ pub(crate) mod send {
     /// - handles TargetEntity if it's a Preexisting entity
     /// - setting the priority
     pub(crate) fn send_entity_spawn(
-        query: Query<(
-            Entity,
-            Ref<ReplicationTarget>,
-            &ReplicationGroup,
-            Option<&TargetEntity>,
-        )>,
+        query: Query<
+            (
+                Entity,
+                Ref<ReplicationTarget>,
+                &ReplicationGroup,
+                Option<&TargetEntity>,
+            ),
+            Changed<ReplicationTarget>,
+        >,
         mut sender: ResMut<ConnectionManager>,
     ) {
         query
             .iter()
             .for_each(|(entity, replication_target, group, target_entity)| {
                 let mut target = replication_target.replication.clone();
-                if replication_target.is_changed() {
+                if !replication_target.is_added() {
                     if let Some(cached_replicate) = sender.replicate_component_cache.get(&entity) {
                         // do not re-send a spawn message to the server if we already have sent one
                         target.exclude(&cached_replicate.replication_target)

@@ -38,7 +38,7 @@ pub struct Controlled;
 #[derive(Bundle, Clone, PartialEq, Debug, Reflect)]
 pub struct Replicate {
     /// Which clients should this entity be replicated to
-    pub replication_target: ReplicationTarget,
+    pub target: ReplicationTarget,
     /// Which client(s) control this entity?
     pub controlled_by: ControlledBy,
     /// How do we control the visibility of the entity?
@@ -322,7 +322,7 @@ pub enum VisibilityMode {
 impl Default for Replicate {
     fn default() -> Self {
         Self {
-            replication_target: ReplicationTarget::default(),
+            target: ReplicationTarget::default(),
             controlled_by: ControlledBy::default(),
             visibility: VisibilityMode::default(),
             group: ReplicationGroup::default(),

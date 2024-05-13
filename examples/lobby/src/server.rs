@@ -74,9 +74,14 @@ fn spawn_player_entity(
     dedicated_server: bool,
 ) -> Entity {
     let replicate = Replicate {
-        prediction_target: NetworkTarget::Single(client_id),
-        interpolation_target: NetworkTarget::AllExceptSingle(client_id),
-        controlled_by: NetworkTarget::Single(client_id),
+        target: ReplicationTarget {
+            prediction: NetworkTarget::Single(client_id),
+            interpolation: NetworkTarget::AllExceptSingle(client_id),
+            ..default()
+        },
+        controlled_by: ControlledBy {
+            target: NetworkTarget::Single(client_id),
+        },
         visibility: if dedicated_server {
             VisibilityMode::InterestManagement
         } else {
@@ -122,7 +127,7 @@ mod game {
 
     /// Read client inputs and move players
     pub(crate) fn movement(
-        mut position_query: Query<(&Replicate, &mut PlayerPosition)>,
+        mut position_query: Query<(&ControlledBy, &mut PlayerPosition)>,
         mut input_reader: EventReader<InputEvent<Inputs>>,
         tick_manager: Res<TickManager>,
     ) {
@@ -137,8 +142,8 @@ mod game {
                 );
                 // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
                 //  entities here
-                for (replicate, position) in position_query.iter_mut() {
-                    if replicate.controlled_by.targets(client_id) {
+                for (controlled_by, position) in position_query.iter_mut() {
+                    if controlled_by.targets(client_id) {
                         shared_movement_behaviour(position, input);
                     }
                 }
