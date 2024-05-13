@@ -15,6 +15,7 @@ use crate::prelude::client::{
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::tests::protocol::*;
+use crate::transport::LOCAL_SOCKET;
 
 pub const TEST_CLIENT_ID: u64 = 111;
 
@@ -76,12 +77,11 @@ impl BevyStepper {
         frame_duration: Duration,
     ) -> Self {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     // .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::INFO)
         //     .init();
 
         // Use local channels instead of UDP for testing
-        let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let addr = LOCAL_SOCKET;
         // channels to receive a message from/to server
         let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
         let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();

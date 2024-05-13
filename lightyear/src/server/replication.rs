@@ -233,10 +233,12 @@ pub(crate) mod send {
             if target.is_empty() {
                 return;
             }
+
             trace!(?entity, "Prepare entity spawn to client");
             let group_id = group.group_id(Some(entity));
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            let _ = sender.apply_replication(target).map(|client_id| {
+            //  (i.e. before we received an ack?)
+            let _ = sender.apply_replication(target).try_for_each(|client_id| {
                 // let the client know that this entity is controlled by them
                 if controlled_by.targets(&client_id) {
                     sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled)?;
@@ -276,11 +278,10 @@ pub(crate) mod send {
                 // also set the priority for the group when we spawn it
                 sender.connection_mut(client_id)?.replication_sender.update_base_priority(group_id, group.priority());
                 Ok(())
-            }).inspect(|e: &anyhow::Result<()>| {
-                if e.is_err() {
-                    error!("error sending entity spawn: {:?}", e);
-                }
+            }).inspect_err(|e: &anyhow::Error| {
+                error!("error sending entity spawn: {:?}", e);
             });
+
         });
     }
 }

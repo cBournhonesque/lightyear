@@ -423,31 +423,115 @@ pub(crate) fn receive_cleanup<R: ReplicationReceive>(
 mod tests {
     use super::*;
     use crate::prelude::client;
+    use crate::prelude::client::Confirmed;
+    use crate::prelude::server::VisibilityManager;
+    use crate::shared::replication::components::{Controlled, ControlledBy};
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+    use bevy::prelude::default;
 
     #[test]
-    fn test_entity_spawn() {
+    fn test_entity_spawn_visibility_all() {
         let mut stepper = BevyStepper::default();
 
-        // 1. spawn an entity with visibility::All
-        let entity = stepper
+        // spawn an entity on server with visibility::All
+        let server_entity = stepper
             .server_app
             .world
-            .spawn((Replicate::default(), Component1(0.0)))
+            .spawn((
+                Replicate {
+                    replication_target: ReplicationTarget {
+                        replication: NetworkTarget::All,
+                        prediction: NetworkTarget::All,
+                        interpolation: NetworkTarget::All,
+                    },
+                    controlled_by: ControlledBy {
+                        target: NetworkTarget::All,
+                    },
+                    ..default()
+                },
+                Component1(0.0),
+            ))
             .id();
         stepper.frame_step();
         stepper.frame_step();
 
+        // check that the entity was spawned
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        // check that prediction, interpolation, controlled was handled correctly
+        let confirmed = stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<Confirmed>()
+            .expect("Confirmed component missing");
+        assert!(confirmed.predicted.is_some());
+        assert!(confirmed.interpolated.is_some());
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<Controlled>()
+            .is_some());
+    }
+
+    #[test]
+    fn test_entity_spawn_visibility_interest_management() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server with visibility::InterestManagement
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                Replicate {
+                    visibility: VisibilityMode::InterestManagement,
+                    ..default()
+                },
+                Component1(0.0),
+            ))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that entity wasn't spawned
         assert!(stepper
             .client_app
             .world
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
-            .get_local(entity)
-            .is_some());
+            .get_local(server_entity)
+            .is_none());
+        // make entity visible
+        stepper
+            .server_app
+            .world
+            .resource_mut::<VisibilityManager>()
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that entity was spawned
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
     }
+
+    // TODO: test entity spawn newly connected client
+    // TODO: test entity spawn replication target was updated
 
     // TODO: how to check that no despawn message is sent?
     // /// Check that when replicated entities in other rooms than the current client are despawned,

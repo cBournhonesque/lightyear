@@ -55,6 +55,15 @@ impl NetworkTarget {
         }
     }
 
+    pub fn from_exclude(client_ids: impl IntoIterator<Item = ClientId>) -> Self {
+        let client_ids = client_ids.into_iter().collect::<Vec<_>>();
+        match client_ids.len() {
+            0 => NetworkTarget::All,
+            1 => NetworkTarget::AllExceptSingle(client_ids[0]),
+            _ => NetworkTarget::AllExcept(client_ids),
+        }
+    }
+
     /// Return true if we should replicate to the specified client
     pub fn targets(&self, client_id: &ClientId) -> bool {
         match self {
@@ -185,7 +194,7 @@ impl NetworkTarget {
                     target_client_ids.into_iter().for_each(|id| {
                         new_excluded_ids.remove(id);
                     });
-                    *existing_client_ids = Vec::from_iter(new_excluded_ids);
+                    *self = NetworkTarget::from_exclude(new_excluded_ids)
                 }
                 NetworkTarget::Single(target_client_id) => {
                     existing_client_ids.retain(|id| id != target_client_id);
@@ -378,14 +387,14 @@ mod tests {
 
         target = NetworkTarget::Only(vec![client_0, client_1]);
         target.union(&NetworkTarget::Only(vec![client_0, client_2]));
-        assert_eq!(
-            target,
-            NetworkTarget::Only(vec![client_0, client_1, client_2])
-        );
+        assert!(matches!(target, NetworkTarget::Only(_)));
+        assert!(target.targets(&client_0));
+        assert!(target.targets(&client_1));
+        assert!(target.targets(&client_2));
 
         target = NetworkTarget::Only(vec![client_0, client_1]);
         target.union(&NetworkTarget::AllExcept(vec![client_0, client_2]));
-        assert_eq!(target, NetworkTarget::AllExceptSingle(client_1));
+        assert_eq!(target, NetworkTarget::AllExceptSingle(client_2));
 
         target = NetworkTarget::None;
         target.union(&NetworkTarget::AllExcept(vec![client_0, client_2]));

@@ -157,7 +157,7 @@ impl<R> HierarchyReceivePlugin<R> {
         mut commands: Commands,
         hierarchy: Query<
             (Entity, &ParentSync, Option<&Parent>),
-            (Changed<ParentSync>, Without<Replicated>),
+            (Changed<ParentSync>, Without<ReplicationTarget>),
         >,
     ) {
         for (entity, parent_sync, parent) in hierarchy.iter() {
