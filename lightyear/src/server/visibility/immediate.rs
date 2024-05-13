@@ -71,19 +71,21 @@ impl VisibilityManager {
     /// Gain visibility of an entity for a given client.
     ///
     /// The visibility status gets cached and will be maintained until is it changed.
-    pub fn gain_visibility(&mut self, client: ClientId, entity: Entity) {
+    pub fn gain_visibility(&mut self, client: ClientId, entity: Entity) -> &mut Self {
         self.events.lost.entry(client).and_modify(|set| {
             set.remove(&entity);
         });
         self.events.gained.entry(client).or_default().insert(entity);
+        self
     }
 
     /// Lost visibility of an entity for a given client
-    pub fn lose_visibility(&mut self, client: ClientId, entity: Entity) {
+    pub fn lose_visibility(&mut self, client: ClientId, entity: Entity) -> &mut Self {
         self.events.gained.entry(client).and_modify(|set| {
             set.remove(&entity);
         });
         self.events.lost.entry(client).or_default().insert(entity);
+        self
     }
 
     // NOTE: this might not be needed because we drain the event cache every Send update

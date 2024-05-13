@@ -10,7 +10,6 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::prelude::server::ConnectionManager;
 use crate::prelude::{ClientId, ReplicationGroup, ShouldBePredicted, TargetEntity, TickManager};
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::serialize::RawData;
@@ -26,10 +25,11 @@ use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 // TODO: replace this with observers
 /// Metadata that holds Replicate-information (so that when the entity is despawned we know
 /// how to replicate the despawn)
+#[derive(PartialEq, Debug)]
 pub(crate) struct ReplicateCache {
     replication_target: NetworkTarget,
     replication_group: ReplicationGroup,
-    replication_mode: VisibilityMode,
+    visibility_mode: VisibilityMode,
     /// If mode = Room, the list of clients that could see the entity
     pub(crate) replication_clients_cache: Vec<ClientId>,
 }
@@ -78,7 +78,7 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
         let despawn_metadata = ReplicateCache {
             replication_target: replication_target.replication.clone(),
             replication_group: *group,
-            replication_mode: *visibility_mode,
+            visibility_mode: *visibility_mode,
             replication_clients_cache: vec![],
         };
         sender
@@ -156,7 +156,7 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
             //  to be updated for every replication change! Wait for observers instead.
             //  How did it work on the `main` branch? was there something else making it work? Maybe the
             //  update replicate ran before
-            if replicate_cache.replication_mode == VisibilityMode::InterestManagement {
+            if replicate_cache.visibility_mode == VisibilityMode::InterestManagement {
                 // if the mode was room, only replicate the despawn to clients that were in the same room
                 network_target.intersection(&NetworkTarget::Only(
                     replicate_cache.replication_clients_cache,
@@ -422,37 +422,53 @@ pub(crate) fn receive_cleanup<R: ReplicationReceive>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::client;
     use crate::prelude::client::Confirmed;
     use crate::prelude::server::VisibilityManager;
+    use crate::prelude::{client, server, Replicated};
     use crate::shared::replication::components::{Controlled, ControlledBy};
+    use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::prelude::default;
 
+    // TODO: test entity spawn newly connected client
+    // TODO: test entity spawn replication target was updated
+
     #[test]
-    fn test_entity_spawn_visibility_all() {
+    fn test_entity_spawn() {
         let mut stepper = BevyStepper::default();
 
         // spawn an entity on server with visibility::All
-        let server_entity = stepper
+        let server_entity = stepper.server_app.world.spawn_empty().id();
+        stepper.frame_step();
+        stepper.frame_step();
+        // check that entity wasn't spawned
+        assert!(stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .is_none());
+
+        // add replicate
+        stepper
             .server_app
             .world
-            .spawn((
-                Replicate {
-                    replication_target: ReplicationTarget {
-                        replication: NetworkTarget::All,
-                        prediction: NetworkTarget::All,
-                        interpolation: NetworkTarget::All,
-                    },
-                    controlled_by: ControlledBy {
-                        target: NetworkTarget::All,
-                    },
-                    ..default()
+            .entity_mut(server_entity)
+            .insert(Replicate {
+                replication_target: ReplicationTarget {
+                    replication: NetworkTarget::All,
+                    prediction: NetworkTarget::All,
+                    interpolation: NetworkTarget::All,
                 },
-                Component1(0.0),
-            ))
-            .id();
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::All,
+                },
+                ..default()
+            });
+
         stepper.frame_step();
         stepper.frame_step();
 
@@ -483,27 +499,24 @@ mod tests {
     }
 
     #[test]
-    fn test_entity_spawn_visibility_interest_management() {
-        let mut stepper = BevyStepper::default();
+    fn test_entity_spawn_visibility() {
+        let mut stepper = MultiBevyStepper::default();
 
         // spawn an entity on server with visibility::InterestManagement
         let server_entity = stepper
             .server_app
             .world
-            .spawn((
-                Replicate {
-                    visibility: VisibilityMode::InterestManagement,
-                    ..default()
-                },
-                Component1(0.0),
-            ))
+            .spawn(Replicate {
+                visibility: VisibilityMode::InterestManagement,
+                ..default()
+            })
             .id();
         stepper.frame_step();
         stepper.frame_step();
 
         // check that entity wasn't spawned
         assert!(stepper
-            .client_app
+            .client_app_1
             .world
             .resource::<client::ConnectionManager>()
             .replication_receiver
@@ -515,11 +528,77 @@ mod tests {
             .server_app
             .world
             .resource_mut::<VisibilityManager>()
-            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity);
         stepper.frame_step();
         stepper.frame_step();
 
         // check that entity was spawned
+        let client_entity = *stepper
+            .client_app_1
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        // check that the entity was not spawned on the other client
+        assert!(stepper
+            .client_app_2
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .is_none());
+    }
+
+    #[test]
+    fn test_entity_spawn_preexisting_target() {
+        let mut stepper = BevyStepper::default();
+
+        let client_entity = stepper.client_app.world.spawn_empty().id();
+        stepper.frame_step();
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                Replicate::default(),
+                TargetEntity::Preexisting(client_entity),
+            ))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was replicated on the client entity
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .unwrap(),
+            &client_entity
+        );
+        assert!(stepper
+            .client_app
+            .world
+            .get::<Replicated>(client_entity)
+            .is_some());
+        assert_eq!(stepper.client_app.world.entities().len(), 1);
+    }
+
+    #[test]
+    fn test_entity_despawn() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was spawned
         let client_entity = *stepper
             .client_app
             .world
@@ -528,57 +607,467 @@ mod tests {
             .remote_entity_map
             .get_local(server_entity)
             .expect("entity was not replicated to client");
+
+        // despawn
+        stepper.server_app.world.despawn(server_entity);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was despawned
+        assert!(stepper.client_app.world.get_entity(client_entity).is_none());
     }
 
-    // TODO: test entity spawn newly connected client
-    // TODO: test entity spawn replication target was updated
+    /// Check that if interest management is used, a client losing visibility of an entity
+    /// will cause the server to send a despawn-entity message to the client
+    #[test]
+    fn test_entity_despawn_lose_visibility() {
+        let mut stepper = BevyStepper::default();
 
-    // TODO: how to check that no despawn message is sent?
-    // /// Check that when replicated entities in other rooms than the current client are despawned,
-    // /// the despawn is not sent to the client
-    // #[test]
-    // fn test_other_rooms_despawn() {
-    //     let mut stepper = BevyStepper::default();
-    //
-    //     let server_entity = stepper
-    //         .server_app
-    //         .world
-    //         .spawn((
-    //             Replicate {
-    //                 replication_mode: ReplicationMode::Room,
-    //                 ..default()
-    //             },
-    //             Component1(0.0),
-    //         ))
-    //         .id();
-    //     let mut room_manager = stepper.server_app.world.resource_mut::<RoomManager>();
-    //     room_manager.add_client(ClientId::Netcode(TEST_CLIENT_ID), RoomId(0));
-    //     room_manager.add_entity(server_entity, RoomId(0));
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // check that the entity was replicated
-    //     let client_entity = stepper
-    //         .client_app
-    //         .world
-    //         .query_filtered::<Entity, With<Component1>>()
-    //         .single(&stepper.client_app.world);
-    //
-    //     // update the room of the server entity to not be in the client's room anymore
-    //     stepper
-    //         .server_app
-    //         .world
-    //         .resource_mut::<RoomManager>()
-    //         .remove_entity(server_entity, RoomId(0));
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // despawn the entity
-    //     stepper.server_app.world.entity_mut(server_entity).despawn();
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // the despawn shouldn't be replicated to the client, since it's in a different room
-    //     assert!(stepper.client_app.world.get_entity(client_entity).is_some());
-    // }
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                visibility: VisibilityMode::InterestManagement,
+                ..default()
+            })
+            .id();
+        stepper
+            .server_app
+            .world
+            .resource_mut::<VisibilityManager>()
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was spawned
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // lose visibility
+        stepper
+            .server_app
+            .world
+            .resource_mut::<VisibilityManager>()
+            .lose_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was despawned
+        assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+    }
+
+    /// Test that if an entity with visibility is despawned, the despawn-message is not sent
+    /// to other clients who do not have visibility of the entity
+    #[test]
+    fn test_entity_despawn_non_visible() {
+        let mut stepper = MultiBevyStepper::default();
+
+        // spawn one entity replicated to each client
+        // they will share the same replication group id, so that each client's ReplicationReceiver
+        // can read the replication messages of the other client
+        let server_entity_1 = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                visibility: VisibilityMode::InterestManagement,
+                group: ReplicationGroup::new_id(1),
+                ..default()
+            })
+            .id();
+        let server_entity_2 = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                visibility: VisibilityMode::InterestManagement,
+                group: ReplicationGroup::new_id(1),
+                ..default()
+            })
+            .id();
+        stepper
+            .server_app
+            .world
+            .resource_mut::<VisibilityManager>()
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity_1)
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_2), server_entity_2);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was spawned on each client
+        let client_entity_1 = *stepper
+            .client_app_1
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity_1)
+            .expect("entity was not replicated to client 1");
+        let client_entity_2 = *stepper
+            .client_app_2
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity_2)
+            .expect("entity was not replicated to client 2");
+
+        // update the entity_map on client 2 to re-use the same server entity as client 1
+        // so that replication messages for server_entity_1 could also be read by client 2
+        stepper
+            .client_app_2
+            .world
+            .resource_mut::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .insert(server_entity_1, client_entity_2);
+
+        // despawn the server_entity_1
+        stepper.server_app.world.despawn(server_entity_1);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was despawned on client 1
+        assert!(stepper
+            .client_app_1
+            .world
+            .get_entity(client_entity_1)
+            .is_none());
+
+        // check that the entity still exists on client 2
+        assert!(stepper
+            .client_app_2
+            .world
+            .get_entity(client_entity_2)
+            .is_some());
+    }
+
+    #[test]
+    fn test_component_insert() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // add component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert(Component1(1.0));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the component was replicated
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
+        );
+    }
+
+    #[test]
+    fn test_component_insert_visibility_maintained() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                visibility: VisibilityMode::InterestManagement,
+                ..default()
+            })
+            .id();
+        stepper
+            .server_app
+            .world
+            .resource_mut::<VisibilityManager>()
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // add component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert(Component1(1.0));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the component was replicated
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
+        );
+    }
+
+    #[test]
+    fn test_component_insert_visibility_gained() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                visibility: VisibilityMode::InterestManagement,
+                ..default()
+            })
+            .id();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // add component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert(Component1(1.0));
+        stepper
+            .server_app
+            .world
+            .resource_mut::<VisibilityManager>()
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        // check that the component was replicated
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
+        );
+    }
+
+    #[test]
+    fn test_component_update() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((Replicate::default(), Component1(1.0)))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // add component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert(Component1(2.0));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the component was replicated
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(2.0)
+        );
+    }
+
+    #[test]
+    fn test_component_update_replication_target_removed() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((Replicate::default(), Component1(1.0)))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // remove the replication_target component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert(Component1(2.0))
+            .remove::<ReplicationTarget>();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity still exists on the client, but that the component was not updated
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
+        );
+
+        // re-add the replication_target component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert(ReplicationTarget::default());
+        stepper.frame_step();
+        stepper.frame_step();
+        // check that the component gets updated
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(2.0)
+        );
+    }
+
+    #[test]
+    fn test_component_remove() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((Replicate::default(), Component1(1.0)))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
+        );
+
+        // remove component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .remove::<Component1>();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the component was replicated
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<Component1>()
+            .is_none());
+    }
+
+    #[test]
+    fn test_replication_target_add() {
+        let mut stepper = BevyStepper::default();
+
+        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+        stepper.frame_step();
+
+        // check that a DespawnTracker was added
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<DespawnTracker>()
+            .is_some());
+        // check that a ReplicateCache was added
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .resource::<server::ConnectionManager>()
+                .replicate_component_cache
+                .get(&server_entity)
+                .expect("ReplicateCache missing"),
+            &ReplicateCache {
+                replication_target: NetworkTarget::All,
+                replication_group: ReplicationGroup::new_from_entity(),
+                visibility_mode: VisibilityMode::All,
+                replication_clients_cache: vec![],
+            }
+        );
+    }
 }

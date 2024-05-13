@@ -68,7 +68,7 @@ pub struct ConnectionManager {
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
     /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
-    replicate_component_cache: EntityHashMap<Entity, ReplicateCache>,
+    pub(crate) replicate_component_cache: EntityHashMap<Entity, ReplicateCache>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
