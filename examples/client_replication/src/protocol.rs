@@ -27,9 +27,11 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                target: ReplicationTarget {
+                    prediction: NetworkTarget::Single(id),
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                    ..default()
+                },
                 ..default()
             },
         }
@@ -52,8 +54,10 @@ impl CursorBundle {
             position: CursorPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                replication_target: NetworkTarget::All,
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                target: ReplicationTarget {
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                    ..default()
+                },
                 ..default()
             },
         }

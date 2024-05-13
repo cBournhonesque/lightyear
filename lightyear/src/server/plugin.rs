@@ -14,7 +14,9 @@ use bevy::prelude::*;
 
 use crate::server::events::ServerEventsPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
-use crate::server::replication::{ServerReplicationReceivePlugin, ServerReplicationSendPlugin};
+use crate::server::replication::{
+    receive::ServerReplicationReceivePlugin, send::ServerReplicationSendPlugin,
+};
 use crate::server::visibility::immediate::VisibilityPlugin;
 use crate::server::visibility::room::RoomPlugin;
 use crate::shared::plugin::SharedPlugin;

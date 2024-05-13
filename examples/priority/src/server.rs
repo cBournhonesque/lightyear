@@ -61,8 +61,7 @@ pub(crate) fn init(mut commands: Commands) {
                     // The priority can be sent when the entity is spawned; if multiple entities in the same group have
                     // different priorities, the latest set priority will be used.
                     // After the entity is spawned, you can update the priority using the ConnectionManager::upate_priority method.
-                    replication_group: ReplicationGroup::default()
-                        .set_priority(1.0 + y.abs() as f32),
+                    group: ReplicationGroup::default().set_priority(1.0 + y.abs() as f32),
                     ..default()
                 },
             ));

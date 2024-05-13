@@ -117,21 +117,24 @@ pub(crate) fn replicate_players(
         // for all cursors we have received, add a Replicate component so that we can start replicating it
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
-            let mut replicate = Replicate {
-                // we want to replicate back to the original client, since they are using a pre-spawned entity
-                replication_target: NetworkTarget::All,
-                // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
-                // NOTE: Be careful to not override the pre-spawned prediction! we do not need to enable prediction
-                //  because there is a pre-spawned predicted entity
-                prediction_target: NetworkTarget::Only(vec![*client_id]),
-                // we want the other clients to apply interpolation for the player
-                interpolation_target: NetworkTarget::AllExcept(vec![*client_id]),
+            let replicate = Replicate {
+                target: ReplicationTarget {
+                    // we want to replicate back to the original client, since they are using a pre-spawned entity
+                    replication: NetworkTarget::All,
+                    // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
+                    prediction: NetworkTarget::Only(vec![*client_id]),
+                    // we want the other clients to apply interpolation for the player
+                    interpolation: NetworkTarget::AllExceptSingle(*client_id),
+                    ..default()
+                },
                 ..default()
             };
-            // if we receive a pre-predicted entity, only send the prepredicted component back
-            // to the original client
-            replicate.add_target::<PrePredicted>(NetworkTarget::Single(*client_id));
-            e.insert(replicate);
+            e.insert((
+                replicate,
+                // if we receive a pre-predicted entity, only send the prepredicted component back
+                // to the original client
+                OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(*client_id)),
+            ));
         }
     }
 }
@@ -149,10 +152,13 @@ pub(crate) fn replicate_cursors(
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
             e.insert(Replicate {
-                // do not replicate back to the owning entity!
-                replication_target: NetworkTarget::AllExcept(vec![*client_id]),
-                // we want the other clients to apply interpolation for the cursor
-                interpolation_target: NetworkTarget::AllExcept(vec![*client_id]),
+                target: ReplicationTarget {
+                    // do not replicate back to the client that owns the cursor!
+                    replication: NetworkTarget::AllExceptSingle(*client_id),
+                    // we want the other clients to apply interpolation for the cursor
+                    interpolation: NetworkTarget::AllExceptSingle(*client_id),
+                    ..default()
+                },
                 ..default()
             });
         }

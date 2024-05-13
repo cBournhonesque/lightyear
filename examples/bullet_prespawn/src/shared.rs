@@ -138,7 +138,7 @@ fn player_movement(
     tick_manager: Res<TickManager>,
     mut player_query: Query<
         (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
-        Or<(With<Predicted>, With<Replicate>)>,
+        Or<(With<Predicted>, With<ReplicationTarget>)>,
     >,
 ) {
     for (transform, action_state, player_id) in player_query.iter_mut() {
@@ -194,7 +194,7 @@ pub(crate) fn move_bullet(
                 // move predicted bullets
                 With<Predicted>,
                 // move server entities
-                With<Replicate>,
+                With<ReplicationTarget>,
                 // move prespawned bullets
                 With<PreSpawnedPlayerObject>,
             )>,
@@ -229,7 +229,7 @@ pub(crate) fn shoot_bullet(
             &ColorComponent,
             &mut ActionState<PlayerActions>,
         ),
-        Or<(With<Predicted>, With<Replicate>)>,
+        Or<(With<Predicted>, With<ReplicationTarget>)>,
     >,
 ) {
     let tick = tick_manager.tick();
@@ -267,13 +267,15 @@ pub(crate) fn shoot_bullet(
                         //  unless you set the hash manually before PostUpdate to a value of your choice
                         PreSpawnedPlayerObject::default(),
                         Replicate {
-                            replication_target: NetworkTarget::All,
-                            // the bullet is predicted for the client who shot it
-                            prediction_target: NetworkTarget::Single(id.0),
-                            // the bullet is interpolated for other clients
-                            interpolation_target: NetworkTarget::AllExceptSingle(id.0),
+                            target: ReplicationTarget {
+                                replication: NetworkTarget::All,
+                                // the bullet is predicted for the client who shot it
+                                prediction: NetworkTarget::Single(id.0),
+                                // the bullet is interpolated for other clients
+                                interpolation: NetworkTarget::AllExceptSingle(id.0),
+                            },
                             // NOTE: all predicted entities need to have the same replication group
-                            replication_group: ReplicationGroup::new_id(id.0.to_bits()),
+                            group: ReplicationGroup::new_id(id.0.to_bits()),
                             ..default()
                         },
                     ));

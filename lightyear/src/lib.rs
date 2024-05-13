@@ -190,11 +190,13 @@ pub mod prelude {
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
-        NetworkTarget, PrePredicted, Replicate, Replicated, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, VisibilityMode,
+        ControlledBy, DisabledComponent, OverrideTargetComponent, PrePredicted, Replicate,
+        ReplicateHierarchy, ReplicateOnceComponent, Replicated, ReplicationGroup,
+        ReplicationTarget, ShouldBePredicted, TargetEntity, VisibilityMode,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
     pub use crate::shared::replication::hierarchy::ParentSync;
+    pub use crate::shared::replication::network_target::NetworkTarget;
     pub use crate::shared::replication::resources::{
         ReplicateResourceExt, ReplicateResourceMetadata, StopReplicateResourceExt,
     };
@@ -262,7 +264,7 @@ pub mod prelude {
         pub use crate::server::io::Io;
         pub use crate::server::networking::{NetworkingState, ServerCommands};
         pub use crate::server::plugin::ServerPlugins;
-        pub use crate::server::replication::{ServerFilter, ServerReplicationSet};
+        pub use crate::server::replication::{send::ServerFilter, ServerReplicationSet};
         pub use crate::server::visibility::immediate::VisibilityManager;
         pub use crate::server::visibility::room::{RoomId, RoomManager};
     }

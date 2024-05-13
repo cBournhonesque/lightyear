@@ -21,7 +21,8 @@ use crate::packet::packet::Packet;
 use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::server::{DisconnectEvent, RoomId, RoomManager};
 use crate::prelude::{
-    Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ShouldBePredicted, TargetEntity,
+    Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ReplicationGroup,
+    ShouldBePredicted, TargetEntity,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
@@ -41,11 +42,13 @@ use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{
-    Controlled, NetworkTarget, Replicate, ReplicationGroupId, ShouldBeInterpolated,
+    Controlled, ControlledBy, Replicate, ReplicationGroupId, ReplicationTarget,
+    ShouldBeInterpolated,
 };
+use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::systems::DespawnMetadata;
+use crate::shared::replication::systems::ReplicateCache;
 use crate::shared::replication::{ReplicationMessage, ReplicationReceive, ReplicationSend};
 use crate::shared::replication::{ReplicationMessageData, ReplicationPeer};
 use crate::shared::sets::ServerMarker;
@@ -58,7 +61,6 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 #[derive(Resource)]
 pub struct ConnectionManager {
     pub(crate) connections: HashMap<ClientId, Connection>,
-    pub(crate) component_registry: ComponentRegistry,
     pub(crate) message_registry: MessageRegistry,
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents,
@@ -66,7 +68,7 @@ pub struct ConnectionManager {
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
     /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
-    replicate_component_cache: EntityHashMap<Entity, DespawnMetadata>,
+    pub(crate) replicate_component_cache: EntityHashMap<Entity, ReplicateCache>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
@@ -79,7 +81,6 @@ pub struct ConnectionManager {
 
 impl ConnectionManager {
     pub(crate) fn new(
-        component_registry: ComponentRegistry,
         message_registry: MessageRegistry,
         channel_registry: ChannelRegistry,
         packet_config: PacketConfig,
@@ -87,7 +88,6 @@ impl ConnectionManager {
     ) -> Self {
         Self {
             connections: HashMap::default(),
-            component_registry,
             message_registry,
             channel_registry,
             events: ServerEvents::new(),
@@ -138,6 +138,25 @@ impl ConnectionManager {
         message: &M,
     ) -> Result<()> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
+    }
+
+    /// Update the priority of a `ReplicationGroup` that is replicated to a given client
+    pub fn update_priority(
+        &mut self,
+        replication_group_id: ReplicationGroupId,
+        client_id: ClientId,
+        priority: f32,
+    ) -> Result<()> {
+        debug!(
+            ?client_id,
+            ?replication_group_id,
+            "Set priority to {:?}",
+            priority
+        );
+        self.connection_mut(client_id)?
+            .replication_sender
+            .update_base_priority(replication_group_id, priority);
+        Ok(())
     }
 
     /// Find the list of clients that should receive the replication message
@@ -316,18 +335,18 @@ impl ConnectionManager {
 
 impl ConnectionManager {
     /// Helper function to prepare component insert for components for which we know the type
-    fn prepare_typed_component_insert<C: Component>(
+    pub(crate) fn prepare_typed_component_insert<C: Component>(
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
         client_id: ClientId,
+        component_registry: &ComponentRegistry,
         data: &C,
     ) -> Result<()> {
-        let net_id = self
-            .component_registry()
+        let net_id = component_registry
             .get_net_id::<C>()
             .context(format!("{} is not registered", std::any::type_name::<C>()))?;
-        let raw_data = self.component_registry.serialize(data, &mut self.writer)?;
+        let raw_data = component_registry.serialize(data, &mut self.writer)?;
         self.connection_mut(client_id)?
             .replication_sender
             .prepare_component_insert(entity, group_id, net_id, raw_data);
@@ -689,90 +708,17 @@ impl ReplicationSend for ConnectionManager {
         &mut self.writer
     }
 
-    fn component_registry(&self) -> &ComponentRegistry {
-        &self.component_registry
-    }
-
-    fn update_priority(
-        &mut self,
-        replication_group_id: ReplicationGroupId,
-        client_id: ClientId,
-        priority: f32,
-    ) -> Result<()> {
-        debug!(
-            ?client_id,
-            ?replication_group_id,
-            "Set priority to {:?}",
-            priority
-        );
-        let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
-        replication_sender.update_base_priority(replication_group_id, priority);
-        Ok(())
-    }
-
     fn new_connected_clients(&self) -> Vec<ClientId> {
         self.new_clients.clone()
-    }
-
-    fn prepare_entity_spawn(
-        &mut self,
-        entity: Entity,
-        replicate: &Replicate,
-        target: NetworkTarget,
-        system_current_tick: BevyTick,
-    ) -> Result<()> {
-        trace!(?entity, "Prepare entity spawn to client");
-        let group_id = replicate.replication_group.group_id(Some(entity));
-
-        // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-        self.apply_replication(target).try_for_each(|client_id| {
-            // let the client know that this entity is controlled by them
-            if replicate.controlled_by.targets(&client_id) {
-                self.prepare_typed_component_insert(entity, group_id, client_id, &Controlled)?;
-            }
-            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
-            if replicate.prediction_target.targets(&client_id) {
-                // TODO: the serialized data is always the same; cache it somehow?
-                self.prepare_typed_component_insert(
-                    entity,
-                    group_id,
-                    client_id,
-                    &ShouldBePredicted,
-                )?;
-            }
-            if replicate.interpolation_target.targets(&client_id) {
-                self.prepare_typed_component_insert(
-                    entity,
-                    group_id,
-                    client_id,
-                    &ShouldBeInterpolated,
-                )?;
-            }
-            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
-            // update the collect changes tick
-            // replication_sender
-            //     .group_channels
-            //     .entry(group)
-            //     .or_default()
-            //     .update_collect_changes_since_this_tick(system_current_tick);
-            if let TargetEntity::Preexisting(remote_entity) = replicate.target_entity {
-                replication_sender.prepare_entity_spawn_reuse(entity, group_id, remote_entity);
-            } else {
-                replication_sender.prepare_entity_spawn(entity, group_id);
-            }
-            // also set the priority for the group when we spawn it
-            self.update_priority(group_id, client_id, replicate.replication_group.priority())?;
-            Ok(())
-        })
     }
 
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replication_group_id: ReplicationGroupId,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()> {
+        let group_id = group.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // trace!(
             //     ?entity,
@@ -781,13 +727,9 @@ impl ReplicationSend for ConnectionManager {
             //     self.tick_manager.tick()
             // );
             let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
-            // update the collect changes tick
-            // replication_sender
-            //     .group_channels
-            //     .entry(group)
-            //     .or_default()
-            //     .update_collect_changes_since_this_tick(system_current_tick);
-            replication_sender.prepare_entity_despawn(entity, replication_group_id);
+            self.connection_mut(client_id)?
+                .replication_sender
+                .prepare_entity_despawn(entity, group_id);
             Ok(())
         })
     }
@@ -798,11 +740,12 @@ impl ReplicationSend for ConnectionManager {
         entity: Entity,
         kind: ComponentNetId,
         component: RawData,
-        replicate: &Replicate,
+        component_registry: &ComponentRegistry,
+        replication_target: &ReplicationTarget,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()> {
-        let group_id = replicate.replication_group.group_id(Some(entity));
+        let group_id = group.group_id(Some(entity));
 
         // TODO: think about this. this feels a bit clumsy
         // TODO: this might not be required anymore since we separated ShouldBePredicted from PrePredicted
@@ -820,18 +763,15 @@ impl ReplicationSend for ConnectionManager {
 
         // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
         let mut actual_target = target;
-        let should_be_predicted_kind = self
-            .component_registry()
+        let should_be_predicted_kind = component_registry
             .get_net_id::<ShouldBePredicted>()
             .context("ShouldBePredicted is not registered")?;
-        let pre_spawned_player_object_kind = self
-            .component_registry()
+        let pre_spawned_player_object_kind = component_registry
             .get_net_id::<PreSpawnedPlayerObject>()
             .context("PreSpawnedPlayerObject is not registered")?;
         if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
-            actual_target = replicate.prediction_target.clone();
+            actual_target = replication_target.prediction.clone();
         }
-
         self.apply_replication(actual_target)
             .try_for_each(|client_id| {
                 // trace!(
@@ -847,12 +787,9 @@ impl ReplicationSend for ConnectionManager {
                 //     .entry(group)
                 //     .or_default()
                 //     .update_collect_changes_since_this_tick(system_current_tick);
-                replication_sender.prepare_component_insert(
-                    entity,
-                    group_id,
-                    kind,
-                    component.clone(),
-                );
+                self.connection_mut(client_id)?
+                    .replication_sender
+                    .prepare_component_insert(entity, group_id, kind, component.clone());
                 Ok(())
             })
     }
@@ -861,27 +798,22 @@ impl ReplicationSend for ConnectionManager {
         &mut self,
         entity: Entity,
         kind: ComponentNetId,
-        replicate: &Replicate,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()> {
-        let group_id = replicate.replication_group.group_id(Some(entity));
+        let group_id = group.group_id(Some(entity));
         debug!(?entity, ?kind, "Sending RemoveComponent");
         self.apply_replication(target).try_for_each(|client_id| {
-            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
             // TODO: I don't think it's actually correct to only correct the changes since that action.
-            // what if we do:
-            // - Frame 1: update is ACKED
-            // - Frame 2: update
-            // - Frame 3: action
-            // - Frame 4: send
-            // then we won't send the frame-2 update because we only collect changes since frame 3
-            // replication_sender
-            //     .group_channels
-            //     .entry(group)
-            //     .or_default()
-            //     .update_collect_changes_since_this_tick(system_current_tick);
-            replication_sender.prepare_component_remove(entity, group_id, kind);
+            //  what if we do:
+            //  - Frame 1: update is ACKED
+            //  - Frame 2: update
+            //  - Frame 3: action
+            //  - Frame 4: send
+            //  then we won't send the frame-2 update because we only collect changes since frame 3
+            self.connection_mut(client_id)?
+                .replication_sender
+                .prepare_component_remove(entity, group_id, kind);
             Ok(())
         })
     }
@@ -891,7 +823,7 @@ impl ReplicationSend for ConnectionManager {
         entity: Entity,
         kind: ComponentNetId,
         component: RawData,
-        replicate: &Replicate,
+        group: &ReplicationGroup,
         target: NetworkTarget,
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
@@ -904,7 +836,7 @@ impl ReplicationSend for ConnectionManager {
             "Prepare entity update"
         );
 
-        let group_id = replicate.group_id(Some(entity));
+        let group_id = group.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
@@ -948,9 +880,7 @@ impl ReplicationSend for ConnectionManager {
         self.buffer_replication_messages(tick, bevy_tick)
     }
 
-    fn get_mut_replicate_despawn_cache(
-        &mut self,
-    ) -> &mut bevy::ecs::entity::EntityHashMap<DespawnMetadata> {
+    fn get_mut_replicate_cache(&mut self) -> &mut bevy::ecs::entity::EntityHashMap<ReplicateCache> {
         &mut self.replicate_component_cache
     }
 

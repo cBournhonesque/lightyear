@@ -26,32 +26,37 @@ pub(crate) struct PlayerBundle {
     color: PlayerColor,
     replicate: Replicate,
     action_state: ActionState<Inputs>,
+    action_state_override_target: OverrideTargetComponent<ActionState<Inputs>>,
 }
 
 impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
         let color = color_from_id(id);
-        let mut replicate = Replicate {
-            prediction_target: NetworkTarget::Single(id),
-            interpolation_target: NetworkTarget::AllExcept(vec![id]),
-            controlled_by: NetworkTarget::Single(id),
+        let replicate = Replicate {
+            target: ReplicationTarget {
+                prediction: NetworkTarget::Single(id),
+                interpolation: NetworkTarget::AllExceptSingle(id),
+                ..default()
+            },
+            controlled_by: ControlledBy {
+                target: NetworkTarget::Single(id),
+            },
             // use rooms for replication
             visibility: VisibilityMode::InterestManagement,
             ..default()
         };
-        // We don't want to replicate the ActionState to the original client, since they are updating it with
-        // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-        // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-        replicate.add_target::<ActionState<Inputs>>(NetworkTarget::AllExceptSingle(id));
-        // // we don't want to replicate the ActionState from the server to client, because then the action-state
-        // // will keep getting replicated from confirmed to predicted and will interfere with our inputs
-        // replicate.disable_component::<ActionState<Inputs>>();
         Self {
             id: PlayerId(id),
             position: Position(position),
             color: PlayerColor(color),
             replicate,
             action_state: ActionState::default(),
+            // We don't want to replicate the ActionState to the original client, since they are updating it with
+            // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
+            // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
+            action_state_override_target: OverrideTargetComponent::new(
+                NetworkTarget::AllExceptSingle(id),
+            ),
         }
     }
     pub(crate) fn get_input_map() -> InputMap<Inputs> {

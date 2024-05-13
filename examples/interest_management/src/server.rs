@@ -106,8 +106,11 @@ pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>)
 /// depending on the distance to the client's entity
 pub(crate) fn interest_management(
     mut visibility_manager: ResMut<VisibilityManager>,
-    player_query: Query<(&PlayerId, Ref<Position>), (Without<CircleMarker>, With<Replicate>)>,
-    circle_query: Query<(Entity, &Position), (With<CircleMarker>, With<Replicate>)>,
+    player_query: Query<
+        (&PlayerId, Ref<Position>),
+        (Without<CircleMarker>, With<ReplicationTarget>),
+    >,
+    circle_query: Query<(Entity, &Position), (With<CircleMarker>, With<ReplicationTarget>)>,
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {

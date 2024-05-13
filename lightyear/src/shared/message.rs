@@ -1,5 +1,5 @@
-use crate::prelude::{Channel, ChannelKind, Message, NetworkTarget};
-use crate::protocol::EventContext;
+use crate::prelude::{Channel, ChannelKind, Message};
+use crate::shared::replication::network_target::NetworkTarget;
 use bevy::prelude::Resource;
 use std::fmt::Debug;
 use std::hash::Hash;

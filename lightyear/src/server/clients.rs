@@ -2,10 +2,9 @@
 //!
 //! This module contains components and systems to manage the metadata on client entities.
 use crate::prelude::ClientId;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
-use bevy::ecs::entity::{EntityHashMap, EntityHashSet};
+use crate::shared::sets::{InternalReplicationSet, ServerMarker};
+use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
 
 /// List of entities under the control of a client
 #[derive(Component, Default, Debug, Deref, DerefMut)]
@@ -15,17 +14,20 @@ pub(crate) struct ClientsMetadataPlugin;
 
 mod systems {
     use super::*;
-    use crate::prelude::{NetworkTarget, Replicate};
+    use crate::prelude::Replicate;
     use crate::server::clients::ControlledEntities;
     use crate::server::connection::ConnectionManager;
     use crate::server::events::DisconnectEvent;
+    use crate::shared::replication::components::ControlledBy;
+    use crate::shared::replication::network_target::NetworkTarget;
     use tracing::{debug, error, trace};
 
-    pub(super) fn handle_replicate_update(
+    // TODO: remove entity from ControlledBy when ControlledBy gets removed! (via observers)?
+    // TODO: remove entity in controlled by lists after the component gets updated
+
+    pub(super) fn handle_controlled_by_update(
         sender: Res<ConnectionManager>,
-        // TODO: have a more fine-grained change detection..
-        //  or should we split the replicate component into multiple sub components?
-        query: Query<(Entity, &Replicate), Changed<Replicate>>,
+        query: Query<(Entity, &ControlledBy), Changed<ControlledBy>>,
         mut client_query: Query<&mut ControlledEntities>,
     ) {
         let update_controlled_entities =
@@ -49,8 +51,8 @@ mod systems {
                 }
             };
 
-        for (entity, replicate) in query.iter() {
-            match &replicate.controlled_by {
+        for (entity, controlled_by) in query.iter() {
+            match &controlled_by.target {
                 NetworkTarget::None => {}
                 NetworkTarget::Single(client_id) => {
                     update_controlled_entities(entity, *client_id, &mut client_query, &sender);
@@ -99,8 +101,8 @@ impl Plugin for ClientsMetadataPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PostUpdate,
-            systems::handle_replicate_update
-                .in_set(InternalReplicationSet::<ServerMarker>::HandleReplicateUpdate),
+            systems::handle_controlled_by_update
+                .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
         );
         // we handle this in the `Last` `SystemSet` to let the user handle the disconnect event
         // however they want first, before the client entity gets despawned

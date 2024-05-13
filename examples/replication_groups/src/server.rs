@@ -69,7 +69,7 @@ pub(crate) fn handle_connections(
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<(&Replicate, &mut PlayerPosition)>,
+    mut position_query: Query<(&ControlledBy, &mut PlayerPosition)>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
     tick_manager: Res<TickManager>,
 ) {
@@ -84,8 +84,8 @@ pub(crate) fn movement(
             );
             // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
             //  entities here
-            for (replicate, position) in position_query.iter_mut() {
-                if replicate.controlled_by.targets(client_id) {
+            for (controlled_by, position) in position_query.iter_mut() {
+                if controlled_by.targets(client_id) {
                     shared::shared_movement_behaviour(position, input);
                 }
             }

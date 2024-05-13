@@ -22,7 +22,6 @@ use tokio::io::AsyncReadExt;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
-use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared;
 

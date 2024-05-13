@@ -18,7 +18,7 @@ use crate::protocol::component::ComponentNetId;
 use crate::protocol::registry::NetId;
 use crate::serialize::RawData;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
-use crate::shared::replication::systems::DespawnMetadata;
+use crate::shared::replication::systems::ReplicateCache;
 
 use super::{
     EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData, SpawnAction,

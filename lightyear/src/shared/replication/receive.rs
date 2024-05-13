@@ -259,11 +259,12 @@ impl ReplicationReceiver {
                         }
                         SpawnAction::Reuse(local_entity) => {
                             let local_entity = Entity::from_bits(local_entity);
-                            if world.get_entity(local_entity).is_none() {
+                            let Some(mut entity_mut) = world.get_entity_mut(local_entity) else {
                                 // TODO: ignore the entity in the next steps because it does not exist!
                                 error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
                                 continue;
                             };
+                            entity_mut.insert(Replicated);
                             // update the entity mapping
                             self.remote_entity_map.insert(*remote_entity, local_entity);
                         }

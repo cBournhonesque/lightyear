@@ -659,13 +659,7 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world
-            .spawn((
-                Component1(0.0),
-                Replicate {
-                    replication_target: NetworkTarget::All,
-                    ..default()
-                },
-            ))
+            .spawn((Component1(0.0), Replicate::default()))
             .id();
 
         // cross tick boundary
