@@ -82,6 +82,7 @@ impl NetworkTarget {
             NetworkTarget::All => {
                 *self = target.clone();
             }
+            // TODO: write the implementation by hand as an optimization!
             NetworkTarget::AllExceptSingle(existing_client_id) => {
                 let mut a = NetworkTarget::AllExcept(vec![*existing_client_id]);
                 a.intersection(target);
@@ -126,14 +127,14 @@ impl NetworkTarget {
                 NetworkTarget::AllExceptSingle(target_client_id) => {
                     let mut new_included_ids = HashSet::from_iter(existing_client_ids.clone());
                     new_included_ids.remove(target_client_id);
-                    *existing_client_ids = Vec::from_iter(new_included_ids);
+                    *self = NetworkTarget::from(Vec::from_iter(new_included_ids));
                 }
                 NetworkTarget::AllExcept(target_client_ids) => {
                     let mut new_included_ids = HashSet::from_iter(existing_client_ids.clone());
                     target_client_ids.iter().for_each(|id| {
                         new_included_ids.remove(id);
                     });
-                    *existing_client_ids = Vec::from_iter(new_included_ids);
+                    *self = NetworkTarget::from(Vec::from_iter(new_included_ids));
                 }
                 NetworkTarget::All => {}
                 NetworkTarget::Single(target_client_id) => {
@@ -147,13 +148,13 @@ impl NetworkTarget {
                     let new_included_ids = HashSet::from_iter(existing_client_ids.clone());
                     let target_included_ids = HashSet::from_iter(target_client_ids.clone());
                     let intersection = new_included_ids.intersection(&target_included_ids).cloned();
-                    *existing_client_ids = intersection.collect::<Vec<_>>();
+                    *self = NetworkTarget::from(intersection.collect::<Vec<_>>());
                 }
             },
             NetworkTarget::Single(existing_client_id) => {
-                let mut a = NetworkTarget::Only(vec![*existing_client_id]);
-                a.intersection(target);
-                *self = a;
+                if !target.targets(existing_client_id) {
+                    *self = NetworkTarget::None;
+                }
             }
             NetworkTarget::None => {}
         }
@@ -243,53 +244,69 @@ impl NetworkTarget {
                     *existing_client_ids = union.into_iter().copied().collect::<Vec<_>>();
                 }
             },
-            NetworkTarget::Single(existing_client_id) => {
-                let mut a = NetworkTarget::Only(vec![*existing_client_id]);
-                a.union(target);
-                *self = a;
-            }
+            NetworkTarget::Single(existing_client_id) => match target {
+                NetworkTarget::None => {}
+                NetworkTarget::AllExceptSingle(target_client_id) => {
+                    if existing_client_id == target_client_id {
+                        *self = NetworkTarget::All;
+                    } else {
+                        *self = NetworkTarget::AllExceptSingle(*target_client_id);
+                    }
+                }
+                NetworkTarget::AllExcept(target_client_ids) => {
+                    let mut new_excluded = target_client_ids.clone();
+                    new_excluded.retain(|id| id != existing_client_id);
+                    *self = NetworkTarget::from_exclude(new_excluded);
+                }
+                NetworkTarget::All => {
+                    *self = NetworkTarget::All;
+                }
+                NetworkTarget::Only(target_client_ids) => {
+                    let mut new_targets = HashSet::from_iter(target_client_ids.clone());
+                    new_targets.insert(*existing_client_id);
+                    *self = NetworkTarget::from(Vec::from_iter(new_targets));
+                }
+                NetworkTarget::Single(target_client_id) => {
+                    if existing_client_id != target_client_id {
+                        *self = NetworkTarget::Only(vec![*existing_client_id, *target_client_id]);
+                    }
+                }
+            },
             NetworkTarget::None => {
                 *self = target.clone();
             }
         }
     }
 
-    /// Compute the difference of this target with another one (A - B)
-    pub(crate) fn exclude(&mut self, client_ids: impl IntoIterator<Item = ClientId>) {
+    /// Compute the inverse of this target (¬A)
+    pub(crate) fn inverse(&mut self) {
         match self {
             NetworkTarget::All => {
-                *self = NetworkTarget::AllExcept(client_ids.into_iter().collect());
+                *self = NetworkTarget::None;
             }
-            NetworkTarget::AllExceptSingle(existing_client_id) => {
-                let mut new_excluded_ids = HashSet::from_iter(client_ids);
-                new_excluded_ids.insert(*existing_client_id);
-                *self = NetworkTarget::AllExcept(Vec::from_iter(new_excluded_ids));
+            NetworkTarget::AllExceptSingle(client_id) => {
+                *self = NetworkTarget::Single(*client_id);
             }
-            NetworkTarget::AllExcept(existing_client_ids) => {
-                let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
-                client_ids.into_iter().for_each(|id| {
-                    new_excluded_ids.insert(id);
-                });
-                *existing_client_ids = Vec::from_iter(new_excluded_ids);
+            NetworkTarget::AllExcept(client_ids) => {
+                *self = NetworkTarget::Only(client_ids.clone());
             }
-            NetworkTarget::Only(existing_client_ids) => {
-                let mut new_ids = HashSet::from_iter(existing_client_ids.clone());
-                client_ids.into_iter().for_each(|id| {
-                    new_ids.remove(&id);
-                });
-                if new_ids.is_empty() {
-                    *self = NetworkTarget::None;
-                } else {
-                    *existing_client_ids = Vec::from_iter(new_ids);
-                }
+            NetworkTarget::Only(client_ids) => {
+                *self = NetworkTarget::AllExcept(client_ids.clone());
             }
             NetworkTarget::Single(client_id) => {
-                if client_ids.into_iter().find(|id| id == client_id).is_some() {
-                    *self = NetworkTarget::None;
-                }
+                *self = NetworkTarget::AllExceptSingle(*client_id);
             }
-            NetworkTarget::None => {}
+            NetworkTarget::None => {
+                *self = NetworkTarget::All;
+            }
         }
+    }
+
+    /// Compute the difference of this target with another one (A - B)
+    pub(crate) fn exclude(&mut self, target: &NetworkTarget) {
+        let mut target = target.clone();
+        target.inverse();
+        self.intersection(&target);
     }
 }
 
@@ -299,19 +316,19 @@ mod tests {
     use crate::shared::replication::network_target::NetworkTarget;
 
     #[test]
-    fn test_network_target() {
+    fn test_exclude() {
         let client_0 = ClientId::Netcode(0);
         let client_1 = ClientId::Netcode(1);
         let client_2 = ClientId::Netcode(2);
         let mut target = NetworkTarget::All;
         assert!(target.targets(&client_0));
-        target.exclude(vec![client_1, client_2]);
+        target.exclude(&NetworkTarget::Only(vec![client_1, client_2]));
         assert_eq!(target, NetworkTarget::AllExcept(vec![client_1, client_2]));
 
         target = NetworkTarget::AllExcept(vec![client_0]);
         assert!(!target.targets(&client_0));
         assert!(target.targets(&client_1));
-        target.exclude(vec![client_0, client_1]);
+        target.exclude(&NetworkTarget::Only(vec![client_0, client_1]));
         assert!(matches!(target, NetworkTarget::AllExcept(_)));
 
         if let NetworkTarget::AllExcept(ids) = target {
@@ -322,14 +339,14 @@ mod tests {
         target = NetworkTarget::Only(vec![client_0]);
         assert!(target.targets(&client_0));
         assert!(!target.targets(&client_1));
-        target.exclude(vec![client_1]);
-        assert_eq!(target, NetworkTarget::Only(vec![client_0]));
-        target.exclude(vec![client_0, client_2]);
+        target.exclude(&NetworkTarget::Single(client_1));
+        assert_eq!(target, NetworkTarget::Single(client_0));
+        target.exclude(&NetworkTarget::Only(vec![client_0, client_2]));
         assert_eq!(target, NetworkTarget::None);
 
         target = NetworkTarget::None;
         assert!(!target.targets(&client_0));
-        target.exclude(vec![client_1]);
+        target.exclude(&NetworkTarget::Single(client_1));
         assert_eq!(target, NetworkTarget::None);
     }
 
@@ -357,11 +374,11 @@ mod tests {
 
         target = NetworkTarget::Only(vec![client_0, client_1]);
         target.intersection(&NetworkTarget::Only(vec![client_0, client_2]));
-        assert_eq!(target, NetworkTarget::Only(vec![client_0]));
+        assert_eq!(target, NetworkTarget::Single(client_0));
 
         target = NetworkTarget::Only(vec![client_0, client_1]);
         target.intersection(&NetworkTarget::AllExcept(vec![client_0, client_2]));
-        assert_eq!(target, NetworkTarget::Only(vec![client_1]));
+        assert_eq!(target, NetworkTarget::Single(client_1));
 
         target = NetworkTarget::None;
         target.intersection(&NetworkTarget::AllExcept(vec![client_0, client_2]));

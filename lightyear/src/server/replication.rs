@@ -215,7 +215,14 @@ pub(crate) mod send {
                     // only try to replicate if the replicate component was just added
                     if replication_target.is_added() {
                         trace!(?entity, "send entity spawn");
-                        target.union(&replication_target.replication);
+                        target = replication_target.replication.clone();
+                    } else if replication_target.is_changed() {
+                        target = replication_target.replication.clone();
+                        if let Some(cached_replicate) = sender.replicate_component_cache.get(&entity) {
+                            // do not re-send a spawn message to the clients for which we already have
+                            // replicated the entity
+                            target.exclude(&cached_replicate.replication_target)
+                        }
                     }
 
                     // also replicate to the newly connected clients that match the target

@@ -101,6 +101,7 @@ impl VisibilityManager {
 pub(super) mod systems {
     use super::*;
     use crate::prelude::server::DisconnectEvent;
+    use crate::prelude::VisibilityMode;
     use crate::shared::replication::ReplicationSend;
     use bevy::prelude::DetectChanges;
 
@@ -115,6 +116,59 @@ pub(super) mod systems {
     //         manager.handle_client_disconnection(*client_id);
     //     }
     // }
+
+    /// If VisibilityMode becomes InterestManagement, add ReplicateVisibility to the entity
+    /// If VisibilityMode becomes All, remove ReplicateVisibility from the entity
+    ///
+    /// Also update the ReplicationCache with the changes
+    pub(super) fn add_replicate_visibility(
+        mut commands: Commands,
+        mut sender: ResMut<ConnectionManager>,
+        mut query: Query<(Entity, Ref<VisibilityMode>, Option<&ReplicateVisibility>)>,
+    ) {
+        for (entity, visibility_mode, replicate_visibility) in query.iter() {
+            if visibility_mode.is_changed() {
+                match visibility_mode.as_ref() {
+                    VisibilityMode::InterestManagement => {
+                        if replicate_visibility.is_none() {
+                            commands
+                                .entity(entity)
+                                .insert(ReplicateVisibility::default());
+                        }
+                        if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
+                            cache.visibility_mode = VisibilityMode::InterestManagement;
+                            if let Some(replicate_visibility) = replicate_visibility {
+                                cache.replication_clients_cache = replicate_visibility
+                                    .clients_cache
+                                    .iter()
+                                    .filter_map(|(client, visibility)| {
+                                        if *visibility != ClientVisibility::Lost {
+                                            Some(*client)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .copied()
+                                    .collect();
+                            } else {
+                                cache.replication_clients_cache.clear();
+                            }
+                        }
+                    }
+                    VisibilityMode::All => {
+                        commands.entity(entity).remove::<ReplicateVisibility>();
+                        if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
+                            cache.visibility_mode = VisibilityMode::All;
+                            cache.replication_clients_cache.clear();
+                            sender
+                                .get_mut_replicate_cache()
+                                .insert(entity, cache.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     /// System that updates the visibility cache of each Entity based on the visibility events.
     pub fn update_visibility_from_events(
@@ -248,6 +302,8 @@ impl Plugin for VisibilityPlugin {
         app.add_systems(
             PostUpdate,
             (
+                systems::add_replicate_visibility
+                    .in_set(InternalReplicationSet::<ServerMarker>::HandleReplicateUpdate),
                 (
                     systems::update_visibility_from_events,
                     systems::update_despawn_metadata_cache,

@@ -170,7 +170,7 @@ pub(crate) mod send {
                     );
                     let mut target = replication_resource.target.clone();
                     // no need to send a duplicate message to new clients
-                    target.exclude(new_clients);
+                    target.exclude(&NetworkTarget::Only(new_clients));
                     let _ = connection_manager.erased_send_message_to_target(
                         resource.as_ref(),
                         replication_resource.channel,

@@ -23,13 +23,14 @@ use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 // TODO: replace this with observers
-/// Metadata that holds Replicate-information (so that when the entity is despawned we know
-/// how to replicate the despawn)
+/// Metadata that holds Replicate-information from the previous send_interval's replication.
+/// - when the entity gets despawned, we will use this to know how to replicate the despawn
+/// - when the replicate metadata changes, we will use this to compute diffs
 #[derive(PartialEq, Debug)]
 pub(crate) struct ReplicateCache {
-    replication_target: NetworkTarget,
-    replication_group: ReplicationGroup,
-    visibility_mode: VisibilityMode,
+    pub(crate) replication_target: NetworkTarget,
+    pub(crate) replication_group: ReplicationGroup,
+    pub(crate) visibility_mode: VisibilityMode,
     /// If mode = Room, the list of clients that could see the entity
     pub(crate) replication_clients_cache: Vec<ClientId>,
 }
@@ -89,6 +90,22 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
             commands
                 .entity(entity)
                 .insert(ReplicateVisibility::default());
+        }
+    }
+}
+
+pub(crate) fn handle_replicate_update<R: ReplicationSend>(
+    mut sender: ResMut<R>,
+    target_query: Query<
+        (Entity, Ref<ReplicationTarget>),
+        (Changed<ReplicationTarget>, With<DespawnTracker>),
+    >,
+) {
+    for (entity, replication_target, group, visibility_mode) in query.iter() {
+        if let Some(replicate_cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
+            replicate_cache.replication_target = replication_target.replication.clone();
+            replicate_cache.replication_group = *group;
+            replicate_cache.visibility_mode = *visibility_mode;
         }
     }
 }
@@ -587,6 +604,60 @@ mod tests {
             .get::<Replicated>(client_entity)
             .is_some());
         assert_eq!(stepper.client_app.world.entities().len(), 1);
+    }
+
+    /// Check that if we change the replication target on an entity that already has one
+    /// we spawn the entity for new clients
+    #[test]
+    fn test_entity_spawn_replication_target_update() {
+        let mut stepper = MultiBevyStepper::default();
+
+        // spawn an entity on server to client 1
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                replication_target: ReplicationTarget {
+                    replication: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
+                    ..default()
+                },
+                ..default()
+            })
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let client_entity_1 = *stepper
+            .client_app_1
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client 1");
+
+        // update the replication target
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert(ReplicationTarget {
+                replication: NetworkTarget::All,
+                ..default()
+            });
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity gets replicated to the other client
+        stepper
+            .client_app_2
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client 2");
+        // TODO: check that client 1 did not receive another entity-spawn message
     }
 
     #[test]

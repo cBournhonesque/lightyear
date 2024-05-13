@@ -229,9 +229,11 @@ impl ReplicationReceiver {
                                 self.remote_entity_map.get_local(*remote_entity)
                             {
                                 if world.get_entity(*local_entity).is_some() {
+                                    dbg!("a");
                                     warn!("Received spawn for an entity that already exists");
                                     continue;
                                 }
+                                dbg!("b");
                                 warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
                                 continue;
                             }
