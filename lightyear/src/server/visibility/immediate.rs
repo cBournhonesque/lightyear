@@ -122,7 +122,7 @@ pub(super) mod systems {
     ///
     /// Run this before the visibility systems and the replication buffer systems
     /// so that the visibility cache can be updated before the replication systems
-    pub(super) fn add_replicate_visibility(
+    pub(in crate::server::visibility) fn add_replicate_visibility(
         mut commands: Commands,
         query: Query<(Entity, Ref<VisibilityMode>, Option<&ReplicateVisibility>)>,
     ) {

@@ -54,16 +54,7 @@ fn spawn_local(bencher: Bencher, n: usize) {
             );
             stepper.init();
 
-            let entities = vec![
-                (
-                    Component1(0.0),
-                    Replicate {
-                        target: NetworkTarget::All,
-                        ..default()
-                    },
-                );
-                n
-            ];
+            let entities = vec![(Component1(0.0), Replicate::default()); n];
 
             stepper.server_app.world.spawn_batch(entities);
             stepper
@@ -110,16 +101,7 @@ fn spawn_multi_clients(bencher: Bencher, n: usize) {
             );
             stepper.init();
 
-            let entities = vec![
-                (
-                    Component1(0.0),
-                    Replicate {
-                        target: NetworkTarget::All,
-                        ..default()
-                    },
-                );
-                FIXED_NUM_ENTITIES
-            ];
+            let entities = vec![(Component1(0.0), Replicate::default()); FIXED_NUM_ENTITIES];
 
             stepper.server_app.world.spawn_batch(entities);
             stepper

@@ -132,16 +132,14 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
                         .iter()
                         .filter_map(|(client_id, visibility)| {
                             if replication_target.replication.targets(client_id)
-                                && matches!(visibility, ClientVisibility::Lost)
-                            {
+                                && matches!(visibility, ClientVisibility::Lost) {
                                 debug!(
-                            "sending entity despawn for entity: {:?} because ClientVisibility::Lost",
-                            entity
-                        );
+                                    "sending entity despawn for entity: {:?} because ClientVisibility::Lost",
+                                    entity
+                                );
                                 return Some(*client_id);
-
                             }
-                            return None
+                            None
                         }).collect()
                 }
                 None => {
@@ -323,7 +321,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                             raw_data.clone(),
                             &registry,
                             replication_target.as_ref(),
-                            &group,
+                            group,
                             insert_target
                         )
                         .inspect_err(|e| {
@@ -336,7 +334,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                             entity,
                             kind,
                             raw_data,
-                            &group,
+                            group,
                             update_target,
                             component.last_changed(),
                             system_bevy_ticks.this_run(),
@@ -390,7 +388,7 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
                                     return Some(*client_id);
                                 }
                             };
-                            return None;
+                            None
                         })
                         .collect()
                 }

@@ -207,7 +207,7 @@ pub(crate) mod send {
                                     }
                                 }
                             }
-                            return None;
+                            None
                         }).collect()
                 }
                 None => {

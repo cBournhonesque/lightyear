@@ -3,6 +3,7 @@ use bevy::prelude::Component;
 use bevy::utils::default;
 use derive_more::{Add, Mul};
 use lightyear::client::components::ComponentSyncMode;
+use lightyear::client::prediction::plugin::add_prediction_systems;
 use serde::{Deserialize, Serialize};
 use std::ops::Mul;
 
@@ -55,13 +56,13 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<MyInput>::default());
         // components
-        app.register_component::<Component1>(ChannelDirection::ServerToClient);
-        app.add_prediction::<Component1>(ComponentSyncMode::Full);
-        app.add_linear_interpolation_fn::<Component1>();
-        app.register_component::<Component2>(ChannelDirection::ServerToClient);
-        app.add_prediction::<Component2>(ComponentSyncMode::Simple);
-        app.register_component::<Component3>(ChannelDirection::ServerToClient);
-        app.add_prediction::<Component3>(ComponentSyncMode::Once);
+        app.register_component::<Component1>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn();
+        app.register_component::<Component2>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple);
+        app.register_component::<Component3>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

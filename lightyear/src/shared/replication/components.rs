@@ -35,7 +35,7 @@ pub struct Controlled;
 
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
-#[derive(Bundle, Clone, PartialEq, Debug, Reflect)]
+#[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
 pub struct Replicate {
     /// Which clients should this entity be replicated to
     pub target: ReplicationTarget,
@@ -317,18 +317,6 @@ pub enum VisibilityMode {
     /// running any additional interest management logic
     #[default]
     All,
-}
-
-impl Default for Replicate {
-    fn default() -> Self {
-        Self {
-            target: ReplicationTarget::default(),
-            controlled_by: ControlledBy::default(),
-            visibility: VisibilityMode::default(),
-            group: ReplicationGroup::default(),
-            hierarchy: ReplicateHierarchy::default(),
-        }
-    }
 }
 
 /// Marker component that tells the client to spawn an Interpolated entity

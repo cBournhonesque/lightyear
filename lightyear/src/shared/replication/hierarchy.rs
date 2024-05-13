@@ -72,11 +72,10 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                     let replicate = Replicate {
                         target: replication_target.clone(),
                         controlled_by: controlled_by.clone(),
-                        visibility: visibility_mode.clone(),
+                        visibility: *visibility_mode,
                         // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id
                         group: ReplicationGroup::new_id(parent_entity.to_bits()),
                         hierarchy: ReplicateHierarchy { recursive: true },
-                        ..default()
                     };
                     // no need to set the correct parent as it will be set later in the `update_parent_sync` system
                     commands.entity(child).insert((replicate, ParentSync(None)));

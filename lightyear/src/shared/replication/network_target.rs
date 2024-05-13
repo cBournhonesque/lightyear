@@ -192,7 +192,7 @@ impl NetworkTarget {
                 }
                 NetworkTarget::Only(target_client_ids) => {
                     let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
-                    target_client_ids.into_iter().for_each(|id| {
+                    target_client_ids.iter().for_each(|id| {
                         new_excluded_ids.remove(id);
                     });
                     *self = NetworkTarget::from_exclude(new_excluded_ids)

@@ -522,7 +522,9 @@ mod tests {
 
     use crate::prelude::client::*;
     use crate::prelude::*;
-    use crate::server::visibility::immediate::systems::update_visibility_from_events;
+    use crate::server::visibility::immediate::systems::{
+        add_replicate_visibility, update_visibility_from_events,
+    };
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::components::VisibilityMode;
     use crate::shared::replication::systems::handle_replicate_add;
@@ -904,7 +906,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
+            .run_system_once(add_replicate_visibility);
         stepper
             .server_app
             .world
@@ -1018,7 +1020,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
+            .run_system_once(add_replicate_visibility);
         stepper
             .server_app
             .world
@@ -1115,7 +1117,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
+            .run_system_once(add_replicate_visibility);
         stepper
             .server_app
             .world

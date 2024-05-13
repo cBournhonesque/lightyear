@@ -35,7 +35,7 @@ pub mod components;
 mod commands;
 pub mod entity_map;
 pub(crate) mod hierarchy;
-pub(crate) mod network_target;
+pub mod network_target;
 pub(crate) mod plugin;
 pub(crate) mod receive;
 pub(crate) mod resources;
@@ -153,6 +153,7 @@ pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
         target: NetworkTarget,
     ) -> Result<()>;
 
+    #[allow(clippy::too_many_arguments)]
     fn prepare_component_insert(
         &mut self,
         entity: Entity,
