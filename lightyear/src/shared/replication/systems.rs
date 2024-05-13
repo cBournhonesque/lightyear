@@ -448,6 +448,7 @@ pub(crate) fn receive_cleanup<R: ReplicationReceive>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::events::ComponentUpdateEvent;
     use crate::prelude::client::Confirmed;
     use crate::prelude::server::VisibilityManager;
     use crate::prelude::{client, server, Replicated};
@@ -455,7 +456,7 @@ mod tests {
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
-    use bevy::prelude::default;
+    use bevy::prelude::{default, EventReader, Resource, Update};
 
     // TODO: test entity spawn newly connected client
     // TODO: test entity spawn replication target was updated
@@ -464,7 +465,7 @@ mod tests {
     fn test_entity_spawn() {
         let mut stepper = BevyStepper::default();
 
-        // spawn an entity on server with visibility::All
+        // spawn an entity on server
         let server_entity = stepper.server_app.world.spawn_empty().id();
         stepper.frame_step();
         stepper.frame_step();
@@ -522,6 +523,40 @@ mod tests {
             .entity(client_entity)
             .get::<Controlled>()
             .is_some());
+    }
+
+    #[test]
+    fn test_entity_spawn_client_to_server() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server with visibility::All
+        let client_entity = stepper.client_app.world.spawn_empty().id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // add replicate
+        stepper
+            .client_app
+            .world
+            .entity_mut(client_entity)
+            .insert(Replicate::default());
+        // TODO: we need to run a couple frames because the server doesn't read the client's updates
+        //  because they are from the future
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was spawned
+        stepper
+            .server_app
+            .world
+            .resource::<server::ConnectionManager>()
+            .connection(ClientId::Netcode(TEST_CLIENT_ID))
+            .expect("client connection missing")
+            .replication_receiver
+            .remote_entity_map
+            .get_local(client_entity)
+            .expect("entity was not replicated to server");
     }
 
     #[test]
@@ -1496,5 +1531,86 @@ mod tests {
             .remote_entity_map
             .get_local(server_entity)
             .expect("entity was not replicated to client");
+    }
+
+    /// Check if we send an update with a component that is already equal to the component on the remote,
+    /// then we do not apply the update to the remote (to avoid triggering change detection)
+    #[test]
+    fn test_equal_update_does_not_trigger_change_detection() {
+        let mut stepper = BevyStepper::default();
+
+        stepper.client_app.add_systems(
+            Update,
+            |mut events: EventReader<ComponentUpdateEvent<Component1>>| {
+                for events in events.read() {
+                    panic!(
+                        "ComponentUpdateEvent received for entity: {:?}",
+                        events.entity()
+                    );
+                }
+            },
+        );
+
+        // spawn an entity on server
+        let server_entity = stepper.server_app.world.spawn(Component1(1.0)).id();
+        // spawn an entity on the client with the component value
+        let client_entity = stepper.client_app.world.spawn(Component1(1.0)).id();
+
+        // add replication with a pre-existing target
+        stepper.server_app.world.entity_mut(server_entity).insert((
+            Replicate::default(),
+            TargetEntity::Preexisting(client_entity),
+        ));
+
+        // check that we did not receive an ComponentUpdateEvent because the component was already equal
+        // to the replicated value
+        stepper.frame_step();
+        stepper.frame_step();
+    }
+
+    #[derive(Resource, Default)]
+    struct Counter(u32);
+
+    /// Check if we send an update with a component that is not equal to the component on the remote,
+    /// then we apply the update to the remote (so we emit a ComponentUpdateEvent)
+    #[test]
+    fn test_not_equal_update_does_not_trigger_change_detection() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper.server_app.world.spawn(Component1(2.0)).id();
+        // spawn an entity on the client with the component value
+        let client_entity = stepper.client_app.world.spawn(Component1(1.0)).id();
+
+        stepper.client_app.init_resource::<Counter>();
+        stepper.client_app.add_systems(
+            Update,
+            move |mut events: EventReader<ComponentUpdateEvent<Component1>>,
+                  mut counter: ResMut<Counter>| {
+                for events in events.read() {
+                    counter.0 += 1;
+                    assert_eq!(events.entity(), client_entity);
+                }
+            },
+        );
+
+        // add replication with a pre-existing target
+        stepper.server_app.world.entity_mut(server_entity).insert((
+            Replicate::default(),
+            TargetEntity::Preexisting(client_entity),
+        ));
+
+        // check that we did receive an ComponentUpdateEvent
+        stepper.frame_step();
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .get_resource::<Counter>()
+                .unwrap()
+                .0,
+            1
+        );
     }
 }
