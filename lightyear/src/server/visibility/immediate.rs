@@ -120,50 +120,25 @@ pub(super) mod systems {
     /// If VisibilityMode becomes InterestManagement, add ReplicateVisibility to the entity
     /// If VisibilityMode becomes All, remove ReplicateVisibility from the entity
     ///
-    /// Also update the ReplicationCache with the changes
+    /// Run this before the visibility systems and the replication buffer systems
+    /// so that the visibility cache can be updated before the replication systems
     pub(super) fn add_replicate_visibility(
         mut commands: Commands,
-        mut sender: ResMut<ConnectionManager>,
-        mut query: Query<(Entity, Ref<VisibilityMode>, Option<&ReplicateVisibility>)>,
+        query: Query<(Entity, Ref<VisibilityMode>, Option<&ReplicateVisibility>)>,
     ) {
         for (entity, visibility_mode, replicate_visibility) in query.iter() {
-            if visibility_mode.is_changed() {
+            if visibility_mode.is_changed() && !visibility_mode.is_added() {
                 match visibility_mode.as_ref() {
                     VisibilityMode::InterestManagement => {
+                        // do not overwrite the visibility if it already exists
                         if replicate_visibility.is_none() {
                             commands
                                 .entity(entity)
                                 .insert(ReplicateVisibility::default());
                         }
-                        if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
-                            cache.visibility_mode = VisibilityMode::InterestManagement;
-                            if let Some(replicate_visibility) = replicate_visibility {
-                                cache.replication_clients_cache = replicate_visibility
-                                    .clients_cache
-                                    .iter()
-                                    .filter_map(|(client, visibility)| {
-                                        if *visibility != ClientVisibility::Lost {
-                                            Some(*client)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .copied()
-                                    .collect();
-                            } else {
-                                cache.replication_clients_cache.clear();
-                            }
-                        }
                     }
                     VisibilityMode::All => {
                         commands.entity(entity).remove::<ReplicateVisibility>();
-                        if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
-                            cache.visibility_mode = VisibilityMode::All;
-                            cache.replication_clients_cache.clear();
-                            sender
-                                .get_mut_replicate_cache()
-                                .insert(entity, cache.clone());
-                        }
                     }
                 }
             }
@@ -233,23 +208,43 @@ pub(super) mod systems {
         }
     }
 
-    // we cannot only lose visibility if we have gained it before
-    // why are there cases where we lose visibility but the entity is not despawned
-
-    /// Whenever the visibility of an entity changes, update the despawn metadata cache
+    /// Whenever the visibility of an entity changes, update the replication metadata cache
     /// so that we can correctly replicate the despawn to the correct clients
-    pub fn update_despawn_metadata_cache(
-        mut connection_manager: ResMut<ConnectionManager>,
-        mut query: Query<(Entity, &mut ReplicateVisibility)>,
+    pub(super) fn update_replication_cache(
+        mut sender: ResMut<ConnectionManager>,
+        mut query: Query<(Entity, Ref<VisibilityMode>, Option<&ReplicateVisibility>)>,
     ) {
-        for (entity, visibility) in query.iter_mut() {
-            if visibility.is_changed() {
-                if let Some(despawn_metadata) = connection_manager
-                    .get_mut_replicate_cache()
-                    .get_mut(&entity)
-                {
-                    let new_cache = visibility.clients_cache.keys().copied().collect();
-                    despawn_metadata.replication_clients_cache = new_cache;
+        for (entity, visibility_mode, replicate_visibility) in query.iter_mut() {
+            match visibility_mode.as_ref() {
+                VisibilityMode::InterestManagement => {
+                    if visibility_mode.is_changed() {
+                        if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
+                            cache.visibility_mode = VisibilityMode::InterestManagement;
+                            if let Some(replicate_visibility) = replicate_visibility {
+                                cache.replication_clients_cache = replicate_visibility
+                                    .clients_cache
+                                    .iter()
+                                    .filter_map(|(client, visibility)| {
+                                        if *visibility != ClientVisibility::Lost {
+                                            Some(*client)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect();
+                            } else {
+                                cache.replication_clients_cache.clear();
+                            }
+                        }
+                    }
+                }
+                VisibilityMode::All => {
+                    if visibility_mode.is_changed() && !visibility_mode.is_added() {
+                        if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
+                            cache.visibility_mode = VisibilityMode::All;
+                            cache.replication_clients_cache.clear();
+                        }
+                    }
                 }
             }
         }
@@ -278,7 +273,7 @@ impl Plugin for VisibilityPlugin {
             (
                 (
                     // update replication caches must happen before replication, but after we add ReplicateVisibility
-                    InternalReplicationSet::<ServerMarker>::HandleReplicateUpdate,
+                    InternalReplicationSet::<ServerMarker>::HandleReplicateAdd,
                     VisibilitySet::UpdateVisibility,
                     InternalReplicationSet::<ServerMarker>::Buffer,
                     VisibilitySet::VisibilityCleanup,
@@ -303,13 +298,10 @@ impl Plugin for VisibilityPlugin {
             PostUpdate,
             (
                 systems::add_replicate_visibility
+                    .in_set(InternalReplicationSet::<ServerMarker>::HandleReplicateAdd),
+                systems::update_visibility_from_events.in_set(VisibilitySet::UpdateVisibility),
+                systems::update_replication_cache
                     .in_set(InternalReplicationSet::<ServerMarker>::HandleReplicateUpdate),
-                (
-                    systems::update_visibility_from_events,
-                    systems::update_despawn_metadata_cache,
-                )
-                    .chain()
-                    .in_set(VisibilitySet::UpdateVisibility),
                 systems::update_replicate_visibility.in_set(VisibilitySet::VisibilityCleanup),
             ),
         );

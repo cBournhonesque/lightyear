@@ -86,9 +86,10 @@ pub(crate) mod send {
                 PostUpdate,
                 (
                     (
-                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::HandleReplicateAdd,
                         InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::Buffer,
+                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::All),
                     (
@@ -105,13 +106,15 @@ pub(crate) mod send {
                         //  because Removed<Replicate> is cleared every frame?
                         // NOTE: HandleReplicateUpdate should also run every frame?
                         // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
+                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
                     )
                         .in_set(InternalMainSet::<R::SetMarker>::Send),
                     (
                         (
                             (
-                                InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                                InternalReplicationSet::<R::SetMarker>::HandleReplicateAdd,
                                 InternalReplicationSet::<R::SetMarker>::Buffer,
+                                InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
                             )
                                 .chain(),
                             InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
@@ -125,6 +128,7 @@ pub(crate) mod send {
             app.add_systems(
                 PreUpdate,
                 // we need to add despawn trackers immediately for entities for which we add replicate
+                // TODO: why?
                 systems::handle_replicate_add::<R>.after(ServerReplicationSet::ClientReplication),
             );
             app.add_systems(
@@ -138,6 +142,8 @@ pub(crate) mod send {
                         systems::handle_replicate_add::<R>,
                         systems::handle_replicate_remove::<R>,
                     )
+                        .in_set(InternalReplicationSet::<R::SetMarker>::HandleReplicateAdd),
+                    systems::handle_replication_target_update::<R>
                         .in_set(InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate),
                     systems::send_entity_despawn::<R>
                         .in_set(InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals),
