@@ -19,7 +19,7 @@ pub(crate) enum InternalReplicationSet<M> {
     /// (has a PreSpawnedPlayerObject component)
     SetPreSpawnedHash,
     /// System that handles the addition/removal of the `Replicate` component
-    HandleReplicateAdd,
+    BeforeBuffer,
     /// Gathers entity despawns and component removals
     /// Needs to run once per frame instead of once per send_interval
     /// because they rely on bevy events that are cleared every frame
@@ -34,7 +34,7 @@ pub(crate) enum InternalReplicationSet<M> {
     /// All systems that buffer replication messages
     Buffer,
     /// System that handles the update of an existing replication component
-    HandleReplicateUpdate,
+    AfterBuffer,
     /// SystemSet that encompasses all send replication systems
     All,
     _Marker(std::marker::PhantomData<M>),

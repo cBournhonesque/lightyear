@@ -5,7 +5,7 @@ use std::ops::Deref;
 use bevy::ecs::entity::Entities;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
-    Added, App, Changed, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, Mut,
+    Added, App, Changed, Commands, Component, DetectChanges, Entity, Has, IntoSystemConfigs, Mut,
     PostUpdate, PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, With, Without,
 };
 use tracing::{debug, error, info, trace, warn};
@@ -16,7 +16,8 @@ use crate::serialize::RawData;
 use crate::server::replication::ServerReplicationSet;
 use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
 use crate::shared::replication::components::{
-    DespawnTracker, Replicate, ReplicationGroupId, ReplicationTarget, VisibilityMode,
+    DespawnTracker, DisabledComponent, OverrideTargetComponent, Replicate, ReplicateOnceComponent,
+    ReplicationGroupId, ReplicationTarget, VisibilityMode,
 };
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::{ReplicationReceive, ReplicationSend};
@@ -86,12 +87,6 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
         sender
             .get_mut_replicate_cache()
             .insert(entity, despawn_metadata);
-        if visibility_mode == &VisibilityMode::InterestManagement {
-            debug!("Adding ReplicateVisibility component for entity {entity:?}");
-            commands
-                .entity(entity)
-                .insert(ReplicateVisibility::default());
-        }
     }
 }
 
@@ -156,8 +151,8 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
             // if the replication target changed, find the clients that were removed in the new replication target
             if replication_target.is_changed() && !replication_target.is_added() {
                 if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
-                    let mut new_despawn = replication_target.replication.clone();
-                    new_despawn.exclude(&cache.replication_target);
+                    let mut new_despawn = cache.replication_target.clone();
+                    new_despawn.exclude(&replication_target.replication);
                     target.union(&new_despawn);
                 }
             }
@@ -222,6 +217,9 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
         Ref<ReplicationTarget>,
         &ReplicationGroup,
         Option<&ReplicateVisibility>,
+        Has<DisabledComponent<C>>,
+        Has<ReplicateOnceComponent<C>>,
+        Option<&OverrideTargetComponent<C>>,
     )>,
     system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
@@ -229,13 +227,13 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
     let kind = registry.net_id::<C>();
     query
         .iter()
-        .for_each(|(entity, component, replication_target, group, visibility)| {
-            // TODO: READD THIS
-            // // do not replicate components that are disabled
-            // if replicate.is_disabled::<C>() {
-            //     return;
-            // }
-
+        .for_each(|(entity, component, replication_target, group, visibility, disabled, replicate_once, override_target)| {
+            // do not replicate components that are disabled
+            if disabled {
+                return;
+            }
+            // use the overriden target if present
+            let target = override_target.map_or(&replication_target.replication, |override_target| &override_target.target);
             let (insert_target, update_target): (NetworkTarget, NetworkTarget) = match visibility {
                 Some(visibility) => {
                     let mut insert_clients = vec![];
@@ -244,8 +242,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                         .clients_cache
                         .iter()
                         .for_each(|(client_id, visibility)| {
-                            if replication_target.replication.targets(client_id) {
-                                // TODO: RE-ADD CUSTOM TARGET
+                            if target.targets(client_id) {
                                 match visibility {
                                     ClientVisibility::Gained => {
                                         insert_clients.push(*client_id);
@@ -256,15 +253,12 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                                         if component.is_added() {
                                             insert_clients.push(*client_id);
                                         } else {
-                                            // only update components that were not newly added
-
-                                            // TODO: readd-this
-                                            // // do not send updates for these components, only inserts/removes
-                                            // if replicate.is_replicate_once::<C>() {
-                                            //     // we can exit the function immediately because we know we don't want to replicate
-                                            //     // to any client
-                                            //     return;
-                                            // }
+                                            // for components that were not newly added, only send as updates
+                                            if replicate_once {
+                                                // we can exit the function immediately because we know we don't want to replicate
+                                                // to any client
+                                                return;
+                                            }
                                             update_clients.push(*client_id);
                                         }
                                     }
@@ -286,23 +280,19 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                     //  on the receiver's entity world mut to know if we emit a ComponentInsert or a ComponentUpdate?
                     if component.is_added() || replication_target.is_added() {
                         trace!("component is added or replication_target is added");
-                        insert_target.union(&replication_target.replication);
+                        insert_target.union(target);
                     } else {
-                        // TODO: re-add this
-                        // // do not send updates for these components, only inserts/removes
-                        // if replicate.is_replicate_once::<C>() {
-                        //     trace!(?entity,
-                        //         "not replicating updates for {:?} because it is marked as replicate_once",
-                        //         kind
-                        //     );
-                        //     // we can exit the function immediately because we know we don't want to replicate
-                        //     // to any client
-                        //     return;
-                        // }
-
+                        // do not send updates for these components, only inserts/removes
+                        if replicate_once {
+                            trace!(?entity,
+                                "not replicating updates for {:?} because it is marked as replicate_once",
+                                kind
+                            );
+                            return;
+                        }
                         // otherwise send an update for all components that changed since the
                         // last update we have ack-ed
-                        update_target.union(&replication_target.replication);
+                        update_target.union(target);
                     }
 
                     let new_connected_clients = sender.new_connected_clients();
@@ -310,14 +300,13 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                     if !new_connected_clients.is_empty() {
                         // replicate to the newly connected clients that match our target
                         let mut new_connected_target = NetworkTarget::Only(new_connected_clients);
-                        new_connected_target.intersection(&replication_target.replication);
+                        new_connected_target.intersection(target);
                         debug!(?entity, target = ?new_connected_target, "Replicate to newly connected clients");
                         update_target.union(&new_connected_target);
                     }
                     (insert_target, update_target)
                 }
             };
-
             if !insert_target.is_empty() || !update_target.is_empty() {
                 // serialize component
                 let writer = sender.writer();
@@ -368,25 +357,33 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
         &ReplicationTarget,
         &ReplicationGroup,
         Option<&ReplicateVisibility>,
+        Has<DisabledComponent<C>>,
+        Option<&OverrideTargetComponent<C>>,
     )>,
     mut removed: RemovedComponents<C>,
     mut sender: ResMut<R>,
 ) {
     let kind = registry.net_id::<C>();
     removed.read().for_each(|entity| {
-        if let Ok((replication_target, group, visibility)) = query.get(entity) {
-            // TODO: re-add this!
-            // // do not replicate components that are disabled
-            // if replicate.is_disabled::<C>() {
-            //     return;
-            // }
+        if let Ok((replication_target, group, visibility, disabled, override_target)) =
+            query.get(entity)
+        {
+            // do not replicate components that are disabled
+            if disabled {
+                return;
+            }
+            // use the overriden target if present
+            let base_target = override_target
+                .map_or(&replication_target.replication, |override_target| {
+                    &override_target.target
+                });
             let target = match visibility {
                 Some(visibility) => {
                     visibility
                         .clients_cache
                         .iter()
                         .filter_map(|(client_id, visibility)| {
-                            if replication_target.replication.targets(client_id) {
+                            if base_target.targets(client_id) {
                                 // TODO: maybe send no matter the vis?
                                 if matches!(visibility, ClientVisibility::Maintained) {
                                     // TODO: USE THE CUSTOM REPLICATE TARGET FOR THIS COMPONENT IF PRESENT!
@@ -400,7 +397,7 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
                 None => {
                     trace!("sending component remove!");
                     // TODO: USE THE CUSTOM REPLICATE TARGET FOR THIS COMPONENT IF PRESENT!
-                    replication_target.replication.clone()
+                    base_target.clone()
                 }
             };
             if target.is_empty() {
@@ -845,7 +842,7 @@ mod tests {
             .world
             .spawn(Replicate {
                 replication_target: ReplicationTarget {
-                    replication: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
+                    replication: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
                     ..default()
                 },
                 ..default()
@@ -1019,6 +1016,161 @@ mod tests {
     }
 
     #[test]
+    fn test_component_insert_disabled() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // add component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert((Component1(1.0), DisabledComponent::<Component1>::default()));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the component was not replicated
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<Component1>()
+            .is_none());
+    }
+
+    #[test]
+    fn test_component_override_target() {
+        let mut stepper = MultiBevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                Replicate::default(),
+                Component1(1.0),
+                OverrideTargetComponent::<Component1>::new(NetworkTarget::Single(
+                    ClientId::Netcode(TEST_CLIENT_ID_1),
+                )),
+            ))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity_1 = *stepper
+            .client_app_1
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        let client_entity_2 = *stepper
+            .client_app_2
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // check that the component was replicated to client 1 only
+        assert_eq!(
+            stepper
+                .client_app_1
+                .world
+                .entity(client_entity_1)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
+        );
+        assert!(stepper
+            .client_app_2
+            .world
+            .entity(client_entity_2)
+            .get::<Component1>()
+            .is_none());
+    }
+
+    /// Check that override target works even if the entity uses interest management
+    /// We still use visibility, but we use `override_target` instead of `replication_target`
+    #[test]
+    fn test_component_override_target_visibility() {
+        let mut stepper = MultiBevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                Replicate {
+                    // target is both
+                    visibility: VisibilityMode::InterestManagement,
+                    ..default()
+                },
+                Component1(1.0),
+                // override target is only client 1
+                OverrideTargetComponent::<Component1>::new(NetworkTarget::Single(
+                    ClientId::Netcode(TEST_CLIENT_ID_1),
+                )),
+            ))
+            .id();
+        // entity is visible to both
+        stepper
+            .server_app
+            .world
+            .resource_mut::<VisibilityManager>()
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity)
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_2), server_entity);
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity_1 = *stepper
+            .client_app_1
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        let client_entity_2 = *stepper
+            .client_app_2
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // check that the component was replicated to client 1 only
+        assert_eq!(
+            stepper
+                .client_app_1
+                .world
+                .entity(client_entity_1)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
+        );
+        assert!(stepper
+            .client_app_2
+            .world
+            .entity(client_entity_2)
+            .get::<Component1>()
+            .is_none());
+    }
+
+    #[test]
     fn test_component_update() {
         let mut stepper = BevyStepper::default();
 
@@ -1060,6 +1212,8 @@ mod tests {
         );
     }
 
+    /// Check that updates are not sent if the `ReplicationTarget` component gets removed.
+    /// Check that updates are resumed when the `ReplicationTarget` component gets re-added.
     #[test]
     fn test_component_update_replication_target_removed() {
         let mut stepper = BevyStepper::default();
@@ -1119,6 +1273,104 @@ mod tests {
                 .get::<Component1>()
                 .expect("component missing"),
             &Component1(2.0)
+        );
+    }
+
+    #[test]
+    fn test_component_update_disabled() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((Replicate::default(), Component1(1.0)))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // add component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert((Component1(2.0), DisabledComponent::<Component1>::default()));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the component was not updated
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
+        );
+    }
+
+    #[test]
+    fn test_component_update_replicate_once() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                Replicate::default(),
+                Component1(1.0),
+                ReplicateOnceComponent::<Component1>::default(),
+            ))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        // check that the component was replicated
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
+        );
+
+        // update component
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert(Component1(2.0));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the component was not updated
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .expect("component missing"),
+            &Component1(1.0)
         );
     }
 
@@ -1200,5 +1452,51 @@ mod tests {
                 replication_clients_cache: vec![],
             }
         );
+    }
+
+    /// Check that if we switch the visibility mode, the entity gets spawned
+    /// to the clients that now have visibility
+    #[test]
+    fn test_change_visibility_mode_spawn() {
+        let mut stepper = BevyStepper::default();
+
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                replication_target: ReplicationTarget {
+                    replication: NetworkTarget::None,
+                    ..default()
+                },
+                ..default()
+            })
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // set visibility to interest management
+        stepper.server_app.world.entity_mut(server_entity).insert((
+            VisibilityMode::InterestManagement,
+            ReplicationTarget {
+                replication: NetworkTarget::All,
+                ..default()
+            },
+        ));
+        stepper
+            .server_app
+            .world
+            .resource_mut::<VisibilityManager>()
+            .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper
+            .client_app
+            .world
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
     }
 }

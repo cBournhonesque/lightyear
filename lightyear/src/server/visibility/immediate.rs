@@ -127,11 +127,12 @@ pub(super) mod systems {
         query: Query<(Entity, Ref<VisibilityMode>, Option<&ReplicateVisibility>)>,
     ) {
         for (entity, visibility_mode, replicate_visibility) in query.iter() {
-            if visibility_mode.is_changed() && !visibility_mode.is_added() {
+            if visibility_mode.is_changed() {
                 match visibility_mode.as_ref() {
                     VisibilityMode::InterestManagement => {
                         // do not overwrite the visibility if it already exists
                         if replicate_visibility.is_none() {
+                            debug!("Adding ReplicateVisibility component for entity {entity:?}");
                             commands
                                 .entity(entity)
                                 .insert(ReplicateVisibility::default());
@@ -273,7 +274,7 @@ impl Plugin for VisibilityPlugin {
             (
                 (
                     // update replication caches must happen before replication, but after we add ReplicateVisibility
-                    InternalReplicationSet::<ServerMarker>::HandleReplicateAdd,
+                    InternalReplicationSet::<ServerMarker>::BeforeBuffer,
                     VisibilitySet::UpdateVisibility,
                     InternalReplicationSet::<ServerMarker>::Buffer,
                     VisibilitySet::VisibilityCleanup,
@@ -298,10 +299,10 @@ impl Plugin for VisibilityPlugin {
             PostUpdate,
             (
                 systems::add_replicate_visibility
-                    .in_set(InternalReplicationSet::<ServerMarker>::HandleReplicateAdd),
+                    .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
                 systems::update_visibility_from_events.in_set(VisibilitySet::UpdateVisibility),
                 systems::update_replication_cache
-                    .in_set(InternalReplicationSet::<ServerMarker>::HandleReplicateUpdate),
+                    .in_set(InternalReplicationSet::<ServerMarker>::AfterBuffer),
                 systems::update_replicate_visibility.in_set(VisibilitySet::VisibilityCleanup),
             ),
         );

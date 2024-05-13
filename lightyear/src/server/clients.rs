@@ -102,7 +102,7 @@ impl Plugin for ClientsMetadataPlugin {
         app.add_systems(
             PostUpdate,
             systems::handle_controlled_by_update
-                .in_set(InternalReplicationSet::<ServerMarker>::HandleReplicateAdd),
+                .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
         );
         // we handle this in the `Last` `SystemSet` to let the user handle the disconnect event
         // however they want first, before the client entity gets despawned

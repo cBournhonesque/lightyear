@@ -81,7 +81,7 @@ pub struct ConnectionManager {
 
     /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
     /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
-    replicate_component_cache: EntityHashMap<ReplicateCache>,
+    pub(crate) replicate_component_cache: EntityHashMap<ReplicateCache>,
 
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,

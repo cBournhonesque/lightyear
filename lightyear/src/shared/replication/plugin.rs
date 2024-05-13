@@ -86,10 +86,10 @@ pub(crate) mod send {
                 PostUpdate,
                 (
                     (
-                        InternalReplicationSet::<R::SetMarker>::HandleReplicateAdd,
+                        InternalReplicationSet::<R::SetMarker>::BeforeBuffer,
                         InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::Buffer,
-                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::AfterBuffer,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::All),
                     (
@@ -106,15 +106,15 @@ pub(crate) mod send {
                         //  because Removed<Replicate> is cleared every frame?
                         // NOTE: HandleReplicateUpdate should also run every frame?
                         // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
-                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::AfterBuffer,
                     )
                         .in_set(InternalMainSet::<R::SetMarker>::Send),
                     (
                         (
                             (
-                                InternalReplicationSet::<R::SetMarker>::HandleReplicateAdd,
+                                InternalReplicationSet::<R::SetMarker>::BeforeBuffer,
                                 InternalReplicationSet::<R::SetMarker>::Buffer,
-                                InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                                InternalReplicationSet::<R::SetMarker>::AfterBuffer,
                             )
                                 .chain(),
                             InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
@@ -138,15 +138,15 @@ pub(crate) mod send {
                     //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
                     //  It is ok to run it every frame because it creates at most one message per despawn
                     // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-                    (
-                        systems::handle_replicate_add::<R>,
-                        systems::handle_replicate_remove::<R>,
-                    )
-                        .in_set(InternalReplicationSet::<R::SetMarker>::HandleReplicateAdd),
-                    systems::handle_replication_target_update::<R>
-                        .in_set(InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate),
+                    (systems::handle_replicate_remove::<R>,)
+                        .in_set(InternalReplicationSet::<R::SetMarker>::BeforeBuffer),
                     systems::send_entity_despawn::<R>
                         .in_set(InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals),
+                    (
+                        systems::handle_replicate_add::<R>,
+                        systems::handle_replication_target_update::<R>,
+                    )
+                        .in_set(InternalReplicationSet::<R::SetMarker>::AfterBuffer),
                 ),
             );
             app.add_systems(
@@ -163,8 +163,7 @@ pub(crate) mod shared {
         TargetEntity, VisibilityMode,
     };
     use crate::shared::replication::components::{
-        PerComponentReplicationMetadata, ReplicationGroupId, ReplicationGroupIdBuilder,
-        ShouldBeInterpolated,
+        ReplicationGroupId, ReplicationGroupIdBuilder, ShouldBeInterpolated,
     };
     use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
     use crate::shared::replication::network_target::NetworkTarget;
