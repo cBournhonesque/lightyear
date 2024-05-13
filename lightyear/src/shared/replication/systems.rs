@@ -1542,10 +1542,10 @@ mod tests {
         stepper.client_app.add_systems(
             Update,
             |mut events: EventReader<ComponentUpdateEvent<Component1>>| {
-                for events in events.read() {
+                if let Some(event) = events.read().next() {
                     panic!(
                         "ComponentUpdateEvent received for entity: {:?}",
-                        events.entity()
+                        event.entity()
                     );
                 }
             },
