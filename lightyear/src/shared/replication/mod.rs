@@ -161,6 +161,7 @@ pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
         component: RawData,
         component_registry: &ComponentRegistry,
         replication_target: &ReplicationTarget,
+        prediction_target: Option<&NetworkTarget>,
         group: &ReplicationGroup,
         target: NetworkTarget,
     ) -> Result<()>;

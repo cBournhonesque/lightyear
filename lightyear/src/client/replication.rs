@@ -51,13 +51,15 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
+    use crate::prelude::server::ControlledBy;
     use crate::prelude::{
-        ClientId, ComponentRegistry, ReplicationGroup, ShouldBePredicted, TargetEntity,
-        VisibilityMode,
+        ClientId, ComponentRegistry, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
+        TargetEntity, VisibilityMode,
     };
+    use crate::server::replication::send::SyncTarget;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::components::{
-        Controlled, ControlledBy, ReplicationTarget, ShouldBeInterpolated,
+        Controlled, ReplicationTarget, ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
@@ -97,6 +99,38 @@ pub(crate) mod send {
         }
     }
 
+    /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
+    /// it to the server.
+    ///
+    /// ```rust
+    /// use bevy::prelude::*;
+    /// use lightyear::prelude::*;
+    /// use lightyear::prelude::client::*;
+    ///
+    /// let mut world = World::default();
+    /// world.spawn(ReplicateToServer::default());
+    /// ```
+    ///
+    /// The bundle is composed of several components:
+    /// - [`ReplicationTarget`] to specify if the entity should be replicated to the server or not
+    /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
+    /// will be sent together in the same message.
+    /// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
+    #[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
+    pub struct ReplicateToServer {
+        /// Should the entity be replicated to the client?
+        pub target: ReplicationTarget,
+        /// The replication group defines how entities are grouped (sent as a single message) for replication.
+        ///
+        /// After the entity is first replicated, the replication group of the entity should not be modified.
+        /// (but more entities can be added to the replication group)
+        // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
+        //  it just keeps living but doesn't receive any updates. Should we make this configurable?
+        pub group: ReplicationGroup,
+        /// How should the hierarchy of the entity (parents/children) be replicated?
+        pub hierarchy: ReplicateHierarchy,
+    }
+
     /// Send entity spawn replication messages to server when the ReplicationTarget component is added
     /// Also handles:
     /// - handles TargetEntity if it's a Preexisting entity
@@ -116,7 +150,7 @@ pub(crate) mod send {
         query
             .iter()
             .for_each(|(entity, replication_target, group, target_entity)| {
-                let mut target = replication_target.replication.clone();
+                let mut target = replication_target.target.clone();
                 if !replication_target.is_added() {
                     if let Some(cached_replicate) = sender.replicate_component_cache.get(&entity) {
                         // do not re-send a spawn message to the server if we already have sent one

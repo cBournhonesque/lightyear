@@ -71,7 +71,7 @@ pub(crate) fn replicate_players(
             let replicate = Replicate {
                 target: ReplicationTarget {
                     // we want to replicate back to the original client, since they are using a pre-spawned entity
-                    replication: NetworkTarget::All,
+                    target: NetworkTarget::All,
                     // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
                     prediction: NetworkTarget::Single(*client_id),
                     // we want the other clients to apply interpolation for the player

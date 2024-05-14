@@ -6,11 +6,15 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use bevy::ecs::component::Components;
 use bevy::prelude::*;
 
+use crate::prelude::server::ControlledBy;
 use crate::prelude::{
-    ComponentRegistry, ParentSync, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
+    ComponentRegistry, ParentSync, PreSpawnedPlayerObject, ReplicateHierarchy, ReplicationTarget,
+    ShouldBePredicted, TargetEntity, TickManager, VisibilityMode,
 };
 use crate::protocol::component::ComponentKind;
-use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::server::replication::send::SyncTarget;
+use crate::server::visibility::immediate::ReplicateVisibility;
+use crate::shared::replication::components::DespawnTracker;
 
 /// Compute the hash of the spawned entity by hashing the NetId of all its components along with the tick at which it was created
 /// 1. Client spawns an entity and adds the PreSpawnedPlayerObject component
@@ -63,7 +67,14 @@ pub(crate) fn compute_hash(
             .filter_map(|component_id| {
                 if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
                     // ignore some book-keeping components
-                    if type_id != TypeId::of::<Replicate>()
+                    if type_id != TypeId::of::<VisibilityMode>()
+                        && type_id != TypeId::of::<ReplicationTarget>()
+                        && type_id != TypeId::of::<SyncTarget>()
+                        && type_id != TypeId::of::<ControlledBy>()
+                        && type_id != TypeId::of::<ReplicateVisibility>()
+                        && type_id != TypeId::of::<VisibilityMode>()
+                        && type_id != TypeId::of::<TargetEntity>()
+                        && type_id != TypeId::of::<ReplicateHierarchy>()
                         && type_id != TypeId::of::<PreSpawnedPlayerObject>()
                         && type_id != TypeId::of::<ShouldBePredicted>()
                         && type_id != TypeId::of::<DespawnTracker>()

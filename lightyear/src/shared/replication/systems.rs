@@ -13,10 +13,11 @@ use tracing::{debug, error, info, trace, warn};
 use crate::prelude::{ClientId, ReplicationGroup, ShouldBePredicted, TargetEntity, TickManager};
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::serialize::RawData;
+use crate::server::replication::send::SyncTarget;
 use crate::server::replication::ServerReplicationSet;
 use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
 use crate::shared::replication::components::{
-    DespawnTracker, DisabledComponent, OverrideTargetComponent, Replicate, ReplicateOnceComponent,
+    DespawnTracker, DisabledComponent, OverrideTargetComponent, ReplicateOnceComponent,
     ReplicationGroupId, ReplicationTarget, VisibilityMode,
 };
 use crate::shared::replication::network_target::NetworkTarget;
@@ -79,7 +80,7 @@ pub(crate) fn handle_replicate_add<R: ReplicationSend>(
         debug!("Replicate component was added for entity {entity:?}");
         commands.entity(entity).insert(DespawnTracker);
         let despawn_metadata = ReplicateCache {
-            replication_target: replication_target.replication.clone(),
+            replication_target: replication_target.target.clone(),
             replication_group: *group,
             visibility_mode: *visibility_mode,
             replication_clients_cache: vec![],
@@ -101,7 +102,7 @@ pub(crate) fn handle_replication_target_update<R: ReplicationSend>(
     for (entity, replication_target) in target_query.iter() {
         if replication_target.is_changed() && !replication_target.is_added() {
             if let Some(replicate_cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
-                replicate_cache.replication_target = replication_target.replication.clone();
+                replicate_cache.replication_target = replication_target.target.clone();
             }
         }
     }
@@ -131,7 +132,7 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
                         .clients_cache
                         .iter()
                         .filter_map(|(client_id, visibility)| {
-                            if replication_target.replication.targets(client_id)
+                            if replication_target.target.targets(client_id)
                                 && matches!(visibility, ClientVisibility::Lost) {
                                 debug!(
                                     "sending entity despawn for entity: {:?} because ClientVisibility::Lost",
@@ -150,7 +151,7 @@ pub(crate) fn send_entity_despawn<R: ReplicationSend>(
             if replication_target.is_changed() && !replication_target.is_added() {
                 if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
                     let mut new_despawn = cache.replication_target.clone();
-                    new_despawn.exclude(&replication_target.replication);
+                    new_despawn.exclude(&replication_target.target);
                     target.union(&new_despawn);
                 }
             }
@@ -213,6 +214,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
         Entity,
         Ref<C>,
         Ref<ReplicationTarget>,
+        Option<&SyncTarget>,
         &ReplicationGroup,
         Option<&ReplicateVisibility>,
         Has<DisabledComponent<C>>,
@@ -225,13 +227,13 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
     let kind = registry.net_id::<C>();
     query
         .iter()
-        .for_each(|(entity, component, replication_target, group, visibility, disabled, replicate_once, override_target)| {
+        .for_each(|(entity, component, replication_target, sync_target, group,  visibility, disabled, replicate_once, override_target)| {
             // do not replicate components that are disabled
             if disabled {
                 return;
             }
             // use the overriden target if present
-            let target = override_target.map_or(&replication_target.replication, |override_target| &override_target.target);
+            let target = override_target.map_or(&replication_target.target, |override_target| &override_target.target);
             let (insert_target, update_target): (NetworkTarget, NetworkTarget) = match visibility {
                 Some(visibility) => {
                     let mut insert_clients = vec![];
@@ -321,6 +323,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                             raw_data.clone(),
                             &registry,
                             replication_target.as_ref(),
+                            sync_target.map(|sync_target| &sync_target.prediction),
                             group,
                             insert_target
                         )
@@ -372,7 +375,7 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
             }
             // use the overriden target if present
             let base_target = override_target
-                .map_or(&replication_target.replication, |override_target| {
+                .map_or(&replication_target.target, |override_target| {
                     &override_target.target
                 });
             let target = match visibility {
@@ -450,9 +453,10 @@ mod tests {
     use super::*;
     use crate::client::events::ComponentUpdateEvent;
     use crate::prelude::client::Confirmed;
-    use crate::prelude::server::VisibilityManager;
+    use crate::prelude::server::{ControlledBy, Replicate, VisibilityManager};
     use crate::prelude::{client, server, Replicated};
-    use crate::shared::replication::components::{Controlled, ControlledBy};
+    use crate::server::replication::send::SyncTarget;
+    use crate::shared::replication::components::Controlled;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
@@ -484,9 +488,8 @@ mod tests {
             .server_app
             .world
             .entity_mut(server_entity)
-            .insert(Replicate {
-                target: ReplicationTarget {
-                    replication: NetworkTarget::All,
+            .insert(server::Replicate {
+                sync: SyncTarget {
                     prediction: NetworkTarget::All,
                     interpolation: NetworkTarget::All,
                 },
@@ -539,7 +542,7 @@ mod tests {
             .client_app
             .world
             .entity_mut(client_entity)
-            .insert(Replicate::default());
+            .insert(client::ReplicateToServer::default());
         // TODO: we need to run a couple frames because the server doesn't read the client's updates
         //  because they are from the future
         stepper.frame_step();
@@ -567,7 +570,7 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world
-            .spawn(Replicate {
+            .spawn(server::Replicate {
                 visibility: VisibilityMode::InterestManagement,
                 ..default()
             })
@@ -623,7 +626,7 @@ mod tests {
             .server_app
             .world
             .spawn((
-                Replicate::default(),
+                server::Replicate::default(),
                 TargetEntity::Preexisting(client_entity),
             ))
             .id();
@@ -660,10 +663,9 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world
-            .spawn(Replicate {
+            .spawn(server::Replicate {
                 target: ReplicationTarget {
-                    replication: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
-                    ..default()
+                    target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
                 },
                 ..default()
             })
@@ -686,8 +688,7 @@ mod tests {
             .world
             .entity_mut(server_entity)
             .insert(ReplicationTarget {
-                replication: NetworkTarget::All,
-                ..default()
+                target: NetworkTarget::All,
             });
         stepper.frame_step();
         stepper.frame_step();
@@ -709,7 +710,11 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         // spawn an entity on server
-        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(server::Replicate::default())
+            .id();
         stepper.frame_step();
         stepper.frame_step();
 
@@ -742,7 +747,7 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world
-            .spawn(Replicate {
+            .spawn(server::Replicate {
                 visibility: VisibilityMode::InterestManagement,
                 ..default()
             })
@@ -791,7 +796,7 @@ mod tests {
         let server_entity_1 = stepper
             .server_app
             .world
-            .spawn(Replicate {
+            .spawn(server::Replicate {
                 visibility: VisibilityMode::InterestManagement,
                 group: ReplicationGroup::new_id(1),
                 ..default()
@@ -800,7 +805,7 @@ mod tests {
         let server_entity_2 = stepper
             .server_app
             .world
-            .spawn(Replicate {
+            .spawn(server::Replicate {
                 visibility: VisibilityMode::InterestManagement,
                 group: ReplicationGroup::new_id(1),
                 ..default()
@@ -873,10 +878,9 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world
-            .spawn(Replicate {
+            .spawn(server::Replicate {
                 target: ReplicationTarget {
-                    replication: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
-                    ..default()
+                    target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
                 },
                 ..default()
             })
@@ -899,8 +903,7 @@ mod tests {
             .world
             .entity_mut(server_entity)
             .insert(ReplicationTarget {
-                replication: NetworkTarget::None,
-                ..default()
+                target: NetworkTarget::None,
             });
         stepper.frame_step();
         stepper.frame_step();
@@ -914,7 +917,11 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         // spawn an entity on server
-        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(server::Replicate::default())
+            .id();
         stepper.frame_step();
         stepper.frame_step();
         let client_entity = *stepper
@@ -1498,8 +1505,7 @@ mod tests {
             .world
             .spawn(Replicate {
                 target: ReplicationTarget {
-                    replication: NetworkTarget::None,
-                    ..default()
+                    target: NetworkTarget::None,
                 },
                 ..default()
             })
@@ -1511,8 +1517,7 @@ mod tests {
         stepper.server_app.world.entity_mut(server_entity).insert((
             VisibilityMode::InterestManagement,
             ReplicationTarget {
-                replication: NetworkTarget::All,
-                ..default()
+                target: NetworkTarget::All,
             },
         ));
         stepper

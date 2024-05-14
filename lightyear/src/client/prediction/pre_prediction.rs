@@ -12,8 +12,10 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
-use crate::prelude::{ShouldBePredicted, Tick};
-use crate::shared::replication::components::{PrePredicted, Replicate};
+use crate::prelude::{
+    ReplicateHierarchy, ReplicationGroup, ReplicationTarget, ShouldBePredicted, Tick,
+};
+use crate::shared::replication::components::PrePredicted;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
@@ -168,7 +170,7 @@ impl PrePredictionPlugin {
             debug!(?entity, "removing replicate from pre-predicted entity");
             commands
                 .entity(entity)
-                .remove::<Replicate>()
+                .remove::<(ReplicationTarget, ReplicationGroup, ReplicateHierarchy)>()
                 .insert((Predicted {
                     confirmed_entity: None,
                 },));

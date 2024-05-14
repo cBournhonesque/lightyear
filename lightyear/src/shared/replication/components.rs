@@ -33,93 +33,19 @@ pub(crate) struct DespawnTracker;
 #[component(storage = "SparseSet")]
 pub struct Controlled;
 
-/// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
-/// it to remote peers.
-///
-/// ```rust
-/// use bevy::prelude::*;
-/// use lightyear::prelude::*;
-///
-/// let mut world = World::default();
-/// world.spawn(Replicate::default());
-/// ```
-///
-/// The bundle is composed of several components:
-/// - [`ReplicationTarget`] to specify which clients should receive the entity
-/// - [`ControlledBy`] to specify which client controls the entity
-/// - [`VisibilityMode`] to specify if we should replicate the entity to all clients in the
-/// replication target, or if we should apply interest management logic to determine which clients
-/// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
-/// will be sent together in the same message.
-/// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
-///
-/// Some of the components can be updated at runtime even after the entity has been replicated.
-/// For example you can update the [`ReplicationTarget`] to change which clients should receive the entity.
-#[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
-pub struct Replicate {
-    /// Which clients should this entity be replicated to
-    pub target: ReplicationTarget,
-    /// Which client(s) control this entity?
-    pub controlled_by: ControlledBy,
-    /// How do we control the visibility of the entity?
-    pub visibility: VisibilityMode,
-    /// The replication group defines how entities are grouped (sent as a single message) for replication.
-    ///
-    /// After the entity is first replicated, the replication group of the entity should not be modified.
-    /// (but more entities can be added to the replication group)
-    // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
-    //  it just keeps living but doesn't receive any updates. Should we make this configurable?
-    pub group: ReplicationGroup,
-    /// How should the hierarchy of the entity (parents/children) be replicated?
-    pub hierarchy: ReplicateHierarchy,
-}
-
 /// Component that indicates which clients the entity should be replicated to.
 #[derive(Component, Clone, Debug, PartialEq, Reflect)]
 pub struct ReplicationTarget {
     /// Which clients should this entity be replicated to
-    pub replication: NetworkTarget,
-    /// Which clients should predict this entity (unused for client to server replication)
-    pub prediction: NetworkTarget,
-    /// Which clients should interpolate this entity (unused for client to server replication)
-    pub interpolation: NetworkTarget,
+    pub target: NetworkTarget,
 }
 
 impl Default for ReplicationTarget {
     fn default() -> Self {
         Self {
-            replication: NetworkTarget::All,
-            prediction: NetworkTarget::None,
-            interpolation: NetworkTarget::None,
+            target: NetworkTarget::All,
         }
     }
-}
-
-/// Component storing metadata about which clients have control over the entity
-///
-/// This is only used for server to client replication.
-#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
-pub struct ControlledBy {
-    /// Which client(s) control this entity?
-    pub target: NetworkTarget,
-}
-
-impl ControlledBy {
-    /// Returns true if the entity is controlled by the specified client
-    pub fn targets(&self, client_id: &ClientId) -> bool {
-        self.target.targets(client_id)
-    }
-}
-
-/// Component to have more fine-grained control over the visibility of an entity
-/// (which clients do we replicate this entity to?)
-///
-/// This has no effect for client to server replication.
-#[derive(Component, Clone, Debug, PartialEq, Reflect)]
-pub struct Visibility {
-    /// Control if we do fine-grained or coarse-grained visibility
-    mode: VisibilityMode,
-    // TODO: should we store the visibility cache here if visibility_mode = InterestManagement?
 }
 
 /// Defines the target entity for the replication.
@@ -204,17 +130,6 @@ impl<C> OverrideTargetComponent<C> {
             target,
             _marker: Default::default(),
         }
-    }
-}
-
-impl Replicate {
-    pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
-        self.group.group_id(entity)
-    }
-
-    /// Returns true if the entity is controlled by the specified client
-    pub fn is_controlled_by(&self, client_id: &ClientId) -> bool {
-        self.controlled_by.targets(client_id)
     }
 }
 

@@ -17,10 +17,16 @@ use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{ComponentRegistry, ParentSync, ShouldBePredicted, Tick, TickManager};
+use crate::prelude::server::ControlledBy;
+use crate::prelude::{
+    ComponentRegistry, ParentSync, ReplicateHierarchy, ReplicationTarget, ShouldBePredicted,
+    TargetEntity, Tick, TickManager, VisibilityMode,
+};
 use crate::protocol::component::ComponentKind;
 use crate::server::prediction::compute_hash;
-use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::server::replication::send::SyncTarget;
+use crate::server::visibility::immediate::ReplicateVisibility;
+use crate::shared::replication::components::DespawnTracker;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 #[derive(Default)]
@@ -149,7 +155,14 @@ impl PreSpawnedPlayerObjectPlugin {
                                     world.components().get_info(component_id).unwrap().type_id()
                                 {
                                     // ignore some book-keeping components
-                                    if type_id != TypeId::of::<Replicate>()
+                                    if type_id != TypeId::of::<VisibilityMode>()
+                                        && type_id != TypeId::of::<ReplicationTarget>()
+                                        && type_id != TypeId::of::<SyncTarget>()
+                                        && type_id != TypeId::of::<ControlledBy>()
+                                        && type_id != TypeId::of::<ReplicateVisibility>()
+                                        && type_id != TypeId::of::<VisibilityMode>()
+                                        && type_id != TypeId::of::<TargetEntity>()
+                                        && type_id != TypeId::of::<ReplicateHierarchy>()
                                         && type_id != TypeId::of::<PreSpawnedPlayerObject>()
                                         && type_id != TypeId::of::<ShouldBePredicted>()
                                         && type_id != TypeId::of::<DespawnTracker>()

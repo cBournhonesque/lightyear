@@ -51,11 +51,12 @@ pub(crate) mod receive {
 pub(crate) mod send {
     use super::*;
     use crate::prelude::{
-        ComponentRegistry, ReplicationGroup, ShouldBePredicted, TargetEntity, VisibilityMode,
+        ClientId, ComponentRegistry, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
+        TargetEntity, VisibilityMode,
     };
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::components::{
-        Controlled, ControlledBy, ReplicationTarget, ShouldBeInterpolated,
+        Controlled, ReplicationTarget, ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
@@ -120,17 +121,102 @@ pub(crate) mod send {
         ),
     }
 
+    /// Component that indicates which clients should predict and interpolate the entity
+    #[derive(Component, Default, Clone, Debug, PartialEq, Reflect)]
+    pub struct SyncTarget {
+        /// Which clients should predict this entity (unused for client to server replication)
+        pub prediction: NetworkTarget,
+        /// Which clients should interpolate this entity (unused for client to server replication)
+        pub interpolation: NetworkTarget,
+    }
+
+    /// Component storing metadata about which clients have control over the entity
+    ///
+    /// This is only used for server to client replication.
+    #[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
+    pub struct ControlledBy {
+        /// Which client(s) control this entity?
+        pub target: NetworkTarget,
+    }
+
+    impl ControlledBy {
+        /// Returns true if the entity is controlled by the specified client
+        pub fn targets(&self, client_id: &ClientId) -> bool {
+            self.target.targets(client_id)
+        }
+    }
+
+    /// Component to have more fine-grained control over the visibility of an entity
+    /// (which clients do we replicate this entity to?)
+    ///
+    /// This has no effect for client to server replication.
+    #[derive(Component, Clone, Debug, PartialEq, Reflect)]
+    pub struct Visibility {
+        /// Control if we do fine-grained or coarse-grained visibility
+        mode: VisibilityMode,
+        // TODO: should we store the visibility cache here if visibility_mode = InterestManagement?
+    }
+
+    /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
+    /// it to remote peers.
+    ///
+    /// ```rust
+    /// use bevy::prelude::*;
+    /// use lightyear::prelude::*;
+    /// use lightyear::prelude::server::*;
+    ///
+    /// let mut world = World::default();
+    /// world.spawn(Replicate::default());
+    /// ```
+    ///
+    /// The bundle is composed of several components:
+    /// - [`ReplicationTarget`] to specify which clients should receive the entity
+    /// - [`SyncTarget`] to specify which clients should predict/interpolate the entity
+    /// - [`ControlledBy`] to specify which client controls the entity
+    /// - [`VisibilityMode`] to specify if we should replicate the entity to all clients in the
+    /// replication target, or if we should apply interest management logic to determine which clients
+    /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
+    /// will be sent together in the same message.
+    /// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
+    ///
+    /// Some of the components can be updated at runtime even after the entity has been replicated.
+    /// For example you can update the [`ReplicationTarget`] to change which clients should receive the entity.
+    #[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
+    pub struct Replicate {
+        /// Which clients should this entity be replicated to?
+        pub target: ReplicationTarget,
+        /// Which clients should predict/interpolate the entity?
+        pub sync: SyncTarget,
+        /// Which client(s) control this entity?
+        pub controlled_by: ControlledBy,
+        /// How do we control the visibility of the entity?
+        pub visibility: VisibilityMode,
+        /// The replication group defines how entities are grouped (sent as a single message) for replication.
+        ///
+        /// After the entity is first replicated, the replication group of the entity should not be modified.
+        /// (but more entities can be added to the replication group)
+        // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
+        //  it just keeps living but doesn't receive any updates. Should we make this configurable?
+        pub group: ReplicationGroup,
+        /// How should the hierarchy of the entity (parents/children) be replicated?
+        pub hierarchy: ReplicateHierarchy,
+    }
+
     /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities
     /// So that client code can still query for them
     fn add_prediction_interpolation_components(
         mut commands: Commands,
-        query: Query<(Entity, Ref<ReplicationTarget>, Option<&PrePredicted>)>,
+        query: Query<(
+            Entity,
+            Ref<ReplicationTarget>,
+            &SyncTarget,
+            Option<&PrePredicted>,
+        )>,
         connection: Res<ClientConnection>,
     ) {
         let local_client = connection.id();
-        for (entity, replication_target, pre_predicted) in query.iter() {
-            if (replication_target.is_changed())
-                && replication_target.replication.targets(&local_client)
+        for (entity, replication_target, sync_target, pre_predicted) in query.iter() {
+            if (replication_target.is_changed()) && replication_target.target.targets(&local_client)
             {
                 if pre_predicted.is_some_and(|pre_predicted| pre_predicted.client_entity.is_none())
                 {
@@ -143,12 +229,12 @@ pub(crate) mod send {
                         })
                         .remove::<PrePredicted>();
                 }
-                if replication_target.prediction.targets(&local_client) {
+                if sync_target.prediction.targets(&local_client) {
                     commands.entity(entity).insert(Predicted {
                         confirmed_entity: Some(entity),
                     });
                 }
-                if replication_target.interpolation.targets(&local_client) {
+                if sync_target.interpolation.targets(&local_client) {
                     commands.entity(entity).insert(Interpolated {
                         confirmed_entity: entity,
                     });
@@ -167,6 +253,7 @@ pub(crate) mod send {
         query: Query<(
             Entity,
             Ref<ReplicationTarget>,
+            &SyncTarget,
             &ReplicationGroup,
             &ControlledBy,
             Option<&TargetEntity>,
@@ -175,7 +262,7 @@ pub(crate) mod send {
         mut sender: ResMut<ConnectionManager>,
     ) {
         // Replicate to already connected clients (replicate only new entities)
-        query.iter().for_each(|(entity, replication_target, group, controlled_by, target_entity, visibility )| {
+        query.iter().for_each(|(entity, replication_target, sync_target, group, controlled_by, target_entity, visibility )| {
             let target = match visibility {
                 // for room mode, no need to handle newly-connected clients specially; they just need
                 // to be added to the correct room
@@ -183,7 +270,7 @@ pub(crate) mod send {
                     visibility.clients_cache
                         .iter()
                         .filter_map(|(client_id, visibility)| {
-                            if replication_target.replication.targets(client_id) {
+                            if replication_target.target.targets(client_id) {
                                 match visibility {
                                     ClientVisibility::Gained => {
                                         trace!(
@@ -215,9 +302,9 @@ pub(crate) mod send {
                     // only try to replicate if the replicate component was just added
                     if replication_target.is_added() {
                         trace!(?entity, "send entity spawn");
-                        target = replication_target.replication.clone();
+                        target = replication_target.target.clone();
                     } else if replication_target.is_changed() {
-                        target = replication_target.replication.clone();
+                        target = replication_target.target.clone();
                         if let Some(cached_replicate) = sender.replicate_component_cache.get(&entity) {
                             // do not re-send a spawn message to the clients for which we already have
                             // replicated the entity
@@ -230,7 +317,7 @@ pub(crate) mod send {
                     if !new_connected_clients.is_empty() {
                         // replicate to the newly connected clients that match our target
                         let mut new_connected_target = NetworkTarget::Only(new_connected_clients);
-                        new_connected_target.intersection(&replication_target.replication);
+                        new_connected_target.intersection(&replication_target.target);
                         debug!(?entity, target = ?new_connected_target, "Replicate to newly connected clients");
                         target.union(&new_connected_target);
                     }
@@ -251,7 +338,7 @@ pub(crate) mod send {
                     sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled)?;
                 }
                 // if we need to do prediction/interpolation, send a marker component to indicate that to the client
-                if replication_target.prediction.targets(&client_id) {
+                if sync_target.prediction.targets(&client_id) {
                     // TODO: the serialized data is always the same; cache it somehow?
                     sender.prepare_typed_component_insert(
                         entity,
@@ -261,7 +348,7 @@ pub(crate) mod send {
                         &ShouldBePredicted,
                     )?;
                 }
-                if replication_target.interpolation.targets(&client_id) {
+                if sync_target.interpolation.targets(&client_id) {
                     sender.prepare_typed_component_insert(
                         entity,
                         group_id,

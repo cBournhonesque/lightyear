@@ -266,9 +266,9 @@ pub(crate) fn shoot_bullet(
                         //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
                         //  unless you set the hash manually before PostUpdate to a value of your choice
                         PreSpawnedPlayerObject::default(),
-                        Replicate {
+                        ReplicateToServer {
                             target: ReplicationTarget {
-                                replication: NetworkTarget::All,
+                                target: NetworkTarget::All,
                                 // the bullet is predicted for the client who shot it
                                 prediction: NetworkTarget::Single(id.0),
                                 // the bullet is interpolated for other clients

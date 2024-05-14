@@ -3,10 +3,10 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::prelude::server::ControlledBy;
 use crate::prelude::{Replicated, ReplicationGroup, VisibilityMode};
-use crate::shared::replication::components::{
-    ControlledBy, Replicate, ReplicateHierarchy, ReplicationTarget,
-};
+use crate::server::replication::send::SyncTarget;
+use crate::shared::replication::components::{ReplicateHierarchy, ReplicationTarget};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
@@ -50,8 +50,9 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                 Entity,
                 Ref<ReplicateHierarchy>,
                 &ReplicationTarget,
-                &ControlledBy,
-                &VisibilityMode,
+                Option<&SyncTarget>,
+                Option<&ControlledBy>,
+                Option<&VisibilityMode>,
             ),
             (Without<Parent>, With<Children>),
         >,
@@ -61,6 +62,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             parent_entity,
             replicate_hierarchy,
             replication_target,
+            sync_target,
             controlled_by,
             visibility_mode,
         ) in parent_query.iter()
@@ -69,16 +71,23 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                 // iterate through all descendents of the entity
                 for child in children_query.iter_descendants(parent_entity) {
                     trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
-                    let replicate = Replicate {
-                        target: replication_target.clone(),
-                        controlled_by: controlled_by.clone(),
-                        visibility: *visibility_mode,
-                        // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id
-                        group: ReplicationGroup::new_id(parent_entity.to_bits()),
-                        hierarchy: ReplicateHierarchy { recursive: true },
-                    };
                     // no need to set the correct parent as it will be set later in the `update_parent_sync` system
-                    commands.entity(child).insert((replicate, ParentSync(None)));
+                    commands.entity(child).insert((
+                        replication_target.clone(),
+                        // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id
+                        ReplicationGroup::new_id(parent_entity.to_bits()),
+                        ReplicateHierarchy { recursive: true },
+                        ParentSync(None),
+                    ));
+                    if let Some(controlled_by) = controlled_by {
+                        commands.entity(child).insert(controlled_by.clone());
+                    }
+                    if let Some(sync_target) = sync_target {
+                        commands.entity(child).insert(sync_target.clone());
+                    }
+                    if let Some(vis) = visibility_mode {
+                        commands.entity(child).insert(*vis);
+                    }
                 }
             }
             // TODO: should we update the parent's replication group? we actually can't.. replication groups
@@ -198,7 +207,8 @@ mod tests {
     use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
 
-    use crate::prelude::{Replicate, ReplicationGroup};
+    use crate::prelude::server::Replicate;
+    use crate::prelude::ReplicationGroup;
     use crate::shared::replication::components::ReplicateHierarchy;
     use crate::shared::replication::hierarchy::ParentSync;
     use crate::tests::protocol::*;

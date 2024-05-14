@@ -3,7 +3,7 @@ use bevy::utils::Duration;
 
 use crate::client::input::InputManager;
 use crate::prelude::client::{InputSystemSet, SyncConfig};
-use crate::prelude::server::InputEvent;
+use crate::prelude::server::{InputEvent, Replicate};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;

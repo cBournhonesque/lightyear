@@ -42,8 +42,7 @@ use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{
-    Controlled, ControlledBy, Replicate, ReplicationGroupId, ReplicationTarget,
-    ShouldBeInterpolated,
+    Controlled, ReplicationGroupId, ReplicationTarget, ShouldBeInterpolated,
 };
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
@@ -742,6 +741,7 @@ impl ReplicationSend for ConnectionManager {
         component: RawData,
         component_registry: &ComponentRegistry,
         replication_target: &ReplicationTarget,
+        prediction_target: Option<&NetworkTarget>,
         group: &ReplicationGroup,
         target: NetworkTarget,
     ) -> Result<()> {
@@ -770,7 +770,7 @@ impl ReplicationSend for ConnectionManager {
             .get_net_id::<PreSpawnedPlayerObject>()
             .context("PreSpawnedPlayerObject is not registered")?;
         if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
-            actual_target = replication_target.prediction.clone();
+            actual_target = prediction_target.unwrap().clone();
         }
         self.apply_replication(actual_target)
             .try_for_each(|client_id| {

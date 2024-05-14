@@ -54,7 +54,7 @@ use crate::server::connection::ConnectionManager;
 
 use crate::server::networking::is_started;
 use crate::server::visibility::immediate::{VisibilityManager, VisibilitySet};
-use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::shared::replication::components::DespawnTracker;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
 use crate::shared::time_manager::is_server_ready_to_send;
@@ -521,6 +521,7 @@ mod tests {
     use bevy::utils::HashMap;
 
     use crate::prelude::client::*;
+    use crate::prelude::server::Replicate;
     use crate::prelude::*;
     use crate::server::visibility::immediate::systems::{
         add_replicate_visibility, update_visibility_from_events,
