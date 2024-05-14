@@ -3,8 +3,6 @@ use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
 use crate::transport::error::Result;
 use crate::transport::io::IoState;
-#[cfg(not(target_family = "wasm"))]
-use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
 use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::{WebSocketServerSocket, WebSocketServerSocketBuilder};

@@ -11,8 +11,6 @@ use crate::transport::middleware::compression::zstd::compression::ZstdCompressor
 use crate::transport::middleware::compression::zstd::decompression::ZstdDecompressor;
 use crate::transport::middleware::conditioner::LinkConditioner;
 use crate::transport::middleware::{PacketReceiverWrapper, PacketSenderWrapper};
-#[cfg(not(target_family = "wasm"))]
-use crate::transport::udp::UdpSocketBuilder;
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::WebSocketServerSocketBuilder;

@@ -83,7 +83,7 @@ impl ClientTransportBuilder for WebSocketClientSocketBuilder {
         let on_open_callback = Closure::<dyn FnOnce()>::once(move || {
             info!("WebSocket handshake has been successfully completed");
             let serverbound_rx = serverbound_rx.clone();
-            IoTaskPool::get().spawn_local(async move {
+            wasm_bindgen_futures::spawn_local(async move {
                 while let Some(msg) = serverbound_rx.lock().await.recv().await {
                     if ws_clone.ready_state() != 1 {
                         warn!("Tried to send packet through closed websocket connection");
@@ -96,7 +96,7 @@ impl ClientTransportBuilder for WebSocketClientSocketBuilder {
 
         let ws_clone = ws.clone();
         let listen_close_signal_callback = Closure::<dyn FnOnce()>::once(move || {
-            IoTaskPool::get().spawn_local(async move {
+            wasm_bindgen_futures::spawn_local(async move {
                 let _ = close_rx.recv().await;
                 info!("Close websocket connection");
                 ws_clone.close().unwrap();
