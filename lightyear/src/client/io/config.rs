@@ -72,7 +72,7 @@ impl ClientTransport {
                 client_addr,
                 server_addr,
                 certificate_digest,
-            } => TransportBuilderEnum::WebTransportClient(WebTransportClientSocketBuilder {
+            } => ClientTransportBuilderEnum::WebTransportClient(WebTransportClientSocketBuilder {
                 client_addr,
                 server_addr,
                 certificate_digest,

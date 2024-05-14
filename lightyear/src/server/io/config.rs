@@ -11,7 +11,6 @@ use crate::transport::middleware::compression::zstd::compression::ZstdCompressor
 use crate::transport::middleware::compression::zstd::decompression::ZstdDecompressor;
 use crate::transport::middleware::conditioner::LinkConditioner;
 use crate::transport::middleware::{PacketReceiverWrapper, PacketSenderWrapper};
-#[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::WebSocketServerSocketBuilder;
@@ -28,7 +27,6 @@ use wtransport::Identity;
 #[derive(Debug, TypePath)]
 pub enum ServerTransport {
     /// Use a [`UdpSocket`](std::net::UdpSocket)
-    #[cfg(not(target_family = "wasm"))]
     UdpSocket(SocketAddr),
     /// Use [`WebTransport`](https://wicg.github.io/web-transport/) as a transport layer
     #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
@@ -58,7 +56,6 @@ impl Clone for ServerTransport {
     #[inline]
     fn clone(&self) -> ServerTransport {
         match self {
-            #[cfg(not(target_family = "wasm"))]
             ServerTransport::UdpSocket(__self_0) => {
                 ServerTransport::UdpSocket(Clone::clone(__self_0))
             }
@@ -87,7 +84,6 @@ impl Clone for ServerTransport {
 impl ServerTransport {
     fn build(self) -> ServerTransportBuilderEnum {
         match self {
-            #[cfg(not(target_family = "wasm"))]
             ServerTransport::UdpSocket(addr) => {
                 ServerTransportBuilderEnum::UdpSocket(UdpSocketBuilder { local_addr: addr })
             }
