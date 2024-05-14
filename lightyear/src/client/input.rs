@@ -27,10 +27,8 @@
 //!     None,
 //! }
 //!
-//! fn main() {
-//!     let mut app = App::new();
-//!     app.add_plugin(InputPlugin::<MyInput>::default());
-//! }
+//! let mut app = App::new();
+//! app.add_plugins(InputPlugin::<MyInput>::default());
 //! ```
 //!
 //! ### Sending inputs

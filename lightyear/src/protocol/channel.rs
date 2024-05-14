@@ -52,6 +52,7 @@ impl From<TypeId> for ChannelKind {
 ///
 /// # fn main() {
 /// #  let mut app = App::new();
+/// #  app.init_resource::<ChannelRegistry>();
 ///    app.add_channel::<MyChannel>(ChannelSettings {
 ///      mode: ChannelMode::UnorderedUnreliable,
 ///      direction: ChannelDirection::Bidirectional,
