@@ -1,5 +1,22 @@
 /*!
-Handles dealing with inputs (keyboard presses, mouse clicks) sent from a player (client) to server.
+Handles inputs (keyboard presses, mouse clicks) sent from a player (client) to server.
+
+NOTE: You should use the `LeafwingInputPlugin` instead (requires the `leafwing` features), which
+has mode features and is easier to use.
+
+Lightyear does the following things for you:
+- buffers the inputs of a player for each tick
+- makes sures that input are replayed correctly during rollback
+- sends the inputs to the server in a compressed and reliable form
+
+
+### Sending inputs
+
+There are several steps to use the `InputPlugin`:
+- you need to buffer inputs for each tick. This is done by calling [`add_input`](crate::prelude::client::InputManager::add_input) in a system.
+That system must run in the [`BufferI
+
+
 */
 
 use std::fmt::Debug;

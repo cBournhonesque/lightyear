@@ -37,7 +37,30 @@ impl From<TypeId> for ChannelKind {
     }
 }
 
-/// Registry to store metadata about the various [`Channel`]
+/// Registry to store metadata about the various [`Channels`](Channel) to use to send messages.
+///
+/// ### Adding channels
+///
+/// You can add a new channel to the registry by calling the [`add_channel`](ChannelRegistry::add_channel) method.
+///
+/// ```rust
+/// use lightyear::prelude::*;
+/// use bevy::prelude::*;
+///
+/// #[derive(Channel)]
+/// struct MyChannel;
+///
+/// # fn main() {
+/// #  let mut app = App::new();
+///    app.add_channel::<MyChannel>(ChannelSettings {
+///      mode: ChannelMode::UnorderedUnreliable,
+///      direction: ChannelDirection::Bidirectional,
+///      ..default()
+///    });
+/// # }
+/// ```
+///
+///
 #[derive(Resource, Default, Clone, Debug, PartialEq, TypePath)]
 pub struct ChannelRegistry {
     // we only store the ChannelBuilder because we might want to create multiple instances of the same channel

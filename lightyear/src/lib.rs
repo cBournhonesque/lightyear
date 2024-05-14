@@ -9,7 +9,7 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 
 ### Install the plugins
 
-`lightyear` provides two plugins: [`ServerPlugin`](prelude::server::ServerPlugins) and [`ClientPlugin`](prelude::client::ClientPlugins) that will handle the networking for you.
+`lightyear` provides two plugins groups: [`ServerPlugins`](prelude::server::ServerPlugins) and [`ClientPlugins`](prelude::client::ClientPlugins) that will handle the networking for you.
 
 ```rust
 use bevy::utils::Duration;
@@ -41,6 +41,12 @@ how the client and server will communicate.
 The [`Protocol`](protocol) is the set of types that can be sent over the network.
 You will have to define your protocol in a shared module that is accessible to both the client and the server,
 since the protocol must be shared between them.
+
+There are several steps:
+- [Adding messages](MessageRegistry#adding-messages)
+- [Adding components](ComponentRegistry#adding-components)
+- [Adding channels](ChannelRegistry#adding-channels)
+- [Adding leafwing inputs](client::input_leafwing#adding-leafwing-inputs) or [Adding inputs](client::input#adding-a-new-input-type)
 
 ## Using lightyear
 
@@ -103,10 +109,10 @@ fn receive_message(mut message_reader: EventReader<MessageEvent<MyMessage>>) {
 
 ### Starting replication
 
-To replicate an entity from the local world to the remote world, you can just add the [`Replicate`] component to the entity.
-The [`Replicate`] component has many options to customize how the entity is replicated.
+To replicate an entity from the local world to the remote world, you can just add the [`Replicate`] bundle to the entity.
+The [`Replicate`] bundle contains many components to customize how the entity is replicated.
 
-You can remove the [`Replicate`] component to stop the replication. This will not despawn the entity on the remote world; it will simply
+You can remove the [`ReplicationTarget`] component to stop the replication. This will not despawn the entity on the remote world; it will simply
 stop sending replication updates.
 
 
@@ -145,6 +151,10 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
     }
 }
 ```
+
+## Architecture
+
+
 
  */
 #![allow(unused_imports)]

@@ -19,7 +19,7 @@ use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
-/// Plugin that handles generating bevy [`Events`] related to networking and replication
+/// Plugin that adds bevy [`Events`] related to networking and replication
 #[derive(Default)]
 pub struct ServerEventsPlugin;
 
