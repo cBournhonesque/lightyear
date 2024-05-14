@@ -13,9 +13,10 @@ use lightyear::prelude::client::{
     ClientConnection, InterpolationConfig, NetClient, PredictionConfig,
 };
 use lightyear::prelude::{client, server, MessageRegistry, Tick, TickManager};
-use lightyear::prelude::{ClientId, NetworkTarget, SharedConfig, TickConfig};
+use lightyear::prelude::{ClientId, SharedConfig, TickConfig};
 use lightyear::server::input::InputBuffers;
 use lightyear::shared::replication::components::Replicate;
+use lightyear::shared::replication::network_target::NetworkTarget;
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
 
@@ -53,16 +54,7 @@ fn spawn_local(bencher: Bencher, n: usize) {
             );
             stepper.init();
 
-            let entities = vec![
-                (
-                    Component1(0.0),
-                    Replicate {
-                        replication_target: NetworkTarget::All,
-                        ..default()
-                    },
-                );
-                n
-            ];
+            let entities = vec![(Component1(0.0), Replicate::default()); n];
 
             stepper.server_app.world.spawn_batch(entities);
             stepper
@@ -109,16 +101,7 @@ fn spawn_multi_clients(bencher: Bencher, n: usize) {
             );
             stepper.init();
 
-            let entities = vec![
-                (
-                    Component1(0.0),
-                    Replicate {
-                        replication_target: NetworkTarget::All,
-                        ..default()
-                    },
-                );
-                FIXED_NUM_ENTITIES
-            ];
+            let entities = vec![(Component1(0.0), Replicate::default()); FIXED_NUM_ENTITIES];
 
             stepper.server_app.world.spawn_batch(entities);
             stepper

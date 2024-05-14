@@ -1,21 +1,14 @@
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-
 use bevy::app::PluginGroupBuilder;
-use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use bevy_xpbd_2d::parry::shape::ShapeType::Ball;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-
-use lightyear::inputs::native::input_buffer::InputBuffer;
-pub use lightyear::prelude::client::*;
+use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
-use crate::{shared, ClientTransports, SharedSettings};
+use crate::shared;
+use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 
 pub struct ExampleClientPlugin;
 

@@ -8,12 +8,12 @@ use tracing::{debug, error, trace};
 
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
-use crate::connection::server::NetServer;
-use crate::prelude::IoConfig;
+use crate::connection::server::{IoConfig, NetServer};
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::config::NetcodeConfig;
-use crate::transport::io::Io;
+use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
+use crate::transport::io::BaseIo;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 use super::{
@@ -216,7 +216,7 @@ impl ConnectionCache {
     }
 }
 
-pub type Callback<Ctx> = Box<dyn FnMut(ClientId, &mut Ctx) + Send + Sync + 'static>;
+pub type Callback<Ctx> = Box<dyn FnMut(ClientId, SocketAddr, &mut Ctx) + Send + Sync + 'static>;
 
 /// Configuration for a server.
 ///
@@ -234,7 +234,7 @@ pub type Callback<Ctx> = Box<dyn FnMut(ClientId, &mut Ctx) + Send + Sync + 'stat
 /// use crate::lightyear::connection::netcode::{NetcodeServer, ServerConfig};
 ///
 /// let thread_safe_counter = Arc::new(Mutex::new(0));
-/// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, ctx| {
+/// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, _, ctx| {
 ///     let mut counter = ctx.lock().unwrap();
 ///     *counter += 1;
 ///     println!("client {} connected, counter: {idx}", counter);
@@ -321,7 +321,7 @@ impl<Ctx> ServerConfig<Ctx> {
     /// See [`ServerConfig`] for an example.
     pub fn on_connect<F>(mut self, cb: F) -> Self
     where
-        F: FnMut(ClientId, &mut Ctx) + Send + Sync + 'static,
+        F: FnMut(ClientId, SocketAddr, &mut Ctx) + Send + Sync + 'static,
     {
         self.on_connect = Some(Box::new(cb));
         self
@@ -332,7 +332,7 @@ impl<Ctx> ServerConfig<Ctx> {
     /// See [`ServerConfig`] for an example.
     pub fn on_disconnect<F>(mut self, cb: F) -> Self
     where
-        F: FnMut(ClientId, &mut Ctx) + Send + Sync + 'static,
+        F: FnMut(ClientId, SocketAddr, &mut Ctx) + Send + Sync + 'static,
     {
         self.on_disconnect = Some(Box::new(cb));
         self
@@ -351,10 +351,10 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use std::net::{SocketAddr, Ipv4Addr};
 /// # use bevy::utils::{Instant, Duration};
 /// # use std::thread;
-/// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
-/// let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(
+/// # use lightyear::prelude::server::{IoConfig, ServerTransport};
+/// let mut io = IoConfig::from_transport(ServerTransport::UdpSocket(
 ///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)
-/// )).connect().unwrap();
+/// )).start().unwrap();
 /// let private_key = generate_key();
 /// let protocol_id = 0x123456789ABCDEF0;
 /// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
@@ -418,7 +418,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     ///
     /// let private_key = generate_key();
     /// let protocol_id = 0x123456789ABCDEF0;
-    /// let cfg = ServerConfig::with_context(42).on_connect(|idx, ctx| {
+    /// let cfg = ServerConfig::with_context(42).on_connect(|idx, _, ctx| {
     ///     assert_eq!(ctx, &42);
     /// });
     /// let server = NetcodeServer::with_config(protocol_id, private_key, cfg).unwrap();
@@ -447,14 +447,14 @@ impl<Ctx> NetcodeServer<Ctx> {
         | 1 << Packet::KEEP_ALIVE
         | 1 << Packet::PAYLOAD
         | 1 << Packet::DISCONNECT;
-    fn on_connect(&mut self, client_id: ClientId) {
+    fn on_connect(&mut self, client_id: ClientId, addr: SocketAddr) {
         if let Some(cb) = self.cfg.on_connect.as_mut() {
-            cb(client_id, &mut self.cfg.context)
+            cb(client_id, addr, &mut self.cfg.context)
         }
     }
-    fn on_disconnect(&mut self, client_id: ClientId) {
+    fn on_disconnect(&mut self, client_id: ClientId, addr: SocketAddr) {
         if let Some(cb) = self.cfg.on_disconnect.as_mut() {
-            cb(client_id, &mut self.cfg.context)
+            cb(client_id, addr, &mut self.cfg.context)
         }
     }
     fn touch_client(&mut self, client_id: Option<ClientId>) -> Result<()> {
@@ -505,7 +505,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             Packet::Disconnect(_) => {
                 if let Some(idx) = client_id {
                     debug!("server disconnected client {idx}");
-                    self.on_disconnect(idx);
+                    self.on_disconnect(idx, addr);
                     self.conn_cache.remove(idx);
                 }
                 Ok(())
@@ -686,7 +686,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             id, challenge_token.client_id
         );
         self.send_to_client(KeepAlivePacket::create(id), id, sender)?;
-        self.on_connect(id);
+        self.on_connect(id, from_addr);
         Ok(())
     }
     fn check_for_timeouts(&mut self) {
@@ -697,11 +697,12 @@ impl<Ctx> NetcodeServer<Ctx> {
             if !client.is_connected() {
                 continue;
             }
+            let addr = client.addr;
             if client.timeout.is_positive()
                 && client.last_receive_time + (client.timeout as f64) < self.time
             {
                 debug!("server timed out client {id}");
-                self.on_disconnect(id);
+                self.on_disconnect(id, addr);
                 self.conn_cache.remove(id);
             }
         }
@@ -826,14 +827,14 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// # Example
     /// ```
     /// # use crate::lightyear::connection::netcode::{NetcodeServer, ServerConfig, MAX_PACKET_SIZE};
-    /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
     /// # use std::net::{SocketAddr, Ipv4Addr};
     /// # use bevy::utils::Instant;
+    /// # use lightyear::prelude::server::*;
     /// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
     /// # let protocol_id = 0x123456789ABCDEF0;
     /// # let private_key = [42u8; 32];
     /// # let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).connect().unwrap();
+    /// # let mut io = IoConfig::from_transport(ServerTransport::UdpSocket(addr)).start().unwrap();
     /// #
     /// let start = Instant::now();
     /// loop {
@@ -919,6 +920,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         self.token_sequence += 1;
         token_builder
     }
+
     /// Disconnects a client.
     ///
     /// The server will send a number of redundant disconnect packets to the client, and then remove its connection info.
@@ -929,11 +931,12 @@ impl<Ctx> NetcodeServer<Ctx> {
         if !conn.is_connected() {
             return Ok(());
         }
+        let addr = conn.addr;
         debug!("server disconnecting client {client_id}");
         for _ in 0..self.cfg.num_disconnect_packets {
             self.send_to_client(DisconnectPacket::create(), client_id, io)?;
         }
-        self.on_disconnect(client_id);
+        self.on_disconnect(client_id, addr);
         self.conn_cache.remove(client_id);
         Ok(())
     }
@@ -986,6 +989,7 @@ impl<Ctx> NetcodeServer<Ctx> {
 pub(crate) struct NetcodeServerContext {
     pub(crate) connections: Vec<id::ClientId>,
     pub(crate) disconnections: Vec<id::ClientId>,
+    sender: Option<ServerNetworkEventSender>,
 }
 
 #[derive(Resource)]
@@ -998,30 +1002,35 @@ pub struct Server {
 impl NetServer for Server {
     fn start(&mut self) -> anyhow::Result<()> {
         let io_config = self.io_config.clone();
-        let io = io_config.connect().context("could not start io")?;
+        let io = io_config.start().context("could not start io")?;
+        self.server
+            .cfg
+            .context
+            .sender
+            .clone_from(&io.context.event_sender);
         self.io = Some(io);
         Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
         if let Some(mut io) = self.io.take() {
-            let mut connected_clients = self
-                .server
-                .connected_client_ids()
-                .map(id::ClientId::Netcode)
-                .collect::<Vec<_>>();
+            if let Some(sender) = &mut self.server.cfg.context.sender {
+                sender
+                    .send_blocking(ServerIoEvent::ServerDisconnected(
+                        crate::transport::error::Error::UserRequest,
+                    ))
+                    .context("Could not send 'ServerStopped' event to io")?;
+            }
             self.server.disconnect_all(&mut io)?;
-            self.server
-                .cfg
-                .context
-                .disconnections
-                .append(&mut connected_clients);
+            self.server.cfg.context.sender = None;
             // close and drop the io
             io.close().context("Could not close the io")?;
         }
         Ok(())
     }
 
+    /// Disconnect a client from the server
+    /// (also adds the client_id to the list of newly disconnected clients)
     fn disconnect(&mut self, client_id: id::ClientId) -> anyhow::Result<()> {
         match client_id {
             id::ClientId::Netcode(id) => {
@@ -1029,7 +1038,6 @@ impl NetServer for Server {
                     self.server
                         .disconnect(id, io)
                         .context("Could not disconnect client")?;
-                    self.server.cfg.context.disconnections.push(client_id);
                 }
                 Ok(())
             }
@@ -1082,24 +1090,35 @@ impl NetServer for Server {
     fn io(&self) -> Option<&Io> {
         self.io.as_ref()
     }
+    fn io_mut(&mut self) -> Option<&mut Io> {
+        self.io.as_mut()
+    }
 }
 
 impl Server {
     pub(crate) fn new(config: NetcodeConfig, io_config: IoConfig) -> Self {
-        let private_key = config.private_key.unwrap_or(generate_key());
         // create context
         let context = NetcodeServerContext::default();
         let mut cfg = ServerConfig::with_context(context)
-            .on_connect(|id, ctx| {
+            .on_connect(|id, addr, ctx| {
                 ctx.connections.push(id::ClientId::Netcode(id));
             })
-            .on_disconnect(|id, ctx| {
+            .on_disconnect(|id, addr, ctx| {
+                // notify the io that a client got disconnected
+                if let Some(sender) = &mut ctx.sender {
+                    debug!("Notify the io that client {id:?} got disconnected, so that we can stop the corresponding task");
+                    let _ = sender
+                        .send_blocking(ServerIoEvent::ClientDisconnected(addr))
+                        .inspect_err(|e| {
+                            error!("Error sending 'ClientDisconnected' event to io: {:?}", e)
+                        });
+                }
                 ctx.disconnections.push(id::ClientId::Netcode(id));
             });
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
-        let server = NetcodeServer::with_config(config.protocol_id, private_key, cfg)
+        let server = NetcodeServer::with_config(config.protocol_id, config.private_key, cfg)
             .expect("Could not create server netcode");
 
         Self {

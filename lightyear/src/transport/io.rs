@@ -1,17 +1,16 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
+use async_channel::Receiver;
 use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, SocketAddr};
 
 use bevy::app::{App, Plugin};
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
-use bevy::prelude::{Real, Res, Resource, Time};
-use crossbeam_channel::{Receiver, Sender};
+use bevy::prelude::{Deref, DerefMut, Real, Res, Resource, Time};
 #[cfg(feature = "metrics")]
 use metrics;
 use tracing::info;
 
-use crate::transport::local::{LocalChannel, LocalChannelBuilder};
 use crate::transport::middleware::conditioner::{
     ConditionedPacketReceiver, LinkConditioner, LinkConditionerConfig, PacketLinkConditioner,
 };
@@ -19,25 +18,17 @@ use crate::transport::middleware::PacketReceiverWrapper;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 use super::error::{Error, Result};
-use super::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, TransportBuilder, TransportBuilderEnum, LOCAL_SOCKET,
-};
+use super::{BoxedReceiver, BoxedSender};
 
 /// Connected io layer that can send/receive bytes
 #[derive(Resource)]
-pub struct Io {
+pub struct BaseIo<T: Send + Sync> {
     pub(crate) local_addr: SocketAddr,
     pub(crate) sender: BoxedSender,
     pub(crate) receiver: BoxedReceiver,
-    pub(crate) close_fn: Option<BoxedCloseFn>,
     pub(crate) state: IoState,
     pub(crate) stats: IoStats,
-}
-
-impl Default for Io {
-    fn default() -> Self {
-        panic!("Io::default() is not implemented. Please provide an io");
-    }
+    pub(crate) context: T,
 }
 
 // TODO: add stats/compression to middleware
@@ -49,7 +40,7 @@ pub struct IoStats {
     pub packets_received: usize,
 }
 
-impl Io {
+impl<T: Send + Sync> BaseIo<T> {
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
     }
@@ -62,22 +53,15 @@ impl Io {
     pub fn stats(&self) -> &IoStats {
         &self.stats
     }
-
-    pub fn close(&mut self) -> Result<()> {
-        if let Some(close_fn) = std::mem::take(&mut self.close_fn) {
-            close_fn()?;
-        }
-        Ok(())
-    }
 }
 
-impl Debug for Io {
+impl<T: Send + Sync> Debug for BaseIo<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Io").finish()
     }
 }
 
-impl PacketReceiver for Io {
+impl<T: Send + Sync> PacketReceiver for BaseIo<T> {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         // todo: bandwidth monitoring
         self.receiver.as_mut().recv().map(|x| {
@@ -95,7 +79,7 @@ impl PacketReceiver for Io {
     }
 }
 
-impl PacketSender for Io {
+impl<T: Send + Sync> PacketSender for BaseIo<T> {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         // todo: bandwidth monitoring
         #[cfg(feature = "metrics")]
@@ -171,11 +155,10 @@ impl Plugin for IoDiagnosticsPlugin {
     }
 }
 
-/// Tracks the state of creating the Io
+/// Tracks the state of the Io
+#[derive(Debug, PartialEq)]
 pub(crate) enum IoState {
-    Connecting {
-        error_channel: async_channel::Receiver<Option<Error>>,
-    },
+    Connecting,
     Connected,
     Disconnected,
 }

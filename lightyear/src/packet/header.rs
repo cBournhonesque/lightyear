@@ -36,7 +36,7 @@ impl PacketHeader {
     ///
     /// i is 0-indexed. So 0 represents the first bit of the bitfield (starting from the right)
     fn get_bitfield_bit(&self, i: u8) -> bool {
-        assert!(i < ACK_BITFIELD_SIZE);
+        debug_assert!(i < ACK_BITFIELD_SIZE);
         self.ack_bitfield & (1 << i) != 0
     }
 

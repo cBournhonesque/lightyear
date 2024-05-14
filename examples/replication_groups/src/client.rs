@@ -1,20 +1,11 @@
-use std::collections::VecDeque;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::connection::netcode::NetcodeServer;
-pub use lightyear::prelude::client::*;
-use lightyear::prelude::*;
-
 use crate::protocol::Direction;
 use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
-use crate::{shared, ClientTransports, SharedSettings};
+use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 
 pub struct ExampleClientPlugin;
 
@@ -123,7 +114,7 @@ pub(crate) fn handle_predicted_spawn(
 ) {
     for (entity, mut color) in predicted_heads.iter_mut() {
         color.0.set_s(0.3);
-        // add visual interpolation for the head position of the predited entity
+        // add visual interpolation for the head position of the predicted entity
         // so that the position gets updated smoothly every frame
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)

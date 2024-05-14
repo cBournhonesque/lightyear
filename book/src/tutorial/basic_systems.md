@@ -61,7 +61,7 @@ pub(crate) fn handle_connections(
         /// on the server, the `context()` method returns the `ClientId` of the client that connected
         let client_id = *connection.context();
         
-        /// We add the `Replicate` component to start replicating the entity to clients
+        /// We add the `Replicate` bundle to start replicating the entity to clients
         /// By default, the entity will be replicated to all clients
         let replicate = Replicate::default(); 
         let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
@@ -71,14 +71,15 @@ pub(crate) fn handle_connections(
     }
 ```
 
-As you can see above, starting replicating an entity is very easy: you just need to add the `Replicate` component to the entity
+As you can see above, starting replicating an entity is very easy: you just need to add the `Replicate` bundle to the entity
 and it will start getting replicated.
 
 (you can learn more in the [replicate](../concepts/replication/replicate.md) page)
 
-
-If you remove the `Replicate` component from an entity, any updates to that entity won't be replicated anymore.
-(However the client entity won't get despawned)
+The `Replicate` bundle is composed of several components that control the replication logic. For example `ReplicationTarget`
+specifies which clients should receive the entity.
+If you remove the `ReplicationTarget` component from an entity, any updates to that entity won't be replicated anymore.
+(However the remote entity won't get despawned, it will just stop getting updated)
 
 
 ## Handle client inputs

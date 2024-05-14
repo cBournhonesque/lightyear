@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use crate::client::replication::ReplicationConfig;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
@@ -10,11 +9,13 @@ use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, InterpolationConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig,
+    PredictionConfig, SyncConfig,
 };
-use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig};
+use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::tests::protocol::*;
+use crate::transport::LOCAL_SOCKET;
 
 pub const TEST_CLIENT_ID: u64 = 111;
 
@@ -50,7 +51,7 @@ impl Default for BevyStepper {
             incoming_loss: 0.0,
         };
         let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
+        let prediction_config = PredictionConfig::default();
         let interpolation_config = InterpolationConfig::default();
         let mut stepper = Self::new(
             shared_config,
@@ -76,22 +77,21 @@ impl BevyStepper {
         frame_duration: Duration,
     ) -> Self {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     // .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::INFO)
         //     .init();
 
         // Use local channels instead of UDP for testing
-        let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let addr = LOCAL_SOCKET;
         // channels to receive a message from/to server
         let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
         let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
-        let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
+        let client_io = client::IoConfig::from_transport(ClientTransport::LocalChannel {
             send: to_server_send,
             recv: from_server_recv,
         })
         .with_conditioner(conditioner.clone());
 
-        let server_io = IoConfig::from_transport(TransportConfig::Channels {
+        let server_io = server::IoConfig::from_transport(ServerTransport::Channels {
             channels: vec![(addr, to_server_recv, from_server_send)],
         })
         .with_conditioner(conditioner.clone());
@@ -113,13 +113,9 @@ impl BevyStepper {
             shared: shared_config.clone(),
             net: vec![net_config],
             ping: PingConfig::default(),
-            replication: server::ReplicationConfig {
-                enable_send: true,
-                enable_receive: true,
-            },
             ..default()
         };
-        let plugin = server::ServerPlugin::new(config);
+        let plugin = server::ServerPlugins::new(config);
         server_app.add_plugins((plugin, ProtocolPlugin));
 
         // Setup client
@@ -141,13 +137,9 @@ impl BevyStepper {
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
-            replication: client::ReplicationConfig {
-                enable_send: true,
-                enable_receive: true,
-            },
             ..default()
         };
-        let plugin = client::ClientPlugin::new(config);
+        let plugin = client::ClientPlugins::new(config);
         client_app.add_plugins((plugin, ProtocolPlugin));
 
         // Initialize Real time (needed only for the first TimeSystem run)

@@ -1,3 +1,21 @@
+- Add a `Controlled` component to an entity to specify that the player is controlling the entity
+  - field (`controlled_by: NetworkTarget`) on the server `Replicate`
+  - it means that the `Controlled` component gets replicated to the client who has control of this entity.
+  - then the client can filter on `Controlled` to add `Prediction` behaviour, for example. And add Interpolation on non-controlled entities?
+  - server also creates an entity for each connected client. Each client entity has a component indicating the 
+    list of entities under control of the client. `HasControl(EntityHashSet)` (with EntityMapping)
+  - if the player disconnects, we can despawn automatically all entities under their control. (this behavior can be made configurable in the future)
+  - Would `Controlled` be synced to the Predicted entity? Maybe? if we predict other players, it would be nice to know
+    which Predicted entity is under our control.
+  - client->server replication: 
+
+  - PROS:
+    - on the server, users can easily find the list of entities under control of a specific client
+    - on the client, users that receive an entity from the server can quickly check if they have control of it, without
+      having to compare client_ids.
+
+
+
 - Transferring ownership to another client. 
   - commands.transfer_ownership(entity, new_owner)
   - sends a message AuthorityTransfer to the new client who should replicate the entity

@@ -1,5 +1,6 @@
 //! Defines the server bevy systems and run conditions
 use anyhow::{anyhow, Context};
+use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
@@ -7,13 +8,17 @@ use tracing::{debug, error, trace, trace_span};
 use crate::client::config::ClientConfig;
 use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
+use crate::connection::server::{
+    IoConfig, NetConfig, NetServer, ServerConnection, ServerConnections,
+};
 use crate::prelude::{ChannelRegistry, MainSet, MessageRegistry, Mode, TickManager, TimeManager};
 use crate::protocol::component::ComponentRegistry;
+use crate::server::clients::ControlledEntities;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
-use crate::server::room::RoomManager;
+use crate::server::io::ServerIoEvent;
+use crate::server::visibility::room::RoomManager;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
@@ -32,6 +37,8 @@ pub(crate) struct ServerNetworkingPlugin;
 impl Plugin for ServerNetworkingPlugin {
     fn build(&self, app: &mut App) {
         app
+            // REFLECTION
+            .register_type::<IoConfig>()
             // STATE
             .init_state::<NetworkingState>()
             // SYSTEM SETS
@@ -88,8 +95,6 @@ pub(crate) fn receive(world: &mut World) {
                         |world: &mut World, mut time_manager: Mut<TimeManager>| {
                             world.resource_scope(
                                 |world: &mut World, tick_manager: Mut<TickManager>| {
-                                    world.resource_scope(
-                                        |world: &mut World, mut room_manager: Mut<RoomManager>| {
                                             let delta = world.resource::<Time<Virtual>>().delta();
                                             // UPDATE: update server state, send keep-alives, receive packets from io
                                             // update time manager
@@ -100,18 +105,48 @@ pub(crate) fn receive(world: &mut World) {
                                             // reborrow trick to enable split borrows
                                             let netservers = &mut *netservers;
                                             for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
+                                                // TODO: maybe run this before receive, like for clients?
+                                                // if the io task for any connection failed, disconnect the client in netcode
+                                                let mut to_disconnect = vec![];
+                                                if let Some(io) = netserver.io_mut() {
+                                                    if let Some(receiver) = &mut io.context.event_receiver {
+                                                        match receiver.try_recv() {
+                                                            Ok(event) => {
+                                                                match event {
+                                                                    ServerIoEvent::ClientDisconnected(client_id) => {
+                                                                        error!("Disconnect client {client_id:?} because io task failed");
+                                                                        to_disconnect.push(client_id);
+                                                                    }
+                                                                    ServerIoEvent::ServerDisconnected(e) => {
+                                                                        error!("Disconnect server because of io error: {:?}", e);
+                                                                        world.resource_mut::<NextState<NetworkingState>>().set(NetworkingState::Stopped);
+                                                                    }
+                                                                    _ => {}
+                                                                }
+                                                            }
+                                                            Err(TryRecvError::Empty) => {}
+                                                            Err(TryRecvError::Closed) => {}
+                                                        }
+                                                    }
+                                                }
+
                                                 let _ = netserver
                                                     .try_update(delta.as_secs_f64())
                                                     .map_err(|e| error!("Error updating netcode server: {:?}", e));
                                                 for client_id in netserver.new_connections().iter().copied() {
                                                     netservers.client_server_map.insert(client_id, server_idx);
-                                                    connection_manager.add(client_id);
+                                                    // spawn an entity for the client
+                                                    let client_entity = world.spawn(ControlledEntities::default()).id();
+                                                    connection_manager.add(client_id, client_entity);
                                                 }
                                                 // handle disconnections
                                                 for client_id in netserver.new_disconnections().iter().copied() {
                                                     if netservers.client_server_map.remove(&client_id).is_some() {
                                                         connection_manager.remove(client_id);
-                                                        room_manager.client_disconnect(client_id);
+                                                        // NOTE: we don't despawn the entity right away to let the user react to
+                                                        // the disconnect event
+                                                        // TODO: use observers/component_hooks to react automatically on the client despawn?
+                                                        // world.despawn(client_entity);
                                                     } else {
                                                         error!("Client disconnected but could not map client_id to the corresponding netserver");
                                                     }
@@ -159,22 +194,21 @@ pub(crate) fn receive(world: &mut World) {
                                                 if connection_manager.events.has_connections() {
                                                     let mut connect_event_writer =
                                                         world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
-                                                    for client_id in connection_manager.events.iter_connections() {
-                                                        debug!("Client connected event: {}", client_id);
-                                                        connect_event_writer.send(ConnectEvent::new(client_id));
+                                                    for connect_event in connection_manager.events.iter_connections() {
+                                                        debug!("Client connected event: {}", connect_event.client_id);
+                                                        connect_event_writer.send(connect_event);
                                                     }
                                                 }
 
                                                 if connection_manager.events.has_disconnections() {
                                                     let mut connect_event_writer =
                                                         world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
-                                                    for client_id in connection_manager.events.iter_disconnections() {
-                                                        debug!("Client disconnected event: {}", client_id);
-                                                        connect_event_writer.send(DisconnectEvent::new(client_id));
+                                                    for disconnect_event in connection_manager.events.iter_disconnections() {
+                                                        debug!("Client disconnected event: {}", disconnect_event.client_id);
+                                                        connect_event_writer.send(disconnect_event);
                                                     }
                                                 }
                                             }
-                                        });
                                 });
                         });
                 });
@@ -266,7 +300,6 @@ fn rebuild_server_connections(world: &mut World) {
 
     // insert a new connection manager (to reset message numbers, ping manager, etc.)
     let connection_manager = ConnectionManager::new(
-        world.resource::<ComponentRegistry>().clone(),
         world.resource::<MessageRegistry>().clone(),
         world.resource::<ChannelRegistry>().clone(),
         server_config.packet,

@@ -42,13 +42,16 @@ impl PlayerBundle {
             position: Position(position),
             color: ColorComponent(color),
             replicate: Replicate {
+                target: ReplicationTarget {
+                    // TODO: improve this! this should depend on the predict_all settings
+                    // We still need to specify the interpolation/prediction target for this local entity
+                    // in the case where we're running in HostServer mode
+                    prediction: NetworkTarget::All,
+                    ..default()
+                },
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                replication_group: REPLICATION_GROUP,
-                // TODO: improve this! this should depend on the predict_all settings
-                // We still need to specify the interpolation/prediction target for this local entity
-                // in the case where we're running in HostServer mode
-                prediction_target: NetworkTarget::All,
+                group: REPLICATION_GROUP,
                 ..default()
             },
             physics: PhysicsBundle::player(),
@@ -73,16 +76,19 @@ pub(crate) struct BallBundle {
 
 impl BallBundle {
     pub(crate) fn new(position: Vec2, color: Color, predicted: bool) -> Self {
-        let mut replicate = Replicate {
-            replication_target: NetworkTarget::All,
+        let mut replication_target = ReplicationTarget::default();
+        let mut group = ReplicationGroup::default();
+        if predicted {
+            replication_target.prediction = NetworkTarget::All;
+            group = REPLICATION_GROUP;
+        } else {
+            replication_target.interpolation = NetworkTarget::All;
+        }
+        let replicate = Replicate {
+            target: replication_target,
+            group,
             ..default()
         };
-        if predicted {
-            replicate.prediction_target = NetworkTarget::All;
-            replicate.replication_group = REPLICATION_GROUP;
-        } else {
-            replicate.interpolation_target = NetworkTarget::All;
-        }
         Self {
             position: Position(position),
             color: ColorComponent(color),
@@ -165,37 +171,37 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::Bidirectional);
-        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+        app.register_component::<PlayerId>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional);
-        app.add_prediction::<ColorComponent>(ComponentSyncMode::Once);
-        app.add_interpolation::<ColorComponent>(ComponentSyncMode::Once);
+        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<BallMarker>(ChannelDirection::Bidirectional);
-        app.add_prediction::<BallMarker>(ComponentSyncMode::Once);
-        app.add_interpolation::<BallMarker>(ComponentSyncMode::Once);
+        app.register_component::<BallMarker>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<Position>(ChannelDirection::Bidirectional);
-        app.add_prediction::<Position>(ComponentSyncMode::Full);
-        app.add_interpolation::<Position>(ComponentSyncMode::Full);
-        app.add_interpolation_fn::<Position>(position::lerp);
-        app.add_correction_fn::<Position>(position::lerp);
+        app.register_component::<Position>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_interpolation_fn(position::lerp)
+            .add_correction_fn(position::lerp);
 
-        app.register_component::<Rotation>(ChannelDirection::Bidirectional);
-        app.add_prediction::<Rotation>(ComponentSyncMode::Full);
-        app.add_interpolation::<Rotation>(ComponentSyncMode::Full);
-        app.add_interpolation_fn::<Rotation>(rotation::lerp);
-        app.add_correction_fn::<Rotation>(rotation::lerp);
+        app.register_component::<Rotation>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_interpolation_fn(rotation::lerp)
+            .add_correction_fn(rotation::lerp);
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!
         // we still need prediction to be able to correctly predict the physics on the client
-        app.register_component::<LinearVelocity>(ChannelDirection::Bidirectional);
-        app.add_prediction::<LinearVelocity>(ComponentSyncMode::Full);
+        app.register_component::<LinearVelocity>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full);
 
-        app.register_component::<AngularVelocity>(ChannelDirection::Bidirectional);
-        app.add_prediction::<AngularVelocity>(ComponentSyncMode::Full);
+        app.register_component::<AngularVelocity>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full);
 
         // channels
         app.add_channel::<Channel1>(ChannelSettings {

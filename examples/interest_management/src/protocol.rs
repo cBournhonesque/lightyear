@@ -13,7 +13,7 @@ use tracing::info;
 
 use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::ReplicationMode;
+use lightyear::shared::replication::components::VisibilityMode;
 use UserAction;
 
 use crate::shared::color_from_id;
@@ -26,31 +26,37 @@ pub(crate) struct PlayerBundle {
     color: PlayerColor,
     replicate: Replicate,
     action_state: ActionState<Inputs>,
+    action_state_override_target: OverrideTargetComponent<ActionState<Inputs>>,
 }
 
 impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
         let color = color_from_id(id);
-        let mut replicate = Replicate {
-            prediction_target: NetworkTarget::Only(vec![id]),
-            interpolation_target: NetworkTarget::AllExcept(vec![id]),
+        let replicate = Replicate {
+            target: ReplicationTarget {
+                prediction: NetworkTarget::Single(id),
+                interpolation: NetworkTarget::AllExceptSingle(id),
+                ..default()
+            },
+            controlled_by: ControlledBy {
+                target: NetworkTarget::Single(id),
+            },
             // use rooms for replication
-            replication_mode: ReplicationMode::Room,
+            visibility: VisibilityMode::InterestManagement,
             ..default()
         };
-        // We don't want to replicate the ActionState to the original client, since they are updating it with
-        // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-        // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-        replicate.add_target::<ActionState<Inputs>>(NetworkTarget::AllExceptSingle(id));
-        // // we don't want to replicate the ActionState from the server to client, because then the action-state
-        // // will keep getting replicated from confirmed to predicted and will interfere with our inputs
-        // replicate.disable_component::<ActionState<Inputs>>();
         Self {
             id: PlayerId(id),
             position: Position(position),
             color: PlayerColor(color),
             replicate,
             action_state: ActionState::default(),
+            // We don't want to replicate the ActionState to the original client, since they are updating it with
+            // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
+            // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
+            action_state_override_target: OverrideTargetComponent::new(
+                NetworkTarget::AllExceptSingle(id),
+            ),
         }
     }
     pub(crate) fn get_input_map() -> InputMap<Inputs> {
@@ -124,22 +130,22 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(LeafwingInputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<Position>(ChannelDirection::Bidirectional);
-        app.add_prediction::<Position>(ComponentSyncMode::Full);
-        app.add_interpolation::<Position>(ComponentSyncMode::Full);
-        app.add_linear_interpolation_fn::<Position>();
+        app.register_component::<Position>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<CircleMarker>(ChannelDirection::ServerToClient);
-        app.add_prediction::<CircleMarker>(ComponentSyncMode::Once);
-        app.add_interpolation::<CircleMarker>(ComponentSyncMode::Once);
+        app.register_component::<CircleMarker>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

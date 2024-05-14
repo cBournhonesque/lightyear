@@ -1,73 +1,80 @@
-use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
-
-use crate::prelude::{
-    NetworkTarget, PrePredicted, RemoteEntityMap, ReplicationGroup, ReplicationMode,
-    ShouldBePredicted,
-};
-use crate::shared::replication::components::{
-    PerComponentReplicationMetadata, Replicate, ReplicationGroupId, ReplicationGroupIdBuilder,
-    ShouldBeInterpolated, TargetEntity,
-};
-use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
+//! This module contains the `ReplicationReceivePlugin` and `ReplicationSendPlugin` plugins, which control
+//! the replication of entities and resources.
+//!
 use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};
 use crate::shared::replication::resources::{
     receive::ResourceReceivePlugin, send::ResourceSendPlugin,
 };
-use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
-use crate::shared::replication::ReplicationSend;
+use crate::shared::replication::systems;
+use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
+use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
+use bevy::utils::Duration;
 
-pub(crate) struct ReplicationPlugin<R: ReplicationSend> {
-    tick_duration: Duration,
-    enable_send: bool,
-    enable_receive: bool,
-    _marker: std::marker::PhantomData<R>,
-}
+pub(crate) mod receive {
+    use super::*;
+    pub(crate) struct ReplicationReceivePlugin<R> {
+        clean_interval: Duration,
+        _marker: std::marker::PhantomData<R>,
+    }
 
-impl<R: ReplicationSend> ReplicationPlugin<R> {
-    pub(crate) fn new(tick_duration: Duration, enable_send: bool, enable_receive: bool) -> Self {
-        Self {
-            tick_duration,
-            enable_send,
-            enable_receive,
-            _marker: std::marker::PhantomData,
+    impl<R> ReplicationReceivePlugin<R> {
+        pub(crate) fn new(tick_interval: Duration) -> Self {
+            Self {
+                // TODO: find a better constant for the clean interval?
+                clean_interval: tick_interval * (i16::MAX as u32 / 3),
+                _marker: std::marker::PhantomData,
+            }
+        }
+    }
+
+    impl<R: ReplicationReceive> Plugin for ReplicationReceivePlugin<R> {
+        fn build(&self, app: &mut App) {
+            // PLUGINS
+            if !app.is_plugin_added::<shared::SharedPlugin>() {
+                app.add_plugins(shared::SharedPlugin);
+            }
+            app.add_plugins(HierarchyReceivePlugin::<R>::default())
+                .add_plugins(ResourceReceivePlugin::<R>::default());
+
+            // SYSTEMS
+            app.add_systems(
+                Last,
+                systems::receive_cleanup::<R>.run_if(on_timer(self.clean_interval)),
+            );
         }
     }
 }
 
-impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
-    fn build(&self, app: &mut App) {
-        // TODO: have a better constant for clean_interval?
-        let clean_interval = self.tick_duration * (i16::MAX as u32 / 3);
+pub(crate) mod send {
+    use super::*;
+    use crate::prelude::server::ServerReplicationSet;
 
-        // REFLECTION
-        app.register_type::<Replicate>()
-            .register_type::<TargetEntity>()
-            .register_type::<PerComponentReplicationMetadata>()
-            .register_type::<ReplicationGroupIdBuilder>()
-            .register_type::<ReplicationGroup>()
-            .register_type::<ReplicationGroupId>()
-            .register_type::<ReplicationMode>()
-            .register_type::<NetworkTarget>()
-            .register_type::<ShouldBeInterpolated>()
-            .register_type::<PrePredicted>()
-            .register_type::<ShouldBePredicted>()
-            .register_type::<RemoteEntityMap>()
-            .register_type::<PredictedEntityMap>()
-            .register_type::<InterpolatedEntityMap>();
-
-        // TODO: should we put this back into enable_receive?
-        app.add_plugins(ResourceReceivePlugin::<R>::default());
-        app.add_plugins(ResourceSendPlugin::<R>::default());
-        // SYSTEM SETS //
-        if self.enable_receive {
-            // PLUGINS
-            app.add_plugins(HierarchyReceivePlugin::<R>::default());
-            // app.add_plugins(ResourceReceivePlugin::<R>::default());
+    pub(crate) struct ReplicationSendPlugin<R> {
+        clean_interval: Duration,
+        _marker: std::marker::PhantomData<R>,
+    }
+    impl<R> ReplicationSendPlugin<R> {
+        pub(crate) fn new(tick_interval: Duration) -> Self {
+            Self {
+                // TODO: find a better constant for the clean interval?
+                clean_interval: tick_interval * (i16::MAX as u32 / 3),
+                _marker: std::marker::PhantomData,
+            }
         }
-        if self.enable_send {
+    }
+
+    impl<R: ReplicationSend> Plugin for ReplicationSendPlugin<R> {
+        fn build(&self, app: &mut App) {
+            // PLUGINS
+            if !app.is_plugin_added::<shared::SharedPlugin>() {
+                app.add_plugins(shared::SharedPlugin);
+            }
+            app.add_plugins(ResourceSendPlugin::<R>::default())
+                .add_plugins(HierarchySendPlugin::<R>::default());
+
+            // SETS
             app.configure_sets(
                 PostUpdate,
                 (
@@ -75,15 +82,14 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                     InternalMainSet::<R::SetMarker>::Send.in_set(MainSet::Send),
                 ),
             );
-            // NOTE: it's ok to run the replication systems less frequently than every frame
-            //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
             app.configure_sets(
                 PostUpdate,
                 (
                     (
-                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
+                        InternalReplicationSet::<R::SetMarker>::BeforeBuffer,
                         InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::Buffer,
+                        InternalReplicationSet::<R::SetMarker>::AfterBuffer,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::All),
                     (
@@ -100,30 +106,88 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                         //  because Removed<Replicate> is cleared every frame?
                         // NOTE: HandleReplicateUpdate should also run every frame?
                         // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
+                        InternalReplicationSet::<R::SetMarker>::AfterBuffer,
                     )
                         .in_set(InternalMainSet::<R::SetMarker>::Send),
                     (
-                        InternalReplicationSet::<R::SetMarker>::HandleReplicateUpdate,
-                        InternalReplicationSet::<R::SetMarker>::Buffer,
-                        InternalMainSet::<R::SetMarker>::SendPackets,
-                    )
-                        .chain(),
-                    (
-                        InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
+                        (
+                            (
+                                InternalReplicationSet::<R::SetMarker>::BeforeBuffer,
+                                InternalReplicationSet::<R::SetMarker>::Buffer,
+                                InternalReplicationSet::<R::SetMarker>::AfterBuffer,
+                            )
+                                .chain(),
+                            InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
+                        ),
                         InternalMainSet::<R::SetMarker>::SendPackets,
                     )
                         .chain(),
                 ),
             );
             // SYSTEMS
-            add_replication_send_systems::<R>(app);
-            // PLUGINS
-            app.add_plugins(HierarchySendPlugin::<R>::default());
-            // app.add_plugins(ResourceSendPlugin::<R>::default());
+            app.add_systems(
+                PreUpdate,
+                // we need to add despawn trackers immediately for entities for which we add replicate
+                // TODO: why?
+                systems::handle_replicate_add::<R>.after(ServerReplicationSet::ClientReplication),
+            );
+            app.add_systems(
+                PostUpdate,
+                (
+                    // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
+                    //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
+                    //  It is ok to run it every frame because it creates at most one message per despawn
+                    // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
+                    (systems::handle_replicate_remove::<R>,)
+                        .in_set(InternalReplicationSet::<R::SetMarker>::BeforeBuffer),
+                    systems::send_entity_despawn::<R>
+                        .in_set(InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals),
+                    (
+                        systems::handle_replicate_add::<R>,
+                        systems::handle_replication_target_update::<R>,
+                    )
+                        .in_set(InternalReplicationSet::<R::SetMarker>::AfterBuffer),
+                ),
+            );
+            app.add_systems(
+                Last,
+                systems::send_cleanup::<R>.run_if(on_timer(self.clean_interval)),
+            );
         }
+    }
+}
 
-        // TODO: split receive cleanup from send cleanup
-        // cleanup is for both receive and send
-        app.add_systems(Last, cleanup::<R>.run_if(on_timer(clean_interval)));
+pub(crate) mod shared {
+    use crate::prelude::{
+        PrePredicted, RemoteEntityMap, Replicate, ReplicationGroup, ShouldBePredicted,
+        TargetEntity, VisibilityMode,
+    };
+    use crate::shared::replication::components::{
+        ReplicationGroupId, ReplicationGroupIdBuilder, ShouldBeInterpolated,
+    };
+    use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
+    use crate::shared::replication::network_target::NetworkTarget;
+    use bevy::prelude::{App, Plugin};
+
+    pub(crate) struct SharedPlugin;
+
+    impl Plugin for SharedPlugin {
+        fn build(&self, app: &mut App) {
+            // REFLECTION
+            app.register_type::<Replicate>()
+                .register_type::<TargetEntity>()
+                // .register_type::<PerComponentReplicationMetadata>()
+                .register_type::<ReplicationGroupIdBuilder>()
+                .register_type::<ReplicationGroup>()
+                .register_type::<ReplicationGroupId>()
+                .register_type::<VisibilityMode>()
+                .register_type::<NetworkTarget>()
+                .register_type::<ShouldBeInterpolated>()
+                .register_type::<PrePredicted>()
+                .register_type::<ShouldBePredicted>()
+                .register_type::<RemoteEntityMap>()
+                .register_type::<PredictedEntityMap>()
+                .register_type::<InterpolatedEntityMap>();
+        }
     }
 }

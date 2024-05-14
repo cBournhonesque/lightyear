@@ -1,12 +1,47 @@
-//! # Room
-//!
-//! This module contains the room system, which is used to perform interest management. (being able to predict certain entities to certain clients only).
-//! You can also find more information in the [book](https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/interest_management.html).
+/*! Room-based visibility module, where you can use semi-static rooms to manage visibility
+
+# Room
+
+Rooms are used to provide interest management in a semi-static way.
+Entities and Clients can be added to multiple rooms.
+
+If an entity and a client are in the same room, then the entity will be visible to the client.
+If an entity leaves a room that a client is in, or if a client leaves a room that an entity is in,
+then the entity won't be visible anymore to the client.
+
+You can also find more information in the [book](https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/interest_management.html).
+
+## Example
+
+This can be useful for games where you have physical instances of rooms:
+- a RPG where you can have different rooms (tavern, cave, city, etc.)
+- a server could have multiple lobbies, and each lobby is in its own room
+- a map could be divided into a grid of 2D squares, where each square is its own room
+
+```rust
+use bevy::prelude::*;
+use lightyear::prelude::*;
+use lightyear::prelude::server::*;
+
+fn room_system(mut manager: ResMut<RoomManager>) {
+   // the entity will now be visible to the client
+   manager.add_client(ClientId::Netcode(0), RoomId(0));
+   manager.add_entity(Entity::PLACEHOLDER, RoomId(0));
+}
+```
+
+## Implementation
+
+Under the hood, the [`RoomManager`] uses the same functions as in the immediate-mode [`VisibilityManager`],
+it just caches the room metadata to keep track of the visibility of entities.
+
+*/
+
 use bevy::app::App;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{
-    DetectChanges, Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query,
-    RemovedComponents, Res, ResMut, Resource, SystemSet,
+    DetectChanges, Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate,
+    Query, RemovedComponents, Res, ResMut, Resource, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
@@ -16,8 +51,10 @@ use tracing::{error, info, trace};
 
 use crate::connection::id::ClientId;
 use crate::server::connection::ConnectionManager;
+
 use crate::server::networking::is_started;
-use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicateVisibility};
+use crate::server::visibility::immediate::{VisibilityManager, VisibilitySet};
+use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
 use crate::shared::time_manager::is_server_ready_to_send;
@@ -69,6 +106,12 @@ struct RoomEvents {
     entity_leave_room: EntityHashMap<Entity, HashSet<RoomId>>,
 }
 
+#[derive(Resource, Debug, Default)]
+struct VisibilityEvents {
+    gained: HashMap<ClientId, Entity>,
+    lost: HashMap<ClientId, Entity>,
+}
+
 #[derive(Default, Debug)]
 struct RoomData {
     /// List of rooms that a client is in
@@ -89,9 +132,9 @@ struct RoomData {
 #[derive(Debug, Default)]
 pub struct Room {
     /// list of clients that are in the room
-    clients: HashSet<ClientId>,
+    pub clients: HashSet<ClientId>,
     /// list of entities that are in the room
-    entities: EntityHashSet<Entity>,
+    pub entities: EntityHashSet<Entity>,
 }
 
 /// Manager responsible for handling rooms
@@ -99,18 +142,6 @@ pub struct Room {
 pub struct RoomManager {
     events: RoomEvents,
     data: RoomData,
-}
-
-impl RoomManager {
-    /// Returns a mutable reference to the room with the given id
-    pub fn room_mut(&mut self, id: RoomId) -> RoomMut {
-        RoomMut { id, manager: self }
-    }
-
-    /// Returns a reference to the room with the given id
-    pub fn room(&self, id: RoomId) -> RoomRef {
-        RoomRef { id, manager: self }
-    }
 }
 
 /// Plugin used to handle interest managements via [`Room`]s
@@ -137,10 +168,9 @@ impl Plugin for RoomPlugin {
             PostUpdate,
             (
                 (
-                    // update replication caches must happen before replication, but after we add ReplicateVisibility
-                    InternalReplicationSet::<ServerMarker>::HandleReplicateUpdate,
+                    // the room events must be processed before the visibility events
                     RoomSystemSets::UpdateReplicationCaches,
-                    InternalReplicationSet::<ServerMarker>::Buffer,
+                    VisibilitySet::UpdateVisibility,
                     RoomSystemSets::RoomBookkeeping,
                 )
                     .run_if(is_started)
@@ -155,16 +185,15 @@ impl Plugin for RoomPlugin {
         );
         // SYSTEMS
         app.add_systems(
+            PreUpdate,
+            systems::handle_client_disconnect.after(InternalMainSet::<ServerMarker>::EmitEvents),
+        );
+        app.add_systems(
             PostUpdate,
             (
-                (
-                    update_entity_replication_cache,
-                    update_despawn_metadata_cache,
-                )
-                    .chain()
+                systems::buffer_room_visibility_events
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
-                (clear_entity_replication_cache, clean_entity_despawns)
-                    .in_set(RoomSystemSets::RoomBookkeeping),
+                systems::clean_entity_despawns.in_set(RoomSystemSets::RoomBookkeeping),
             ),
         );
     }
@@ -172,7 +201,7 @@ impl Plugin for RoomPlugin {
 
 impl RoomManager {
     /// Remove the client from all the rooms it was in
-    pub(crate) fn client_disconnect(&mut self, client_id: ClientId) {
+    fn client_disconnect(&mut self, client_id: ClientId) {
         if let Some(rooms) = self.data.client_to_rooms.remove(&client_id) {
             for room_id in rooms {
                 self.remove_client_internal(room_id, client_id);
@@ -188,39 +217,47 @@ impl RoomManager {
             }
         }
     }
+
     /// Add a client to the [`Room`]
     pub fn add_client(&mut self, client_id: ClientId, room_id: RoomId) {
-        self.room_mut(room_id).add_client(client_id)
+        self.add_client_internal(room_id, client_id)
     }
 
     /// Remove a client from the [`Room`]
     pub fn remove_client(&mut self, client_id: ClientId, room_id: RoomId) {
-        self.room_mut(room_id).remove_client(client_id)
+        self.remove_client_internal(room_id, client_id)
     }
 
     /// Add an entity to the [`Room`]
     pub fn add_entity(&mut self, entity: Entity, room_id: RoomId) {
-        self.room_mut(room_id).add_entity(entity)
+        self.add_entity_internal(room_id, entity)
     }
 
     /// Remove an entity from the [`Room`]
     pub fn remove_entity(&mut self, entity: Entity, room_id: RoomId) {
-        self.room_mut(room_id).remove_entity(entity)
+        self.remove_entity_internal(room_id, entity)
     }
 
     /// Returns true if the [`Room`] contains the [`ClientId`]
     pub fn has_client_id(&self, client_id: ClientId, room_id: RoomId) -> bool {
-        self.room(room_id).has_client_id(client_id)
+        self.has_client_internal(room_id, client_id)
     }
 
     /// Returns true if the [`Room`] contains the [`Entity`]
     pub fn has_entity(&self, entity: Entity, room_id: RoomId) -> bool {
-        self.room(room_id).has_entity(entity)
+        self.has_entity_internal(room_id, entity)
     }
 
     /// Get a room by its [`RoomId`]
     pub fn get_room(&self, room_id: RoomId) -> Option<&Room> {
         self.data.rooms.get(&room_id)
+    }
+
+    /// Get a room by its [`RoomId`]
+    ///
+    /// Panics if the room does not exist.
+    pub fn room(&self, room_id: RoomId) -> &Room {
+        self.data.rooms.get(&room_id).unwrap()
     }
 
     fn add_client_internal(&mut self, room_id: RoomId, client_id: ClientId) {
@@ -282,75 +319,20 @@ impl RoomManager {
             .remove(&entity);
         self.events.entity_leave_room(room_id, entity);
     }
-}
 
-/// Convenient wrapper to mutate a room
-pub struct RoomMut<'s> {
-    pub(crate) id: RoomId,
-    pub(crate) manager: &'s mut RoomManager,
-}
-
-impl<'s> RoomMut<'s> {
-    fn new(manager: &'s mut RoomManager, id: RoomId) -> Self {
-        Self { id, manager }
-    }
-
-    /// Add a client to the room
-    pub fn add_client(&mut self, client_id: ClientId) {
-        self.manager.add_client_internal(self.id, client_id)
-    }
-
-    /// Remove a client from the room
-    pub fn remove_client(&mut self, client_id: ClientId) {
-        self.manager.remove_client_internal(self.id, client_id)
-    }
-
-    /// Add an entity to the room
-    pub fn add_entity(&mut self, entity: Entity) {
-        self.manager.add_entity_internal(self.id, entity)
-    }
-
-    /// Remove an entity from the room
-    pub fn remove_entity(&mut self, entity: Entity) {
-        self.manager.remove_entity_internal(self.id, entity)
+    fn has_entity_internal(&self, room_id: RoomId, entity: Entity) -> bool {
+        self.data
+            .rooms
+            .get(&room_id)
+            .map_or_else(|| false, |room| room.entities.contains(&entity))
     }
 
     /// Returns true if the room contains the client
-    pub fn has_client_id(&self, client_id: ClientId) -> bool {
-        self.manager
-            .get_room(self.id)
+    fn has_client_internal(&self, room_id: RoomId, client_id: ClientId) -> bool {
+        self.data
+            .rooms
+            .get(&room_id)
             .map_or_else(|| false, |room| room.clients.contains(&client_id))
-    }
-
-    /// Returns true if the room contains the entity
-    pub fn has_entity(&mut self, entity: Entity) -> bool {
-        self.manager
-            .get_room(self.id)
-            .map_or_else(|| false, |room| room.entities.contains(&entity))
-    }
-}
-
-/// Convenient wrapper to inspect a room
-pub struct RoomRef<'s> {
-    pub(crate) id: RoomId,
-    pub(crate) manager: &'s RoomManager,
-}
-
-impl<'s> RoomRef<'s> {
-    fn new(manager: &'s RoomManager, id: RoomId) -> Self {
-        Self { id, manager }
-    }
-
-    pub fn has_client_id(&self, client_id: ClientId) -> bool {
-        self.manager
-            .get_room(self.id)
-            .map_or_else(|| false, |room| room.clients.contains(&client_id))
-    }
-
-    pub fn has_entity(&mut self, entity: Entity) -> bool {
-        self.manager
-            .get_room(self.id)
-            .map_or_else(|| false, |room| room.entities.contains(&entity))
     }
 }
 
@@ -361,6 +343,7 @@ impl RoomEvents {
             && self.entity_enter_room.is_empty()
             && self.entity_leave_room.is_empty()
     }
+
     fn clear(&mut self) {
         self.client_enter_room.clear();
         self.client_leave_room.clear();
@@ -444,160 +427,90 @@ impl RoomEvents {
     }
 }
 
-// TODO: this should not be public?
-/// Event related to [`Entities`](Entity) which are visible to a client
-#[derive(Debug, PartialEq, Clone, Copy, Reflect)]
-pub enum ClientVisibility {
-    /// the entity was not replicated to the client, but now is
-    Gained,
-    /// the entity was replicated to the client, but not anymore
-    Lost,
-    /// the entity was already replicated to the client, and still is
-    Maintained,
-}
+pub(super) mod systems {
+    use super::*;
+    use crate::server::events::DisconnectEvent;
+    use bevy::prelude::EventReader;
 
-// TODO: (perf) split this into 4 separate functions that access RoomManager in parallel?
-//  (we only use the ids in events, so we can read them in parallel)
-/// Update each entities' replication-client-list based on the room events
-/// Note that the rooms' entities/clients have already been updated at this point
-fn update_entity_replication_cache(
-    mut room_manager: ResMut<RoomManager>,
-    mut query: Query<&mut ReplicateVisibility>,
-) {
-    if !room_manager.events.is_empty() {
-        trace!(?room_manager.events, "Room events");
-    }
-    // enable split borrows by reborrowing Mut
-    let room_manager = &mut *room_manager;
-
-    // NOTE: we handle leave room events before join room events so that if an entity leaves room 1 to join room 2
-    //  and the client is in both rooms, the entity does not get despawned
-
-    // entity left room
-    for (entity, rooms) in room_manager.events.entity_leave_room.drain() {
-        // for each room left, update the entity's client visibility list if the client was in the room
-        rooms.into_iter().for_each(|room_id| {
-            let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.clients.iter().for_each(|client_id| {
-                if let Ok(mut replicate) = query.get_mut(entity) {
-                    if let Some(visibility) = replicate.clients_cache.get_mut(client_id) {
-                        *visibility = ClientVisibility::Lost;
-                    }
-                }
-            });
-        });
-    }
-    // entity joined room
-    for (entity, rooms) in room_manager.events.entity_enter_room.drain() {
-        // for each room joined, update the entity's client visibility list
-        rooms.into_iter().for_each(|room_id| {
-            let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.clients.iter().for_each(|client_id| {
-                if let Ok(mut replicate) = query.get_mut(entity) {
-                    replicate
-                        .clients_cache
-                        .entry(*client_id)
-                        .and_modify(|vis| {
-                            // if the visibility was lost above, then that means that the entity was visible
-                            // for this client, so we just maintain it instead
-                            if *vis == ClientVisibility::Lost {
-                                *vis = ClientVisibility::Maintained
-                            }
-                        })
-                        // if the entity was not visible, the visibility is gained
-                        .or_insert(ClientVisibility::Gained);
-                }
-            });
-        });
-    }
-    // client left room: update all the entities that are in that room
-    for (client_id, rooms) in room_manager.events.client_leave_room.drain() {
-        rooms.into_iter().for_each(|room_id| {
-            let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.entities.iter().for_each(|entity| {
-                if let Ok(mut replicate) = query.get_mut(*entity) {
-                    if let Some(visibility) = replicate.clients_cache.get_mut(&client_id) {
-                        *visibility = ClientVisibility::Lost;
-                    }
-                }
-            });
-        });
-    }
-    // client joined room: update all the entities that are in that room
-    for (client_id, rooms) in room_manager.events.client_enter_room.drain() {
-        rooms.into_iter().for_each(|room_id| {
-            let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.entities.iter().for_each(|entity| {
-                if let Ok(mut replicate) = query.get_mut(*entity) {
-                    replicate
-                        .clients_cache
-                        .entry(client_id)
-                        .and_modify(|vis| {
-                            // if the visibility was lost above, then that means that the entity was visible
-                            // for this client, so we just maintain it instead
-                            if *vis == ClientVisibility::Lost {
-                                *vis = ClientVisibility::Maintained
-                            }
-                        })
-                        // if the entity was not visible, the visibility is gained
-                        .or_insert(ClientVisibility::Gained);
-                }
-            });
-        });
-    }
-}
-
-/// Whenever the visibility of an entity changes, update the despawn metadata cache
-/// so that we can correctly replicate the despawn to the correct clients
-fn update_despawn_metadata_cache(
-    mut connection_manager: ResMut<ConnectionManager>,
-    mut query: Query<(Entity, &mut ReplicateVisibility)>,
-) {
-    for (entity, visibility) in query.iter_mut() {
-        if visibility.is_changed() {
-            if let Some(despawn_metadata) = connection_manager
-                .get_mut_replicate_despawn_cache()
-                .get_mut(&entity)
-            {
-                let new_cache = visibility.clients_cache.keys().copied().collect();
-                despawn_metadata.replication_clients_cache = new_cache;
-            }
+    /// Clear the internal room buffers when a client disconnects
+    pub fn handle_client_disconnect(
+        mut room_manager: ResMut<RoomManager>,
+        mut disconnect_events: EventReader<DisconnectEvent>,
+    ) {
+        for event in disconnect_events.read() {
+            room_manager.client_disconnect(event.client_id);
         }
     }
-}
 
-/// After replication, update the Replication Cache:
-/// - Visibility Gained becomes Visibility Maintained
-/// - Visibility Lost gets removed from the cache
-fn clear_entity_replication_cache(
-    mut query: Query<&mut ReplicateVisibility>,
-    connection_manager: ResMut<ConnectionManager>,
-) {
-    for mut replicate in query.iter_mut() {
-        replicate
-            .clients_cache
-            .retain(|_, visibility| match visibility {
-                ClientVisibility::Gained => {
-                    trace!("Visibility goes from gained to maintained");
-                    *visibility = ClientVisibility::Maintained;
-                    true
-                }
-                ClientVisibility::Lost => {
-                    trace!("remove client from room cache");
-                    false
-                }
-                ClientVisibility::Maintained => true,
+    // TODO: (perf) split this into 4 separate functions that access RoomManager in parallel?
+    //  (we only use the ids in events, so we can read them in parallel)
+    /// Update each entities' replication-client-list based on the room events
+    /// Note that the rooms' entities/clients have already been updated at this point
+    pub fn buffer_room_visibility_events(
+        mut room_manager: ResMut<RoomManager>,
+        mut visibility_manager: ResMut<VisibilityManager>,
+    ) {
+        if !room_manager.events.is_empty() {
+            trace!(?room_manager.events, "Room events");
+        }
+        // enable split borrows by reborrowing Mut
+        let room_manager = &mut *room_manager;
+
+        // NOTE: we handle leave room events before join room events so that if an entity leaves room 1 to join room 2
+        //  and the client is in both rooms, the entity does not get despawned
+
+        // entity left room
+        for (entity, rooms) in room_manager.events.entity_leave_room.drain() {
+            // for each room left, update the entity's client visibility list if the client was in the room
+            rooms.into_iter().for_each(|room_id| {
+                let room = room_manager.data.rooms.get(&room_id).unwrap();
+                room.clients.iter().for_each(|client_id| {
+                    trace!("entity {entity:?} left room {room:?}. Sending lost visibility to client {client_id:?}");
+                    visibility_manager.lose_visibility(*client_id, entity);
+                });
             });
+        }
+        // entity joined room
+        for (entity, rooms) in room_manager.events.entity_enter_room.drain() {
+            // for each room joined, update the entity's client visibility list
+            rooms.into_iter().for_each(|room_id| {
+                let room = room_manager.data.rooms.get(&room_id).unwrap();
+                room.clients.iter().for_each(|client_id| {
+                    trace!("entity {entity:?} joined room {room:?}. Sending gained visibility to client {client_id:?}");
+                    visibility_manager.gain_visibility(*client_id, entity);
+                });
+            });
+        }
+        // client left room: update all the entities that are in that room
+        for (client_id, rooms) in room_manager.events.client_leave_room.drain() {
+            rooms.into_iter().for_each(|room_id| {
+                let room = room_manager.data.rooms.get(&room_id).unwrap();
+                room.entities.iter().for_each(|entity| {
+                    trace!("client {client_id:?} left room {room:?}. Sending lost visibility to entity {entity:?}");
+                    visibility_manager.lose_visibility(client_id, *entity);
+                });
+            });
+        }
+        // client joined room: update all the entities that are in that room
+        for (client_id, rooms) in room_manager.events.client_enter_room.drain() {
+            rooms.into_iter().for_each(|room_id| {
+                let room = room_manager.data.rooms.get(&room_id).unwrap();
+                room.entities.iter().for_each(|entity| {
+                    trace!("client {client_id:?} joined room {room:?}. Sending gained visibility to entity {entity:?}");
+                    visibility_manager.gain_visibility(client_id, *entity);
+                });
+            });
+        }
     }
-}
 
-/// Clear out the room metadata for any entity that was ever replicated
-fn clean_entity_despawns(
-    mut room_manager: ResMut<RoomManager>,
-    mut despawned: RemovedComponents<DespawnTracker>,
-) {
-    for entity in despawned.read() {
-        room_manager.entity_despawn(entity);
+    /// Clear out the room metadata for any entity that was ever replicated
+    pub fn clean_entity_despawns(
+        mut room_manager: ResMut<RoomManager>,
+        mut despawned: RemovedComponents<DespawnTracker>,
+    ) {
+        for entity in despawned.read() {
+            room_manager.entity_despawn(entity);
+        }
     }
 }
 
@@ -609,9 +522,15 @@ mod tests {
 
     use crate::prelude::client::*;
     use crate::prelude::*;
-    use crate::shared::replication::components::ReplicationMode;
+    use crate::server::visibility::immediate::systems::{
+        add_replicate_visibility, update_visibility_from_events,
+    };
+    use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
+    use crate::shared::replication::components::VisibilityMode;
     use crate::shared::replication::systems::handle_replicate_add;
     use crate::tests::stepper::{BevyStepper, Step};
+
+    use super::systems::buffer_room_visibility_events;
 
     use super::*;
 
@@ -628,15 +547,14 @@ mod tests {
             .server_app
             .world
             .resource_mut::<RoomManager>()
-            .room_mut(room_id)
-            .add_client(client_id);
+            .add_client(client_id, room_id);
 
         // Spawn an entity on server
         let server_entity = stepper
             .server_app
             .world
             .spawn(Replicate {
-                replication_mode: ReplicationMode::Room,
+                visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
             })
             .id();
@@ -660,8 +578,7 @@ mod tests {
             .server_app
             .world
             .resource_mut::<RoomManager>()
-            .room_mut(room_id)
-            .add_entity(server_entity);
+            .add_entity(server_entity, room_id);
         assert!(stepper
             .server_app
             .world
@@ -675,7 +592,18 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<ReplicateVisibility>()
+            .is_some());
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
+
         assert_eq!(
             stepper
                 .server_app
@@ -730,8 +658,7 @@ mod tests {
             .server_app
             .world
             .resource_mut::<RoomManager>()
-            .room_mut(room_id)
-            .remove_entity(server_entity);
+            .remove_entity(server_entity, room_id);
         assert!(stepper
             .server_app
             .world
@@ -744,7 +671,11 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
@@ -794,7 +725,7 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                replication_mode: ReplicationMode::Room,
+                visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
             })
             .id();
@@ -806,8 +737,7 @@ mod tests {
             .server_app
             .world
             .resource_mut::<RoomManager>()
-            .room_mut(room_id)
-            .add_entity(server_entity);
+            .add_entity(server_entity, room_id);
 
         stepper.frame_step();
         stepper.frame_step();
@@ -824,8 +754,7 @@ mod tests {
             .server_app
             .world
             .resource_mut::<RoomManager>()
-            .room_mut(room_id)
-            .add_client(client_id);
+            .add_client(client_id, room_id);
         assert!(stepper
             .server_app
             .world
@@ -839,7 +768,11 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
@@ -894,8 +827,7 @@ mod tests {
             .server_app
             .world
             .resource_mut::<RoomManager>()
-            .room_mut(room_id)
-            .remove_client(client_id);
+            .remove_client(client_id, room_id);
         assert!(stepper
             .server_app
             .world
@@ -908,7 +840,11 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
@@ -956,33 +892,35 @@ mod tests {
             .server_app
             .world
             .resource_mut::<RoomManager>()
-            .room_mut(room_id)
-            .add_client(client_id);
+            .add_client(client_id, room_id);
 
         // Spawn an entity on server, in the same room
         let server_entity = stepper
             .server_app
             .world
             .spawn(Replicate {
-                replication_mode: ReplicationMode::Room,
+                visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
             })
             .id();
         stepper
             .server_app
             .world
-            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
+            .run_system_once(add_replicate_visibility);
         stepper
             .server_app
             .world
             .resource_mut::<RoomManager>()
-            .room_mut(room_id)
-            .add_entity(server_entity);
+            .add_entity(server_entity, room_id);
         // Run update replication cache once
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
@@ -1033,7 +971,11 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
@@ -1071,14 +1013,14 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                replication_mode: ReplicationMode::Room,
+                visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
             })
             .id();
         stepper
             .server_app
             .world
-            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
+            .run_system_once(add_replicate_visibility);
         stepper
             .server_app
             .world
@@ -1088,7 +1030,11 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
@@ -1127,7 +1073,11 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
@@ -1160,14 +1110,14 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                replication_mode: ReplicationMode::Room,
+                visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
             })
             .id();
         stepper
             .server_app
             .world
-            .run_system_once(handle_replicate_add::<server::ConnectionManager>);
+            .run_system_once(add_replicate_visibility);
         stepper
             .server_app
             .world
@@ -1182,7 +1132,11 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
@@ -1221,7 +1175,11 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache);
+            .run_system_once(buffer_room_visibility_events);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app

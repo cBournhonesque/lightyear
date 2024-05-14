@@ -17,26 +17,38 @@ use tokio::{
     sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
-use tracing::{info, trace};
+use tracing::{debug, info, trace};
 use tracing_log::log::error;
+use wtransport::datagram::Datagram;
+use wtransport::Connection;
 
+use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
+use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::error::{Error, Result};
 use crate::transport::io::IoState;
-use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, MTU,
-};
+use crate::transport::webtransport::server::WebTransportServerSocket;
+use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 pub(crate) struct WebSocketServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,
 }
 
-impl TransportBuilder for WebSocketServerSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+impl ServerTransportBuilder for WebSocketServerSocketBuilder {
+    fn start(
+        self,
+    ) -> Result<(
+        ServerTransportEnum,
+        IoState,
+        Option<ServerIoEventReceiver>,
+        Option<ServerNetworkEventSender>,
+    )> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
         let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
+        // channels used to cancel the task
+        let (close_tx, close_rx) = async_channel::unbounded();
         // channels used to check the status of the io task
-        let (status_tx, status_rx) = async_channel::bounded(1);
+        let (status_tx, status_rx) = async_channel::unbounded();
+        let addr_to_task = Arc::new(Mutex::new(HashMap::new()));
 
         let sender = WebSocketServerSocketSender {
             server_addr: self.server_addr,
@@ -53,77 +65,58 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
                 let listener = match TcpListener::bind(self.server_addr).await {
                     Ok(l) => l,
                     Err(e) => {
-                        status_tx.send(Some(e.into())).await.unwrap();
+                        status_tx
+                            .send(ServerIoEvent::ServerDisconnected(e.into()))
+                            .await
+                            .unwrap();
                         return;
                     }
                 };
                 info!("Starting server websocket task");
-                while let Ok((stream, addr)) = listener.accept().await {
-                    let clientbound_tx_map = clientbound_tx_map.clone();
-                    let serverbound_tx = serverbound_tx.clone();
+                status_tx
+                    .send(ServerIoEvent::ServerConnected)
+                    .await
+                    .unwrap();
 
-                    let ws_stream = tokio_tungstenite::accept_async(stream)
-                        .await
-                        .expect("Error during the websocket handshake occurred");
-                    info!("New WebSocket connection: {}", addr);
-
-                    let (clientbound_tx, mut clientbound_rx) = unbounded_channel::<Message>();
-                    let (mut write, mut read) = ws_stream.split();
-
-                    clientbound_tx_map
-                        .lock()
-                        .unwrap()
-                        .insert(addr, clientbound_tx);
-
-                    let serverbound_tx = serverbound_tx.clone();
-
-                    let clientbound_handle = IoTaskPool::get().spawn(async move {
-                        while let Some(msg) = clientbound_rx.recv().await {
-                            write
-                                .send(msg)
-                                .await
-                                .map_err(|e| {
-                                    error!("Encountered error while sending websocket msg: {}", e);
-                                })
-                                .unwrap();
-                        }
-                        write.close().await.unwrap_or_else(|e| {
-                            error!("Error closing websocket: {:?}", e);
-                        });
-                    });
-                    let serverbound_handle = IoTaskPool::get().spawn(async move {
-                        while let Some(msg) = read.next().await {
-                            match msg {
-                                Ok(msg) => {
-                                    serverbound_tx.send((addr, msg)).unwrap_or_else(|e| {
-                                        error!("receive websocket error: {:?}", e)
-                                    });
+                loop {
+                    tokio::select! {
+                         // event from netcode
+                        Ok(event) = close_rx.recv() => {
+                            match event {
+                                ServerIoEvent::ServerDisconnected(e) => {
+                                    debug!("Stopping webtransport io task. Reason: {:?}", e);
+                                    drop(addr_to_task);
+                                    return;
                                 }
-                                Err(e) => {
-                                    error!("receive websocket error: {:?}", e);
+                                ServerIoEvent::ClientDisconnected(addr) => {
+                                    debug!("Stopping webtransport io task associated with address: {:?} because we received a disconnection signal from netcode", addr);
+                                    addr_to_task.lock().unwrap().remove(&addr);
+                                    clientbound_tx_map.lock().unwrap().remove(&addr);
                                 }
+                                _ => {}
                             }
                         }
-                    });
-
-                    let _closed =
-                        futures_lite::future::race(clientbound_handle, serverbound_handle).await;
-
-                    info!("Connection with {} closed", addr);
-                    clientbound_tx_map.lock().unwrap().remove(&addr);
-                    // dropping the task handles cancels them
+                        Ok((stream, addr)) = listener.accept() => {
+                            let clientbound_tx_map = clientbound_tx_map.clone();
+                            let serverbound_tx = serverbound_tx.clone();
+                            let task = IoTaskPool::get().spawn(Compat::new(
+                                WebSocketServerSocket::handle_client(addr, stream, serverbound_tx, clientbound_tx_map, status_tx.clone())
+                            ));
+                            addr_to_task.lock().unwrap().insert(addr, task);
+                        }
+                    }
                 }
             }))
             .detach();
         Ok((
-            TransportEnum::WebSocketServer(WebSocketServerSocket {
+            ServerTransportEnum::WebSocketServer(WebSocketServerSocket {
                 local_addr: self.server_addr,
                 sender,
                 receiver,
             }),
-            IoState::Connecting {
-                error_channel: status_rx,
-            },
+            IoState::Connecting,
+            Some(ServerIoEventReceiver(status_rx)),
+            None,
         ))
     }
 }
@@ -156,6 +149,70 @@ impl WebSocketServerSocket {
     }*/
 }
 
+impl WebSocketServerSocket {
+    async fn handle_client(
+        addr: SocketAddr,
+        stream: TcpStream,
+        serverbound_tx: UnboundedSender<(SocketAddr, Message)>,
+        clientbound_tx_map: Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Message>>>>,
+        status_tx: async_channel::Sender<ServerIoEvent>,
+    ) {
+        let Ok(ws_stream) = tokio_tungstenite::accept_async(stream)
+            .await
+            .inspect_err(|e| error!("An error occured during the websocket handshake: {e:?}"))
+        else {
+            return;
+        };
+        info!("New WebSocket connection: {}", addr);
+
+        let (clientbound_tx, mut clientbound_rx) = unbounded_channel::<Message>();
+        let (mut write, mut read) = ws_stream.split();
+        clientbound_tx_map
+            .lock()
+            .unwrap()
+            .insert(addr, clientbound_tx);
+
+        let clientbound_handle = IoTaskPool::get().spawn(async move {
+            while let Some(msg) = clientbound_rx.recv().await {
+                write
+                    .send(msg)
+                    .await
+                    .map_err(|e| {
+                        error!("Encountered error while sending websocket msg: {}", e);
+                    })
+                    .unwrap();
+            }
+            write.close().await.unwrap_or_else(|e| {
+                error!("Error closing websocket: {:?}", e);
+            });
+        });
+        let serverbound_handle = IoTaskPool::get().spawn(async move {
+            while let Some(msg) = read.next().await {
+                match msg {
+                    Ok(msg) => {
+                        serverbound_tx
+                            .send((addr, msg))
+                            .unwrap_or_else(|e| error!("receive websocket error: {:?}", e));
+                    }
+                    Err(e) => {
+                        error!("receive websocket error: {:?}", e);
+                    }
+                }
+            }
+        });
+
+        let _closed = futures_lite::future::race(clientbound_handle, serverbound_handle).await;
+
+        info!("Connection with {} closed", addr);
+        clientbound_tx_map.lock().unwrap().remove(&addr);
+        // notify netcode that the io task got disconnected
+        let _ = status_tx
+            .send(ServerIoEvent::ClientDisconnected(addr))
+            .await;
+        // dropping the task handles cancels them
+    }
+}
+
 type ClientBoundTxMap = Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Message>>>>;
 
 impl Transport for WebSocketServerSocket {
@@ -163,8 +220,8 @@ impl Transport for WebSocketServerSocket {
         self.local_addr
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        (Box::new(self.sender), Box::new(self.receiver), None)
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self.sender), Box::new(self.receiver))
     }
 }
 

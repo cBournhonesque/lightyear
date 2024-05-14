@@ -4,10 +4,14 @@ use std::net::SocketAddr;
 
 use crossbeam_channel::{Receiver, Sender};
 
+use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
+use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
+use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::io::IoState;
+use crate::transport::udp::UdpSocketBuilder;
 use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, LOCAL_SOCKET,
+    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET,
 };
 
 use super::error::{Error, Result};
@@ -18,17 +22,32 @@ pub(crate) struct LocalChannelBuilder {
     pub(crate) send: Sender<Vec<u8>>,
 }
 
-impl TransportBuilder for LocalChannelBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+impl LocalChannelBuilder {
+    fn build(self) -> LocalChannel {
+        LocalChannel {
+            sender: LocalChannelSender { send: self.send },
+            receiver: LocalChannelReceiver {
+                buffer: vec![],
+                recv: self.recv,
+            },
+        }
+    }
+}
+
+impl ClientTransportBuilder for LocalChannelBuilder {
+    fn connect(
+        self,
+    ) -> Result<(
+        ClientTransportEnum,
+        IoState,
+        Option<ClientIoEventReceiver>,
+        Option<ClientNetworkEventSender>,
+    )> {
         Ok((
-            TransportEnum::LocalChannel(LocalChannel {
-                sender: LocalChannelSender { send: self.send },
-                receiver: LocalChannelReceiver {
-                    buffer: vec![],
-                    recv: self.recv,
-                },
-            }),
+            ClientTransportEnum::LocalChannel(self.build()),
             IoState::Connected,
+            None,
+            None,
         ))
     }
 }
@@ -43,8 +62,8 @@ impl Transport for LocalChannel {
         LOCAL_SOCKET
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        (Box::new(self.sender), Box::new(self.receiver), None)
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self.sender), Box::new(self.receiver))
     }
 }
 

@@ -25,7 +25,7 @@ use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, ChannelKind, MainSet};
-use crate::protocol::component::ComponentKind;
+use crate::protocol::component::{ComponentKind, ComponentRegistration};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn};
 use crate::protocol::{BitSerializable, EventContext};
@@ -49,6 +49,57 @@ pub(crate) enum MessageType {
     Normal,
 }
 
+/// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
+/// A [`Message`] is any type that is serializable and deserializable.
+///
+///
+/// ### Adding Messages
+///
+/// You register messages by calling the [`add_message`](AppMessageExt::add_message) method directly on the App.
+/// You can provide a [`ChannelDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
+///
+/// ```rust
+/// use bevy::prelude::*;
+/// use serde::{Deserialize, Serialize};
+/// use lightyear::prelude::*;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct MyMessage;
+///
+/// fn add_messages(app: &mut App) {
+///   app.add_message::<MyMessage>(ChannelDirection::Bidirectional);
+/// }
+/// ```
+///
+/// ### Customizing Message behaviour
+///
+/// There are some cases where you might want to define additional behaviour for a message.
+/// For example, if the message contains [`Entities`](bevy::prelude::Entity), you need to specify how those en
+/// entities will be mapped from the remote world to the local world.
+///
+/// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
+/// calling the [`add_map_entities`](MessageRegistration::add_map_entities) method.
+///
+/// ```rust
+/// use bevy::ecs::entity::{EntityMapper, MapEntities};
+/// use bevy::prelude::*;
+/// use serde::{Deserialize, Serialize};
+/// use lightyear::prelude::*;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct MyMessage(Entity);
+///
+/// impl MapEntities for MyMessage {
+///    fn map_entities<M: EntityMapper>(&mut self, entity_map: &mut M) {
+///        self.0 = entity_map.map_entity(self.0);
+///    }
+/// }
+///
+/// fn add_messages(app: &mut App) {
+///   app.add_message::<MyMessage>(ChannelDirection::Bidirectional)
+///       .add_map_entities();
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct MessageRegistry {
     typed_map: HashMap<MessageKind, MessageType>,
@@ -136,14 +187,18 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
     }
 }
 
-pub struct MessageRegistration<'a> {
+pub struct MessageRegistration<'a, M> {
     app: &'a mut App,
+    _marker: std::marker::PhantomData<M>,
 }
 
-impl MessageRegistration<'_> {
+impl<M> MessageRegistration<'_, M> {
     /// Specify that the message contains entities which should be mapped from the remote world to the local world
     /// upon deserialization
-    pub fn add_map_entities<M: MapEntities + 'static>(self) -> Self {
+    pub fn add_map_entities(self) -> Self
+    where
+        M: MapEntities + 'static,
+    {
         let mut registry = self.app.world.resource_mut::<MessageRegistry>();
         registry.add_map_entities::<M>();
         self
@@ -154,7 +209,10 @@ impl MessageRegistration<'_> {
 pub trait AppMessageExt {
     /// Registers the message in the Registry
     /// This message can now be sent over the network.
-    fn add_message<M: Message>(&mut self, direction: ChannelDirection);
+    fn add_message<M: Message>(
+        &mut self,
+        direction: ChannelDirection,
+    ) -> MessageRegistration<'_, M>;
 
     /// Registers the resource in the Registry
     /// This resource can now be sent over the network.
@@ -162,13 +220,20 @@ pub trait AppMessageExt {
 }
 
 impl AppMessageExt for App {
-    fn add_message<M: Message>(&mut self, direction: ChannelDirection) {
+    fn add_message<M: Message>(
+        &mut self,
+        direction: ChannelDirection,
+    ) -> MessageRegistration<'_, M> {
         let mut registry = self.world.resource_mut::<MessageRegistry>();
         if !registry.is_registered::<M>() {
             registry.add_message::<M>(MessageType::Normal);
         }
         debug!("register message {}", std::any::type_name::<M>());
         register_message_send::<M>(self, direction);
+        MessageRegistration {
+            app: self,
+            _marker: std::marker::PhantomData,
+        }
     }
 
     /// Register a resource to be automatically replicated over the network

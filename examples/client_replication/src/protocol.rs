@@ -27,9 +27,11 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                target: ReplicationTarget {
+                    prediction: NetworkTarget::Single(id),
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                    ..default()
+                },
                 ..default()
             },
         }
@@ -52,8 +54,10 @@ impl CursorBundle {
             position: CursorPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                replication_target: NetworkTarget::All,
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                target: ReplicationTarget {
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                    ..default()
+                },
                 ..default()
             },
         }
@@ -134,23 +138,23 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::Bidirectional);
-        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+        app.register_component::<PlayerId>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<PlayerPosition>(ChannelDirection::Bidirectional);
-        app.add_prediction::<PlayerPosition>(ComponentSyncMode::Full);
-        app.add_interpolation::<PlayerPosition>(ComponentSyncMode::Full);
-        app.add_linear_interpolation_fn::<PlayerPosition>();
+        app.register_component::<PlayerPosition>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>(ChannelDirection::Bidirectional);
-        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+        app.register_component::<PlayerColor>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<CursorPosition>(ChannelDirection::Bidirectional);
-        app.add_prediction::<CursorPosition>(ComponentSyncMode::Full);
-        app.add_interpolation::<CursorPosition>(ComponentSyncMode::Full);
-        app.add_linear_interpolation_fn::<CursorPosition>();
+        app.register_component::<CursorPosition>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_linear_interpolation_fn();
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

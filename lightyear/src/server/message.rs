@@ -11,7 +11,7 @@ use bitcode::__private::Fixed;
 use bitcode::{Decode, Encode};
 
 use crate::packet::message::SingleData;
-use crate::prelude::{MainSet, Message, NetworkTarget};
+use crate::prelude::{MainSet, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
@@ -22,6 +22,7 @@ use crate::server::connection::ConnectionManager;
 use crate::server::events::MessageEvent;
 use crate::server::networking::is_started;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
+use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 

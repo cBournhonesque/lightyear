@@ -27,11 +27,7 @@ Settings(
     server: ServerSettings(
         headless: true,
         inspector: false,
-        conditioner: Some(Conditioner(
-            latency_ms: 200,
-            jitter_ms: 20,
-            packet_loss: 0.05
-        )),
+        conditioner: None,
         transport: [
             WebTransport(
                 local_port: 5000

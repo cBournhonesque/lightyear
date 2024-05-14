@@ -8,6 +8,7 @@ use bevy::prelude::{NextState, Reflect, ResMut, Resource};
 use enum_dispatch::enum_dispatch;
 
 use crate::client::config::NetcodeConfig;
+use crate::client::io::Io;
 use crate::client::networking::NetworkingState;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::ConnectToken;
@@ -16,7 +17,9 @@ use crate::connection::netcode::ConnectToken;
 use crate::connection::steam::client::SteamConfig;
 use crate::packet::packet::Packet;
 
-use crate::prelude::{generate_key, Io, IoConfig, Key, LinkConditionerConfig};
+use crate::prelude::client::ClientTransport;
+use crate::prelude::{generate_key, Key, LinkConditionerConfig};
+use crate::transport::config::SharedIoConfig;
 
 // TODO: add diagnostics methods?
 #[enum_dispatch]
@@ -68,6 +71,8 @@ pub(crate) enum NetClientDispatch {
 pub struct ClientConnection {
     pub(crate) client: NetClientDispatch,
 }
+
+pub type IoConfig = SharedIoConfig<ClientTransport>;
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Reflect)]

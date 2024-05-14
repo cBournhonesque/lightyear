@@ -40,11 +40,14 @@ impl PlayerBundle {
             transform: Transform::from_xyz(position.x, position.y, 0.0),
             color: ColorComponent(color),
             replicate: Replicate {
+                target: ReplicationTarget {
+                    // For HostServer mode, remember to also set prediction/interpolation targets for other clients
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                    ..default()
+                },
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                replication_group: ReplicationGroup::new_id(id.to_bits()),
-                // For HostServer mode, remember to also set prediction/interpolation targets for other clients
-                interpolation_target: NetworkTarget::AllExceptSingle(id),
+                group: ReplicationGroup::new_id(id.to_bits()),
                 ..default()
             },
             inputs: InputManagerBundle::<PlayerActions> {
@@ -131,22 +134,22 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::Bidirectional);
-        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+        app.register_component::<PlayerId>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<Transform>(ChannelDirection::Bidirectional);
-        app.add_prediction::<Transform>(ComponentSyncMode::Full);
-        app.add_interpolation::<Transform>(ComponentSyncMode::Full);
-        app.add_interpolation_fn::<Transform>(TransformLinearInterpolation::lerp);
+        app.register_component::<Transform>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation(ComponentSyncMode::Full)
+            .add_interpolation_fn(TransformLinearInterpolation::lerp);
 
-        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional);
-        app.add_prediction::<ColorComponent>(ComponentSyncMode::Once);
-        app.add_interpolation::<ColorComponent>(ComponentSyncMode::Once);
+        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<BallMarker>(ChannelDirection::Bidirectional);
-        app.add_prediction::<BallMarker>(ComponentSyncMode::Once);
-        app.add_interpolation::<BallMarker>(ComponentSyncMode::Once);
+        app.register_component::<BallMarker>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

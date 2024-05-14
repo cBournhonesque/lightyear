@@ -11,11 +11,12 @@ use bevy::utils::HashSet;
 use serde::{Deserialize, Serialize};
 
 use bitcode::{Decode, Encode};
+use network_target::NetworkTarget;
 
 use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{NetworkTarget, Tick};
+use crate::prelude::{ReplicationGroup, Tick};
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::EventContext;
@@ -26,14 +27,15 @@ use crate::shared::events::connection::{
     ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
-use crate::shared::replication::components::{Replicate, ReplicationGroupId};
-use crate::shared::replication::systems::DespawnMetadata;
+use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
+use crate::shared::replication::systems::ReplicateCache;
 
 pub mod components;
 
 mod commands;
 pub mod entity_map;
 pub(crate) mod hierarchy;
+pub mod network_target;
 pub(crate) mod plugin;
 pub(crate) mod receive;
 pub(crate) mod resources;
@@ -105,81 +107,70 @@ pub struct ReplicationMessage {
     pub(crate) data: ReplicationMessageData,
 }
 
-#[doc(hidden)]
-/// Trait for any service that can send replication messages to the remote.
-/// (this trait is used to easily enable both client to server and server to client replication)
-///
-/// The trait is made public because it is needed in the macros
-pub(crate) trait ReplicationSend: Resource {
+/// Trait for a service that participates in replication.
+pub(crate) trait ReplicationPeer: Resource {
     type Events: IterComponentInsertEvent<Self::EventContext>
         + IterComponentRemoveEvent<Self::EventContext>
         + IterComponentUpdateEvent<Self::EventContext>
         + IterEntitySpawnEvent<Self::EventContext>
         + IterEntityDespawnEvent<Self::EventContext>
         + ClearEvents;
-    /// Type of the context associated with the events emitted by this replication plugin
+    /// Type of the context associated with the events emitted/received by this replication peer
     type EventContext: EventContext;
+
     /// Marker to identify the type of the ReplicationSet component
     /// This is mostly relevant in the unified mode, where a ReplicationSet can be added several times
     /// (in the client and the server replication plugins)
     type SetMarker: Debug + Hash + Send + Sync + Eq + Clone;
+}
 
+/// Trait for a service that receives replication messages.
+pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
+    /// The received events buffer
     fn events(&mut self) -> &mut Self::Events;
 
+    /// Do some regular cleanup on the internals of replication
+    /// - account for tick wrapping by resetting some internal ticks for each replication group
+    fn cleanup(&mut self, tick: Tick);
+}
+
+#[doc(hidden)]
+/// Trait for any service that can send replication messages to the remote.
+/// (this trait is used to easily enable both client to server and server to client replication)
+///
+/// The trait is made public because it is needed in the macros
+pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     fn writer(&mut self) -> &mut BitcodeWriter;
-
-    fn component_registry(&self) -> &ComponentRegistry;
-
-    /// Set the priority for a given replication group, for a given client
-    /// This IS the client-facing API that users must use to update the priorities for a given client.
-    ///
-    /// If multiple entities in the group have different priorities, then the latest updated priority will take precedence
-    fn update_priority(
-        &mut self,
-        replication_group_id: ReplicationGroupId,
-        client_id: ClientId,
-        priority: f32,
-    ) -> Result<()>;
 
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
     fn new_connected_clients(&self) -> Vec<ClientId>;
 
-    fn prepare_entity_spawn(
-        &mut self,
-        entity: Entity,
-        replicate: &Replicate,
-        target: NetworkTarget,
-        system_current_tick: BevyTick,
-    ) -> Result<()>;
-
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replication_group_id: ReplicationGroupId,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()>;
 
+    #[allow(clippy::too_many_arguments)]
     fn prepare_component_insert(
         &mut self,
         entity: Entity,
         kind: ComponentNetId,
         component: RawData,
-        replicate: &Replicate,
+        component_registry: &ComponentRegistry,
+        replication_target: &ReplicationTarget,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        // bevy_tick for the current system run (we send component updates since the most recent bevy_tick of
-        //  last update ack OR last action sent)
-        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_component_remove(
         &mut self,
         entity: Entity,
         component_kind: ComponentNetId,
-        replicate: &Replicate,
+        group: &ReplicationGroup,
         target: NetworkTarget,
-        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     #[allow(clippy::too_many_arguments)]
@@ -188,7 +179,7 @@ pub(crate) trait ReplicationSend: Resource {
         entity: Entity,
         kind: ComponentNetId,
         component: RawData,
-        replicate: &Replicate,
+        group: &ReplicationGroup,
         target: NetworkTarget,
         // bevy_tick when the component changes
         component_change_tick: BevyTick,
@@ -206,96 +197,9 @@ pub(crate) trait ReplicationSend: Resource {
     /// But the receiving systems might expect both components to be present at the same time.
     fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
 
-    fn get_mut_replicate_despawn_cache(&mut self) -> &mut EntityHashMap<DespawnMetadata>;
+    fn get_mut_replicate_cache(&mut self) -> &mut EntityHashMap<ReplicateCache>;
 
     /// Do some regular cleanup on the internals of replication
     /// - account for tick wrapping by resetting some internal ticks for each replication group
     fn cleanup(&mut self, tick: Tick);
-}
-
-#[cfg(test)]
-mod tests {
-    use bevy::utils::Duration;
-
-    use crate::prelude::client::*;
-    use crate::prelude::*;
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
-
-    // An entity gets replicated from server to client,
-    // then a component gets removed from that entity on server,
-    // that component should also removed on client as well.
-    #[test]
-    fn test_simple_component_remove() -> anyhow::Result<()> {
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
-        stepper.init();
-
-        // Create an entity on server
-        let server_entity = stepper
-            .server_app
-            .world
-            .spawn((Component1(0.0), Replicate::default()))
-            .id();
-        // we need to step twice because we run client before server
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // Check that the entity is replicated to client
-        let client_entity = *stepper
-            .client_app
-            .world
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(server_entity)
-            .unwrap();
-        assert_eq!(
-            stepper
-                .client_app
-                .world
-                .entity(client_entity)
-                .get::<Component1>()
-                .unwrap(),
-            &Component1(0.0)
-        );
-
-        // Remove the component on the server
-        stepper
-            .server_app
-            .world
-            .entity_mut(server_entity)
-            .remove::<Component1>();
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // Check that this removal was replicated
-        assert!(stepper
-            .client_app
-            .world
-            .entity(client_entity)
-            .get::<Component1>()
-            .is_none());
-        Ok(())
-    }
 }

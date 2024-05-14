@@ -1,20 +1,53 @@
 //! Dummy io for connections that provide their own way of sending and receiving raw bytes (for example steamworks).
-use std::net::SocketAddr;
-
+use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
+use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
+use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::io::IoState;
+use crate::transport::udp::{UdpSocket, UdpSocketBuffer, UdpSocketBuilder};
 use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, LOCAL_SOCKET,
+    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET, MTU,
 };
+use std::net::SocketAddr;
 
 use super::error::Result;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DummyIo;
 
-impl TransportBuilder for DummyIo {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
-        Ok((TransportEnum::Dummy(self), IoState::Connected))
+impl ClientTransportBuilder for DummyIo {
+    fn connect(
+        self,
+    ) -> Result<(
+        ClientTransportEnum,
+        IoState,
+        Option<ClientIoEventReceiver>,
+        Option<ClientNetworkEventSender>,
+    )> {
+        Ok((
+            ClientTransportEnum::Dummy(self),
+            IoState::Connected,
+            None,
+            None,
+        ))
+    }
+}
+
+impl ServerTransportBuilder for DummyIo {
+    fn start(
+        self,
+    ) -> Result<(
+        ServerTransportEnum,
+        IoState,
+        Option<ServerIoEventReceiver>,
+        Option<ServerNetworkEventSender>,
+    )> {
+        Ok((
+            ServerTransportEnum::Dummy(self),
+            IoState::Connected,
+            None,
+            None,
+        ))
     }
 }
 
@@ -23,8 +56,8 @@ impl Transport for DummyIo {
         LOCAL_SOCKET
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        (Box::new(self), Box::new(self), None)
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self), Box::new(self))
     }
 }
 

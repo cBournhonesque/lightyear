@@ -10,7 +10,7 @@ fn remove_replicate<R: ReplicationSend>(entity: Entity, world: &mut World) {
     let mut sender = world.resource_mut::<R>();
     // remove the entity from the cache of entities that are being replicated
     // so that if it gets despawned, the despawn won't be replicated
-    sender.get_mut_replicate_despawn_cache().remove(&entity);
+    sender.get_mut_replicate_cache().remove(&entity);
     // remove the replicate component
     if let Some(mut entity) = world.get_entity_mut(entity) {
         entity.remove::<Replicate>();
@@ -58,7 +58,7 @@ mod tests {
             incoming_loss: 0.0,
         };
         let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
+        let prediction_config = PredictionConfig::default();
         let interpolation_config = InterpolationConfig::default();
         let mut stepper = BevyStepper::new(
             shared_config,

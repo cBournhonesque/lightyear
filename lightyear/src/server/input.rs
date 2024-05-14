@@ -9,14 +9,14 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
 use crate::prelude::server::MessageEvent;
 use crate::prelude::{
-    AppMessageExt, ChannelDirection, ClientId, Message, MessageRegistry, NetworkTarget,
-    TickManager, UserAction,
+    AppMessageExt, ChannelDirection, ClientId, Message, MessageRegistry, TickManager, UserAction,
 };
 use crate::protocol::message::MessageKind;
 use crate::protocol::BitSerializable;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputEvent;
 use crate::server::networking::is_started;
+use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 // - ClientInputs:

@@ -45,12 +45,16 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Single(id),
-                // interpolation_target: NetworkTarget::None,
-                interpolation_target: NetworkTarget::AllExceptSingle(id),
+                target: ReplicationTarget {
+                    prediction: NetworkTarget::Single(id),
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                    ..default()
+                },
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(id),
+                },
                 // the default is: the replication group id is a u64 value generated from the entity (`entity.to_bits()`)
-                replication_group: ReplicationGroup::default(),
+                group: ReplicationGroup::default(),
                 ..default()
             },
         }
@@ -68,12 +72,16 @@ impl TailBundle {
             points: TailPoints(points),
             length: TailLength(length),
             replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Single(id),
-                // interpolation_target: NetworkTarget::None,
-                interpolation_target: NetworkTarget::AllExceptSingle(id),
+                target: ReplicationTarget {
+                    prediction: NetworkTarget::Single(id),
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                    ..default()
+                },
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(id),
+                },
                 // replicate this entity within the same replication group as the parent
-                replication_group: ReplicationGroup::default().set_id(parent.to_bits()),
+                group: ReplicationGroup::default().set_id(parent.to_bits()),
                 ..default()
             },
         }
@@ -286,34 +294,39 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerPosition>(ComponentSyncMode::Full);
-        app.add_custom_interpolation::<PlayerPosition>(ComponentSyncMode::Full);
-        // we still register an interpolation function which will be used for visual interpolation
-        app.add_linear_interpolation_fn::<PlayerPosition>();
+        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full)
+            // NOTE: notice that we use custom interpolation here, this means that we don't run
+            //  the interpolation function for this component, so we need to implement our own interpolation system
+            //  (we do this because our interpolation system queries multiple components at once)
+            .add_custom_interpolation(ComponentSyncMode::Full)
+            // we still register an interpolation function which will be used for visual interpolation
+            .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
-        app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
+        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<TailPoints>(ChannelDirection::ServerToClient);
-        app.add_prediction::<TailPoints>(ComponentSyncMode::Full);
-        app.add_custom_interpolation::<TailPoints>(ComponentSyncMode::Full);
+        app.register_component::<TailPoints>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full)
+            // NOTE: notice that we use custom interpolation here, this means that we don't run
+            //  the interpolation function for this component, so we need to implement our own interpolation system
+            //  (we do this because our interpolation system queries multiple components at once)
+            .add_custom_interpolation(ComponentSyncMode::Full);
         // we do not register an interpolation function because we will use a custom interpolation system
 
-        app.register_component::<TailLength>(ChannelDirection::ServerToClient);
-        app.add_prediction::<TailLength>(ComponentSyncMode::Once);
-        app.add_interpolation::<TailLength>(ComponentSyncMode::Once);
+        app.register_component::<TailLength>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
         app.register_component::<PlayerParent>(ChannelDirection::ServerToClient)
-            .add_map_entities::<PlayerParent>();
-        app.add_prediction::<PlayerParent>(ComponentSyncMode::Once);
-        app.add_interpolation::<PlayerParent>(ComponentSyncMode::Once);
-        // app.add_component_map_entities::<PlayerParent>();
+            .add_map_entities()
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

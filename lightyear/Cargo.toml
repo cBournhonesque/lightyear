@@ -18,7 +18,6 @@ metrics = [
   "metrics-util",
   "metrics-tracing-context",
   "metrics-exporter-prometheus",
-  "dep:tokio",
 ]
 mock_time = ["dep:mock_instant"]
 webtransport = [
@@ -26,14 +25,12 @@ webtransport = [
   "dep:xwt-core",
   "dep:xwt-web-sys",
   "dep:web-sys",
-  "dep:tokio",
   "dep:ring",
   "dep:wasm-bindgen-futures",
 ]
 leafwing = ["dep:leafwing-input-manager"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
 websocket = [
-  "dep:tokio",
   "dep:tokio-tungstenite",
   "dep:futures-util",
   "dep:web-sys",
@@ -119,7 +116,7 @@ futures-util = { version = "0.3.30", optional = true }
 tokio = { version = "1.36", features = [
   "sync",
   "macros",
-], default-features = false, optional = true }
+], default-features = false }
 futures = "0.3.30"
 async-compat = "0.2.3"
 async-channel = "2.2.0"

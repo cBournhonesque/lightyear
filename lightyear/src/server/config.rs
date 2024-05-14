@@ -3,9 +3,8 @@ use bevy::prelude::Resource;
 use governor::Quota;
 use nonzero_ext::nonzero;
 
-use crate::connection::netcode::Key;
+use crate::connection::netcode::{Key, PRIVATE_KEY_BYTES};
 use crate::connection::server::NetConfig;
-use crate::server::replication::ReplicationConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
@@ -18,7 +17,7 @@ pub struct NetcodeConfig {
     /// The default is 3 seconds. A negative value means no timeout.
     pub client_timeout_secs: i32,
     pub protocol_id: u64,
-    pub private_key: Option<Key>,
+    pub private_key: Key,
 }
 
 impl Default for NetcodeConfig {
@@ -28,7 +27,7 @@ impl Default for NetcodeConfig {
             keep_alive_send_rate: 1.0 / 10.0,
             client_timeout_secs: 3,
             protocol_id: 0,
-            private_key: None,
+            private_key: [0; PRIVATE_KEY_BYTES],
         }
     }
 }
@@ -39,7 +38,7 @@ impl NetcodeConfig {
         self
     }
     pub fn with_key(mut self, key: Key) -> Self {
-        self.private_key = Some(key);
+        self.private_key = key;
         self
     }
 
@@ -95,5 +94,4 @@ pub struct ServerConfig {
     pub net: Vec<NetConfig>,
     pub packet: PacketConfig,
     pub ping: PingConfig,
-    pub replication: ReplicationConfig,
 }

@@ -13,14 +13,16 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::interpolation::Interpolated;
+use crate::client::io::ClientIoEvent;
 use crate::client::prediction::Predicted;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
-use crate::connection::server::ServerConnections;
+use crate::connection::server::{IoConfig, ServerConnections};
 use crate::prelude::{
     ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
+use crate::server::clients::ControlledEntities;
 use crate::server::networking::is_started;
 use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
@@ -36,8 +38,12 @@ pub(crate) struct ClientNetworkingPlugin;
 impl Plugin for ClientNetworkingPlugin {
     fn build(&self, app: &mut App) {
         app
+            // REFLECTION
+            .register_type::<IoConfig>()
             // STATE
             .init_state::<NetworkingState>()
+            // RESOURCE
+            .init_resource::<HostServerMetadata>()
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
@@ -76,7 +82,17 @@ impl Plugin for ClientNetworkingPlugin {
             // SYSTEMS
             .add_systems(
                 PreUpdate,
-                receive.in_set(InternalMainSet::<ClientMarker>::Receive),
+                listen_io_state
+                    // we are running the listen_io_state in a different set because it can impact the run_condition for the
+                    // Receive system set
+                    .before(InternalMainSet::<ClientMarker>::Receive)
+                    .run_if(not(
+                        SharedConfig::is_host_server_condition.or_else(is_disconnected)
+                    )),
+            )
+            .add_systems(
+                PreUpdate,
+                (listen_io_state, receive).in_set(InternalMainSet::<ClientMarker>::Receive),
             )
             .add_systems(
                 PostUpdate,
@@ -96,16 +112,24 @@ impl Plugin for ClientNetworkingPlugin {
 
         // CONNECTING
         app.add_systems(OnEnter(NetworkingState::Connecting), connect);
-        app.add_systems(
-            PreUpdate,
-            handle_connection_failure.run_if(in_state(NetworkingState::Connecting)),
-        );
 
         // CONNECTED
-        app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
+        app.add_systems(
+            OnEnter(NetworkingState::Connected),
+            (
+                on_connect,
+                on_connect_host_server.run_if(SharedConfig::is_host_server_condition),
+            ),
+        );
 
         // DISCONNECTED
-        app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+        app.add_systems(
+            OnEnter(NetworkingState::Disconnected),
+            (
+                on_disconnect,
+                on_disconnect_host_server.run_if(SharedConfig::is_host_server_condition),
+            ),
+        );
     }
 }
 
@@ -135,15 +159,19 @@ pub(crate) fn receive(world: &mut World) {
                                                         // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
                                                         time_manager.update(delta);
                                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
-                                                        let _ = netclient
-                                                            .try_update(delta.as_secs_f64())
-                                                            .map_err(|e| {
-                                                                error!("Error updating netcode: {}", e);
-                                                            });
+
+                                                        if netclient.state() != NetworkingState::Disconnected {
+                                                            let _ = netclient
+                                                                .try_update(delta.as_secs_f64())
+                                                                .map_err(|e| {
+                                                                    error!("Error updating netcode: {}", e);
+                                                                });
+                                                        }
 
                                                         if netclient.state() == NetworkingState::Connected {
                                                             // we just connected, do a state transition
                                                             if state.get() != &NetworkingState::Connected {
+                                                                debug!("Setting the networking state to connected");
                                                                 next_state.set(NetworkingState::Connected);
                                                             }
 
@@ -261,72 +289,75 @@ pub enum NetworkingState {
     Connected,
 }
 
-/// If we are trying to connect but the client is disconnected; we failed to connect,
-/// change the state back to Disconnected.
-fn handle_connection_failure(
+/// Listen to [`ClientIoEvent`]s and update the [`IoState`] and [`NetworkingState`] accordingly
+fn listen_io_state(
     mut next_state: ResMut<NextState<NetworkingState>>,
     mut netclient: ResMut<ClientConnection>,
 ) {
-    // first check the status of the io
-    if netclient.io_mut().is_some_and(|io| match &mut io.state {
-        IoState::Connecting {
-            ref mut error_channel,
-        } => match error_channel.try_recv() {
-            Ok(Some(e)) => {
-                error!("Error starting the io: {}", e);
-                io.state = IoState::Disconnected;
-                true
+    let mut disconnect = false;
+    if let Some(io) = netclient.io_mut() {
+        if let Some(receiver) = io.context.event_receiver.as_mut() {
+            match receiver.try_recv() {
+                Ok(ClientIoEvent::Connected) => {
+                    debug!("Io is connected!");
+                    io.state = IoState::Connected;
+                }
+                Ok(ClientIoEvent::Disconnected(e)) => {
+                    error!("Error from io: {}", e);
+                    io.state = IoState::Disconnected;
+                    disconnect = true;
+                }
+                Err(TryRecvError::Empty) => {
+                    trace!("we are still connecting the io, and there is no error yet");
+                }
+                Err(TryRecvError::Closed) => {
+                    error!("Io status channel has been closed when it shouldn't be");
+                    disconnect = true;
+                }
             }
-            Ok(None) => {
-                debug!("Io is connected!");
-                io.state = IoState::Connected;
-                false
-            }
-            // we are still connecting the io, and there is no error yet
-            Err(TryRecvError::Empty) => {
-                debug!("we are still connecting the io, and there is no error yet");
-                false
-            }
-            // we are still connecting the io, but the channel has been closed, this looks
-            // like an error
-            Err(TryRecvError::Closed) => {
-                error!("Io status channel has been closed when it shouldn't be");
-                true
-            }
-        },
-        _ => false,
-    }) {
-        info!("Setting the next state to disconnected because of io");
-        next_state.set(NetworkingState::Disconnected);
+        }
     }
-    if netclient.state() == NetworkingState::Disconnected {
-        info!("Setting the next state to disconnected because of client connection error");
+    if disconnect {
+        debug!("Going to NetworkingState::Disconnected because of io error.");
         next_state.set(NetworkingState::Disconnected);
+        let _ = netclient
+            .disconnect()
+            .inspect_err(|e| debug!("error disconnecting netclient: {e:?}"));
     }
+}
+
+/// Holds metadata necessary when running in HostServer mode
+#[derive(Resource, Default)]
+struct HostServerMetadata {
+    /// entity for the client running as host-server
+    client_entity: Option<Entity>,
 }
 
 /// System that runs when we enter the Connected state
 /// Updates the ConnectEvent events
-fn on_connect(
-    mut connect_event_writer: EventWriter<ConnectEvent>,
-    netcode: Res<ClientConnection>,
-    config: Res<ClientConfig>,
-    mut server_connect_event_writer: Option<ResMut<Events<crate::server::events::ConnectEvent>>>,
-) {
-    info!(
+fn on_connect(mut connect_event_writer: EventWriter<ConnectEvent>, netcode: Res<ClientConnection>) {
+    debug!(
         "Running OnConnect schedule with client id: {:?}",
         netcode.id()
     );
     connect_event_writer.send(ConnectEvent::new(netcode.id()));
+}
 
-    // in host-server mode, we also want to send a connect event to the server
-    if config.shared.mode == Mode::HostServer {
-        info!("send connect event to server");
-        server_connect_event_writer
-            .as_mut()
-            .unwrap()
-            .send(crate::server::events::ConnectEvent::new(netcode.id()));
-    }
+/// Same as on-connect, but only runs if we are in host-server mode
+fn on_connect_host_server(
+    mut commands: Commands,
+    netcode: Res<ClientConnection>,
+    mut metadata: ResMut<HostServerMetadata>,
+    mut server_connect_event_writer: ResMut<Events<crate::server::events::ConnectEvent>>,
+) {
+    // spawn an entity for the client
+    let client_entity = commands.spawn(ControlledEntities::default()).id();
+    error!("send connect event to server");
+    server_connect_event_writer.send(crate::server::events::ConnectEvent {
+        client_id: netcode.id(),
+        entity: client_entity,
+    });
+    metadata.client_entity = Some(client_entity);
 }
 
 /// System that runs when we enter the Disconnected state
@@ -335,10 +366,6 @@ fn on_disconnect(
     mut connection_manager: ResMut<ConnectionManager>,
     mut disconnect_event_writer: EventWriter<DisconnectEvent>,
     mut netcode: ResMut<ClientConnection>,
-    config: Res<ClientConfig>,
-    mut server_disconnect_event_writer: Option<
-        ResMut<Events<crate::server::events::DisconnectEvent>>,
-    >,
     mut commands: Commands,
     received_entities: Query<Entity, Or<(With<Replicated>, With<Predicted>, With<Interpolated>)>>,
 ) {
@@ -356,17 +383,22 @@ fn on_disconnect(
 
     // no need to update the io state, because we will recreate a new `ClientConnection`
     // for the next connection attempt
-    disconnect_event_writer.send(DisconnectEvent::new(()));
-
-    // in host-server mode, we also want to send a connect event to the server
-    if config.shared.mode == Mode::HostServer {
-        server_disconnect_event_writer
-            .as_mut()
-            .unwrap()
-            .send(crate::server::events::DisconnectEvent::new(netcode.id()));
-    }
-
+    disconnect_event_writer.send(DisconnectEvent);
     // TODO: remove ClientConnection and ConnectionManager resources?
+}
+
+fn on_disconnect_host_server(
+    netcode: Res<ClientConnection>,
+    mut metadata: ResMut<HostServerMetadata>,
+    mut server_disconnect_event_writer: ResMut<Events<crate::server::events::DisconnectEvent>>,
+) {
+    let client_id = netcode.id();
+    if let Some(client_entity) = std::mem::take(&mut metadata.client_entity) {
+        server_disconnect_event_writer.send(crate::server::events::DisconnectEvent {
+            client_id,
+            entity: client_entity,
+        });
+    }
 }
 
 /// This run condition is provided to check if the client is connected.
@@ -387,11 +419,19 @@ pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
 /// since the `StateTransition` schedule runs after `PreUpdate`
 pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient.map_or(true, |c| {
+    netclient.as_ref().map_or(true, |c| {
         c.state() == NetworkingState::Disconnected
             || c.io()
                 .map_or(true, |io| matches!(io.state, IoState::Disconnected))
     })
+    // error!("Is Disconnected: {res:?}");
+    // if let Some(c) = netclient.as_ref() {
+    //     error!("ClientConnection state: {:?}", c.state());
+    //     if let Some(io) = c.io() {
+    //         error!("Io state: {:?}", io.state);
+    //     }
+    // }
+    // res
 }
 
 /// This runs only when we enter the [`Connecting`](NetworkingState::Connecting) state.
@@ -478,8 +518,10 @@ fn connect(world: &mut World) {
 // }
 
 pub trait ClientCommands {
+    /// Start the connection process
     fn connect_client(&mut self);
 
+    /// Disconnect the client
     fn disconnect_client(&mut self);
 }
 

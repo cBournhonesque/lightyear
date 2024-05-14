@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use bevy::utils::HashMap;
 use std::ops::Deref;
 
 use bevy::prelude::*;
@@ -61,8 +61,7 @@ pub(crate) fn init(mut commands: Commands) {
                     // The priority can be sent when the entity is spawned; if multiple entities in the same group have
                     // different priorities, the latest set priority will be used.
                     // After the entity is spawned, you can update the priority using the ConnectionManager::upate_priority method.
-                    replication_group: ReplicationGroup::default()
-                        .set_priority(1.0 + y.abs() as f32),
+                    group: ReplicationGroup::default().set_priority(1.0 + y.abs() as f32),
                     ..default()
                 },
             ));
@@ -73,22 +72,11 @@ pub(crate) fn init(mut commands: Commands) {
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
-    mut disconnections: EventReader<DisconnectEvent>,
-    mut global: ResMut<Global>,
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = *connection.context();
+        let client_id = connection.client_id;
         let entity = commands.spawn(PlayerBundle::new(client_id, Vec2::splat(300.0)));
-        // Add a mapping from client id to entity id (so that when we receive an input from a client,
-        // we know which entity to move)
-        global.client_id_to_entity_id.insert(client_id, entity.id());
-    }
-    for disconnection in disconnections.read() {
-        let client_id = disconnection.context();
-        if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
-            commands.entity(entity).despawn();
-        }
     }
 }
 

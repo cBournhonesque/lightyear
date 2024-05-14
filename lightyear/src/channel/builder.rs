@@ -27,7 +27,7 @@ pub struct ChannelContainer {
     pub(crate) sender: ChannelSender,
 }
 
-/// A Channel is an abstraction for a way to send messages over the network
+/// A `Channel` is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel.
 ///
 /// # Example
@@ -36,9 +36,10 @@ pub struct ChannelContainer {
 /// they can be lost (no reliability guarantee) and they can be sent in both directions.
 ///
 /// ```rust,ignore
+/// #[derive(Channel)]
 /// struct MyChannel;
 ///
-/// protocol.add_channel::<MyChannel>(ChannelSettings {
+/// app.add_channel::<MyChannel>(ChannelSettings {
 ///     mode: ChannelMode::UnorderedUnreliable,
 ///     direction: ChannelDirection::Bidirectional,
 ///     priority: 1.0,

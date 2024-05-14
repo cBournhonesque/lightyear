@@ -23,7 +23,7 @@
 //! - To enable VisualInterpolation on a given entity, you need to add the `VisualInterpolateStatus` component to it manually
 //! ```rust,no_run,ignore
 //! fn spawn_entity(mut commands: Commands) {
-//!     commands.spawn().insert(VisualInterpolateState::<Component1>::default());
+//!     commands.spawn().insert(VisualInterpolateStatus::<Component1>::default());
 //! }
 //! ```
 
@@ -35,7 +35,7 @@
 use bevy::prelude::*;
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
-use crate::prelude::client::InterpolationSet;
+use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::prelude::{ComponentRegistry, TickManager, TimeManager};
 
 pub struct VisualInterpolationPlugin<C: SyncComponent> {
@@ -52,11 +52,16 @@ impl<C: SyncComponent> Default for VisualInterpolationPlugin<C> {
 
 impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
-        // TODO: put the non-component specific stuff in a different plugin
-        // REFLECTION
-        app.register_type::<VisualInterpolateMarker>();
         // SETS
-        app.configure_sets(PreUpdate, InterpolationSet::RestoreVisualInterpolation);
+        app.configure_sets(
+            PreUpdate,
+            // make sure that we restore the actual component value before we perform a rollback check
+            (
+                InterpolationSet::RestoreVisualInterpolation,
+                PredictionSet::CheckRollback,
+            )
+                .chain(),
+        );
         app.configure_sets(
             FixedPostUpdate,
             InterpolationSet::UpdateVisualInterpolationState,
@@ -107,10 +112,6 @@ impl<C: Component> Default for VisualInterpolateStatus<C> {
         }
     }
 }
-
-/// Marker component to indicate that this entity will be visually interpolated
-#[derive(Component, Debug, Reflect)]
-pub struct VisualInterpolateMarker;
 
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
 //  (to avoid orphan rule)
@@ -205,7 +206,7 @@ mod tests {
             incoming_loss: 0.0,
         };
         let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
+        let prediction_config = PredictionConfig::default();
         let interpolation_config = InterpolationConfig::default();
         let mut stepper = BevyStepper::new(
             shared_config,

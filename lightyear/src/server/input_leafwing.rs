@@ -17,7 +17,7 @@ use crate::inputs::leafwing::input_buffer::{
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::client::is_in_rollback;
 use crate::prelude::server::MessageEvent;
-use crate::prelude::{client, MessageRegistry, Mode, NetworkTarget, SharedConfig, TickManager};
+use crate::prelude::{client, MessageRegistry, Mode, SharedConfig, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
@@ -25,6 +25,7 @@ use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::is_started;
 use crate::shared::replication::components::PrePredicted;
+use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 pub struct LeafwingInputPlugin<A> {
@@ -271,7 +272,7 @@ mod tests {
             incoming_loss: 0.0,
         };
         let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
+        let prediction_config = PredictionConfig::default();
         let interpolation_config = InterpolationConfig::default();
         let mut stepper = BevyStepper::new(
             shared_config,

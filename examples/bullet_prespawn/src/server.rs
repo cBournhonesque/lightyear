@@ -1,19 +1,14 @@
-use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr};
-
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::prelude::*;
 
 use lightyear::client::prediction::Predicted;
-pub use lightyear::prelude::server::*;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::server::config::PacketConfig;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_player_movement};
-use crate::{shared, ServerTransports, SharedSettings};
+use crate::shared;
+use crate::shared::{color_from_id, shared_player_movement};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -28,7 +23,6 @@ impl Plugin for ExampleServerPlugin {
         );
         // the physics/FixedUpdates systems that consume inputs should be run in the `FixedUpdate` schedule
         // app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(Update, handle_disconnections);
     }
 }
 
@@ -48,22 +42,6 @@ pub(crate) fn init(mut commands: Commands) {
             ..default()
         }),
     );
-}
-
-/// Server disconnection system, delete all player entities upon disconnection
-pub(crate) fn handle_disconnections(
-    mut disconnections: EventReader<DisconnectEvent>,
-    mut commands: Commands,
-    player_entities: Query<(Entity, &PlayerId)>,
-) {
-    for disconnection in disconnections.read() {
-        let client_id = disconnection.context();
-        for (entity, player_id) in player_entities.iter() {
-            if player_id.0 == *client_id {
-                commands.entity(entity).despawn();
-            }
-        }
-    }
 }
 
 // // The client input only gets applied to predicted entities that we own
@@ -90,25 +68,35 @@ pub(crate) fn replicate_players(
         let entity = event.entity();
 
         if let Some(mut e) = commands.get_entity(entity) {
-            let mut replicate = Replicate {
-                // we want to replicate back to the original client, since they are using a pre-spawned entity
-                replication_target: NetworkTarget::All,
-                // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
-                prediction_target: NetworkTarget::Single(*client_id),
-                // we want the other clients to apply interpolation for the player
-                interpolation_target: NetworkTarget::AllExceptSingle(*client_id),
+            let replicate = Replicate {
+                target: ReplicationTarget {
+                    // we want to replicate back to the original client, since they are using a pre-spawned entity
+                    replication: NetworkTarget::All,
+                    // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
+                    prediction: NetworkTarget::Single(*client_id),
+                    // we want the other clients to apply interpolation for the player
+                    interpolation: NetworkTarget::AllExceptSingle(*client_id),
+                },
+                // let the server know that this entity is controlled by client `client_id`
+                // - the client will have a Controlled component for this entity when it's replicated
+                // - when the client disconnects, this entity will be despawned
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(*client_id),
+                },
                 // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
-                replication_group: ReplicationGroup::new_id(client_id.to_bits()),
+                group: ReplicationGroup::new_id(client_id.to_bits()),
                 ..default()
             };
-            // We don't want to replicate the ActionState to the original client, since they are updating it with
-            // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-            // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-            // We also don't need the inputs of the other clients, because we are not predicting them
-            replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::None);
-            // The PrePredicted component must be replicated only to the original client
-            replicate.add_target::<PrePredicted>(NetworkTarget::Single(*client_id));
-            e.insert(replicate);
+            e.insert((
+                replicate,
+                // We don't want to replicate the ActionState to the original client, since they are updating it with
+                // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
+                // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
+                // We also don't need the inputs of the other clients, because we are not predicting them
+                OverrideTargetComponent::<ActionState<PlayerActions>>::new(NetworkTarget::None),
+                // The PrePredicted component must be replicated only to the original client
+                OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(*client_id)),
+            ));
         }
     }
 }

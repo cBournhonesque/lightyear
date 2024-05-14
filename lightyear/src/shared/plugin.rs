@@ -1,17 +1,17 @@
-//! Bevy [`bevy::prelude::Plugin`] used by both the server and the client
+//! Bevy [`Plugin`] used by both the server and the client
 use crate::client::config::ClientConfig;
 use crate::connection::server::ServerConnections;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::prelude::{
-    AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, IoConfig,
-    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
-    PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
+    AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig,
+    MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject,
+    ShouldBePredicted, TickConfig,
 };
 use crate::server::config::ServerConfig;
 use crate::shared::config::SharedConfig;
-use crate::shared::replication::components::ShouldBeInterpolated;
+use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
 use crate::transport::middleware::compression::CompressionConfig;
@@ -73,8 +73,7 @@ impl Plugin for SharedPlugin {
             .register_type::<TickConfig>()
             .register_type::<PingConfig>()
             .register_type::<LinkConditionerConfig>()
-            .register_type::<CompressionConfig>()
-            .register_type::<IoConfig>();
+            .register_type::<CompressionConfig>();
 
         // RESOURCES
         // NOTE: this tick duration must be the same as any previous existing fixed timesteps
@@ -108,7 +107,8 @@ impl Plugin for SharedPlugin {
         app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
         app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
-            .add_map_entities::<ParentSync>();
+            .add_map_entities();
+        app.register_component::<Controlled>(ChannelDirection::Bidirectional);
         // check that the protocol was built correctly
         app.world.resource::<ComponentRegistry>().check();
     }

@@ -12,7 +12,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::MessageEvent;
 use crate::client::networking::is_connected;
 use crate::packet::message::SingleData;
-use crate::prelude::{ChannelDirection, ChannelKind, MainSet, Message, NetworkTarget};
+use crate::prelude::{ChannelDirection, ChannelKind, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
@@ -20,12 +20,13 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
+use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 // ClientMessages can include some extra Metadata
 #[derive(Encode, Decode, Clone, Debug)]
-pub enum ClientMessage {
+pub(crate) enum ClientMessage {
     #[bitcode_hint(frequency = 2)]
     // #[bitcode(with_serde)]
     Message(RawData, NetworkTarget),

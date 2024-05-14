@@ -168,6 +168,25 @@ impl ReplicationReceiver {
             .get(&remote_entity)
             .and_then(|group_id| self.group_channels.get(group_id))
     }
+
+    /// Do some internal bookkeeping:
+    /// - handle tick wrapping
+    pub(crate) fn cleanup(&mut self, tick: Tick) {
+        // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
+        for group_channel in self.group_channels.values_mut() {
+            debug!("Checking group channel: {:?}", group_channel);
+            if let Some(latest_tick) = group_channel.latest_tick {
+                if tick - latest_tick > (i16::MAX / 2) {
+                    debug!(
+                    ?tick,
+                    ?latest_tick,
+                    ?group_channel,
+                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
+                    group_channel.latest_tick = Some(tick);
+                }
+            }
+        }
+    }
 }
 
 /// We want:
@@ -240,11 +259,12 @@ impl ReplicationReceiver {
                         }
                         SpawnAction::Reuse(local_entity) => {
                             let local_entity = Entity::from_bits(local_entity);
-                            if world.get_entity(local_entity).is_none() {
+                            let Some(mut entity_mut) = world.get_entity_mut(local_entity) else {
                                 // TODO: ignore the entity in the next steps because it does not exist!
                                 error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
                                 continue;
                             };
+                            entity_mut.insert(Replicated);
                             // update the entity mapping
                             self.remote_entity_map.insert(*remote_entity, local_entity);
                         }

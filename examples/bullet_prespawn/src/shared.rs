@@ -3,9 +3,7 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
-use leafwing_input_manager::orientation::Orientation;
 use leafwing_input_manager::prelude::ActionState;
-use tracing::Level;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
@@ -15,23 +13,9 @@ use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;
 
-const FRAME_HZ: f64 = 60.0;
-const FIXED_TIMESTEP_HZ: f64 = 64.0;
-
 const EPS: f32 = 0.0001;
 
-pub fn shared_config(mode: Mode) -> SharedConfig {
-    SharedConfig {
-        client_send_interval: Duration::default(),
-        server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
-        // server_send_interval: Duration::from_millis(500),
-        tick: TickConfig {
-            tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
-        },
-        mode,
-    }
-}
-
+#[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
@@ -154,7 +138,7 @@ fn player_movement(
     tick_manager: Res<TickManager>,
     mut player_query: Query<
         (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
-        Or<(With<Predicted>, With<Replicate>)>,
+        Or<(With<Predicted>, With<ReplicationTarget>)>,
     >,
 ) {
     for (transform, action_state, player_id) in player_query.iter_mut() {
@@ -210,7 +194,7 @@ pub(crate) fn move_bullet(
                 // move predicted bullets
                 With<Predicted>,
                 // move server entities
-                With<Replicate>,
+                With<ReplicationTarget>,
                 // move prespawned bullets
                 With<PreSpawnedPlayerObject>,
             )>,
@@ -245,7 +229,7 @@ pub(crate) fn shoot_bullet(
             &ColorComponent,
             &mut ActionState<PlayerActions>,
         ),
-        Or<(With<Predicted>, With<Replicate>)>,
+        Or<(With<Predicted>, With<ReplicationTarget>)>,
     >,
 ) {
     let tick = tick_manager.tick();
@@ -283,13 +267,15 @@ pub(crate) fn shoot_bullet(
                         //  unless you set the hash manually before PostUpdate to a value of your choice
                         PreSpawnedPlayerObject::default(),
                         Replicate {
-                            replication_target: NetworkTarget::All,
-                            // the bullet is predicted for the client who shot it
-                            prediction_target: NetworkTarget::Single(id.0),
-                            // the bullet is interpolated for other clients
-                            interpolation_target: NetworkTarget::AllExceptSingle(id.0),
+                            target: ReplicationTarget {
+                                replication: NetworkTarget::All,
+                                // the bullet is predicted for the client who shot it
+                                prediction: NetworkTarget::Single(id.0),
+                                // the bullet is interpolated for other clients
+                                interpolation: NetworkTarget::AllExceptSingle(id.0),
+                            },
                             // NOTE: all predicted entities need to have the same replication group
-                            replication_group: ReplicationGroup::new_id(id.0.to_bits()),
+                            group: ReplicationGroup::new_id(id.0.to_bits()),
                             ..default()
                         },
                     ));

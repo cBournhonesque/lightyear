@@ -6,32 +6,6 @@ use bevy::prelude::{Component, Entity, Event};
 
 use crate::packet::message::Message;
 
-/// This event is emitted whenever a client connects to the server
-#[derive(Event)]
-pub struct ConnectEvent<Ctx = ()>(Ctx);
-
-impl<Ctx> ConnectEvent<Ctx> {
-    pub fn new(context: Ctx) -> Self {
-        Self(context)
-    }
-    pub fn context(&self) -> &Ctx {
-        &self.0
-    }
-}
-
-/// This event is emitted whenever a client disconnects from the server
-#[derive(Event)]
-pub struct DisconnectEvent<Ctx = ()>(Ctx);
-
-impl<Ctx> DisconnectEvent<Ctx> {
-    pub fn new(context: Ctx) -> Self {
-        Self(context)
-    }
-    pub fn context(&self) -> &Ctx {
-        &self.0
-    }
-}
-
 /// This event is emitted whenever we receive a message from the remote
 #[derive(Event)]
 pub struct MessageEvent<M: Message, Ctx = ()> {

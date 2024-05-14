@@ -25,12 +25,12 @@ use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::prediction::plugin::add_prediction_systems;
 use crate::prelude::client::SyncComponent;
-use crate::prelude::server::{ServerConfig, ServerPlugin};
+use crate::prelude::server::{ServerConfig, ServerPlugins};
 use crate::prelude::{
-    client, server, ChannelDirection, Message, MessageRegistry, PreSpawnedPlayerObject,
-    RemoteEntityMap, ReplicateResourceMetadata, Tick,
+    client, server, AppMessageExt, ChannelDirection, Message, MessageRegistry,
+    PreSpawnedPlayerObject, RemoteEntityMap, ReplicateResourceMetadata, Tick,
 };
-use crate::protocol::message::{MessageKind, MessageType};
+use crate::protocol::message::{MessageKind, MessageRegistration, MessageType};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn, SerializeFns};
 use crate::protocol::{BitSerializable, EventContext};
@@ -52,6 +52,93 @@ use crate::shared::sets::InternalMainSet;
 
 pub type ComponentNetId = NetId;
 
+/// A [`Resource`] that will keep track of all the [`Components`](Component) that can be replicated.
+///
+///
+/// ### Adding Components
+///
+/// You register components by calling the [`register_component`](AppComponentExt::register_component) method directly on the App.
+/// You can provide a [`ChannelDirection`] to specify if the component should be sent from the client to the server, from the server to the client, or both.
+///
+/// A component needs to implement the `Serialize`, `Deserialize` and `PartialEq` traits.
+///
+/// ```rust
+/// use bevy::prelude::*;
+/// use serde::{Deserialize, Serialize};
+/// use lightyear::prelude::*;
+///
+/// #[derive(Component, PartialEq, Serialize, Deserialize)]
+/// struct MyComponent;
+///
+/// fn add_components(app: &mut App) {
+///   app.register_component::<MyComponent>(ChannelDirection::Bidirectional);
+/// }
+/// ```
+///
+/// ### Customizing Component behaviour
+///
+/// There are some cases where you might want to define additional behaviour for a component.
+///
+/// #### Entity Mapping
+/// If the component contains [`Entities`](Entity), you need to specify how those entities
+/// will be mapped from the remote world to the local world.
+///
+/// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
+/// calling the [`add_map_entities`](ComponentRegistration::add_map_entities) method.
+///
+/// #### Prediction
+/// When client-prediction is enabled, we create two distinct entities on the client when the server replicates an entity: a Confirmed entity and a Predicted entity.
+/// The Confirmed entity will just get updated when the client receives the server updates, while the Predicted entity will be updated by the client's prediction system.
+///
+/// Components are not synced from the Confirmed entity to the Predicted entity by default, you have to enable this behaviour.
+/// You can do this by calling the [`add_prediction`](ComponentRegistration::add_prediction) method.
+/// You will have to provide a [`ComponentSyncMode`] that defines the behaviour of the prediction system.
+///
+/// #### Correction
+/// When client-prediction is enabled, there might be cases where there is a mismatch between the state of the Predicted entity
+/// and the state of the Confirmed entity. In this case, we rollback by snapping the Predicted entity to the Confirmed entity and replaying the last few frames.
+///
+/// However, rollbacks that do an instant update can be visually jarring, so we provide the option to smooth the rollback process over a few frames.
+/// You can do this by calling the [`add_correction_fn`](ComponentRegistration::add_correction_fn) method.
+///
+/// If your component implements the [`Linear`] trait, you can use the [`add_linear_correction_fn`](ComponentRegistration::add_linear_correction_fn) method,
+/// which provides linear interpolation.
+///
+/// #### Interpolation
+/// Similarly to client-prediction, we create two distinct entities on the client when the server replicates an entity: a Confirmed entity and an Interpolated entity.
+/// The Confirmed entity will just get updated when the client receives the server updates, while the Interpolated entity will be updated by the client's interpolation system,
+/// which will interpolate between two Confirmed states.
+///
+/// Components are not synced from the Confirmed entity to the Interpolated entity by default, you have to enable this behaviour.
+/// You can do this by calling the [`add_interpolation`](ComponentRegistration::add_interpolation) method.
+/// You will have to provide a [`ComponentSyncMode`] that defines the behaviour of the interpolation system.
+///
+/// You will also need to provide an interpolation function that will be used to interpolate between two states.
+/// If your component implements the [`Linear`] trait, you can use the [`add_linear_interpolation_fn`](ComponentRegistration::add_linear_interpolation_fn) method,
+/// which means that we will interpolate using linear interpolation.
+///
+/// You can also use your own interpolation function by using the [`add_interpolation_fn`](ComponentRegistration::add_interpolation_fn) method.
+///
+/// ```rust
+/// use bevy::prelude::*;
+/// use lightyear::prelude::*;
+/// use lightyear::prelude::client::*;
+///
+/// #[derive(Component, Clone, PartialEq, Serialize, Deserialize)]
+/// struct MyComponent(f32);
+///
+/// fn my_lerp_fn(start: &MyComponent, other: &MyComponent, t: f32) -> MyComponent {
+///    MyComponent(start.0 * (1.0 - t) + other.0 * t)
+/// }
+///
+///
+/// fn add_messages(app: &mut App) {
+///   app.register_component::<MyComponent>(ChannelDirection::ServerToClient)
+///       .add_prediction(ComponentSyncMode::Full)
+///       .add_interpolation(ComponentSyncMode::Full)
+///       .add_interpolation_fn(my_lerp_fn);
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct ComponentRegistry {
     replication_map: HashMap<ComponentKind, ReplicationMetadata>,
@@ -71,6 +158,21 @@ pub struct ReplicationMetadata {
 pub struct PredictionMetadata {
     pub prediction_mode: ComponentSyncMode,
     pub correction: Option<unsafe fn()>,
+    /// Function used to compare the confirmed component with the predicted component's history
+    /// to determine if a rollback is needed. Returns true if we should do a rollback.
+    /// Will default to a PartialEq::ne implementation, but can be overriden.
+    pub should_rollback: unsafe fn(),
+}
+
+impl PredictionMetadata {
+    fn default_from<C: PartialEq>(mode: ComponentSyncMode) -> Self {
+        let should_rollback: RollbackCheckFn<C> = <C as PartialEq>::ne;
+        Self {
+            prediction_mode: mode,
+            correction: None,
+            should_rollback: unsafe { std::mem::transmute(should_rollback) },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,7 +191,13 @@ type RawWriteFn = fn(
     &mut ConnectionEvents,
 ) -> anyhow::Result<()>;
 
-type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
+/// Function used to interpolate from one component state (`start`) to another (`other`)
+/// t goes from 0.0 (`start`) to 1.0 (`other`)
+pub type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
+
+/// Function used to check if a rollback is needed, by comparing the server's value with the client's predicted value.
+/// Defaults to PartialEq::eq
+type RollbackCheckFn<C> = fn(this: &C, that: &C) -> bool;
 
 pub trait Linear {
     fn lerp(start: &Self, other: &Self, t: f32) -> Self;
@@ -141,7 +249,7 @@ impl ComponentRegistry {
         }
     }
 
-    pub(crate) fn register_component<C: Component + Message>(&mut self) {
+    pub(crate) fn register_component<C: Component + Message + PartialEq>(&mut self) {
         let component_kind = self.kind_map.add::<C>();
         self.serialize_fns_map
             .insert(component_kind, ErasedSerializeFns::new::<C>());
@@ -169,28 +277,34 @@ impl ComponentRegistry {
         erased_fns.add_map_entities::<C>();
     }
 
-    pub(crate) fn set_prediction_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
+    pub(crate) fn set_prediction_mode<C: SyncComponent>(&mut self, mode: ComponentSyncMode) {
+        let kind = ComponentKind::of::<C>();
+        let default_equality_fn = <C as PartialEq>::eq;
+        self.prediction_map
+            .entry(kind)
+            .or_insert_with(|| PredictionMetadata::default_from::<C>(mode));
+    }
+
+    pub(crate) fn set_rollback_check<C: Component + PartialEq>(
+        &mut self,
+        rollback_check: RollbackCheckFn<C>,
+    ) {
         let kind = ComponentKind::of::<C>();
         self.prediction_map
             .entry(kind)
-            .or_insert_with(|| PredictionMetadata {
-                prediction_mode: mode,
-                correction: None,
-            });
+            .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
+            .should_rollback = unsafe { std::mem::transmute(rollback_check) };
     }
 
-    pub(crate) fn set_linear_correction<C: Component + Linear>(&mut self) {
+    pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
         self.set_correction(<C as Linear>::lerp);
     }
 
-    pub(crate) fn set_correction<C: Component>(&mut self, correction_fn: LerpFn<C>) {
+    pub(crate) fn set_correction<C: Component + PartialEq>(&mut self, correction_fn: LerpFn<C>) {
         let kind = ComponentKind::of::<C>();
         self.prediction_map
             .entry(kind)
-            .or_insert_with(|| PredictionMetadata {
-                prediction_mode: ComponentSyncMode::Full,
-                correction: None,
-            })
+            .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
             .correction = Some(unsafe { std::mem::transmute(correction_fn) });
     }
 
@@ -298,6 +412,20 @@ impl ComponentRegistry {
             .context("the component is not part of the protocol")
             .map_or(false, |metadata| metadata.correction.is_some())
     }
+
+    /// Returns true if we should do a rollback
+    pub(crate) fn should_rollback<C: Component>(&self, this: &C, that: &C) -> bool {
+        let kind = ComponentKind::of::<C>();
+        let prediction_metadata = self
+            .prediction_map
+            .get(&kind)
+            .context("the component is not part of the protocol")
+            .unwrap();
+        let rollback_check_fn: RollbackCheckFn<C> =
+            unsafe { std::mem::transmute(prediction_metadata.should_rollback) };
+        rollback_check_fn(this, that)
+    }
+
     pub(crate) fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
         let kind = ComponentKind::of::<C>();
         let prediction_metadata = self
@@ -342,7 +470,7 @@ impl ComponentRegistry {
         (replication_metadata.write)(self, reader, net_id, entity_world_mut, entity_map, events)
     }
 
-    pub(crate) fn write<C: Component>(
+    pub(crate) fn write<C: Component + PartialEq>(
         &self,
         reader: &mut BitcodeReader,
         net_id: ComponentNetId,
@@ -357,9 +485,11 @@ impl ComponentRegistry {
         let tick = Tick(0);
         // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
         if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-            events.push_update_component(entity, net_id, tick);
-            // TODO: use set_if_neq for PartialEq
-            *c = component;
+            // only apply the update if the component is different, to not trigger change detection
+            if c.as_ref() != &component {
+                events.push_update_component(entity, net_id, tick);
+                *c = component;
+            }
         } else {
             events.push_insert_component(entity, net_id, tick);
             entity_world_mut.insert(component);
@@ -420,10 +550,10 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
 pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
-    fn register_component<C: Component + Message>(
+    fn register_component<C: Component + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
-    ) -> ComponentRegistration<'_>;
+    ) -> ComponentRegistration<'_, C>;
 
     /// Enable prediction systems for this component.
     /// You can specify the prediction [`ComponentSyncMode`]
@@ -434,6 +564,11 @@ pub trait AppComponentExt {
 
     /// Add a `Correction` behaviour to this component.
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>);
+
+    /// Add a custom function to use for checking if a rollback is needed.
+    /// (By default we use the PartialEq::eq function, but you can use this to override the
+    ///  equality check. For example, you might want to add a threshold for floating point numbers)
+    fn add_rollback_check<C: SyncComponent>(&mut self, rollback_check: RollbackCheckFn<C>);
 
     /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
     /// themselves (the interpolation_fn will not be used)
@@ -450,14 +585,18 @@ pub trait AppComponentExt {
     fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>);
 }
 
-pub struct ComponentRegistration<'a> {
+pub struct ComponentRegistration<'a, C> {
     app: &'a mut App,
+    _phantom: std::marker::PhantomData<C>,
 }
 
-impl ComponentRegistration<'_> {
+impl<C> ComponentRegistration<'_, C> {
     /// Specify that the component contains entities which should be mapped from the remote world to the local world
     /// upon deserialization
-    pub fn add_map_entities<C: MapEntities + 'static>(self) -> Self {
+    pub fn add_map_entities(self) -> Self
+    where
+        C: MapEntities + 'static,
+    {
         let mut registry = self.app.world.resource_mut::<ComponentRegistry>();
         registry.add_map_entities::<C>();
         self
@@ -465,68 +604,97 @@ impl ComponentRegistration<'_> {
 
     /// Enable prediction systems for this component.
     /// You can specify the prediction [`ComponentSyncMode`]
-    pub fn add_prediction<C: SyncComponent>(self, prediction_mode: ComponentSyncMode) -> Self {
+    pub fn add_prediction(self, prediction_mode: ComponentSyncMode) -> Self
+    where
+        C: SyncComponent,
+    {
         self.app.add_prediction::<C>(prediction_mode);
         self
     }
 
     /// Add a `Correction` behaviour to this component by using a linear interpolation function.
-    pub fn add_linear_correction_fn<C: SyncComponent + Linear>(self) -> Self {
+    pub fn add_linear_correction_fn(self) -> Self
+    where
+        C: SyncComponent + Linear,
+    {
         self.app.add_linear_correction_fn::<C>();
         self
     }
 
     /// Add a `Correction` behaviour to this component.
-    pub fn add_correction_fn<C: SyncComponent>(self, correction_fn: LerpFn<C>) -> Self {
+    pub fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
         self.app.add_correction_fn::<C>(correction_fn);
+        self
+    }
+
+    /// Add a custom function to use for checking if a rollback is needed.
+    /// (By default we use the PartialEq::eq function, but you can use this to override the
+    ///  equality check. For example, you might want to add a threshold for floating point numbers)
+    pub fn add_rollback_check(self, rollback_check: RollbackCheckFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.app.add_rollback_check::<C>(rollback_check);
         self
     }
 
     /// Enable interpolation systems for this component.
     /// You can specify the interpolation [`ComponentSyncMode`]
-    pub fn add_interpolation<C: SyncComponent>(
-        self,
-        interpolation_mode: ComponentSyncMode,
-    ) -> Self {
+    pub fn add_interpolation(self, interpolation_mode: ComponentSyncMode) -> Self
+    where
+        C: SyncComponent,
+    {
         self.app.add_interpolation::<C>(interpolation_mode);
         self
     }
 
     /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
     /// themselves (the interpolation_fn will not be used)
-    pub fn add_custom_interpolation<C: SyncComponent>(
-        self,
-        interpolation_mode: ComponentSyncMode,
-    ) -> Self {
+    pub fn add_custom_interpolation(self, interpolation_mode: ComponentSyncMode) -> Self
+    where
+        C: SyncComponent,
+    {
         self.app.add_custom_interpolation::<C>(interpolation_mode);
         self
     }
 
     /// Add a `Interpolation` behaviour to this component by using a linear interpolation function.
-    pub fn add_linear_interpolation_fn<C: SyncComponent + Linear>(self) -> Self {
+    pub fn add_linear_interpolation_fn(self) -> Self
+    where
+        C: SyncComponent + Linear,
+    {
         self.app.add_linear_interpolation_fn::<C>();
         self
     }
 
     /// Add a `Interpolation` behaviour to this component.
-    pub fn add_interpolation_fn<C: SyncComponent>(self, interpolation_fn: LerpFn<C>) -> Self {
+    pub fn add_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
         self.app.add_interpolation_fn::<C>(interpolation_fn);
         self
     }
 }
 
 impl AppComponentExt for App {
-    fn register_component<C: Component + Message>(
+    fn register_component<C: Component + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
-    ) -> ComponentRegistration {
+    ) -> ComponentRegistration<'_, C> {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         if !registry.is_registered::<C>() {
             registry.register_component::<C>();
         }
         debug!("register component {}", std::any::type_name::<C>());
         register_component_send::<C>(self, direction);
-        ComponentRegistration { app: self }
+        ComponentRegistration {
+            app: self,
+            _phantom: std::marker::PhantomData,
+        }
     }
 
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {
@@ -549,6 +717,11 @@ impl AppComponentExt for App {
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         registry.set_correction::<C>(correction_fn);
+    }
+
+    fn add_rollback_check<C: SyncComponent>(&mut self, rollback_check: RollbackCheckFn<C>) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_rollback_check::<C>(rollback_check);
     }
 
     fn add_custom_interpolation<C: SyncComponent>(

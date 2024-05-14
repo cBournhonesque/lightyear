@@ -1,19 +1,15 @@
-use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr};
-
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
+use bevy::utils::HashMap;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-
 use lightyear::prelude::client::{Confirmed, Predicted};
-pub use lightyear::prelude::server::*;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
-use crate::{shared, ServerTransports, SharedSettings};
+use crate::shared;
+use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
@@ -39,7 +35,6 @@ impl Plugin for ExampleServerPlugin {
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedSet::Main));
-        app.add_systems(Update, handle_disconnections);
     }
 }
 
@@ -71,22 +66,6 @@ fn init(mut commands: Commands, global: Res<Global>) {
         // if true, we predict the ball on clients
         global.predict_all,
     ));
-}
-
-/// Server disconnection system, delete all player entities upon disconnection
-pub(crate) fn handle_disconnections(
-    mut disconnections: EventReader<DisconnectEvent>,
-    mut commands: Commands,
-    player_entities: Query<(Entity, &PlayerId)>,
-) {
-    for disconnection in disconnections.read() {
-        let client_id = disconnection.context();
-        for (entity, player_id) in player_entities.iter() {
-            if player_id.0 == *client_id {
-                commands.entity(entity).despawn();
-            }
-        }
-    }
 }
 
 /// Read client inputs and move players
@@ -126,36 +105,38 @@ pub(crate) fn replicate_players(
         let entity = event.entity();
         info!("received player spawn event: {:?}", event);
 
-        // for all cursors we have received, add a Replicate component so that we can start replicating it
+        // for all player entities we have received, add a Replicate component so that we can start replicating it
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
-            let mut replicate = Replicate {
-                // we want to replicate back to the original client, since they are using a pre-predicted entity
-                replication_target: NetworkTarget::All,
-                // make sure that all entities that are predicted are part of the same replication group
-                replication_group: REPLICATION_GROUP,
-                ..default()
-            };
-            // We don't want to replicate the ActionState to the original client, since they are updating it with
-            // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-            // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-            replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::AllExceptSingle(
-                client_id,
-            ));
-            // if we receive a pre-predicted entity, only send the prepredicted component back
-            // to the original client
-            replicate.add_target::<PrePredicted>(NetworkTarget::Single(client_id));
+            // we want to replicate back to the original client, since they are using a pre-predicted entity
+            let mut replication_target = ReplicationTarget::default();
+
             if global.predict_all {
-                replicate.prediction_target = NetworkTarget::All;
-                // // if we predict other players, we need to replicate their actions to all clients other than the original one
-                // // (the original client will apply the actions locally)
-                // replicate.disable_replicate_once::<ActionState<PlayerActions>>();
+                replication_target.prediction = NetworkTarget::All;
             } else {
                 // we want the other clients to apply interpolation for the player
-                replicate.interpolation_target = NetworkTarget::AllExceptSingle(client_id);
+                replication_target.interpolation = NetworkTarget::AllExceptSingle(client_id);
             }
+            let replicate = Replicate {
+                target: replication_target,
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(client_id),
+                },
+                // make sure that all entities that are predicted are part of the same replication group
+                group: REPLICATION_GROUP,
+                ..default()
+            };
             e.insert((
                 replicate,
+                // We don't want to replicate the ActionState to the original client, since they are updating it with
+                // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
+                // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
+                OverrideTargetComponent::<ActionState<PlayerActions>>::new(
+                    NetworkTarget::AllExceptSingle(client_id),
+                ),
+                // if we receive a pre-predicted entity, only send the prepredicted component back
+                // to the original client
+                OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(client_id)),
                 // not all physics components are replicated over the network, so add them on the server as well
                 PhysicsBundle::player(),
             ));

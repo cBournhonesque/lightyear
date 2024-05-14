@@ -19,13 +19,16 @@ use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
-/// Plugin that handles generating bevy [`Events`] related to networking and replication
+/// Plugin that adds bevy [`Events`] related to networking and replication
 #[derive(Default)]
 pub struct ServerEventsPlugin;
 
 impl Plugin for ServerEventsPlugin {
     fn build(&self, app: &mut App) {
         app
+            // EVENTS
+            .add_event::<ConnectEvent>()
+            .add_event::<DisconnectEvent>()
             // PLUGIN
             .add_plugins(EventsPlugin::<ConnectionManager>::default());
     }
@@ -33,8 +36,8 @@ impl Plugin for ServerEventsPlugin {
 
 #[derive(Debug)]
 pub struct ServerEvents {
-    pub connections: Vec<ClientId>,
-    pub disconnections: Vec<ClientId>,
+    pub connections: Vec<ConnectEvent>,
+    pub disconnections: Vec<DisconnectEvent>,
     pub events: HashMap<ClientId, ConnectionEvents>,
     pub empty: bool,
 }
@@ -95,31 +98,30 @@ impl ServerEvents {
     // }
 
     // TODO: should we consume connections?
-    pub fn iter_connections(&mut self) -> impl Iterator<Item = ClientId> + '_ {
-        std::mem::take(&mut self.connections).into_iter()
+    pub fn iter_connections(&mut self) -> Vec<ConnectEvent> {
+        std::mem::take(&mut self.connections)
     }
 
     pub fn has_connections(&self) -> bool {
         !self.connections.is_empty()
     }
 
-    pub fn iter_disconnections(&mut self) -> impl Iterator<Item = ClientId> + '_ {
-        std::mem::take(&mut self.disconnections).into_iter()
+    pub fn iter_disconnections(&mut self) -> Vec<DisconnectEvent> {
+        std::mem::take(&mut self.disconnections)
     }
 
     pub fn has_disconnections(&self) -> bool {
         !self.disconnections.is_empty()
     }
 
-    pub(crate) fn push_connection(&mut self, client_id: ClientId) {
-        self.connections.push(client_id);
-        // self.events.remove(&client_id);
+    pub(crate) fn add_connect_event(&mut self, connect_event: ConnectEvent) {
+        self.connections.push(connect_event);
         self.empty = false;
     }
 
-    pub(crate) fn push_disconnection(&mut self, client_id: ClientId) {
-        self.disconnections.push(client_id);
-        self.events.remove(&client_id);
+    pub(crate) fn add_disconnect_event(&mut self, disconnect_event: DisconnectEvent) {
+        self.disconnections.push(disconnect_event);
+        self.events.remove(&disconnect_event.client_id);
         self.empty = false;
     }
 
@@ -209,9 +211,19 @@ impl IterComponentInsertEvent<ClientId> for ServerEvents {
 }
 
 /// Bevy [`Event`] emitted on the server on the frame where a client is connected
-pub type ConnectEvent = crate::shared::events::components::ConnectEvent<ClientId>;
+#[derive(Event, Debug, Copy, Clone)]
+pub struct ConnectEvent {
+    pub client_id: ClientId,
+    pub entity: Entity,
+}
+
 /// Bevy [`Event`] emitted on the server on the frame where a client is disconnected
-pub type DisconnectEvent = crate::shared::events::components::DisconnectEvent<ClientId>;
+#[derive(Event, Debug, Copy, Clone)]
+pub struct DisconnectEvent {
+    pub client_id: ClientId,
+    pub entity: Entity,
+}
+
 /// Bevy [`Event`] emitted on the server on the frame where an input message from a client is received
 pub type InputEvent<I> = crate::shared::events::components::InputEvent<I, ClientId>;
 /// Bevy [`Event`] emitted on the server on the frame where a EntitySpawn replication message is received

@@ -12,10 +12,60 @@ There are two main advantages:
   For example, in a RTS, you can avoid replicating units that are in fog-of-war.
 
 
-
 ## Implementation
 
-In lightyear, interest management is implemented with the concept of `Rooms`.
+### VisibilityMode
+
+The first step is to think about the `VisibilityMode` of your entities. It is defined on the `Replicate` component.
+
+```rust,noplayground
+#[derive(Default)]
+pub enum VisibilityMode {
+  /// We will replicate this entity to all clients that are present in the [`NetworkTarget`] AND use visibility on top of that
+  InterestManagement,
+  /// We will replicate this entity to all clients that are present in the [`NetworkTarget`]
+  #[default]
+  All
+}
+```
+
+If `VisibilityMode::All`, you have a coarse way of doing interest management, which is to use the `replication_target` to 
+specify which clients will receive client updates. The `replication_target` is a `NetworkTarget` which is a list of clients 
+that we should replicate to.
+
+In some cases, you might want to use `VisibilityMode::InterestManagement`, which is a more fine-grained way of doing interest management.
+This adds additional constraints on top of the `replication_target`, we will **never** send updates for a client that is not in the 
+`replication_target` of your entity.
+
+
+### Interest management
+
+If you set `VisibilityMode::InterestManagement`, we will add a `ReplicateVisibility` component to your entity,
+which is a cached list of clients that should receive replication updates about this entity.
+
+There are several ways to update the visibility of an entity:
+- you can either update the visibility directly with the `VisibilityManager` resource
+- we also provide a more static way of updating the visibility with the concept of `Rooms` and the `RoomManager` resource.
+
+#### Immediate visibility update
+
+You can simply directly update the visibility of an entity/client pair with the `VisibilityManager` resource.
+
+```rust
+use bevy::prelude::*;
+use lightyear::prelude::*;
+use lightyear::prelude::server::*;
+
+fn my_system(
+    mut visibility_manager: ResMut<VisibilityManager>,
+) {
+    // you can update the visibility like so
+    visibility_manager.gain_visibility(ClientId::Netcode(1), Entity::PLACEHOLDER);
+    visibility_manager.lose_visibility(ClientId::Netcode(2), Entity::PLACEHOLDER);
+}
+```
+
+#### Rooms
 
 An entity can join one or more rooms, and clients can similarly join one or more rooms.
 
@@ -27,51 +77,19 @@ To summarize:
 - if a client leaves a room that the entity is in (or an entity leaves a room that the client is in), we will despawn that entity for that client
 - if a client joins a room that the entity is in (or an entity joins a room that the client is in), we will spawn that entity for that client
 
+This can be useful for games where you have physical instances of rooms:
+- a RPG where you can have different rooms (tavern, cave, city, etc.)
+- a server could have multiple lobbies, and each lobby is in its own room
+- a map could be divided into a grid of 2D squares, where each square is its own room
 
-Since it can be annoying to have always add your entities to the correct rooms, especially if you want to just replicate them to everyone.
-We introduce several concepts to make this more convenient.
+```rust
+use bevy::prelude::*;
+use lightyear::prelude::*;
+use lightyear::prelude::server::*;
 
-#### NetworkTarget
-
-```rust,noplayground
-/// NetworkTarget indicated which clients should receive some message
-pub enum NetworkTarget {
-    #[default]
-    /// Message sent to no client
-    None,
-    /// Message sent to all clients except for one
-    AllExcept(ClientId),
-    /// Message sent to all clients
-    All,
-    /// Message sent to only one client
-    Only(ClientId),
+fn room_system(mut manager: ResMut<RoomManager>) {
+   // the entity will now be visible to the client
+   manager.add_client(ClientId::Netcode(0), RoomId(0));
+   manager.add_entity(Entity::PLACEHOLDER, RoomId(0));
 }
 ```
-
-NetworkTarget is used to indicate very roughly to which clients a given entity should be replicated.
-Note that this is in addition of rooms.
-
-Even if an entity and a client are in the same room, the entity will not be replicated to the client if the NetworkTarget forbids it (for instance, it is not `All` or `Only(client_id)`)
-
-However, if a `NetworkTarget` is `All`, that doesn't necessarily mean that the entity will be replicated to all clients; they still need to be in the same rooms.
-There is a setting to change this behaviour, the `ReplicationMode`.
-
-
-#### ReplicationMode
-
-We also introduce:
-```rust,noplayground
-#[derive(Default)]
-pub enum ReplicationMode {
-  /// Use rooms for replication
-  Room,
-  /// We will replicate this entity to clients using only the [`NetworkTarget`], without caring about rooms
-  #[default]
-  NetworkTarget
-}
-```
-
-If the `ReplicationMode` is `Room`, then the `NetworkTarget` is a prerequisite for replication, but not sufficient.
-i.e. the entity will be replicated if they are in the same room AND if the `NetworkTarget` allows it.
-
-If the `ReplicationMode` is `NetworkTarget`, then we will only use the value of `replicate.replication_target` without checking rooms at all.

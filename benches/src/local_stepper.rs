@@ -71,7 +71,7 @@ impl LocalBevyStepper {
             // channels to receive a message from/to server
             let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
             let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
-            let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
+            let client_io = client::IoConfig::from_transport(ClientTransport::LocalChannel {
                 recv: from_server_recv,
                 send: to_server_send,
             });
@@ -111,7 +111,7 @@ impl LocalBevyStepper {
                 interpolation: interpolation_config.clone(),
                 ..default()
             };
-            client_app.add_plugins((ClientPlugin::new(config), ProtocolPlugin));
+            client_app.add_plugins((ClientPlugins::new(config), ProtocolPlugin));
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
                 .world
@@ -122,7 +122,7 @@ impl LocalBevyStepper {
         }
 
         // Setup server
-        let server_io = IoConfig::from_transport(TransportConfig::Channels {
+        let server_io = server::IoConfig::from_transport(ServerTransport::Channels {
             channels: client_params,
         });
 
@@ -151,7 +151,7 @@ impl LocalBevyStepper {
             }],
             ..default()
         };
-        server_app.add_plugins((ServerPlugin::new(config), ProtocolPlugin));
+        server_app.add_plugins((ServerPlugins::new(config), ProtocolPlugin));
 
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app

@@ -11,9 +11,9 @@ pub mod events;
 
 pub mod input;
 
-pub mod plugin;
+pub(crate) mod io;
 
-pub mod room;
+pub mod plugin;
 
 #[cfg_attr(docsrs, doc(cfg(feature = "leafwing")))]
 #[cfg(feature = "leafwing")]
@@ -21,5 +21,7 @@ pub mod input_leafwing;
 pub(crate) mod message;
 pub(crate) mod prediction;
 
+pub(crate) mod clients;
 pub(crate) mod networking;
 pub mod replication;
+pub mod visibility;

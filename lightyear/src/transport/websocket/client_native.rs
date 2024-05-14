@@ -27,22 +27,30 @@ use tokio_tungstenite::{
 use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
+use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
+use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::transport::error::{Error, Result};
 use crate::transport::io::IoState;
 use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, LOCAL_SOCKET, MTU,
+    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET, MTU,
 };
 
 pub(crate) struct WebSocketClientSocketBuilder {
     pub(crate) server_addr: SocketAddr,
 }
 
-impl TransportBuilder for WebSocketClientSocketBuilder {
-    fn connect(self) -> Result<(TransportEnum, IoState)> {
+impl ClientTransportBuilder for WebSocketClientSocketBuilder {
+    fn connect(
+        self,
+    ) -> Result<(
+        ClientTransportEnum,
+        IoState,
+        Option<ClientIoEventReceiver>,
+        Option<ClientNetworkEventSender>,
+    )> {
         let (serverbound_tx, mut serverbound_rx) = unbounded_channel::<Message>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Message>();
-        let (close_tx, mut close_rx) = mpsc::channel(1);
+        let (close_tx, close_rx) = async_channel::bounded(1);
         // channels used to check the status of the io task
         let (status_tx, status_rx) = async_channel::bounded(1);
 
@@ -64,11 +72,15 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
                 {
                     Ok((ws_stream, _)) => ws_stream,
                     Err(e) => {
-                        status_tx.send(Some(e.into())).await.unwrap();
+                        status_tx
+                            .send(ClientIoEvent::Disconnected(e.into()))
+                            .await
+                            .unwrap();
                         return;
                     }
                 };
                 info!("WebSocket handshake has been successfully completed");
+                status_tx.send(ClientIoEvent::Connected).await.unwrap();
                 let (mut write, mut read) = ws_stream.split();
 
                 let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
@@ -97,22 +109,26 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
                     }
                 }));
                 // wait for a signal that the io should be closed
-                close_rx.recv().await;
+                let _ = close_rx.recv().await;
+                let _ = status_tx
+                    .send(ClientIoEvent::Disconnected(
+                        std::io::Error::other("websocket closed").into(),
+                    ))
+                    .await;
                 info!("Close websocket connection");
                 send_handle.cancel().await;
                 recv_handle.cancel().await;
             }))
             .detach();
         Ok((
-            TransportEnum::WebSocketClient(WebSocketClientSocket {
+            ClientTransportEnum::WebSocketClient(WebSocketClientSocket {
                 local_addr: self.server_addr,
                 sender,
                 receiver,
-                close_sender: close_tx,
             }),
-            IoState::Connecting {
-                error_channel: status_rx,
-            },
+            IoState::Connecting,
+            Some(ClientIoEventReceiver(status_rx)),
+            Some(ClientNetworkEventSender(close_tx)),
         ))
     }
 }
@@ -121,7 +137,6 @@ pub struct WebSocketClientSocket {
     local_addr: SocketAddr,
     sender: WebSocketClientSocketSender,
     receiver: WebSocketClientSocketReceiver,
-    close_sender: mpsc::Sender<()>,
 }
 
 impl WebSocketClientSocket {
@@ -150,17 +165,8 @@ impl Transport for WebSocketClientSocket {
         LOCAL_SOCKET
     }
 
-    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
-        let close_fn = move || {
-            self.close_sender
-                .blocking_send(())
-                .map_err(|e| Error::from(std::io::Error::other(format!("close error: {:?}", e))))
-        };
-        (
-            Box::new(self.sender),
-            Box::new(self.receiver),
-            Some(Box::new(close_fn)),
-        )
+    fn split(self) -> (BoxedSender, BoxedReceiver) {
+        (Box::new(self.sender), Box::new(self.receiver))
     }
 }
 
