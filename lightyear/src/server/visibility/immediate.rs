@@ -261,6 +261,7 @@ pub enum VisibilitySet {
     VisibilityCleanup,
 }
 
+/// Plugin that handles the visibility system
 #[derive(Default)]
 pub(crate) struct VisibilityPlugin;
 

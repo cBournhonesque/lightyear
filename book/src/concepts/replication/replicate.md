@@ -1,22 +1,26 @@
 # Replication
 
-You can use the `Replicate` component to initiate replicating an entity from the local `World` to the remote `World`.
+You can use the `Replicate` bundle to initiate replicating an entity from the local `World` to the remote `World`.
+
+It is composed of multiple smaller components that each control an aspect of replication:
+- `ReplicationTarget` to decide who to replicate to
+- `VisibilityMode` to enable interest management
+- `ControlledBy` so the server can track which entity is owned by each client
+- `ReplicationGroup` to know which entity updates should be sent together in the same message
+- `ReplicateHierarchy` to control if the children of an entity should also be replicated
+- `DisabledComponent<C>` to disable replication for a specific component
+- `ReplicateOnceComponent<C>` to specify that some components should not replicate updates, only inserts/removals
+- `OverrideTargetComponent<C>` to override the replication target for a specific component
 
 By default, every component in the entity that is part of the `ComponentRegistry` will be replicated. Any changes in
-those components
-will be replicated.
+those components will be replicated.
 However the entity state will always be 'consistent': the remote entity will always contain the exact same combination
 of components as the local entity, even if it's a bit delayed.
 
-You can remove the `Replicate` component to pause the replication. This can be useful when you want to despawn the
+You can remove the `ReplicationTarget` component to pause the replication. This can be useful when you want to despawn the
 entity on the server without replicating the despawn.
 (e.g. an entity can be despawned immediately on the server, but needs to remain alive on the client to play a dying
 animation)
-
-There are a lot of additional fields on the `Replicate` component that let you control exactly how the replication
-works.
-For example, `per_component_metadata` lets you fine-tune the replication logic for each component (exclude a component
-from being replicated, etc.)
 
 You can find some of the other usages in the [advanced_replication](../advanced_replication/title.md) section.
 

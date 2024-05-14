@@ -1,14 +1,17 @@
 //! Module to handle inputs that are defined using the `leafwing_input_manager` crate
 //!
-//! ## Creation
+//! ### Adding leafwing inputs
 //!
 //! You first need to create Inputs that are defined using the [`leafwing_input_manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate.
 //! (see the documentation of the crate for more information)
 //! In particular your inputs should implement the [`Actionlike`] trait.
-//! You will also need to implement the `LeafwingUserAction` trait
 //!
-//! ```no_run,ignore
-//! # use lightyear::prelude::LeafwingUserAction;
+//! ```rust
+//! use bevy::prelude::*;
+//! use lightyear::prelude::*;
+//! use lightyear::prelude::client::*;
+//! use leafwing_input_manager::Actionlike;
+//! use serde::{Deserialize, Serialize};
 //! #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
 //! pub enum PlayerActions {
 //!     Up,
@@ -16,10 +19,14 @@
 //!     Left,
 //!     Right,
 //! }
-//! impl LeafwingUserAction for PlayerActions {}
+//!
+//! fn main() {
+//!   let mut app = App::new();
+//!   app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
+//! }
 //! ```
 //!
-//! ## Usage
+//! ### Usage
 //!
 //! The networking of inputs is completely handled for you. You just need to add the `LeafwingInputPlugin` to your app.
 //! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdate`] [`Schedule`].

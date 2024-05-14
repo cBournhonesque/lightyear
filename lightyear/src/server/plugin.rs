@@ -63,6 +63,7 @@ impl PluginGroup for ServerPlugins {
     }
 }
 
+/// A plugin that sets up the server by adding the [`ServerConfig`] resource and the [`SharedPlugin`] plugin.
 struct SetupPlugin {
     config: ServerConfig,
 }

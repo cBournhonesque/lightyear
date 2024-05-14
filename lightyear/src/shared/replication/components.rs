@@ -33,8 +33,28 @@ pub(crate) struct DespawnTracker;
 #[component(storage = "SparseSet")]
 pub struct Controlled;
 
-/// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
-/// in the world that sends replication updates.
+/// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
+/// it to remote peers.
+///
+/// ```rust
+/// use bevy::prelude::*;
+/// use lightyear::prelude::*;
+///
+/// let mut world = World::default();
+/// world.spawn(Replicate::default());
+/// ```
+///
+/// The bundle is composed of several components:
+/// - [`ReplicationTarget`] to specify which clients should receive the entity
+/// - [`ControlledBy`] to specify which client controls the entity
+/// - [`VisibilityMode`] to specify if we should replicate the entity to all clients in the
+/// replication target, or if we should apply interest management logic to determine which clients
+/// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
+/// will be sent together in the same message.
+/// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
+///
+/// Some of the components can be updated at runtime even after the entity has been replicated.
+/// For example you can update the [`ReplicationTarget`] to change which clients should receive the entity.
 #[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
 pub struct Replicate {
     /// Which clients should this entity be replicated to
@@ -52,22 +72,6 @@ pub struct Replicate {
     pub group: ReplicationGroup,
     /// How should the hierarchy of the entity (parents/children) be replicated?
     pub hierarchy: ReplicateHierarchy,
-}
-
-#[derive(SystemParam)]
-struct ReplicateSystemParam<'w, 's> {
-    query: Query<
-        'w,
-        's,
-        (
-            &'static ReplicationTarget,
-            &'static ControlledBy,
-            &'static VisibilityMode,
-            &'static ReplicationGroup,
-            &'static ReplicateHierarchy,
-            &'static TargetEntity,
-        ),
-    >,
 }
 
 /// Component that indicates which clients the entity should be replicated to.
