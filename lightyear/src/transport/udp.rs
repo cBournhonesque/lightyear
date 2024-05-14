@@ -36,6 +36,7 @@ impl UdpSocketBuilder {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl ClientTransportBuilder for UdpSocketBuilder {
     fn connect(
         self,

@@ -27,6 +27,14 @@ impl<T> ::core::convert::From<async_channel::SendError<T>> for Error {
 }
 
 #[allow(unused_qualifications)]
+impl<T> ::core::convert::From<async_channel::TrySendError<T>> for Error {
+    #[allow(deprecated)]
+    fn from(source: async_channel::TrySendError<T>) -> Self {
+        Error::Channel(source.to_string())
+    }
+}
+
+#[allow(unused_qualifications)]
 impl<T> ::core::convert::From<crossbeam_channel::SendError<T>> for Error {
     #[allow(deprecated)]
     fn from(source: crossbeam_channel::SendError<T>) -> Self {

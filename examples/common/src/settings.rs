@@ -2,10 +2,8 @@
 #![allow(unused_variables)]
 use std::net::{Ipv4Addr, SocketAddr};
 
-use async_compat::Compat;
 use bevy::asset::ron;
 use bevy::prelude::Resource;
-use bevy::tasks::IoTaskPool;
 use bevy::utils::Duration;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};

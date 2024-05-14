@@ -12,7 +12,7 @@ use tracing::{debug, error, info, trace};
 use xwt_core::prelude::*;
 
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
-use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
+use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::error::{Error, Result};
@@ -38,7 +38,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
         // channels used to cancel the task
-        let (close_tx, mut close_rx) = crossbeam_channel::bounded(1);
+        let (close_tx, close_rx) = async_channel::bounded(1);
         // channels used to check the status of the io task
         let (status_tx, status_rx) = async_channel::bounded(1);
 
@@ -62,14 +62,15 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
         let (send, recv) = tokio::sync::oneshot::channel();
         let (send2, recv2) = tokio::sync::oneshot::channel();
         let (send3, recv3) = tokio::sync::oneshot::channel();
-        IoTaskPool::get().spawn_local(async move {
+        let status_tx_clone = status_tx.clone();
+        wasm_bindgen_futures::spawn_local(async move {
             info!("Starting webtransport io thread");
 
             let connecting = match endpoint.connect(&server_url).await {
                 Ok(e) => e,
                 Err(e) => {
                     error!("Error creating webtransport connection: {:?}", e);
-                    status_tx
+                    status_tx_clone
                         .send(ClientIoEvent::Disconnected(
                             std::io::Error::other("error creating webtransport connection").into(),
                         ))
@@ -82,7 +83,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
                 Ok(c) => c,
                 Err(e) => {
                     error!("Error connecting to server: {:?}", e);
-                    status_tx
+                    status_tx_clone
                         .send(ClientIoEvent::Disconnected(
                             std::io::Error::other(
                                 "error connecting webtransport endpoint to server",
@@ -95,7 +96,10 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
                 }
             };
             // signal that the io is connected
-            status_tx.send(ClientIoEvent::Connected).await.unwrap();
+            status_tx_clone
+                .send(ClientIoEvent::Connected)
+                .await
+                .unwrap();
             let connection = Rc::new(connection);
             send.send(connection.clone()).unwrap();
             send2.send(connection.clone()).unwrap();
@@ -109,7 +113,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
         //   to poll the existing one. This is FAULTY behaviour
         // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
         //   cancelled
-        IoTaskPool::get().spawn(async move {
+        wasm_bindgen_futures::spawn_local(async move {
             let Ok(connection) = recv.await else {
                 return;
             };
@@ -130,7 +134,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
                 }
             }
         });
-        IoTaskPool::get().spawn(async move {
+        wasm_bindgen_futures::spawn_local(async move {
             let Ok(connection) = recv2.await else {
                 return;
             };
@@ -148,23 +152,22 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
                 }
             }
         });
-        IoTaskPool::get()
-            .spawn(async move {
-                let Ok(connection) = recv3.await else {
-                    return;
-                };
-                // Wait for a close signal from the close channel, or for the quic connection to be closed
-                tokio::select! {
-                    reason = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => {
-                        info!("WebTransport connection closed. Reason: {reason:?}")
-                        status_tx.send(ClientIoEvent::Disconnected(std::io::Error::other(format!("Error: {:?}", reason)).into())).await.unwrap();
-                    },
-                    _ = close_rx.recv() => {
-                        connection.transport.close();
-                        info!("WebTransport connection closed. Reason: client requested disconnection.");
-                    }
+        wasm_bindgen_futures::spawn_local(async move {
+            let Ok(connection) = recv3.await else {
+                return;
+            };
+            // Wait for a close signal from the close channel, or for the quic connection to be closed
+            tokio::select! {
+                reason = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => {
+                    info!("WebTransport connection closed. Reason: {reason:?}");
+                    status_tx.send(ClientIoEvent::Disconnected(std::io::Error::other(format!("Error: {:?}", reason)).into())).await.unwrap();
+                },
+                _ = close_rx.recv() => {
+                    connection.transport.close();
+                    info!("WebTransport connection closed. Reason: client requested disconnection.");
                 }
-            });
+            }
+        });
 
         let sender = WebTransportClientPacketSender { to_server_sender };
         let receiver = WebTransportClientPacketReceiver {

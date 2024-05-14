@@ -22,7 +22,7 @@ impl Io {
         self.state = IoState::Disconnected;
         if let Some(event_sender) = self.context.event_sender.as_mut() {
             event_sender
-                .send_blocking(ClientIoEvent::Disconnected(
+                .try_send(ClientIoEvent::Disconnected(
                     std::io::Error::other("client requested disconnection").into(),
                 ))
                 .map_err(Error::from)?;

@@ -13,7 +13,6 @@ use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
 use crate::transport::io::IoState;
 use crate::transport::local::{LocalChannel, LocalChannelBuilder};
-#[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
@@ -35,8 +34,6 @@ pub mod io;
 pub(crate) mod local;
 
 /// The transport is a UDP socket
-#[cfg_attr(docsrs, doc(cfg(not(target_family = "wasm"))))]
-#[cfg(not(target_family = "wasm"))]
 pub(crate) mod udp;
 
 /// The transport is a map of channels (used for server, during testing)
