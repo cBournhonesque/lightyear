@@ -46,7 +46,6 @@ use crate::shared::events::connection::{
 use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
 use crate::shared::replication::entity_map::EntityMap;
-use crate::shared::replication::systems::register_replicate_component_send;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::InternalMainSet;
 
@@ -517,7 +516,7 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
     match direction {
         ChannelDirection::ClientToServer => {
             if is_client {
-                register_replicate_component_send::<C, client::ConnectionManager>(app);
+                crate::client::replication::send::register_replicate_component_send::<C>(app);
             }
             if is_server {
                 debug!(
@@ -529,7 +528,7 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
         }
         ChannelDirection::ServerToClient => {
             if is_server {
-                register_replicate_component_send::<C, server::ConnectionManager>(app);
+                crate::server::replication::send::register_replicate_component_send::<C>(app);
             }
             if is_client {
                 debug!(

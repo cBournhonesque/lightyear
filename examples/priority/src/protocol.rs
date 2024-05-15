@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use lightyear::client::components::ComponentSyncMode;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 // Player
@@ -32,10 +33,9 @@ impl PlayerBundle {
         let color = Color::hsl(h, s, l);
 
         let replicate = Replicate {
-            target: ReplicationTarget {
+            sync: SyncTarget {
                 prediction: NetworkTarget::Single(id),
                 interpolation: NetworkTarget::AllExceptSingle(id),
-                ..default()
             },
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(id),

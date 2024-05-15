@@ -59,10 +59,9 @@ pub(crate) fn handle_connections(
         let client_id = connection.client_id;
         // server and client are running in the same app, no need to replicate to the local client
         let replicate = Replicate {
-            target: ReplicationTarget {
+            sync: SyncTarget {
                 prediction: NetworkTarget::Single(client_id),
                 interpolation: NetworkTarget::AllExceptSingle(client_id),
-                ..default()
             },
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(client_id),

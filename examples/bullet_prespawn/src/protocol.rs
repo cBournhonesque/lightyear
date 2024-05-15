@@ -4,6 +4,8 @@ use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
+use lightyear::prelude::client::ReplicateToServer;
+use lightyear::prelude::server::SyncTarget;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
 use lightyear::utils::bevy::*;
@@ -24,7 +26,7 @@ pub(crate) struct PlayerBundle {
     id: PlayerId,
     transform: Transform,
     color: ColorComponent,
-    replicate: Replicate,
+    replicate: ReplicateToServer,
     inputs: InputManagerBundle<PlayerActions>,
     // IMPORTANT: this lets the server know that the entity is pre-predicted
     // when the server replicates this entity; we will get a Confirmed entity which will use this entity
@@ -39,12 +41,7 @@ impl PlayerBundle {
             id: PlayerId(id),
             transform: Transform::from_xyz(position.x, position.y, 0.0),
             color: ColorComponent(color),
-            replicate: Replicate {
-                target: ReplicationTarget {
-                    // For HostServer mode, remember to also set prediction/interpolation targets for other clients
-                    interpolation: NetworkTarget::AllExceptSingle(id),
-                    ..default()
-                },
+            replicate: ReplicateToServer {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
                 group: ReplicationGroup::new_id(id.to_bits()),

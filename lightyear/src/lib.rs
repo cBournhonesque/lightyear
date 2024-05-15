@@ -203,8 +203,8 @@ pub mod prelude {
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
         DisabledComponent, OverrideTargetComponent, PrePredicted, ReplicateHierarchy,
-        ReplicateOnceComponent, Replicated, ReplicationGroup, ReplicationTarget, ShouldBePredicted,
-        TargetEntity, VisibilityMode,
+        ReplicateOnceComponent, Replicated, Replicating, ReplicationGroup, ReplicationTarget,
+        ShouldBePredicted, TargetEntity, VisibilityMode,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
     pub use crate::shared::replication::hierarchy::ParentSync;
@@ -250,6 +250,7 @@ pub mod prelude {
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::rollback::{Rollback, RollbackState};
         pub use crate::client::prediction::Predicted;
+        pub use crate::client::replication::commands::DespawnReplicationCommandExt;
         pub use crate::client::replication::send::ReplicateToServer;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
@@ -278,8 +279,9 @@ pub mod prelude {
         pub use crate::server::io::Io;
         pub use crate::server::networking::{NetworkingState, ServerCommands};
         pub use crate::server::plugin::ServerPlugins;
+        pub use crate::server::replication::commands::DespawnReplicationCommandExt;
         pub use crate::server::replication::{
-            send::{ControlledBy, Replicate, ServerFilter, Visibility},
+            send::{ControlledBy, Replicate, ServerFilter, SyncTarget, Visibility},
             ServerReplicationSet,
         };
         pub use crate::server::visibility::immediate::VisibilityManager;

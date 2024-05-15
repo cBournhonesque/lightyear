@@ -11,7 +11,7 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
-use crate::prelude::Tick;
+use crate::prelude::{ClientId, Tick};
 use crate::protocol::component::ComponentRegistry;
 use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::reader::ReadBuffer;
@@ -206,6 +206,7 @@ impl ReplicationReceiver {
         &mut self,
         // TODO: should we use Commands to avoid the need to block the world?
         world: &mut World,
+        remote: Option<ClientId>,
         component_registry: &ComponentRegistry,
         tick: Tick,
         replication: ReplicationMessageData,
@@ -249,7 +250,7 @@ impl ReplicationReceiver {
                             //     interpolated: None,
                             //     tick,
                             // });
-                            let local_entity = world.spawn(Replicated);
+                            let local_entity = world.spawn(Replicated { from: remote });
                             self.remote_entity_map
                                 .insert(*remote_entity, local_entity.id());
                             trace!("Updated remote entity map: {:?}", self.remote_entity_map);
@@ -264,7 +265,7 @@ impl ReplicationReceiver {
                                 error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
                                 continue;
                             };
-                            entity_mut.insert(Replicated);
+                            entity_mut.insert(Replicated { from: remote });
                             // update the entity mapping
                             self.remote_entity_map.insert(*remote_entity, local_entity);
                         }
@@ -699,6 +700,7 @@ mod tests {
         });
         manager.apply_world(
             &mut world,
+            None,
             &component_registry,
             Tick(0),
             replication,

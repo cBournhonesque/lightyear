@@ -219,7 +219,7 @@ pub(super) mod systems {
             match visibility_mode.as_ref() {
                 VisibilityMode::InterestManagement => {
                     if visibility_mode.is_changed() {
-                        if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
+                        if let Some(cache) = sender.replicate_component_cache.get_mut(&entity) {
                             cache.visibility_mode = VisibilityMode::InterestManagement;
                             if let Some(replicate_visibility) = replicate_visibility {
                                 cache.replication_clients_cache = replicate_visibility
@@ -241,7 +241,7 @@ pub(super) mod systems {
                 }
                 VisibilityMode::All => {
                     if visibility_mode.is_changed() && !visibility_mode.is_added() {
-                        if let Some(cache) = sender.get_mut_replicate_cache().get_mut(&entity) {
+                        if let Some(cache) = sender.replicate_component_cache.get_mut(&entity) {
                             cache.visibility_mode = VisibilityMode::All;
                             cache.replication_clients_cache.clear();
                         }

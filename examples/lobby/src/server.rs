@@ -74,10 +74,9 @@ fn spawn_player_entity(
     dedicated_server: bool,
 ) -> Entity {
     let replicate = Replicate {
-        target: ReplicationTarget {
+        sync: SyncTarget {
             prediction: NetworkTarget::Single(client_id),
             interpolation: NetworkTarget::AllExceptSingle(client_id),
-            ..default()
         },
         controlled_by: ControlledBy {
             target: NetworkTarget::Single(client_id),

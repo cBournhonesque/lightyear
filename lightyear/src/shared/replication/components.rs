@@ -20,18 +20,25 @@ use crate::shared::replication::network_target::NetworkTarget;
 /// Marker component that indicates that the entity was spawned via replication
 /// (it is being replicated from a remote world)
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
-pub struct Replicated;
+pub struct Replicated {
+    /// The peer that spawned the entity
+    /// If None, it's the server.
+    pub from: Option<ClientId>,
+}
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
-#[component(storage = "SparseSet")]
 pub(crate) struct DespawnTracker;
 
 /// Marker component to indicate that the entity is under the control of the local peer
 #[derive(Component, Clone, Copy, PartialEq, Debug, Reflect, Serialize, Deserialize)]
-#[component(storage = "SparseSet")]
 pub struct Controlled;
+
+/// Marker component to indicate that updates for this entity are being replicated.
+///
+/// If this component gets removed, the replication will pause.
+#[derive(Component, Clone, Copy, Default, PartialEq, Debug, Reflect, Serialize, Deserialize)]
+pub struct Replicating;
 
 /// Component that indicates which clients the entity should be replicated to.
 #[derive(Component, Clone, Debug, PartialEq, Reflect)]

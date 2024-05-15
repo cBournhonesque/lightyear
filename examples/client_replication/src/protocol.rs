@@ -6,6 +6,8 @@ use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::ComponentSyncMode;
+use lightyear::prelude::client::ReplicateToServer;
+use lightyear::prelude::server::SyncTarget;
 use lightyear::prelude::*;
 
 use crate::shared::color_from_id;
@@ -16,7 +18,7 @@ pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: PlayerPosition,
     color: PlayerColor,
-    replicate: Replicate,
+    replicate: ReplicateToServer,
 }
 
 impl PlayerBundle {
@@ -26,14 +28,7 @@ impl PlayerBundle {
             id: PlayerId(id),
             position: PlayerPosition(position),
             color: PlayerColor(color),
-            replicate: Replicate {
-                target: ReplicationTarget {
-                    prediction: NetworkTarget::Single(id),
-                    interpolation: NetworkTarget::AllExceptSingle(id),
-                    ..default()
-                },
-                ..default()
-            },
+            replicate: ReplicateToServer::default(),
         }
     }
 }
@@ -44,7 +39,7 @@ pub(crate) struct CursorBundle {
     id: PlayerId,
     position: CursorPosition,
     color: PlayerColor,
-    replicate: Replicate,
+    replicate: ReplicateToServer,
 }
 
 impl CursorBundle {
@@ -53,13 +48,7 @@ impl CursorBundle {
             id: PlayerId(id),
             position: CursorPosition(position),
             color: PlayerColor(color),
-            replicate: Replicate {
-                target: ReplicationTarget {
-                    interpolation: NetworkTarget::AllExceptSingle(id),
-                    ..default()
-                },
-                ..default()
-            },
+            replicate: ReplicateToServer::default(),
         }
     }
 }
