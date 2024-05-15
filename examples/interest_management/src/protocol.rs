@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use lightyear::client::components::ComponentSyncMode;
-use lightyear::prelude::server::{ControlledBy, SyncTarget};
+use lightyear::prelude::server::{ControlledBy, Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::VisibilityMode;
 use UserAction;

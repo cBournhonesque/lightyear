@@ -98,12 +98,11 @@ pub(crate) fn movement(
 pub(crate) fn replicate_players(
     global: Res<Global>,
     mut commands: Commands,
-    mut player_spawn_reader: EventReader<ComponentInsertEvent<PlayerId>>,
+    query: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
 ) {
-    for event in player_spawn_reader.read() {
-        let client_id = *event.context();
-        let entity = event.entity();
-        info!("received player spawn event: {:?}", event);
+    for (entity, replicated) in query.iter() {
+        let client_id = replicated.client_id();
+        info!("received player spawn event from client {client_id:?}");
 
         // for all player entities we have received, add a Replicate component so that we can start replicating it
         // to other clients

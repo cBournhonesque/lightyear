@@ -26,6 +26,12 @@ pub struct Replicated {
     pub from: Option<ClientId>,
 }
 
+impl Replicated {
+    pub fn client_id(&self) -> ClientId {
+        self.from.expect("expected a client id")
+    }
+}
+
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
 pub(crate) struct DespawnTracker;

@@ -51,12 +51,18 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
-    use crate::prelude::server::{ControlledBy, ServerReplicationSet};
+    use crate::client::interpolation::Interpolated;
+    use crate::client::prediction::Predicted;
+    use crate::connection::client::ClientConnection;
+    use crate::connection::server::ServerConnections;
+    use crate::prelude::client::NetClient;
+    use crate::prelude::server::{ControlledBy, ServerConfig, ServerReplicationSet};
     use crate::prelude::{
-        ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent,
-        ReplicateHierarchy, ReplicateOnceComponent, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, VisibilityMode,
+        ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent, PrePredicted,
+        ReplicateHierarchy, ReplicateOnceComponent, Replicated, ReplicationGroup,
+        ShouldBePredicted, TargetEntity, VisibilityMode,
     };
+    use crate::server::events::EntitySpawnEvent;
     use crate::server::replication::send::SyncTarget;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::components::{
@@ -113,6 +119,8 @@ pub(crate) mod send {
                         ),
                         handle_replicating_add
                             .in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
+                        add_replicated_component_host_server
+                            .run_if(SharedConfig::is_host_server_condition),
                     ),
                 );
         }
@@ -207,10 +215,28 @@ pub(crate) mod send {
         }
     }
 
-    /// In host-server mode, the pre-predicted entities are spawned on the client.
-    /// The networking systems don't run, so we need to send events to the server
-    /// to make it seem like they received a replicated entity.
-    pub(crate) fn handle_pre_predicted_entity_host_server() {}
+    // TODO: implement this with observers, OnAdd<ReplicateToServer>
+    /// In HostServer mode, we will add the Replicated component to the client->server replicated entities
+    /// so that the server can still react to them using observers.
+    fn add_replicated_component_host_server(
+        mut commands: Commands,
+        query: Query<
+            Entity,
+            (
+                With<Replicating>,
+                With<ReplicateToServer>,
+                Without<Replicated>,
+            ),
+        >,
+        connection: Res<ClientConnection>,
+    ) {
+        let local_client = connection.id();
+        for entity in query.iter() {
+            commands.entity(entity).insert(Replicated {
+                from: Some(local_client),
+            });
+        }
+    }
 
     /// Send entity spawn replication messages to server when the ReplicationTarget component is added
     /// Also handles:

@@ -60,13 +60,11 @@ pub(crate) fn init(mut commands: Commands) {
 // Replicate the pre-spawned entities back to the client
 pub(crate) fn replicate_players(
     mut commands: Commands,
-    mut player_spawn_reader: EventReader<ComponentInsertEvent<PlayerId>>,
+    replicated_players: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
 ) {
-    for event in player_spawn_reader.read() {
-        debug!("received player spawn event: {:?}", event);
-        let client_id = event.context();
-        let entity = event.entity();
-
+    for (entity, replicated) in replicated_players.iter() {
+        let client_id = replicated.client_id();
+        debug!("received player spawn event from client {client_id:?}");
         if let Some(mut e) = commands.get_entity(entity) {
             let replicate = Replicate {
                 target: ReplicationTarget {
@@ -75,15 +73,15 @@ pub(crate) fn replicate_players(
                 },
                 sync: SyncTarget {
                     // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
-                    prediction: NetworkTarget::Single(*client_id),
+                    prediction: NetworkTarget::Single(client_id),
                     // we want the other clients to apply interpolation for the player
-                    interpolation: NetworkTarget::AllExceptSingle(*client_id),
+                    interpolation: NetworkTarget::AllExceptSingle(client_id),
                 },
                 // let the server know that this entity is controlled by client `client_id`
                 // - the client will have a Controlled component for this entity when it's replicated
                 // - when the client disconnects, this entity will be despawned
                 controlled_by: ControlledBy {
-                    target: NetworkTarget::Single(*client_id),
+                    target: NetworkTarget::Single(client_id),
                 },
                 // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
                 group: ReplicationGroup::new_id(client_id.to_bits()),
@@ -97,7 +95,7 @@ pub(crate) fn replicate_players(
                 // We also don't need the inputs of the other clients, because we are not predicting them
                 OverrideTargetComponent::<ActionState<PlayerActions>>::new(NetworkTarget::None),
                 // The PrePredicted component must be replicated only to the original client
-                OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(*client_id)),
+                OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(client_id)),
             ));
         }
     }

@@ -7,7 +7,7 @@ use leafwing_input_manager::prelude::ActionState;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::SyncTarget;
+use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
