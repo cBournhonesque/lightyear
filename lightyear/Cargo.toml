@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.15.0"
+version = "0.15.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.76"
@@ -81,7 +81,7 @@ chacha20poly1305 = { version = "0.10", features = ["std"] }
 byteorder = "1.5.0"
 
 # derive
-lightyear_macros = { version = "0.14.1", path = "../macros" }
+lightyear_macros = { version = "0.15.1", path = "../macros" }
 
 # tracing
 tracing = "0.1.40"

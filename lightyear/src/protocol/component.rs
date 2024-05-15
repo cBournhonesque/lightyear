@@ -165,7 +165,7 @@ pub struct PredictionMetadata {
 
 impl PredictionMetadata {
     fn default_from<C: PartialEq>(mode: ComponentSyncMode) -> Self {
-        let should_rollback: RollbackCheckFn<C> = <C as PartialEq>::ne;
+        let should_rollback: ShouldRollbackFn<C> = <C as PartialEq>::ne;
         Self {
             prediction_mode: mode,
             correction: None,
@@ -194,9 +194,9 @@ type RawWriteFn = fn(
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
 pub type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
 
-/// Function used to check if a rollback is needed, by comparing the server's value with the client's predicted value.
-/// Defaults to PartialEq::eq
-type RollbackCheckFn<C> = fn(this: &C, that: &C) -> bool;
+/// Function that returns true if a rollback is needed, by comparing the server's value with the client's predicted value.
+/// Defaults to PartialEq::ne
+type ShouldRollbackFn<C> = fn(this: &C, that: &C) -> bool;
 
 pub trait Linear {
     fn lerp(start: &Self, other: &Self, t: f32) -> Self;
@@ -284,15 +284,15 @@ impl ComponentRegistry {
             .or_insert_with(|| PredictionMetadata::default_from::<C>(mode));
     }
 
-    pub(crate) fn set_rollback_check<C: Component + PartialEq>(
+    pub(crate) fn set_should_rollback<C: Component + PartialEq>(
         &mut self,
-        rollback_check: RollbackCheckFn<C>,
+        should_rollback: ShouldRollbackFn<C>,
     ) {
         let kind = ComponentKind::of::<C>();
         self.prediction_map
             .entry(kind)
             .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
-            .should_rollback = unsafe { std::mem::transmute(rollback_check) };
+            .should_rollback = unsafe { std::mem::transmute(should_rollback) };
     }
 
     pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
@@ -420,9 +420,9 @@ impl ComponentRegistry {
             .get(&kind)
             .context("the component is not part of the protocol")
             .unwrap();
-        let rollback_check_fn: RollbackCheckFn<C> =
+        let should_rollback_fn: ShouldRollbackFn<C> =
             unsafe { std::mem::transmute(prediction_metadata.should_rollback) };
-        rollback_check_fn(this, that)
+        should_rollback_fn(this, that)
     }
 
     pub(crate) fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
@@ -565,9 +565,10 @@ pub trait AppComponentExt {
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>);
 
     /// Add a custom function to use for checking if a rollback is needed.
-    /// (By default we use the PartialEq::eq function, but you can use this to override the
+    ///
+    /// (By default we use the PartialEq::ne function, but you can use this to override the
     ///  equality check. For example, you might want to add a threshold for floating point numbers)
-    fn add_rollback_check<C: SyncComponent>(&mut self, rollback_check: RollbackCheckFn<C>);
+    fn add_should_rollback_fn<C: SyncComponent>(&mut self, should_rollback: ShouldRollbackFn<C>);
 
     /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
     /// themselves (the interpolation_fn will not be used)
@@ -630,13 +631,14 @@ impl<C> ComponentRegistration<'_, C> {
     }
 
     /// Add a custom function to use for checking if a rollback is needed.
-    /// (By default we use the PartialEq::eq function, but you can use this to override the
+    ///
+    /// (By default we use the PartialEq::ne function, but you can use this to override the
     ///  equality check. For example, you might want to add a threshold for floating point numbers)
-    pub fn add_rollback_check(self, rollback_check: RollbackCheckFn<C>) -> Self
+    pub fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
     where
         C: SyncComponent,
     {
-        self.app.add_rollback_check::<C>(rollback_check);
+        self.app.add_should_rollback_fn::<C>(should_rollback);
         self
     }
 
@@ -718,9 +720,9 @@ impl AppComponentExt for App {
         registry.set_correction::<C>(correction_fn);
     }
 
-    fn add_rollback_check<C: SyncComponent>(&mut self, rollback_check: RollbackCheckFn<C>) {
+    fn add_should_rollback_fn<C: SyncComponent>(&mut self, rollback_check: ShouldRollbackFn<C>) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
-        registry.set_rollback_check::<C>(rollback_check);
+        registry.set_should_rollback::<C>(rollback_check);
     }
 
     fn add_custom_interpolation<C: SyncComponent>(
