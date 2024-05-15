@@ -3,13 +3,14 @@
 use std::any::TypeId;
 use std::hash::{BuildHasher, Hash, Hasher};
 
+use crate::client::replication::send::ReplicateToServer;
 use bevy::ecs::component::Components;
 use bevy::prelude::*;
 
 use crate::prelude::server::ControlledBy;
 use crate::prelude::{
-    ComponentRegistry, ParentSync, PreSpawnedPlayerObject, ReplicateHierarchy, ReplicationTarget,
-    ShouldBePredicted, TargetEntity, TickManager, VisibilityMode,
+    ComponentRegistry, ParentSync, PreSpawnedPlayerObject, ReplicateHierarchy, Replicated,
+    Replicating, ReplicationTarget, ShouldBePredicted, TargetEntity, TickManager, VisibilityMode,
 };
 use crate::protocol::component::ComponentKind;
 use crate::server::replication::send::SyncTarget;
@@ -71,6 +72,9 @@ pub(crate) fn compute_hash(
                         && type_id != TypeId::of::<ReplicationTarget>()
                         && type_id != TypeId::of::<SyncTarget>()
                         && type_id != TypeId::of::<ControlledBy>()
+                        && type_id != TypeId::of::<Replicating>()
+                        && type_id != TypeId::of::<Replicated>()
+                        && type_id != TypeId::of::<ReplicateToServer>()
                         && type_id != TypeId::of::<ReplicateVisibility>()
                         && type_id != TypeId::of::<VisibilityMode>()
                         && type_id != TypeId::of::<TargetEntity>()
