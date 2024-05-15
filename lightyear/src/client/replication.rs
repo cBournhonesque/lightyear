@@ -97,24 +97,22 @@ pub(crate) mod send {
                 // SYSTEMS
                 .add_systems(
                     PostUpdate,
-                    send_entity_spawn
-                        .in_set(InternalReplicationSet::<ClientMarker>::BufferEntityUpdates),
+                    (
+                        // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
+                        //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
+                        //  It is ok to run it every frame because it creates at most one message per despawn
+                        // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
+                        handle_replicating_remove
+                            .in_set(InternalReplicationSet::<ClientMarker>::BeforeBuffer),
+                        send_entity_spawn
+                            .in_set(InternalReplicationSet::<ClientMarker>::BufferEntityUpdates),
+                        send_entity_despawn.in_set(
+                            InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals,
+                        ),
+                        handle_replicating_add
+                            .in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
+                    ),
                 );
-            app.add_systems(
-                PostUpdate,
-                (
-                    // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
-                    //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
-                    //  It is ok to run it every frame because it creates at most one message per despawn
-                    // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-                    handle_replicating_remove
-                        .in_set(InternalReplicationSet::<ClientMarker>::BeforeBuffer),
-                    send_entity_despawn
-                        .in_set(InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals),
-                    handle_replicating_add
-                        .in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
-                ),
-            );
         }
     }
 
@@ -421,11 +419,11 @@ pub(crate) mod send {
                 // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
                 //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
                 //  It is ok to run it every frame because it creates at most one message per despawn
-                crate::server::replication::send::send_component_removed::<C>
+                send_component_removed::<C>
                     .in_set(InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals),
                 // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
                 //  and use up all the bandwidth
-                crate::server::replication::send::send_component_update::<C>
+                send_component_update::<C>
                     .in_set(InternalReplicationSet::<ClientMarker>::BufferComponentUpdates),
             ),
         );

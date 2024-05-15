@@ -95,15 +95,6 @@ pub(crate) mod send {
                     PostUpdate,
                     compute_hash.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
                 );
-
-            // HOST-SERVER
-            app.add_systems(
-                PostUpdate,
-                // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
-                //  be careful that newly_connected_client is cleared every send_interval, not every frame.
-                send_entity_spawn
-                    .in_set(InternalReplicationSet::<ServerMarker>::BufferEntityUpdates),
-            );
             // SYSTEMS
             app.add_systems(
                 PreUpdate,
@@ -120,6 +111,10 @@ pub(crate) mod send {
                     // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
                     handle_replicating_remove
                         .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
+                    // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
+                    //  be careful that newly_connected_client is cleared every send_interval, not every frame.
+                    send_entity_spawn
+                        .in_set(InternalReplicationSet::<ServerMarker>::BufferEntityUpdates),
                     send_entity_despawn
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferDespawnsAndRemovals),
                     (handle_replicating_add, handle_replication_target_update)

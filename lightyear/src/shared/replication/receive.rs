@@ -202,6 +202,7 @@ impl ReplicationReceiver {
     /// Apply any replication messages to the world, and emit an event
     /// I think we don't need to emit a tick with the event anymore, because
     /// we can access the tick via the replication manager
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_world(
         &mut self,
         // TODO: should we use Commands to avoid the need to block the world?

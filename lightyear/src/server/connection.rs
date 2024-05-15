@@ -716,6 +716,7 @@ impl ConnectionManager {
     }
 
     // TODO: perf gain if we batch this? (send vec of components) (same for update/removes)
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_component_insert(
         &mut self,
         entity: Entity,
@@ -776,6 +777,7 @@ impl ConnectionManager {
             })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_component_update(
         &mut self,
         entity: Entity,
