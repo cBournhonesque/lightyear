@@ -142,7 +142,11 @@ pub(crate) fn check_rollback<C: SyncComponent>(
             continue;
         };
         let Ok(mut predicted_history) = predicted_query.get_mut(p) else {
-            debug!("Predicted entity {:?} was not found", confirmed.predicted);
+            debug!(
+                "Predicted entity {:?} was not found when checking rollback for {:?}",
+                confirmed.predicted,
+                std::any::type_name::<C>()
+            );
             continue;
         };
 
@@ -254,7 +258,11 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         let Ok((predicted_entity, predicted_component, mut predicted_history, mut correction)) =
             predicted_query.get_mut(p)
         else {
-            debug!("Predicted entity {:?} was not found", confirmed.predicted);
+            debug!(
+                "Predicted entity {:?} was not found when preparing rollback for {:?}",
+                confirmed.predicted,
+                std::any::type_name::<C>()
+            );
             continue;
         };
 
