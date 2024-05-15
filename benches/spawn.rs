@@ -12,10 +12,10 @@ use lightyear::client::sync::SyncConfig;
 use lightyear::prelude::client::{
     ClientConnection, InterpolationConfig, NetClient, PredictionConfig,
 };
+use lightyear::prelude::server::Replicate;
 use lightyear::prelude::{client, server, MessageRegistry, Tick, TickManager};
 use lightyear::prelude::{ClientId, SharedConfig, TickConfig};
 use lightyear::server::input::InputBuffers;
-use lightyear::shared::replication::components::Replicate;
 use lightyear::shared::replication::network_target::NetworkTarget;
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
