@@ -61,7 +61,7 @@ impl<'w, 's> NetworkIdentity<'w, 's> {
         self.identity() == Identity::Client
     }
     pub fn is_server(&self) -> bool {
-        self.identity() == Identity::Server
+        self.identity() == Identity::Server || self.identity() == Identity::HostServer
     }
 }
 
