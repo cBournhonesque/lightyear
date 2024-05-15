@@ -27,6 +27,7 @@ pub struct Replicated {
 }
 
 impl Replicated {
+    /// For client->server replication, identify the client that replicated this entity to the server
     pub fn client_id(&self) -> ClientId {
         self.from.expect("expected a client id")
     }

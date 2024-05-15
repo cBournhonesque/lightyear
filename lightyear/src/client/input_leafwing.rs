@@ -951,7 +951,8 @@ mod tests {
     use crate::client::sync::SyncConfig;
     use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::{client, LinkConditionerConfig, Replicate, SharedConfig, TickConfig};
+    use crate::prelude::server::Replicate;
+    use crate::prelude::{client, LinkConditionerConfig, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

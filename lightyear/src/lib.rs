@@ -109,13 +109,17 @@ fn receive_message(mut message_reader: EventReader<MessageEvent<MyMessage>>) {
 
 ### Starting replication
 
-To replicate an entity from the local world to the remote world, you can just add the [`Replicate`] bundle to the entity.
-The [`Replicate`] bundle contains many components to customize how the entity is replicated.
+To replicate an entity from the local world to the remote world, you can just add the [`Replicate`](prelude::server::Replicate) bundle to the entity.
+The [`Replicate`](prelude::server::Replicate) bundle contains many components to customize how the entity is replicated.
 
-You can remove the [`ReplicationTarget`] component to stop the replication. This will not despawn the entity on the remote world; it will simply
+The marker component [`Replicating`] indicates that the entity is getting replicated to a remote peer.
+You can remove the [`Replicating`] component to pause the replication. This will not despawn the entity on the remote world; it will simply
 stop sending replication updates.
 
-For client to server replication, you can add the [`ReplicateToServer`](prelude::client::Replicate) bundle instead.
+In contrast, the [`ReplicationTarget`] component is used to indicate which clients you want to replicate this entity to.
+If you update the target to exclude a given client, the entity will get despawned on that client.
+
+On the receiver side, entities that are replicated from a remote peer will have the [`Replicated`] marker component.
 
 
 ### Reacting to replication events
@@ -153,10 +157,6 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
     }
 }
 ```
-
-## Architecture
-
-
 
  */
 #![allow(unused_imports)]
