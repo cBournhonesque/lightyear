@@ -74,6 +74,8 @@ pub(crate) mod send {
             let config = app.world.resource::<ServerConfig>();
 
             app
+                // REFLECTION
+                .register_type::<Replicate>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
@@ -1990,7 +1992,8 @@ pub(crate) mod commands {
 
         use crate::client::sync::SyncConfig;
         use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-        use crate::prelude::{server, LinkConditionerConfig, Replicate, SharedConfig, TickConfig};
+        use crate::prelude::server::Replicate;
+        use crate::prelude::{server, LinkConditionerConfig, SharedConfig, TickConfig};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, Step};
 

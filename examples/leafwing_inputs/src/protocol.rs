@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client::ReplicateToServer;
+use lightyear::prelude::client::Replicate;
 use lightyear::prelude::server::SyncTarget;
 use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
@@ -27,7 +27,7 @@ pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: Position,
     color: ColorComponent,
-    replicate: ReplicateToServer,
+    replicate: Replicate,
     physics: PhysicsBundle,
     inputs: InputManagerBundle<PlayerActions>,
     // IMPORTANT: this lets the server know that the entity is pre-predicted
@@ -43,7 +43,7 @@ impl PlayerBundle {
             id: PlayerId(id),
             position: Position(position),
             color: ColorComponent(color),
-            replicate: ReplicateToServer {
+            replicate: Replicate {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
                 group: REPLICATION_GROUP,

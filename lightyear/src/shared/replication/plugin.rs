@@ -134,10 +134,10 @@ pub(crate) mod send {
 }
 
 pub(crate) mod shared {
-    use crate::client::replication::send::ReplicationToServerTarget;
+    use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
-        PrePredicted, RemoteEntityMap, Replicate, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, VisibilityMode,
+        PrePredicted, RemoteEntityMap, ReplicationGroup, ShouldBePredicted, TargetEntity,
+        VisibilityMode,
     };
     use crate::shared::replication::components::{
         Replicating, ReplicationGroupId, ReplicationGroupIdBuilder, ShouldBeInterpolated,
@@ -151,10 +151,9 @@ pub(crate) mod shared {
     impl Plugin for SharedPlugin {
         fn build(&self, app: &mut App) {
             // REFLECTION
-            app.register_type::<Replicate>()
-                .register_type::<TargetEntity>()
+            app.register_type::<TargetEntity>()
                 .register_type::<Replicating>()
-                .register_type::<ReplicationToServerTarget>()
+                .register_type::<ReplicateToServer>()
                 .register_type::<ReplicationGroupIdBuilder>()
                 .register_type::<ReplicationGroup>()
                 .register_type::<ReplicationGroupId>()

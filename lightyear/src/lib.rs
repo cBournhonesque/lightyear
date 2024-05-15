@@ -115,7 +115,7 @@ The [`Replicate`] bundle contains many components to customize how the entity is
 You can remove the [`ReplicationTarget`] component to stop the replication. This will not despawn the entity on the remote world; it will simply
 stop sending replication updates.
 
-For client to server replication, you can add the [`ReplicateToServer`](prelude::client::ReplicateToServer) bundle instead.
+For client to server replication, you can add the [`ReplicateToServer`](prelude::client::Replicate) bundle instead.
 
 
 ### Reacting to replication events
@@ -218,7 +218,6 @@ pub mod prelude {
     pub use crate::shared::time_manager::TimeManager;
     pub use crate::transport::middleware::compression::CompressionConfig;
     pub use crate::transport::middleware::conditioner::LinkConditionerConfig;
-    pub use server::Replicate;
 
     pub mod client {
         pub use crate::client::components::{
@@ -251,7 +250,7 @@ pub mod prelude {
         pub use crate::client::prediction::rollback::{Rollback, RollbackState};
         pub use crate::client::prediction::Predicted;
         pub use crate::client::replication::commands::DespawnReplicationCommandExt;
-        pub use crate::client::replication::send::ReplicateToServer;
+        pub use crate::client::replication::send::Replicate;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
             Authentication, ClientConnection, IoConfig, NetClient, NetConfig,

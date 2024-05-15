@@ -76,6 +76,8 @@ pub(crate) mod send {
     impl Plugin for ClientReplicationSendPlugin {
         fn build(&self, app: &mut App) {
             app
+                // REFLECTION
+                .register_type::<Replicate>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
@@ -120,7 +122,7 @@ pub(crate) mod send {
     ///
     /// If this component gets removed, we despawn the entity on the server.
     #[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
-    pub struct ReplicationToServerTarget;
+    pub struct ReplicateToServer;
 
     /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
     /// it to the server.
@@ -128,10 +130,10 @@ pub(crate) mod send {
     /// ```rust
     /// use bevy::prelude::*;
     /// use lightyear::prelude::*;
-    /// use lightyear::prelude::client::*;
+    /// use lightyear::prelude::client::Replicate;
     ///
     /// let mut world = World::default();
-    /// world.spawn(ReplicateToServer::default());
+    /// world.spawn(Replicate::default());
     /// ```
     ///
     /// The bundle is composed of several components:
@@ -140,10 +142,10 @@ pub(crate) mod send {
     /// will be sent together in the same message.
     /// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
     #[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
-    pub struct ReplicateToServer {
+    pub struct Replicate {
         /// Marker indicating that the entity should be replicated to the server.
         /// The replication stops if this component is removed
-        pub target: ReplicationToServerTarget,
+        pub target: ReplicateToServer,
         /// The replication group defines how entities are grouped (sent as a single message) for replication.
         ///
         /// After the entity is first replicated, the replication group of the entity should not be modified.
@@ -217,7 +219,7 @@ pub(crate) mod send {
     pub(crate) fn send_entity_spawn(
         query: Query<
             (Entity, &ReplicationGroup, Option<&TargetEntity>),
-            (With<Replicating>, Added<ReplicationToServerTarget>),
+            (With<Replicating>, Added<ReplicateToServer>),
         >,
         mut sender: ResMut<ConnectionManager>,
     ) {
@@ -248,10 +250,7 @@ pub(crate) mod send {
     /// - an entity that had a DespawnTracker was despawned
     /// - an entity with Replicating had the ReplicationToServerTarget removed
     pub(crate) fn send_entity_despawn(
-        query: Query<
-            (Entity, &ReplicationGroup),
-            (With<Replicating>, Without<ReplicationToServerTarget>),
-        >,
+        query: Query<(Entity, &ReplicationGroup), (With<Replicating>, Without<ReplicateToServer>)>,
         // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
         //  not just entities that had despawn tracker once
         mut despawn_removed: RemovedComponents<DespawnTracker>,
@@ -298,7 +297,7 @@ pub(crate) mod send {
             (
                 Entity,
                 Ref<C>,
-                Ref<ReplicationToServerTarget>,
+                Ref<ReplicateToServer>,
                 &ReplicationGroup,
                 Has<DisabledComponent<C>>,
                 Has<ReplicateOnceComponent<C>>,
@@ -391,7 +390,7 @@ pub(crate) mod send {
         // only remove the component for entities that are being actively replicated
         query: Query<
             (&ReplicationGroup, Has<DisabledComponent<C>>),
-            (With<Replicating>, With<ReplicationToServerTarget>),
+            (With<Replicating>, With<ReplicateToServer>),
         >,
         mut removed: RemovedComponents<C>,
         mut sender: ResMut<ConnectionManager>,
@@ -448,7 +447,7 @@ pub(crate) mod send {
                 .client_app
                 .world
                 .entity_mut(client_entity)
-                .insert(client::ReplicateToServer::default());
+                .insert(client::Replicate::default());
             // TODO: we need to run a couple frames because the server doesn't read the client's updates
             //  because they are from the future
             stepper.frame_step();
