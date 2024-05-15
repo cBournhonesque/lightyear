@@ -220,6 +220,7 @@ pub(crate) mod send {
         pub group: ReplicationGroup,
         /// How should the hierarchy of the entity (parents/children) be replicated?
         pub hierarchy: ReplicateHierarchy,
+        pub marker: Replicating,
     }
 
     /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities

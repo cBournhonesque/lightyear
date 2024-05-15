@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::server::ControlledBy;
-use crate::prelude::{Replicated, ReplicationGroup, VisibilityMode};
+use crate::prelude::{Replicated, Replicating, ReplicationGroup, VisibilityMode};
 use crate::server::replication::send::SyncTarget;
 use crate::shared::replication::components::{ReplicateHierarchy, ReplicationTarget};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
@@ -73,6 +73,8 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                     trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
                     // no need to set the correct parent as it will be set later in the `update_parent_sync` system
                     commands.entity(child).insert((
+                        // TODO: should we add replicating?
+                        Replicating,
                         replication_target.clone(),
                         // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id
                         ReplicationGroup::new_id(parent_entity.to_bits()),
