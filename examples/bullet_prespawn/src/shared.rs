@@ -259,35 +259,32 @@ pub(crate) fn shoot_bullet(
                     false,
                 );
                 // on the server, replicate the bullet
-                match identity.identity() {
-                    Identity::Server | Identity::HostServer => {
-                        commands.spawn((
-                            ball,
-                            // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
-                            //  but the server will take authority as soon as the client receives the entity
-                            //  it does this by matching with the client entity that has the same hash
-                            //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
-                            //  unless you set the hash manually before PostUpdate to a value of your choice
-                            PreSpawnedPlayerObject::default(),
-                            Replicate {
-                                sync: SyncTarget {
-                                    // the bullet is predicted for the client who shot it
-                                    prediction: NetworkTarget::Single(id.0),
-                                    // the bullet is interpolated for other clients
-                                    interpolation: NetworkTarget::AllExceptSingle(id.0),
-                                },
-                                // NOTE: all predicted entities need to have the same replication group
-                                group: ReplicationGroup::new_id(id.0.to_bits()),
-                                ..default()
-                            },
-                        ));
-                    }
-                    Identity::Client => {
-                        // on the client, just spawn the ball
+                if identity.is_server() {
+                    commands.spawn((
+                        ball,
                         // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                         //  but the server will take authority as soon as the client receives the entity
-                        commands.spawn((ball, PreSpawnedPlayerObject::default()));
-                    }
+                        //  it does this by matching with the client entity that has the same hash
+                        //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
+                        //  unless you set the hash manually before PostUpdate to a value of your choice
+                        PreSpawnedPlayerObject::default(),
+                        Replicate {
+                            sync: SyncTarget {
+                                // the bullet is predicted for the client who shot it
+                                prediction: NetworkTarget::Single(id.0),
+                                // the bullet is interpolated for other clients
+                                interpolation: NetworkTarget::AllExceptSingle(id.0),
+                            },
+                            // NOTE: all predicted entities need to have the same replication group
+                            group: ReplicationGroup::new_id(id.0.to_bits()),
+                            ..default()
+                        },
+                    ));
+                } else {
+                    // on the client, just spawn the ball
+                    // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
+                    //  but the server will take authority as soon as the client receives the entity
+                    commands.spawn((ball, PreSpawnedPlayerObject::default()));
                 }
             }
         }
