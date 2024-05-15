@@ -592,6 +592,7 @@ mod tests {
     use bevy::utils::Duration;
 
     use crate::client::input::{InputManager, InputSystemSet};
+    use crate::prelude::server::Replicate;
     use crate::prelude::*;
     use crate::server::events::InputEvent;
     use crate::tests::protocol::*;

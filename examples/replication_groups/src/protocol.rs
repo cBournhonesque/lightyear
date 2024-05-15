@@ -12,6 +12,7 @@ use tracing::{debug, info, trace};
 
 use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::client::LerpFn;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroup;
 
@@ -45,10 +46,9 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                target: ReplicationTarget {
+                sync: SyncTarget {
                     prediction: NetworkTarget::Single(id),
                     interpolation: NetworkTarget::AllExceptSingle(id),
-                    ..default()
                 },
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(id),
@@ -72,10 +72,9 @@ impl TailBundle {
             points: TailPoints(points),
             length: TailLength(length),
             replicate: Replicate {
-                target: ReplicationTarget {
+                sync: SyncTarget {
                     prediction: NetworkTarget::Single(id),
                     interpolation: NetworkTarget::AllExceptSingle(id),
-                    ..default()
                 },
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(id),

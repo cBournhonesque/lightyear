@@ -7,6 +7,7 @@ use leafwing_input_manager::prelude::ActionState;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
+use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
@@ -267,8 +268,7 @@ pub(crate) fn shoot_bullet(
                         //  unless you set the hash manually before PostUpdate to a value of your choice
                         PreSpawnedPlayerObject::default(),
                         Replicate {
-                            target: ReplicationTarget {
-                                replication: NetworkTarget::All,
+                            sync: SyncTarget {
                                 // the bullet is predicted for the client who shot it
                                 prediction: NetworkTarget::Single(id.0),
                                 // the bullet is interpolated for other clients

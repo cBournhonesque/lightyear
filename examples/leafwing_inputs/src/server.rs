@@ -98,27 +98,26 @@ pub(crate) fn movement(
 pub(crate) fn replicate_players(
     global: Res<Global>,
     mut commands: Commands,
-    mut player_spawn_reader: EventReader<ComponentInsertEvent<PlayerId>>,
+    query: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
 ) {
-    for event in player_spawn_reader.read() {
-        let client_id = *event.context();
-        let entity = event.entity();
-        info!("received player spawn event: {:?}", event);
+    for (entity, replicated) in query.iter() {
+        let client_id = replicated.client_id();
+        info!("received player spawn event from client {client_id:?}");
 
         // for all player entities we have received, add a Replicate component so that we can start replicating it
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
             // we want to replicate back to the original client, since they are using a pre-predicted entity
-            let mut replication_target = ReplicationTarget::default();
+            let mut sync_target = SyncTarget::default();
 
             if global.predict_all {
-                replication_target.prediction = NetworkTarget::All;
+                sync_target.prediction = NetworkTarget::All;
             } else {
                 // we want the other clients to apply interpolation for the player
-                replication_target.interpolation = NetworkTarget::AllExceptSingle(client_id);
+                sync_target.interpolation = NetworkTarget::AllExceptSingle(client_id);
             }
             let replicate = Replicate {
-                target: replication_target,
+                sync: sync_target,
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(client_id),
                 },

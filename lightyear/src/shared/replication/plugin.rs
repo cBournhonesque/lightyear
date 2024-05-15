@@ -126,30 +126,6 @@ pub(crate) mod send {
             );
             // SYSTEMS
             app.add_systems(
-                PreUpdate,
-                // we need to add despawn trackers immediately for entities for which we add replicate
-                // TODO: why?
-                systems::handle_replicate_add::<R>.after(ServerReplicationSet::ClientReplication),
-            );
-            app.add_systems(
-                PostUpdate,
-                (
-                    // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
-                    //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
-                    //  It is ok to run it every frame because it creates at most one message per despawn
-                    // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-                    (systems::handle_replicate_remove::<R>,)
-                        .in_set(InternalReplicationSet::<R::SetMarker>::BeforeBuffer),
-                    systems::send_entity_despawn::<R>
-                        .in_set(InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals),
-                    (
-                        systems::handle_replicate_add::<R>,
-                        systems::handle_replication_target_update::<R>,
-                    )
-                        .in_set(InternalReplicationSet::<R::SetMarker>::AfterBuffer),
-                ),
-            );
-            app.add_systems(
                 Last,
                 systems::send_cleanup::<R>.run_if(on_timer(self.clean_interval)),
             );
@@ -158,12 +134,13 @@ pub(crate) mod send {
 }
 
 pub(crate) mod shared {
+    use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
-        PrePredicted, RemoteEntityMap, Replicate, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, VisibilityMode,
+        PrePredicted, RemoteEntityMap, ReplicationGroup, ShouldBePredicted, TargetEntity,
+        VisibilityMode,
     };
     use crate::shared::replication::components::{
-        ReplicationGroupId, ReplicationGroupIdBuilder, ShouldBeInterpolated,
+        Replicating, ReplicationGroupId, ReplicationGroupIdBuilder, ShouldBeInterpolated,
     };
     use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
     use crate::shared::replication::network_target::NetworkTarget;
@@ -174,9 +151,9 @@ pub(crate) mod shared {
     impl Plugin for SharedPlugin {
         fn build(&self, app: &mut App) {
             // REFLECTION
-            app.register_type::<Replicate>()
-                .register_type::<TargetEntity>()
-                // .register_type::<PerComponentReplicationMetadata>()
+            app.register_type::<TargetEntity>()
+                .register_type::<Replicating>()
+                .register_type::<ReplicateToServer>()
                 .register_type::<ReplicationGroupIdBuilder>()
                 .register_type::<ReplicationGroup>()
                 .register_type::<ReplicationGroupId>()

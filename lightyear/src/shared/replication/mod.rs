@@ -28,11 +28,9 @@ use crate::shared::events::connection::{
     IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
 use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
-use crate::shared::replication::systems::ReplicateCache;
 
 pub mod components;
 
-mod commands;
 pub mod entity_map;
 pub(crate) mod hierarchy;
 pub mod network_target;
@@ -140,52 +138,15 @@ pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
 ///
 /// The trait is made public because it is needed in the macros
 pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
+    type ReplicateCache;
     fn writer(&mut self) -> &mut BitcodeWriter;
 
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
     fn new_connected_clients(&self) -> Vec<ClientId>;
 
-    fn prepare_entity_despawn(
-        &mut self,
-        entity: Entity,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()>;
-
-    #[allow(clippy::too_many_arguments)]
-    fn prepare_component_insert(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
-        component_registry: &ComponentRegistry,
-        replication_target: &ReplicationTarget,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()>;
-
-    fn prepare_component_remove(
-        &mut self,
-        entity: Entity,
-        component_kind: ComponentNetId,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()>;
-
-    #[allow(clippy::too_many_arguments)]
-    fn prepare_component_update(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-        // bevy_tick when the component changes
-        component_change_tick: BevyTick,
-        // bevy_tick for the current system run
-        system_current_tick: BevyTick,
-    ) -> Result<()>;
+    /// Get the replication cache
+    fn replication_cache(&mut self) -> &mut Self::ReplicateCache;
 
     /// Any operation that needs to happen before we can send the replication messages
     /// (for example collecting the individual single component updates into a single message,
@@ -196,8 +157,6 @@ pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     ///
     /// But the receiving systems might expect both components to be present at the same time.
     fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
-
-    fn get_mut_replicate_cache(&mut self) -> &mut EntityHashMap<ReplicateCache>;
 
     /// Do some regular cleanup on the internals of replication
     /// - account for tick wrapping by resetting some internal ticks for each replication group

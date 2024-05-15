@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
+use lightyear::prelude::client;
+use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
 
@@ -25,7 +27,7 @@ pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: Position,
     color: ColorComponent,
-    replicate: Replicate,
+    replicate: client::Replicate,
     physics: PhysicsBundle,
     inputs: InputManagerBundle<PlayerActions>,
     // IMPORTANT: this lets the server know that the entity is pre-predicted
@@ -41,14 +43,7 @@ impl PlayerBundle {
             id: PlayerId(id),
             position: Position(position),
             color: ColorComponent(color),
-            replicate: Replicate {
-                target: ReplicationTarget {
-                    // TODO: improve this! this should depend on the predict_all settings
-                    // We still need to specify the interpolation/prediction target for this local entity
-                    // in the case where we're running in HostServer mode
-                    prediction: NetworkTarget::All,
-                    ..default()
-                },
+            replicate: client::Replicate {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
                 group: REPLICATION_GROUP,
@@ -76,16 +71,16 @@ pub(crate) struct BallBundle {
 
 impl BallBundle {
     pub(crate) fn new(position: Vec2, color: Color, predicted: bool) -> Self {
-        let mut replication_target = ReplicationTarget::default();
+        let mut sync_target = SyncTarget::default();
         let mut group = ReplicationGroup::default();
         if predicted {
-            replication_target.prediction = NetworkTarget::All;
+            sync_target.prediction = NetworkTarget::All;
             group = REPLICATION_GROUP;
         } else {
-            replication_target.interpolation = NetworkTarget::All;
+            sync_target.interpolation = NetworkTarget::All;
         }
         let replicate = Replicate {
-            target: replication_target,
+            sync: sync_target,
             group,
             ..default()
         };

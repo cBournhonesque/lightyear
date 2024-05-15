@@ -14,11 +14,10 @@ pub(crate) struct ClientsMetadataPlugin;
 
 mod systems {
     use super::*;
-    use crate::prelude::Replicate;
+    use crate::prelude::server::ControlledBy;
     use crate::server::clients::ControlledEntities;
     use crate::server::connection::ConnectionManager;
     use crate::server::events::DisconnectEvent;
-    use crate::shared::replication::components::ControlledBy;
     use crate::shared::replication::network_target::NetworkTarget;
     use tracing::{debug, error, trace};
 

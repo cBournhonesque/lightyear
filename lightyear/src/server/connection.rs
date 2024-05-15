@@ -37,18 +37,17 @@ use crate::serialize::RawData;
 use crate::server::config::PacketConfig;
 use crate::server::events::{ConnectEvent, ServerEvents};
 use crate::server::message::ServerMessage;
+use crate::server::replication::send::ReplicateCache;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{
-    Controlled, ControlledBy, Replicate, ReplicationGroupId, ReplicationTarget,
-    ShouldBeInterpolated,
+    Controlled, ReplicationGroupId, ReplicationTarget, ShouldBeInterpolated,
 };
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::systems::ReplicateCache;
 use crate::shared::replication::{ReplicationMessage, ReplicationReceive, ReplicationSend};
 use crate::shared::replication::{ReplicationMessageData, ReplicationPeer};
 use crate::shared::sets::ServerMarker;
@@ -225,6 +224,7 @@ impl ConnectionManager {
 
             info!("New connection from id: {}", client_id);
             let connection = Connection::new(
+                client_id,
                 client_entity,
                 &self.channel_registry,
                 self.packet_config.clone(),
@@ -356,6 +356,7 @@ impl ConnectionManager {
 
 /// Wrapper that handles the connection between the server and a client
 pub struct Connection {
+    client_id: ClientId,
     /// We create one entity per connected client, so that users
     /// can store metadata about the client using the ECS
     entity: Entity,
@@ -380,6 +381,7 @@ pub struct Connection {
 
 impl Connection {
     pub(crate) fn new(
+        client_id: ClientId,
         entity: Entity,
         channel_registry: &ChannelRegistry,
         packet_config: PacketConfig,
@@ -401,6 +403,7 @@ impl Connection {
             ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
         let replication_receiver = ReplicationReceiver::new();
         Self {
+            client_id,
             entity,
             message_manager,
             replication_sender,
@@ -640,6 +643,7 @@ impl Connection {
                     // TODO: we could include the server tick when this replication_message was sent.
                     self.replication_receiver.apply_world(
                         world,
+                        Some(self.client_id),
                         component_registry,
                         tick,
                         replication,
@@ -665,54 +669,8 @@ impl Connection {
     }
 }
 
-impl MessageSend for ConnectionManager {
-    fn send_message_to_target<C: Channel, M: Message>(
-        &mut self,
-        message: &M,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        self.send_message_to_target::<C, M>(message, target)
-    }
-
-    fn erased_send_message_to_target<M: Message>(
-        &mut self,
-        message: &M,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        self.erased_send_message_to_target(message, channel_kind, target)
-    }
-}
-
-impl ReplicationPeer for ConnectionManager {
-    type Events = ServerEvents;
-    type EventContext = ClientId;
-    type SetMarker = ServerMarker;
-}
-
-impl ReplicationReceive for ConnectionManager {
-    fn events(&mut self) -> &mut Self::Events {
-        &mut self.events
-    }
-
-    fn cleanup(&mut self, tick: Tick) {
-        debug!("Running replication receive cleanup");
-        for connection in self.connections.values_mut() {
-            connection.replication_receiver.cleanup(tick);
-        }
-    }
-}
-
-impl ReplicationSend for ConnectionManager {
-    fn writer(&mut self) -> &mut BitcodeWriter {
-        &mut self.writer
-    }
-
-    fn new_connected_clients(&self) -> Vec<ClientId> {
-        self.new_clients.clone()
-    }
-
-    fn prepare_entity_despawn(
+impl ConnectionManager {
+    pub(crate) fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
         group: &ReplicationGroup,
@@ -726,7 +684,6 @@ impl ReplicationSend for ConnectionManager {
             //     "Send entity despawn for tick {:?}",
             //     self.tick_manager.tick()
             // );
-            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
             self.connection_mut(client_id)?
                 .replication_sender
                 .prepare_entity_despawn(entity, group_id);
@@ -734,14 +691,40 @@ impl ReplicationSend for ConnectionManager {
         })
     }
 
+    pub(crate) fn prepare_component_remove(
+        &mut self,
+        entity: Entity,
+        kind: ComponentNetId,
+        group: &ReplicationGroup,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        let group_id = group.group_id(Some(entity));
+        debug!(?entity, ?kind, "Sending RemoveComponent");
+        self.apply_replication(target).try_for_each(|client_id| {
+            // TODO: I don't think it's actually correct to only correct the changes since that action.
+            //  what if we do:
+            //  - Frame 1: update is ACKED
+            //  - Frame 2: update
+            //  - Frame 3: action
+            //  - Frame 4: send
+            //  then we won't send the frame-2 update because we only collect changes since frame 3
+            self.connection_mut(client_id)?
+                .replication_sender
+                .prepare_component_remove(entity, group_id, kind);
+            Ok(())
+        })
+    }
+
     // TODO: perf gain if we batch this? (send vec of components) (same for update/removes)
-    fn prepare_component_insert(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prepare_component_insert(
         &mut self,
         entity: Entity,
         kind: ComponentNetId,
         component: RawData,
         component_registry: &ComponentRegistry,
         replication_target: &ReplicationTarget,
+        prediction_target: Option<&NetworkTarget>,
         group: &ReplicationGroup,
         target: NetworkTarget,
     ) -> Result<()> {
@@ -770,7 +753,7 @@ impl ReplicationSend for ConnectionManager {
             .get_net_id::<PreSpawnedPlayerObject>()
             .context("PreSpawnedPlayerObject is not registered")?;
         if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
-            actual_target = replication_target.prediction.clone();
+            actual_target = prediction_target.unwrap().clone();
         }
         self.apply_replication(actual_target)
             .try_for_each(|client_id| {
@@ -794,31 +777,8 @@ impl ReplicationSend for ConnectionManager {
             })
     }
 
-    fn prepare_component_remove(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        let group_id = group.group_id(Some(entity));
-        debug!(?entity, ?kind, "Sending RemoveComponent");
-        self.apply_replication(target).try_for_each(|client_id| {
-            // TODO: I don't think it's actually correct to only correct the changes since that action.
-            //  what if we do:
-            //  - Frame 1: update is ACKED
-            //  - Frame 2: update
-            //  - Frame 3: action
-            //  - Frame 4: send
-            //  then we won't send the frame-2 update because we only collect changes since frame 3
-            self.connection_mut(client_id)?
-                .replication_sender
-                .prepare_component_remove(entity, group_id, kind);
-            Ok(())
-        })
-    }
-
-    fn prepare_component_update(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prepare_component_update(
         &mut self,
         entity: Entity,
         kind: ComponentNetId,
@@ -874,14 +834,64 @@ impl ReplicationSend for ConnectionManager {
             Ok(())
         })
     }
+}
+
+impl MessageSend for ConnectionManager {
+    fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        self.send_message_to_target::<C, M>(message, target)
+    }
+
+    fn erased_send_message_to_target<M: Message>(
+        &mut self,
+        message: &M,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        self.erased_send_message_to_target(message, channel_kind, target)
+    }
+}
+
+impl ReplicationPeer for ConnectionManager {
+    type Events = ServerEvents;
+    type EventContext = ClientId;
+    type SetMarker = ServerMarker;
+}
+
+impl ReplicationReceive for ConnectionManager {
+    fn events(&mut self) -> &mut Self::Events {
+        &mut self.events
+    }
+
+    fn cleanup(&mut self, tick: Tick) {
+        debug!("Running replication receive cleanup");
+        for connection in self.connections.values_mut() {
+            connection.replication_receiver.cleanup(tick);
+        }
+    }
+}
+
+impl ReplicationSend for ConnectionManager {
+    type ReplicateCache = EntityHashMap<Entity, ReplicateCache>;
+
+    fn writer(&mut self) -> &mut BitcodeWriter {
+        &mut self.writer
+    }
+
+    fn new_connected_clients(&self) -> Vec<ClientId> {
+        self.new_clients.clone()
+    }
+
+    fn replication_cache(&mut self) -> &mut Self::ReplicateCache {
+        &mut self.replicate_component_cache
+    }
 
     /// Buffer the replication messages
     fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()> {
         self.buffer_replication_messages(tick, bevy_tick)
-    }
-
-    fn get_mut_replicate_cache(&mut self) -> &mut bevy::ecs::entity::EntityHashMap<ReplicateCache> {
-        &mut self.replicate_component_cache
     }
 
     fn cleanup(&mut self, tick: Tick) {

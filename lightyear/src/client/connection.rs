@@ -15,6 +15,7 @@ use bitcode::encoding::Fixed;
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
 use crate::client::message::ClientMessage;
+use crate::client::replication::send::ReplicateCache;
 use crate::client::sync::SyncConfig;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
@@ -36,11 +37,10 @@ use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
-use crate::shared::replication::components::{Replicate, ReplicationGroupId, ReplicationTarget};
+use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::systems::ReplicateCache;
 use crate::shared::replication::{ReplicationMessage, ReplicationSend};
 use crate::shared::replication::{ReplicationMessageData, ReplicationPeer, ReplicationReceive};
 use crate::shared::sets::{ClientMarker, ServerMarker};
@@ -406,6 +406,7 @@ impl ConnectionManager {
                             // TODO: we could include the server tick when this replication_message was sent.
                             self.replication_receiver.apply_world(
                                 world,
+                                None,
                                 component_registry.as_ref(),
                                 tick,
                                 replication,
@@ -482,6 +483,8 @@ impl ReplicationReceive for ConnectionManager {
 }
 
 impl ReplicationSend for ConnectionManager {
+    type ReplicateCache = EntityHashMap<ReplicateCache>;
+
     fn writer(&mut self) -> &mut BitcodeWriter {
         &mut self.writer
     }
@@ -490,102 +493,13 @@ impl ReplicationSend for ConnectionManager {
         vec![]
     }
 
-    fn prepare_entity_despawn(
-        &mut self,
-        entity: Entity,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        let group_id = group.group_id(Some(entity));
-        // trace!(?entity, "Send entity despawn for tick {:?}", self.tick());
-        let replication_sender = &mut self.replication_sender;
-        replication_sender.prepare_entity_despawn(entity, group_id);
-        Ok(())
-    }
-
-    fn prepare_component_insert(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
-        component_registry: &ComponentRegistry,
-        replication_target: &ReplicationTarget,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        let group_id = group.group_id(Some(entity));
-        // debug!(
-        //     ?entity,
-        //     component = ?kind,
-        //     tick = ?self.tick_manager.tick(),
-        //     "Inserting single component"
-        // );
-        self.replication_sender
-            .prepare_component_insert(entity, group_id, kind, component);
-        Ok(())
-    }
-
-    fn prepare_component_remove(
-        &mut self,
-        entity: Entity,
-        component_kind: ComponentNetId,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        let group_id = group.group_id(Some(entity));
-        debug!(?entity, ?component_kind, "Sending RemoveComponent");
-        self.replication_sender
-            .prepare_component_remove(entity, group_id, component_kind);
-        Ok(())
-    }
-
-    fn prepare_component_update(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-        component_change_tick: BevyTick,
-        system_current_tick: BevyTick,
-    ) -> Result<()> {
-        let group_id = group.group_id(Some(entity));
-        // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-        let collect_changes_since_this_tick = self
-            .replication_sender
-            .group_channels
-            .entry(group_id)
-            .or_default()
-            .collect_changes_since_this_tick;
-        // send the update for all changes newer than the last ack bevy tick for the group
-
-        if collect_changes_since_this_tick.map_or(true, |c| {
-            component_change_tick.is_newer_than(c, system_current_tick)
-        }) {
-            trace!(
-                change_tick = ?component_change_tick,
-                ?collect_changes_since_this_tick,
-                current_tick = ?system_current_tick,
-                "prepare entity update changed check"
-            );
-            // trace!(
-            //     ?entity,
-            //     component = ?kind,
-            //     tick = ?self.tick_manager.tick(),
-            //     "Updating single component"
-            // );
-            self.replication_sender
-                .prepare_entity_update(entity, group_id, kind, component);
-        }
-        Ok(())
+    fn replication_cache(&mut self) -> &mut Self::ReplicateCache {
+        &mut self.replicate_component_cache
     }
 
     fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()> {
         let _span = trace_span!("buffer_replication_messages").entered();
         self.buffer_replication_messages(tick, bevy_tick)
-    }
-    fn get_mut_replicate_cache(&mut self) -> &mut EntityHashMap<ReplicateCache> {
-        &mut self.replicate_component_cache
     }
     fn cleanup(&mut self, tick: Tick) {
         debug!("Running replication clean");

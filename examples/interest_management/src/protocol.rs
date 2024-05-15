@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use lightyear::client::components::ComponentSyncMode;
+use lightyear::prelude::server::{ControlledBy, Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::VisibilityMode;
 use UserAction;
@@ -33,10 +34,9 @@ impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
         let color = color_from_id(id);
         let replicate = Replicate {
-            target: ReplicationTarget {
+            sync: SyncTarget {
                 prediction: NetworkTarget::Single(id),
                 interpolation: NetworkTarget::AllExceptSingle(id),
-                ..default()
             },
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(id),
