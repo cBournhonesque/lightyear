@@ -15,12 +15,13 @@ use crate::client::prediction::pre_prediction::PrePredictionPlugin;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
+use crate::client::replication::send::ReplicateToServer;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
 use crate::prelude::server::ControlledBy;
 use crate::prelude::{
-    ComponentRegistry, ParentSync, ReplicateHierarchy, ReplicationTarget, ShouldBePredicted,
-    TargetEntity, Tick, TickManager, VisibilityMode,
+    ComponentRegistry, ParentSync, ReplicateHierarchy, Replicated, Replicating, ReplicationTarget,
+    ShouldBePredicted, TargetEntity, Tick, TickManager, VisibilityMode,
 };
 use crate::protocol::component::ComponentKind;
 use crate::server::prediction::compute_hash;
@@ -159,6 +160,9 @@ impl PreSpawnedPlayerObjectPlugin {
                                         && type_id != TypeId::of::<ReplicationTarget>()
                                         && type_id != TypeId::of::<SyncTarget>()
                                         && type_id != TypeId::of::<ControlledBy>()
+                                        && type_id != TypeId::of::<Replicating>()
+                                        && type_id != TypeId::of::<Replicated>()
+                                        && type_id != TypeId::of::<ReplicateToServer>()
                                         && type_id != TypeId::of::<ReplicateVisibility>()
                                         && type_id != TypeId::of::<VisibilityMode>()
                                         && type_id != TypeId::of::<TargetEntity>()
