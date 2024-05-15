@@ -49,7 +49,7 @@ app.add_channel::<Channel1>(ChannelSettings {
     ..default()
 });
 ```
-- to enable replication, the user just needs to add a `Replicate` component to entities that need to be replicated.
+- to enable replication, the user just needs to add a `Replicate` bundle to entities that need to be replicated.
 - all network-related events are accessible via bevy `Events`: `EventReader<MessageEvent<MyMessage>>` or `EventReader<EntitySpawnEvent>`
 - I provide a certain number of bevy `Resources` to interact with the library (`InputManager`, `ConnectionManager`, `TickManager`,
   etc.)
@@ -81,9 +81,8 @@ app.add_channel::<Channel1>(ChannelSettings {
       the [`leafwing-input-manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate, where
       your `leafwing` inputs are networked for you!
 - World Replication
-    - Entities that have the `Replicate` component will be automatically replicated to clients. Only the components that
-      change will be sent over the network. This functionality is similar to
-      what [bevy_replicon](https://github.com/lifescapegame/bevy_replicon) provides.
+    - Entities that have the `Replicate` bundle will be automatically replicated to clients. Only the components that
+      change will be sent over the network. This functionality is similar to what [bevy_replicon](https://github.com/lifescapegame/bevy_replicon) provides.
 - Advanced replication
     - **Client-side prediction**: with just a one-line change, you can enable client-prediction with rollback on the
       client, so that your inputs can feel responsive
@@ -116,5 +115,5 @@ app.add_channel::<Channel1>(ChannelSettings {
 
 | Lightyear | Bevy |
 |-----------|------|
-| 0.10-0.14 | 0.13 |
+| 0.10-0.15 | 0.13 |
 | 0.1-0.9   | 0.12 |
