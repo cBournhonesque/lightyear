@@ -15,7 +15,7 @@ use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use common::app::{Apps, Cli};
-use common::settings::{ServerTransports, Settings};
+use common::settings::{read_settings, ServerTransports, Settings};
 use lightyear::prelude::{Deserialize, Serialize};
 
 mod client;
@@ -26,9 +26,9 @@ mod shared;
 pub const HOST_SERVER_PORT: u16 = 5050;
 
 fn main() {
-    let mut cli = common::app::cli();
+    let mut cli = Cli::default();
     let settings_str = include_str!("../assets/settings.ron");
-    let mut settings = common::settings::settings::<Settings>(settings_str);
+    let mut settings = read_settings::<Settings>(settings_str);
 
     // in this example, every client will actually launch in host-server mode
     // the reason is that we want every client to be able to be the 'host' of a lobby
@@ -49,19 +49,18 @@ fn main() {
 
     // build the bevy app (this adds common plugins such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them
-    let mut app = common::app::build_app(settings.clone(), cli);
-    // we do not modify the configurations of the plugins, so we can just build
-    // the `ClientPlugins` and `ServerPlugins` plugin groups
-    app.add_lightyear_plugin_groups();
-    // add our plugins
-    app.add_plugins(
-        ExampleClientPlugin { settings },
-        ExampleServerPlugin,
-        SharedPlugin,
-    );
-
-    // run the app
-    app.run();
+    Apps::new(settings.clone(), cli)
+        // we do not modify the configurations of the plugins, so we can just build
+        // the `ClientPlugins` and `ServerPlugins` plugin groups
+        .add_lightyear_plugins()
+        // add our plugins
+        .add_user_plugins(
+            ExampleClientPlugin { settings },
+            ExampleServerPlugin,
+            SharedPlugin,
+        )
+        // run the app
+        .run();
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

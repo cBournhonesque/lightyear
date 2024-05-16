@@ -1,14 +1,22 @@
 [package]
-name = "common"
-version = "0.1.0"
+name = "lightyear_examples_common"
+version = "0.15.1"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
+rust-version = "1.76"
 description = "Common harness for the lightyear examples"
+readme = "../README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license = "MIT OR Apache-2.0"
+exclude = ["/tests"]
 
 [dependencies]
-lightyear = { path = "../../lightyear", features = [
-  "steam",
-  "webtransport",
-  "websocket",
+lightyear = { version = "0.15.1", path = "../../lightyear", features = [
+    "steam",
+    "webtransport",
+    "websocket",
 ] }
 
 # utils
@@ -19,7 +27,6 @@ clap = { version = "4.5.4", features = ["derive"] }
 crossbeam-channel = "0.5.12"
 rand = "0.8.5"
 serde = { version = "1.0.201", features = ["derive"] }
-
 
 # bevy
 bevy = { version = "0.13" }
