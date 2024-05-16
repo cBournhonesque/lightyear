@@ -21,7 +21,7 @@ use lightyear::prelude::{CompressionConfig, LinkConditionerConfig};
 use lightyear::prelude::{client, server};
 
 /// We parse the settings.ron file to read the settings
-pub fn settings<T: DeserializeOwned>(settings_str: &str) -> T {
+pub fn read_settings<T: DeserializeOwned>(settings_str: &str) -> T {
     ron::de::from_str::<T>(settings_str).expect("Could not deserialize the settings file")
 }
 
@@ -137,7 +137,7 @@ pub struct Settings {
     pub shared: SharedSettings,
 }
 
-pub fn build_server_netcode_config(
+pub(crate) fn build_server_netcode_config(
     conditioner: Option<&Conditioner>,
     shared: &SharedSettings,
     transport_config: server::ServerTransport,
@@ -166,7 +166,7 @@ pub fn build_server_netcode_config(
 /// Parse the settings into a list of `NetConfig` that are used to configure how the lightyear server
 /// listens for incoming client connections
 #[cfg(not(target_family = "wasm"))]
-pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
+pub(crate) fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
     settings
         .server
         .transport
@@ -239,7 +239,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
 }
 
 /// Build a netcode config for the client
-pub fn build_client_netcode_config(
+pub(crate) fn build_client_netcode_config(
     client_id: u64,
     server_addr: SocketAddr,
     conditioner: Option<&Conditioner>,
@@ -268,7 +268,7 @@ pub fn build_client_netcode_config(
 
 /// Parse the settings into a `NetConfig` that is used to configure how the lightyear client
 /// connects to the server
-pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::NetConfig {
+pub(crate) fn get_client_net_config(settings: &Settings, client_id: u64) -> client::NetConfig {
     let server_addr = SocketAddr::new(
         settings.client.server_addr.into(),
         settings.client.server_port,

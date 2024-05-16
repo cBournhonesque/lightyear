@@ -5,8 +5,8 @@ use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
-use common::app::Apps;
-use common::settings::{settings, Settings};
+use common::app::{Apps, Cli};
+use common::settings::{read_settings, Settings};
 use lightyear::prelude::client::PredictionConfig;
 use serde::{Deserialize, Serialize};
 
@@ -16,37 +16,22 @@ mod server;
 mod shared;
 
 fn main() {
-    let cli = common::app::cli();
+    let cli = Cli::default();
     let settings_str = include_str!("../assets/settings.ron");
-    let settings = settings::<MySettings>(settings_str);
+    let settings = read_settings::<MySettings>(settings_str);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut app = common::app::build_app(settings.common, cli);
-
-    // for this example, we will use input delay and a correction function
-    let prediction_config = PredictionConfig {
-        input_delay_ticks: settings.input_delay_ticks,
-        correction_ticks_factor: settings.correction_ticks_factor,
-        ..default()
-    };
-    match &mut app {
-        Apps::Client { config, .. } => {
-            config.prediction = prediction_config;
-        }
-        Apps::ListenServer { client_config, .. } => {
-            client_config.prediction = prediction_config;
-        }
-        Apps::HostServer { client_config, .. } => {
-            client_config.prediction = prediction_config;
-        }
-        _ => {}
-    }
-    // add `ClientPlugins` and `ServerPlugins` plugin groups
-    app.add_lightyear_plugin_groups();
-    // add our plugins
-    app.add_plugins(ExampleClientPlugin, ExampleServerPlugin, SharedPlugin);
-    // run the app
-    app.run();
+    Apps::new(settings.common, cli)
+        // for this example, we will use input delay and a correction function
+        .update_lightyear_client_config(|config| {
+            config.prediction.input_delay_ticks = settings.input_delay_ticks;
+            config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
+        })
+        // add `ClientPlugins` and `ServerPlugins` plugin groups
+        .add_lightyear_plugins()
+        // add our plugins
+        .add_user_plugins(ExampleClientPlugin, ExampleServerPlugin, SharedPlugin)
+        // run the app
+        .run();
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

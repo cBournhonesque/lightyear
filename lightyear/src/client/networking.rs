@@ -352,7 +352,6 @@ fn on_connect_host_server(
 ) {
     // spawn an entity for the client
     let client_entity = commands.spawn(ControlledEntities::default()).id();
-    error!("send connect event to server");
     server_connect_event_writer.send(crate::server::events::ConnectEvent {
         client_id: netcode.id(),
         entity: client_entity,
