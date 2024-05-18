@@ -253,4 +253,13 @@ impl NetServer for Server {
     fn io_mut(&mut self) -> Option<&mut Io> {
         None
     }
+
+    fn set_timeout(&mut self, client_id: ClientId, timeout: i32) -> Result<()> {
+        let Some(connection) = self.connections.get_mut(&client_id) else {
+            return Err(SteamError::NoConnection.into());
+        };
+        // TODO: need https://partner.steamgames.com/doc/api/ISteamNetworkingUtils#SetConfigValueStruct
+        //  to be implemented in steamworks-rs
+        todo!("need to implement set_timeout for steam connection");
+    }
 }

@@ -720,4 +720,10 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     fn io_mut(&mut self) -> Option<&mut Io> {
         self.io.as_mut()
     }
+
+    fn set_timeout(&mut self, timeout: i32) -> anyhow::Result<()> {
+        self.client.last_receive_time = self.client.time;
+        self.client.token.timeout_seconds = timeout;
+        Ok(())
+    }
 }

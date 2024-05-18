@@ -68,4 +68,8 @@ impl NetClient for Client {
     fn io_mut(&mut self) -> Option<&mut Io> {
         None
     }
+
+    fn set_timeout(&mut self, timeout: i32) -> Result<()> {
+        Ok(())
+    }
 }

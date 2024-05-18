@@ -1093,6 +1093,18 @@ impl NetServer for Server {
     fn io_mut(&mut self) -> Option<&mut Io> {
         self.io.as_mut()
     }
+
+    fn set_timeout(
+        &mut self,
+        client_id: crate::prelude::ClientId,
+        timeout: i32,
+    ) -> anyhow::Result<()> {
+        let Some(conn) = self.server.conn_cache.clients.get_mut(&client_id.to_bits()) else {
+            return Err(anyhow::Error::new(Error::ClientNotFound));
+        };
+        conn.timeout = timeout;
+        Ok(())
+    }
 }
 
 impl Server {

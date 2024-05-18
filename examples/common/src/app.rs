@@ -5,10 +5,12 @@
 
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::time::Duration;
 
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use bevy::winit::{UpdateMode, WinitSettings};
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
@@ -313,6 +315,12 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: None,
     }));
+    app.insert_resource(WinitSettings {
+        focused_mode: UpdateMode::Continuous,
+        unfocused_mode: UpdateMode::Reactive {
+            wait: Duration::from_secs_f64(1.0 / 60.0),
+        },
+    });
     if settings.client.inspector {
         app.add_plugins(WorldInspectorPlugin::new());
     }

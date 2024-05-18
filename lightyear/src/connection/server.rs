@@ -48,6 +48,11 @@ pub trait NetServer: Send + Sync {
     fn io(&self) -> Option<&Io>;
 
     fn io_mut(&mut self) -> Option<&mut Io>;
+
+    /// Update the timeout for the connection with a given client
+    ///
+    /// The timeout is specified in seconds; a negative value means no timeout
+    fn set_timeout(&mut self, client_id: ClientId, timeout: i32) -> Result<()>;
 }
 
 /// A wrapper around a `Box<dyn NetServer>`
@@ -152,6 +157,10 @@ impl NetServer for ServerConnection {
     fn io_mut(&mut self) -> Option<&mut Io> {
         self.server.io_mut()
     }
+
+    fn set_timeout(&mut self, client_id: ClientId, timeout: i32) -> Result<()> {
+        self.server.set_timeout(client_id, timeout)
+    }
 }
 
 type ServerConnectionIdx = usize;
@@ -184,6 +193,20 @@ impl ServerConnections {
             paused_clients: HashSet::default(),
             is_listening: false,
         }
+    }
+
+    /// Retrieve the connection associated with a given client
+    pub fn get_connection(&self, client_id: ClientId) -> Option<&ServerConnection> {
+        self.client_server_map
+            .get(&client_id)
+            .map(|&server_idx| &self.servers[server_idx])
+    }
+
+    /// Retrieve the connection associated with a given client
+    pub fn get_connection_mut(&mut self, client_id: ClientId) -> Option<&mut ServerConnection> {
+        self.client_server_map
+            .get(&client_id)
+            .map(|&server_idx| &mut self.servers[server_idx])
     }
 
     /// Start listening for client connections on all internal servers

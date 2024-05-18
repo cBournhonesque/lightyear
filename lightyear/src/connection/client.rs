@@ -55,6 +55,10 @@ pub trait NetClient: Send + Sync {
 
     /// Get mutable access to the inner io
     fn io_mut(&mut self) -> Option<&mut Io>;
+
+    /// Set the timeout for the connection, in seconds.
+    /// A negative value means no timeout.
+    fn set_timeout(&mut self, timeout: i32) -> Result<()>;
 }
 
 #[enum_dispatch(NetClient)]
@@ -192,6 +196,10 @@ impl NetClient for ClientConnection {
 
     fn io_mut(&mut self) -> Option<&mut Io> {
         self.client.io_mut()
+    }
+
+    fn set_timeout(&mut self, timeout: i32) -> Result<()> {
+        self.client.set_timeout(timeout)
     }
 }
 
