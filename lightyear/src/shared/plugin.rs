@@ -5,11 +5,12 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::prelude::{
-    AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig,
-    MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject,
-    ShouldBePredicted, TickConfig,
+    AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ComponentRegistry,
+    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
+    PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
 };
 use crate::server::config::ServerConfig;
+use crate::server::pause::PauseMessage;
 use crate::shared::config::SharedConfig;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
@@ -97,6 +98,7 @@ impl Plugin for SharedPlugin {
 
     fn finish(&self, app: &mut App) {
         // PROTOCOL
+        app.add_message::<PauseMessage>(ChannelDirection::ClientToServer);
         // we register components here because
         // - the SharedPlugin is built only once in HostServer mode (client and server plugins in the same app)
         // (if we put this in the ReplicationPlugin, the components would get registered twice)

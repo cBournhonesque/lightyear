@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
-use bevy::utils::HashMap;
+use bevy::utils::{HashMap, HashSet};
 use std::net::SocketAddr;
 
 use crate::connection::id::ClientId;
@@ -165,6 +165,8 @@ pub struct ServerConnections {
     pub(crate) servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
+
+    pub(crate) paused_clients: HashSet<ClientId>,
     /// Track whether the server is ready to listen to incoming connections
     is_listening: bool,
 }
@@ -179,6 +181,7 @@ impl ServerConnections {
         ServerConnections {
             servers,
             client_server_map: HashMap::default(),
+            paused_clients: HashSet::default(),
             is_listening: false,
         }
     }

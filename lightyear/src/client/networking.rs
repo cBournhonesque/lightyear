@@ -20,11 +20,13 @@ use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::connection::server::{IoConfig, ServerConnections};
 use crate::prelude::{
-    ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager,
+    ChannelRegistry, DefaultUnorderedUnreliableChannel, MainSet, MessageRegistry, SharedConfig,
+    TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
 use crate::server::networking::is_started;
+use crate::server::pause::PauseMessage;
 use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::components::Replicated;
@@ -103,6 +105,11 @@ impl Plugin for ClientNetworkingPlugin {
                     sync_update.in_set(SyncSet),
                 ),
             );
+
+        app.add_systems(
+            Update,
+            pause_tab.run_if(is_connected.and_then(not(SharedConfig::is_host_server_condition))),
+        );
 
         // STARTUP
         // TODO: update all systems that need these to only run when needed, so that we don't have to create
@@ -507,7 +514,30 @@ fn connect(world: &mut World) {
     }
 }
 
-
+/// Detect that a tab has been put in the background on the web; which means that the scheduler
+/// is going to be throttled. Send a message to the server to ask the connection to be paused.
+fn pause_tab(mut events: EventReader<WindowOccluded>, mut manager: ResMut<ConnectionManager>) {
+    for event in events.read() {
+        if event.occluded {
+            // Send a message to server to pause the connection
+            // Enter networking state Paused?
+            error!("Tab is occluded, pausing connection");
+            // TODO: maybe send it multiple times for packet loss
+            manager
+                .send_message::<DefaultUnorderedUnreliableChannel, _>(&PauseMessage {
+                    paused: true,
+                })
+                .unwrap();
+        } else {
+            error!("Tab is not occluded, unpausing connection");
+            manager
+                .send_message::<DefaultUnorderedUnreliableChannel, _>(&PauseMessage {
+                    paused: false,
+                })
+                .unwrap();
+        }
+    }
+}
 
 pub trait ClientCommands {
     /// Start the connection process

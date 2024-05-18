@@ -239,6 +239,11 @@ pub(crate) fn send(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_id).entered();
+            let paused = netservers.paused_clients.contains(client_id);
+            // do not send packets to paused clients
+            if paused {
+                return Ok(());
+            }
             let netserver_idx = *netservers
                 .client_server_map
                 .get(client_id)

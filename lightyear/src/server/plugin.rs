@@ -14,6 +14,7 @@ use bevy::prelude::*;
 
 use crate::server::events::ServerEventsPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
+use crate::server::pause::PausePlugin;
 use crate::server::replication::{
     receive::ServerReplicationReceivePlugin, send::ServerReplicationSendPlugin,
 };
@@ -55,6 +56,7 @@ impl PluginGroup for ServerPlugins {
             })
             .add(ServerEventsPlugin)
             .add(ServerNetworkingPlugin)
+            .add(PausePlugin)
             .add(VisibilityPlugin)
             .add(RoomPlugin)
             .add(ClientsMetadataPlugin)
