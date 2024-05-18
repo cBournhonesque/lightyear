@@ -14,9 +14,9 @@ use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
-use common::app::{Apps, Cli};
-use common::settings::{read_settings, ServerTransports, Settings};
 use lightyear::prelude::{Deserialize, Serialize};
+use lightyear_examples_common::app::{Apps, Cli};
+use lightyear_examples_common::settings::{read_settings, ServerTransports, Settings};
 
 mod client;
 mod protocol;
