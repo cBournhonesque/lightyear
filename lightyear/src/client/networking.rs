@@ -6,6 +6,7 @@ use async_channel::TryRecvError;
 use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
+use bevy::window::WindowOccluded;
 use tracing::{error, trace};
 
 use crate::client::components::Confirmed;
@@ -506,15 +507,7 @@ fn connect(world: &mut World) {
     }
 }
 
-// pub struct ConnectClient;
-//
-// impl Command for ConnectClient {
-//     fn apply(self, world: &mut World) {
-//         world
-//             .resource_mut::<NextState<NetworkingState>>()
-//             .set(NetworkingState::Connecting);
-//     }
-// }
+
 
 pub trait ClientCommands {
     /// Start the connection process

@@ -10,14 +10,14 @@ publish = false
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
-common = { path = "../common" }
+lightyear_examples_common = { path = "../common" }
 bevy_screen_diagnostics = "0.5.0"
 leafwing-input-manager = "0.13"
 lightyear = { path = "../../lightyear", features = [
-  "webtransport",
-  "websocket",
-  "leafwing",
-  "steam",
+    "webtransport",
+    "websocket",
+    "leafwing",
+    "steam",
 ] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }

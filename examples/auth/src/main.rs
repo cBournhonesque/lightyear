@@ -15,8 +15,8 @@ use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
-use common::app::{Apps, Cli};
-use common::settings::{read_settings, Settings};
+use lightyear_examples_common::app::{Apps, Cli};
+use lightyear_examples_common::settings::{read_settings, Settings};
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 

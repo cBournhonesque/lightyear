@@ -14,7 +14,7 @@ use lightyear::prelude::server::ServerCommands;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use common::settings::{get_client_net_config, Settings};
+use lightyear_examples_common::settings::{get_client_net_config, Settings};
 
 pub struct ExampleClientPlugin {
     pub(crate) settings: Settings,

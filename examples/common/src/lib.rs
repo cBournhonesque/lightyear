@@ -21,8 +21,8 @@
 //!
 //! ```rust,ignore
 //! use bevy::prelude::{App, Plugin};
-//! use common::app::{Cli, Apps};
-//! use common::settings::Settings;
+//! use lightyear_examples_common::app::{Cli, Apps};
+//! use lightyear_examples_common::settings::Settings;
 //!
 //! struct ExampleClientPlugin;
 //! struct ExampleServerPlugin;

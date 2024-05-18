@@ -14,8 +14,8 @@ use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
-use common::app::{Apps, Cli};
-use common::settings::{read_settings, Settings};
+use lightyear_examples_common::app::{Apps, Cli};
+use lightyear_examples_common::settings::{read_settings, Settings};
 
 mod client;
 mod protocol;
@@ -30,7 +30,7 @@ fn main() {
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
     Apps::new(settings, cli)
         // add the `ClientPlugins` and `ServerPlugins` plugin groups
-        .build_lightyear_plugins()
+        .add_lightyear_plugins()
         // add our plugins
         .add_user_plugins(ExampleClientPlugin, ExampleServerPlugin, SharedPlugin)
         // run the app
