@@ -51,6 +51,11 @@ impl NetcodeConfig {
 /// Configuration related to sending packets
 #[derive(Clone, Debug)]
 pub struct PacketConfig {
+    /// After how many multiples of RTT do we consider a packet to be lost?
+    ///
+    /// The default is 1.5; i.e. after 1.5 times the round trip time, we consider a packet lost if
+    /// we haven't received an ACK for it.
+    pub nack_rtt_multiple: f32,
     /// Number of bytes per second that can be sent to each client
     pub per_client_send_bandwidth_cap: Quota,
     /// If false, there is no bandwidth cap and all messages are sent as soon as possible
@@ -60,6 +65,7 @@ pub struct PacketConfig {
 impl Default for PacketConfig {
     fn default() -> Self {
         Self {
+            nack_rtt_multiple: 1.5,
             // 56 KB/s bandwidth cap
             per_client_send_bandwidth_cap: Quota::per_second(nonzero!(56000u32)),
             bandwidth_cap_enabled: false,

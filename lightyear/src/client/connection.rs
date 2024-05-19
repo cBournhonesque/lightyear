@@ -101,9 +101,14 @@ impl ConnectionManager {
         input_delay_ticks: u16,
     ) -> Self {
         // create the message manager and the channels
-        let mut message_manager = MessageManager::new(channel_registry, packet_config.into());
-        // get the acks-tracker for entity updates
-        let update_acks_tracker = message_manager
+        let mut message_manager = MessageManager::new(
+            channel_registry,
+            packet_config.nack_rtt_multiple,
+            packet_config.into(),
+        );
+        // get notified when a replication-update message gets acked/nacked
+        let update_nacks_receiver = message_manager.subscribe_nacks();
+        let update_acks_receiver = message_manager
             .channels
             .get_mut(&ChannelKind::of::<EntityUpdatesChannel>())
             .unwrap()
@@ -112,8 +117,11 @@ impl ConnectionManager {
         // get a channel to get notified when a replication update message gets actually send (to update priority)
         let replication_update_send_receiver =
             message_manager.get_replication_update_send_receiver();
-        let replication_sender =
-            ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
+        let replication_sender = ReplicationSender::new(
+            update_acks_receiver,
+            update_nacks_receiver,
+            replication_update_send_receiver,
+        );
         let replication_receiver = ReplicationReceiver::new();
         Self {
             component_registry: component_registry.clone(),

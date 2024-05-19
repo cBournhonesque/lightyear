@@ -32,9 +32,9 @@ pub(crate) struct PacketBuilder {
 }
 
 impl PacketBuilder {
-    pub fn new() -> Self {
+    pub fn new(nack_rtt_multiple: f32) -> Self {
         Self {
-            header_manager: PacketHeaderManager::new(),
+            header_manager: PacketHeaderManager::new(nack_rtt_multiple),
             // write buffer to encode packets bit by bit
             try_write_buffer: WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY),
             write_buffer: WriteBuffer::with_capacity(PACKET_BUFFER_CAPACITY),

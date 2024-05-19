@@ -42,7 +42,7 @@ pub(crate) fn despawn_interpolated(
             .confirmed_to_interpolated
             .remove(&confirmed_entity)
         {
-            if let Some(mut entity_mut) = commands.get_entity(interpolated) {
+            if let Some(entity_mut) = commands.get_entity(interpolated) {
                 entity_mut.despawn_recursive();
             }
         }

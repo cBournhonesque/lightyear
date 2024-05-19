@@ -29,10 +29,12 @@ type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 pub(crate) struct ReplicationSender {
     /// Get notified whenever a message-id that was sent has been received by the remote
-    pub updates_ack_tracker: Receiver<MessageId>,
+    pub(crate) updates_ack_receiver: Receiver<MessageId>,
+    /// Get notified whenever a message-id that was sent has been lost by the remote
+    pub(crate) updates_nack_receiver: Receiver<MessageId>,
 
-    /// Map from message-id to the corresponding group-id that sent this update message, as well as the bevy ChangeTick
-    /// when we sent the message. (so that when it's acked, we know we only need to include updates that happened after that tick,
+    /// Map from message-id to the corresponding group-id that sent this update message, as well as the `send_tick` BevyTick
+    /// when we buffered the message. (so that when it's acked, we know we only need to include updates that happened after that tick,
     /// for that replication group)
     pub updates_message_id_to_group_id: HashMap<MessageId, (ReplicationGroupId, BevyTick)>,
     /// messages that are being written. We need to hold a buffer of messages because components actions/updates
@@ -46,20 +48,23 @@ pub(crate) struct ReplicationSender {
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 
-    // PRIORITY
     /// Get notified whenever a message for a given ReplicationGroup was actually sent
-    /// (sometimes they might not be sent because of bandwidth constraints
+    /// (sometimes they might not be sent because of bandwidth constraints)
+    ///
+    /// We update the `send_tick` only when the message was actually sent.
     pub message_send_receiver: Receiver<MessageId>,
 }
 
 impl ReplicationSender {
     pub(crate) fn new(
-        updates_ack_tracker: Receiver<MessageId>,
+        updates_ack_receiver: Receiver<MessageId>,
+        updates_nack_receiver: Receiver<MessageId>,
         message_send_receiver: Receiver<MessageId>,
     ) -> Self {
         Self {
             // SEND
-            updates_ack_tracker,
+            updates_ack_receiver,
+            updates_nack_receiver,
             updates_message_id_to_group_id: Default::default(),
             pending_actions: EntityHashMap::default(),
             pending_updates: EntityHashMap::default(),
@@ -70,14 +75,40 @@ impl ReplicationSender {
         }
     }
 
+    /// Internal bookkeeping:
+    /// 1. handle all nack update messages
+    pub(crate) fn update(&mut self) {
+        // 1. handle all nack update messages
+        while let Ok(message_id) = self.updates_nack_receiver.try_recv() {
+            // remember to remove the entry from the map to avoid memory leakage
+            if let Some((group_id, _)) = self.updates_message_id_to_group_id.remove(&message_id) {
+                if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                    // when we know an update message has been lost, we need to reset our send_tick
+                    // to our previous ack_tick
+                    trace!(
+                        "Update channel send_tick back to ack_tick because a message has been lost"
+                    );
+                    channel.send_tick = channel.ack_tick;
+                } else {
+                    error!("Received an update message-id nack but the corresponding group channel does not exist");
+                }
+            } else {
+                error!("Received an update message-id nack but we don't know the corresponding group id");
+            }
+        }
+    }
+
     /// If we got notified that an update got send (included in a packet), we reset the accumulated priority to 0.0
+    /// and we update the channel's send_tick
     /// Then all replication_group_ids, we accumulate the priority.
     ///
     /// This should be call after the Send SystemSet.
     pub(crate) fn recv_send_notification(&mut self) {
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.message_send_receiver.try_recv() {
-            if let Some((group_id, _)) = self.updates_message_id_to_group_id.get(&message_id) {
+            if let Some((group_id, bevy_tick)) =
+                self.updates_message_id_to_group_id.get(&message_id)
+            {
                 if let Some(channel) = self.group_channels.get_mut(group_id) {
                     // TODO: think about we reset the priority, or how it should be accumulated
                     // reset the priority
@@ -86,6 +117,7 @@ impl ReplicationSender {
                         ?group_id,
                         "successfully sent message for replication group! Resetting priority"
                     );
+                    channel.send_tick = Some(*bevy_tick);
                     channel.accumulated_priority = Some(0.0);
                 } else {
                     error!(?message_id, ?group_id, "Received a send message-id notification but the corresponding group channel does not exist");
@@ -112,13 +144,14 @@ impl ReplicationSender {
     /// We call this after the Receive SystemSet; to update the bevy_tick at which we received entity updates for each group
     pub(crate) fn recv_update_acks(&mut self) {
         // TODO: handle errors that are not channel::isEmpty
-        while let Ok(message_id) = self.updates_ack_tracker.try_recv() {
+        while let Ok(message_id) = self.updates_ack_receiver.try_recv() {
             // remember to remove the entry from the map to avoid memory leakage
             if let Some((group_id, bevy_tick)) =
                 self.updates_message_id_to_group_id.remove(&message_id)
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
-                    channel.update_collect_changes_since_this_tick(bevy_tick)
+                    debug!(?bevy_tick, "Update channel ack_tick");
+                    channel.ack_tick = Some(bevy_tick);
                 } else {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
                 }
@@ -389,9 +422,21 @@ impl ReplicationSender {
 pub struct GroupChannel {
     pub actions_next_send_message_id: MessageId,
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
-    // bevy tick when we received an ack of an update for this group
-    // at the start it's None, and we collect any changes
-    pub collect_changes_since_this_tick: Option<BevyTick>,
+    // bevy Tick when we last sent an update for this group.
+    // This is used to collect updates that we will replicate; we replicate any update that happened after this tick.
+    // (and not after the last ack_tick, because 99% of the time the packet won't be lost so there is no need
+    // to wait for an ack. If we keep sending updates since the last ack, we would be sending a lot of duplicate messages)
+    //
+    // at the start, it's `None` (meaning that we send any changes)
+    pub send_tick: Option<BevyTick>,
+    // bevy Tick when we last received an ack for an update message for this group.
+    //
+    // If a message is acked, we bump the ack_tick to the `send_tick` at which we sent the update.
+    // (meaning that we don't need to send updates that happened before that `send_tick` anymore)
+    //
+    // If a message is lost, we bump the `send_tick` back to the `ack_tick`, because we might need to re-send those updates.
+    pub ack_tick: Option<BevyTick>,
+
     // last tick for which we sent an action message
     pub last_action_tick: Option<Tick>,
 
@@ -406,26 +451,12 @@ impl Default for GroupChannel {
     fn default() -> Self {
         Self {
             actions_next_send_message_id: MessageId(0),
+            send_tick: None,
+            ack_tick: None,
             last_action_tick: None,
             accumulated_priority: None,
-            collect_changes_since_this_tick: None,
             base_priority: 1.0,
         }
-    }
-}
-
-impl GroupChannel {
-    /// Update the bevy_tick at which we received entity updates for this group
-    /// (we will only collect updates since this tick)
-    pub(crate) fn update_collect_changes_since_this_tick(&mut self, bevy_tick: BevyTick) {
-        // the bevy_tick passed is either at receive or send, and is always more recent
-        // than the previous bevy_tick
-
-        debug!(?bevy_tick, "Update acked update tick");
-        // if bevy_tick is bigger than current tick, set current_tick to bevy_tick
-        // if bevy_tick.is_newer_than(self.collect_changes_since_this_tick, BevyTick::MAX) {
-        self.collect_changes_since_this_tick = Some(bevy_tick);
-        // }
     }
 }
 
@@ -440,8 +471,10 @@ mod tests {
     #[test]
     fn test_buffer_replication_messages() {
         // create fake channels for receiving updates about acks and sends
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        let mut manager = ReplicationSender::new(receiver.clone(), receiver);
+        let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
+        let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
+        let (tx_send, rx_send) = crossbeam_channel::unbounded();
+        let mut manager = ReplicationSender::new(rx_ack, rx_nack, rx_send);
 
         let entity_1 = Entity::from_raw(0);
         let entity_2 = Entity::from_raw(1);
