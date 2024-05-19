@@ -1,5 +1,5 @@
 //! Defines server-specific configuration options
-use bevy::prelude::Resource;
+use bevy::prelude::{Reflect, Resource};
 use governor::Quota;
 use nonzero_ext::nonzero;
 
@@ -91,6 +91,30 @@ impl PacketConfig {
     }
 }
 
+#[derive(Clone, Debug, Reflect)]
+pub struct ReplicationConfig {
+    /// By default, we will send all component updates since the last time we sent an update for a given entity.
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we won't be sending anything since the component wasn't updated after that.
+    ///
+    /// This helps save bandwidth, but can cause the client to have delayed eventual consistency in the
+    /// case of packet loss.
+    ///
+    /// If this is set to true, we will instead send all updates since the last time we received an ACK from the client.
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we will send the update again even if the component wasn't updated, because we still haven't
+    /// received an ACK from the client.
+    pub send_updates_since_last_ack: bool,
+}
+
+impl Default for ReplicationConfig {
+    fn default() -> Self {
+        Self {
+            send_updates_since_last_ack: false,
+        }
+    }
+}
+
 /// Configuration for the server plugin
 #[derive(Clone, Debug, Default, Resource)]
 pub struct ServerConfig {
@@ -99,5 +123,6 @@ pub struct ServerConfig {
     /// clients can connect using the transport they prefer, and still play with each other!
     pub net: Vec<NetConfig>,
     pub packet: PacketConfig,
+    pub replication: ReplicationConfig,
     pub ping: PingConfig,
 }

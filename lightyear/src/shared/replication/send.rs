@@ -55,6 +55,19 @@ pub(crate) struct ReplicationSender {
     ///
     /// We update the `send_tick` only when the message was actually sent.
     pub message_send_receiver: Receiver<MessageId>,
+
+    /// By default, we will send all component updates since the last time we sent an update for a given entity.
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we won't be sending anything since the component wasn't updated after that.
+    ///
+    /// This helps save bandwidth, but can cause the client to have delayed eventual consistency in the
+    /// case of packet loss.
+    ///
+    /// If this is set to true, we will instead send all updates since the last time we received an ACK from the client.
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we will send the update again even if the component wasn't updated, because we still haven't
+    /// received an ACK from the client.
+    send_updates_since_last_ack: bool,
     bandwidth_cap_enabled: bool,
 }
 
@@ -63,6 +76,7 @@ impl ReplicationSender {
         updates_ack_receiver: Receiver<MessageId>,
         updates_nack_receiver: Receiver<MessageId>,
         message_send_receiver: Receiver<MessageId>,
+        send_updates_since_last_ack: bool,
         bandwidth_cap_enabled: bool,
     ) -> Self {
         Self {
@@ -74,6 +88,7 @@ impl ReplicationSender {
             pending_updates: EntityHashMap::default(),
             pending_unique_components: EntityHashMap::default(),
             group_channels: Default::default(),
+            send_updates_since_last_ack,
             // PRIORITY
             message_send_receiver,
             bandwidth_cap_enabled,
@@ -99,14 +114,18 @@ impl ReplicationSender {
         }
     }
 
-    // TODO: add an option to keep doing the previous behaviour, i.e.
-    //  `get_send_tick()` would return the `ack_tick`!
     /// Get the `send_tick` for a given group.
     /// We will send all updates that happened after this bevy tick.
     pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId) -> Option<BevyTick> {
         self.group_channels
             .get(&group_id)
-            .map(|channel| channel.send_tick)
+            .map(|channel| {
+                if self.send_updates_since_last_ack {
+                    channel.ack_tick
+                } else {
+                    channel.send_tick
+                }
+            })
             .flatten()
     }
 
@@ -187,7 +206,7 @@ impl ReplicationSender {
         });
     }
 
-    // TODO: call this in a system after receive
+    // TODO: call this in a system after receive?
     /// We call this after the Receive SystemSet; to update the bevy_tick at which we received entity updates for each group
     pub(crate) fn recv_update_acks(&mut self) {
         // TODO: handle errors that are not channel::isEmpty
@@ -524,7 +543,6 @@ mod tests {
     #[test]
     fn test_integration_send_tick_updates_on_packet_nack() {
         let mut stepper = BevyStepper::default();
-
         macro_rules! sender {
             () => {
                 stepper
@@ -537,7 +555,6 @@ mod tests {
                     .replication_sender
             };
         }
-
         let server_entity = stepper
             .server_app
             .world
@@ -572,12 +589,12 @@ mod tests {
     }
 
     #[test]
-    fn test_send_tick() {
+    fn test_send_tick_no_priority() {
         // create fake channels for receiving updates about acks and sends
         let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
         let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
         let (tx_send, rx_send) = crossbeam_channel::unbounded();
-        let mut sender = ReplicationSender::new(rx_ack, rx_nack, rx_send, false);
+        let mut sender = ReplicationSender::new(rx_ack, rx_nack, rx_send, false, false);
         let group_1 = ReplicationGroupId(0);
         sender
             .group_channels
@@ -644,8 +661,46 @@ mod tests {
         assert!(!sender
             .updates_message_id_to_group_id
             .contains_key(&message_3),);
+        // this time the `send_tick` is updated to the `ack_tick`
         assert_eq!(group.send_tick, Some(bevy_tick_2));
         assert_eq!(group.ack_tick, Some(bevy_tick_2));
+    }
+
+    #[test]
+    fn test_send_tick_priority() {
+        // create fake channels for receiving updates about acks and sends
+        let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
+        let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
+        let (tx_send, rx_send) = crossbeam_channel::unbounded();
+        let mut sender = ReplicationSender::new(rx_ack, rx_nack, rx_send, false, true);
+        let group_1 = ReplicationGroupId(0);
+        sender
+            .group_channels
+            .insert(group_1, GroupChannel::default());
+
+        let message_1 = MessageId(0);
+        let message_2 = MessageId(1);
+        let message_3 = MessageId(2);
+        let bevy_tick_1 = BevyTick::new(0);
+        let bevy_tick_2 = BevyTick::new(2);
+        let bevy_tick_3 = BevyTick::new(4);
+        // when we buffer a message to be sent, we don't update the `send_tick`
+        // (because we wait until the message is actually send)
+        sender.buffer_replication_update_message(group_1, message_1, bevy_tick_1);
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(
+            sender.updates_message_id_to_group_id.get(&message_1),
+            Some(&(group_1, bevy_tick_1))
+        );
+        assert_eq!(group.send_tick, None);
+        assert_eq!(group.ack_tick, None);
+
+        tx_send.try_send(message_1).unwrap();
+        // when the message is actually sent, we update the `send_tick`
+        sender.recv_send_notification();
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(group.send_tick, Some(bevy_tick_1));
+        assert_eq!(group.ack_tick, None);
     }
 
     // TODO: add tests for replication with entity relations!
@@ -657,7 +712,7 @@ mod tests {
         let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
         let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
         let (tx_send, rx_send) = crossbeam_channel::unbounded();
-        let mut manager = ReplicationSender::new(rx_ack, rx_nack, rx_send, false);
+        let mut manager = ReplicationSender::new(rx_ack, rx_nack, rx_send, false, false);
 
         let entity_1 = Entity::from_raw(0);
         let entity_2 = Entity::from_raw(1);

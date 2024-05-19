@@ -13,7 +13,7 @@ use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
 use bitcode::encoding::Fixed;
 
 use crate::channel::senders::ChannelSend;
-use crate::client::config::PacketConfig;
+use crate::client::config::{PacketConfig, ReplicationConfig};
 use crate::client::message::ClientMessage;
 use crate::client::replication::send::ReplicateCache;
 use crate::client::sync::SyncConfig;
@@ -95,6 +95,7 @@ impl ConnectionManager {
         component_registry: &ComponentRegistry,
         message_registry: &MessageRegistry,
         channel_registry: &ChannelRegistry,
+        replication_config: ReplicationConfig,
         packet_config: PacketConfig,
         sync_config: SyncConfig,
         ping_config: PingConfig,
@@ -122,6 +123,7 @@ impl ConnectionManager {
             update_acks_receiver,
             update_nacks_receiver,
             replication_update_send_receiver,
+            replication_config.send_updates_since_last_ack,
             bandwidth_cap_enabled,
         );
         let replication_receiver = ReplicationReceiver::new();

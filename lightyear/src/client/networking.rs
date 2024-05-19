@@ -455,6 +455,7 @@ fn rebuild_client_connection(world: &mut World) {
         world.resource::<ComponentRegistry>(),
         world.resource::<MessageRegistry>(),
         world.resource::<ChannelRegistry>(),
+        client_config.replication,
         client_config.packet,
         client_config.sync,
         client_config.ping,

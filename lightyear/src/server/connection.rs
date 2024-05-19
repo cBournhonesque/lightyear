@@ -34,7 +34,7 @@ use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
-use crate::server::config::PacketConfig;
+use crate::server::config::{PacketConfig, ReplicationConfig};
 use crate::server::events::{ConnectEvent, ServerEvents};
 use crate::server::message::ServerMessage;
 use crate::server::replication::send::ReplicateCache;
@@ -74,6 +74,9 @@ pub struct ConnectionManager {
     pub(crate) new_clients: Vec<ClientId>,
     pub(crate) writer: BitcodeWriter,
     pub(crate) reader_pool: BufferPool,
+
+    // CONFIG
+    replication_config: ReplicationConfig,
     packet_config: PacketConfig,
     ping_config: PingConfig,
 }
@@ -82,6 +85,7 @@ impl ConnectionManager {
     pub(crate) fn new(
         message_registry: MessageRegistry,
         channel_registry: ChannelRegistry,
+        replication_config: ReplicationConfig,
         packet_config: PacketConfig,
         ping_config: PingConfig,
     ) -> Self {
@@ -94,6 +98,7 @@ impl ConnectionManager {
             new_clients: vec![],
             writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
             reader_pool: BufferPool::new(1),
+            replication_config,
             packet_config,
             ping_config,
         }
@@ -232,6 +237,7 @@ impl ConnectionManager {
                 client_id,
                 client_entity,
                 &self.channel_registry,
+                self.replication_config.clone(),
                 self.packet_config.clone(),
                 self.ping_config.clone(),
             );
@@ -389,6 +395,7 @@ impl Connection {
         client_id: ClientId,
         entity: Entity,
         channel_registry: &ChannelRegistry,
+        replication_config: ReplicationConfig,
         packet_config: PacketConfig,
         ping_config: PingConfig,
     ) -> Self {
@@ -414,6 +421,7 @@ impl Connection {
             update_acks_receiver,
             update_nacks_receiver,
             replication_update_send_receiver,
+            replication_config.send_updates_since_last_ack,
             bandwidth_cap_enabled,
         );
         let replication_receiver = ReplicationReceiver::new();

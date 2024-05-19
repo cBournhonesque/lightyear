@@ -23,7 +23,7 @@ use crate::prelude::server::{ServerConfig, ServerPlugins};
 use crate::shared::config::Mode;
 use crate::shared::plugin::SharedPlugin;
 
-use super::config::ClientConfig;
+use super::config::{ClientConfig, ReplicationConfig};
 
 /// A plugin group containing all the client plugins.
 ///
@@ -76,6 +76,8 @@ struct SetupPlugin {
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
         app
+            // REFLECTION
+            .register_type::<ReplicationConfig>()
             // RESOURCES //
             .insert_resource(self.config.clone());
 

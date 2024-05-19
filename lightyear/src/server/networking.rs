@@ -316,6 +316,7 @@ fn rebuild_server_connections(world: &mut World) {
     let connection_manager = ConnectionManager::new(
         world.resource::<MessageRegistry>().clone(),
         world.resource::<ChannelRegistry>().clone(),
+        server_config.replication,
         server_config.packet,
         server_config.ping,
     );
