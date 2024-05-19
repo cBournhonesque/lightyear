@@ -167,7 +167,7 @@ pub(crate) fn receive(world: &mut World) {
 
                                             // update connections
                                             connection_manager
-                                                .update(time_manager.as_ref(), tick_manager.as_ref());
+                                                .update(world.change_tick(), time_manager.as_ref(), tick_manager.as_ref());
 
                                             // RECV_PACKETS: buffer packets into message managers
                                             for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {

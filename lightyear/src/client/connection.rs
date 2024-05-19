@@ -160,9 +160,15 @@ impl ConnectionManager {
             .unwrap_or(Tick(0))
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    pub(crate) fn update(
+        &mut self,
+        world_tick: BevyTick,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) {
         self.message_manager
             .update(time_manager, &self.ping_manager, tick_manager);
+        self.replication_sender.update(world_tick);
         self.ping_manager.update(time_manager);
 
         // (we update the sync manager in POST_UPDATE)

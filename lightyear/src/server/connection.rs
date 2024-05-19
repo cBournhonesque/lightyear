@@ -210,9 +210,14 @@ impl ConnectionManager {
             .context("client id not found")
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    pub(crate) fn update(
+        &mut self,
+        world_tick: BevyTick,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) {
         self.connections.values_mut().for_each(|connection| {
-            connection.update(time_manager, tick_manager);
+            connection.update(world_tick, time_manager, tick_manager);
         });
     }
 
@@ -431,10 +436,15 @@ impl Connection {
         }
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    pub(crate) fn update(
+        &mut self,
+        world_tick: BevyTick,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) {
         self.message_manager
             .update(time_manager, &self.ping_manager, tick_manager);
-        self.replication_sender.update();
+        self.replication_sender.update(world_tick);
         self.ping_manager.update(time_manager);
     }
 

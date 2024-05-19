@@ -112,18 +112,28 @@ impl ReplicationSender {
 
     /// Internal bookkeeping:
     /// 1. handle all nack update messages
-    pub(crate) fn update(&mut self) {
+    pub(crate) fn update(&mut self, world_tick: BevyTick) {
         // 1. handle all nack update messages
         while let Ok(message_id) = self.updates_nack_receiver.try_recv() {
             // remember to remove the entry from the map to avoid memory leakage
-            if let Some((group_id, _)) = self.updates_message_id_to_group_id.remove(&message_id) {
+            if let Some((group_id, bevy_tick)) =
+                self.updates_message_id_to_group_id.remove(&message_id)
+            {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
                     // when we know an update message has been lost, we need to reset our send_tick
                     // to our previous ack_tick
                     trace!(
                         "Update channel send_tick back to ack_tick because a message has been lost"
                     );
-                    channel.send_tick = channel.ack_tick;
+                    // only reset the send tick if the bevy_tick of the message that was lost is
+                    // newer than the current ack_tick
+                    // (otherwise it just means we lost some old message, and we don't need to do anything)
+                    if channel
+                        .ack_tick
+                        .is_some_and(|ack_tick| bevy_tick.is_newer_than(ack_tick, world_tick))
+                    {
+                        channel.send_tick = channel.ack_tick;
+                    }
                 } else {
                     error!("Received an update message-id nack but the corresponding group channel does not exist");
                 }
@@ -501,8 +511,9 @@ impl Default for GroupChannel {
 mod tests {
     use crate::channel::builder::EntityActionsChannel;
     use crate::prelude::server::Replicate;
-    use crate::prelude::ClientId;
+    use crate::prelude::{ClientId, ReplicationGroup};
     use crate::server::connection::ConnectionManager;
+    use crate::shared::replication::components::ReplicationGroupIdBuilder;
     use crate::tests::protocol::Component1;
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::prelude::*;
@@ -519,7 +530,7 @@ mod tests {
                 stepper
                     .server_app
                     .world
-                    .resource_mut::<ConnectionManager>()
+                    .resource::<ConnectionManager>()
                     .connections
                     .get(&ClientId::Netcode(TEST_CLIENT_ID))
                     .unwrap()
@@ -530,18 +541,111 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world
-            .spawn((Component1(1.0), Replicate::default()));
+            .spawn((Component1(1.0), Replicate::default()))
+            .id();
+        stepper.frame_step();
+
+        // send an update
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .get_mut::<Component1>()
+            .unwrap()
+            .0 = 2.0;
         stepper.frame_step();
         let server_tick = stepper.server_tick();
-        dbg!(&sender!());
-        assert!(!sender!().updates_message_id_to_group_id.is_empty());
-        let message_id = *sender!()
+
+        // check that we keep track of the message_id and bevy_tick at which we sent the update
+        let (message_id, (group_id, bevy_tick)) = sender!()
             .updates_message_id_to_group_id
             .iter()
             .next()
-            .unwrap()
-            .0;
-        dbg!(message_id);
+            .expect("we should have stored the message_id associated with the entity update");
+        assert_eq!(group_id, &ReplicationGroupId(server_entity.to_bits()));
+        let group_channel = sender!()
+            .group_channels
+            .get(group_id)
+            .expect("we should have a group channel for the entity");
+        assert_eq!(group_channel.send_tick, Some(*bevy_tick));
+        assert_eq!(group_channel.ack_tick, None);
+    }
+
+    #[test]
+    fn test_send_tick() {
+        // create fake channels for receiving updates about acks and sends
+        let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
+        let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
+        let (tx_send, rx_send) = crossbeam_channel::unbounded();
+        let mut sender = ReplicationSender::new(rx_ack, rx_nack, rx_send, false);
+        let group_1 = ReplicationGroupId(0);
+        sender
+            .group_channels
+            .insert(group_1, GroupChannel::default());
+
+        let message_1 = MessageId(0);
+        let message_2 = MessageId(1);
+        let message_3 = MessageId(2);
+        let bevy_tick_1 = BevyTick::new(0);
+        let bevy_tick_2 = BevyTick::new(2);
+        let bevy_tick_3 = BevyTick::new(4);
+        // when we buffer a message to be sent, we update the `send_tick`
+        sender.buffer_replication_update_message(group_1, message_1, bevy_tick_1);
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(
+            sender.updates_message_id_to_group_id.get(&message_1),
+            Some(&(group_1, bevy_tick_1))
+        );
+        assert_eq!(group.send_tick, Some(bevy_tick_1));
+        assert_eq!(group.ack_tick, None);
+
+        // if we buffer a second message, we update the `send_tick`
+        sender.buffer_replication_update_message(group_1, message_2, bevy_tick_2);
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(
+            sender.updates_message_id_to_group_id.get(&message_2),
+            Some(&(group_1, bevy_tick_2))
+        );
+        assert_eq!(group.send_tick, Some(bevy_tick_2));
+        assert_eq!(group.ack_tick, None);
+
+        // if we receive an ack for the second message, we update the `ack_tick`
+        tx_ack.try_send(message_2).unwrap();
+        sender.recv_update_acks();
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert!(!sender
+            .updates_message_id_to_group_id
+            .contains_key(&message_2));
+        assert_eq!(group.send_tick, Some(bevy_tick_2));
+        assert_eq!(group.ack_tick, Some(bevy_tick_2));
+
+        // if we buffer a third message, we update the `send_tick`
+        sender.buffer_replication_update_message(group_1, message_3, bevy_tick_3);
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(
+            sender.updates_message_id_to_group_id.get(&message_3),
+            Some(&(group_1, bevy_tick_3))
+        );
+        assert_eq!(group.send_tick, Some(bevy_tick_3));
+        assert_eq!(group.ack_tick, Some(bevy_tick_2));
+
+        // if we receive a nack for the first message, we don't care because that message's bevy tick
+        // is lower than our ack tick
+        tx_nack.try_send(message_1).unwrap();
+        sender.update(BevyTick::new(10));
+        // make sure that the send tick wasn't updated
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(group.send_tick, Some(bevy_tick_3));
+
+        // however if we receive a nack for the third message, we update the `send_tick` back to the `ack_tick`
+        tx_nack.try_send(message_3).unwrap();
+        sender.update(BevyTick::new(10));
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert!(!sender
+            .updates_message_id_to_group_id
+            .contains_key(&message_3),);
+        assert_eq!(group.send_tick, Some(bevy_tick_2));
+        assert_eq!(group.ack_tick, Some(bevy_tick_2));
     }
 
     // TODO: add tests for replication with entity relations!
