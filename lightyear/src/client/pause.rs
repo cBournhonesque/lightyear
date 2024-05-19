@@ -17,15 +17,18 @@ use bevy::prelude::*;
 use bevy::utils::SystemTime;
 use bevy::window::WindowOccluded;
 use tracing::error;
+use wasm_bindgen::prelude::Closure;
+use wasm_bindgen::JsCast;
 
 pub struct PausePlugin;
 
 impl Plugin for PausePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            PreUpdate,
-            pause_tab.run_if(is_connected.and_then(not(SharedConfig::is_host_server_condition))),
-        );
+        // app.add_systems(
+        //     PreUpdate,
+        //     pause_tab.run_if(is_connected.and_then(not(SharedConfig::is_host_server_condition))),
+        // );
+        add_pause_tab();
         app.add_systems(Last, debug);
     }
 }
@@ -42,9 +45,27 @@ fn debug(mut events: EventReader<WindowOccluded>) {
     }
 }
 
+fn add_pause_tab() {
+    let window = web_sys::window().unwrap();
+    {
+        let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::PageTransitionEvent| {
+            error!("Page is hidden");
+        });
+        window.add_event_listener_with_callback("pagehide", closure.as_ref().unchecked_ref());
+        closure.forget();
+    }
+    {
+        let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::PageTransitionEvent| {
+            error!("Page is shown");
+        });
+        window.add_event_listener_with_callback("pageshow", closure.as_ref().unchecked_ref());
+        closure.forget();
+    }
+}
+
 /// Detect that a tab has been put in the background on the web; which means that the scheduler
 /// is going to be throttled. Send a message to the server to ask the connection to be paused.
-fn pause_tab(
+fn unpause_tab(
     config: Res<ClientConfig>,
     mut events: EventReader<WindowOccluded>,
     mut manager: ResMut<ConnectionManager>,

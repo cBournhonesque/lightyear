@@ -156,6 +156,7 @@ web-sys = { version = "0.3", optional = true, features = [
     "ErrorEvent",
     "MessageEvent",
     "BinaryType",
+    "PageTransitionEvent",
 ] }
 futures-lite = { version = "2.1.0", optional = true }
 getrandom = { version = "0.2.11", features = [
