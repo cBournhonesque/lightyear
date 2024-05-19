@@ -1,4 +1,4 @@
-use bevy::prelude::{Commands, EventReader, Query, RemovedComponents, ResMut};
+use bevy::prelude::{Commands, DespawnRecursiveExt, EventReader, Query, RemovedComponents, ResMut};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
@@ -43,7 +43,7 @@ pub(crate) fn despawn_interpolated(
             .remove(&confirmed_entity)
         {
             if let Some(mut entity_mut) = commands.get_entity(interpolated) {
-                entity_mut.despawn();
+                entity_mut.despawn_recursive();
             }
         }
     }

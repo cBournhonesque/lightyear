@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use bevy::ecs::system::{Command, EntityCommands};
 use bevy::prelude::{
-    Commands, Component, Entity, Query, Reflect, RemovedComponents, Res, ResMut, With, Without,
-    World,
+    Commands, Component, DespawnRecursiveExt, Entity, Query, Reflect, RemovedComponents, Res,
+    ResMut, With, Without, World,
 };
 use tracing::{debug, error, trace};
 
@@ -100,7 +100,7 @@ pub(crate) fn despawn_confirmed(
             .remove(&confirmed_entity)
         {
             if let Some(mut entity_mut) = commands.get_entity(predicted) {
-                entity_mut.despawn();
+                entity_mut.despawn_recursive();
             }
         }
     }
