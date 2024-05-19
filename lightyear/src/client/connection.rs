@@ -100,6 +100,7 @@ impl ConnectionManager {
         ping_config: PingConfig,
         input_delay_ticks: u16,
     ) -> Self {
+        let bandwidth_cap_enabled = packet_config.bandwidth_cap_enabled;
         // create the message manager and the channels
         let mut message_manager = MessageManager::new(
             channel_registry,
@@ -121,6 +122,7 @@ impl ConnectionManager {
             update_acks_receiver,
             update_nacks_receiver,
             replication_update_send_receiver,
+            bandwidth_cap_enabled,
         );
         let replication_receiver = ReplicationReceiver::new();
         Self {
@@ -277,8 +279,7 @@ impl ConnectionManager {
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
                     self.replication_sender
-                        .updates_message_id_to_group_id
-                        .insert(message_id, (group_id, bevy_tick));
+                        .buffer_replication_update_message(group_id, message_id, bevy_tick);
                 }
                 Ok(())
             })

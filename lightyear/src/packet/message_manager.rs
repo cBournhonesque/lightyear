@@ -184,6 +184,7 @@ impl MessageManager {
         }
         // return early if there are no messages to send
         if !has_data_to_send {
+            error!("no data to send");
             return Ok(vec![]);
         }
 

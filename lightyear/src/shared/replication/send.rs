@@ -27,6 +27,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
+#[derive(Debug)]
 pub(crate) struct ReplicationSender {
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub(crate) updates_ack_receiver: Receiver<MessageId>,
@@ -36,7 +37,7 @@ pub(crate) struct ReplicationSender {
     /// Map from message-id to the corresponding group-id that sent this update message, as well as the `send_tick` BevyTick
     /// when we buffered the message. (so that when it's acked, we know we only need to include updates that happened after that tick,
     /// for that replication group)
-    pub updates_message_id_to_group_id: HashMap<MessageId, (ReplicationGroupId, BevyTick)>,
+    pub(crate) updates_message_id_to_group_id: HashMap<MessageId, (ReplicationGroupId, BevyTick)>,
     /// messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
     pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
@@ -48,11 +49,13 @@ pub(crate) struct ReplicationSender {
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 
+    // PRIORITY
     /// Get notified whenever a message for a given ReplicationGroup was actually sent
     /// (sometimes they might not be sent because of bandwidth constraints)
     ///
     /// We update the `send_tick` only when the message was actually sent.
     pub message_send_receiver: Receiver<MessageId>,
+    bandwidth_cap_enabled: bool,
 }
 
 impl ReplicationSender {
@@ -60,6 +63,7 @@ impl ReplicationSender {
         updates_ack_receiver: Receiver<MessageId>,
         updates_nack_receiver: Receiver<MessageId>,
         message_send_receiver: Receiver<MessageId>,
+        bandwidth_cap_enabled: bool,
     ) -> Self {
         Self {
             // SEND
@@ -72,7 +76,38 @@ impl ReplicationSender {
             group_channels: Default::default(),
             // PRIORITY
             message_send_receiver,
+            bandwidth_cap_enabled,
         }
+    }
+
+    /// Keep track of the message_id/bevy_tick where a replication-update message has been sent
+    /// for a given group
+    pub(crate) fn buffer_replication_update_message(
+        &mut self,
+        group_id: ReplicationGroupId,
+        message_id: MessageId,
+        bevy_tick: BevyTick,
+    ) {
+        self.updates_message_id_to_group_id
+            .insert(message_id, (group_id, bevy_tick));
+        // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
+        // so we can set the `send_tick` right away
+        if !self.bandwidth_cap_enabled {
+            if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                channel.send_tick = Some(bevy_tick);
+            }
+        }
+    }
+
+    // TODO: add an option to keep doing the previous behaviour, i.e.
+    //  `get_send_tick()` would return the `ack_tick`!
+    /// Get the `send_tick` for a given group.
+    /// We will send all updates that happened after this bevy tick.
+    pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId) -> Option<BevyTick> {
+        self.group_channels
+            .get(&group_id)
+            .map(|channel| channel.send_tick)
+            .flatten()
     }
 
     /// Internal bookkeeping:
@@ -104,13 +139,16 @@ impl ReplicationSender {
     ///
     /// This should be call after the Send SystemSet.
     pub(crate) fn recv_send_notification(&mut self) {
+        if !self.bandwidth_cap_enabled {
+            return;
+        }
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.message_send_receiver.try_recv() {
             if let Some((group_id, bevy_tick)) =
                 self.updates_message_id_to_group_id.get(&message_id)
             {
                 if let Some(channel) = self.group_channels.get_mut(group_id) {
-                    // TODO: think about we reset the priority, or how it should be accumulated
+                    // TODO: should we also reset the priority for replication-action messages?
                     // reset the priority
                     debug!(
                         ?message_id,
@@ -129,7 +167,6 @@ impl ReplicationSender {
             }
         }
 
-        // TODO: don't accumulate priority if priority is not enabled
         // then accumulate the priority for all replication groups
         self.group_channels.values_mut().for_each(|channel| {
             channel.accumulated_priority = channel
@@ -463,18 +500,60 @@ impl Default for GroupChannel {
 #[cfg(test)]
 mod tests {
     use crate::channel::builder::EntityActionsChannel;
+    use crate::prelude::server::Replicate;
+    use crate::prelude::ClientId;
+    use crate::server::connection::ConnectionManager;
+    use crate::tests::protocol::Component1;
+    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::prelude::*;
 
     use super::*;
 
-    // TODO: add tests for replication with entity relations!
+    /// Test that if we receive a nack, we bump the send_tick down to the ack tick
     #[test]
-    fn test_buffer_replication_messages() {
+    fn test_integration_send_tick_updates_on_packet_nack() {
+        let mut stepper = BevyStepper::default();
+
+        macro_rules! sender {
+            () => {
+                stepper
+                    .server_app
+                    .world
+                    .resource_mut::<ConnectionManager>()
+                    .connections
+                    .get(&ClientId::Netcode(TEST_CLIENT_ID))
+                    .unwrap()
+                    .replication_sender
+            };
+        }
+
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((Component1(1.0), Replicate::default()));
+        stepper.frame_step();
+        let server_tick = stepper.server_tick();
+        dbg!(&sender!());
+        assert!(!sender!().updates_message_id_to_group_id.is_empty());
+        let message_id = *sender!()
+            .updates_message_id_to_group_id
+            .iter()
+            .next()
+            .unwrap()
+            .0;
+        dbg!(message_id);
+    }
+
+    // TODO: add tests for replication with entity relations!
+    /// Test calling the `finalize` method to create the final replication messages
+    /// from the buffered actions and updates
+    #[test]
+    fn test_finalize() {
         // create fake channels for receiving updates about acks and sends
         let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
         let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
         let (tx_send, rx_send) = crossbeam_channel::unbounded();
-        let mut manager = ReplicationSender::new(rx_ack, rx_nack, rx_send);
+        let mut manager = ReplicationSender::new(rx_ack, rx_nack, rx_send, false);
 
         let entity_1 = Entity::from_raw(0);
         let entity_2 = Entity::from_raw(1);
