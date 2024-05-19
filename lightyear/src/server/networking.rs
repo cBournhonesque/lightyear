@@ -106,15 +106,14 @@ pub(crate) fn receive(world: &mut World) {
                                             let netservers = &mut *netservers;
                                             for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
                                                 // TODO: maybe run this before receive, like for clients?
-                                                // if the io task for any connection failed, disconnect the client in netcode
                                                 let mut to_disconnect = vec![];
                                                 if let Some(io) = netserver.io_mut() {
                                                     if let Some(receiver) = &mut io.context.event_receiver {
                                                         match receiver.try_recv() {
                                                             Ok(event) => {
                                                                 match event {
+                                                                    // if the io task for any connection failed, disconnect the client in netcode
                                                                     ServerIoEvent::ClientDisconnected(client_id) => {
-                                                                        error!("Disconnect client {client_id:?} because io task failed");
                                                                         to_disconnect.push(client_id);
                                                                     }
                                                                     ServerIoEvent::ServerDisconnected(e) => {
@@ -130,6 +129,7 @@ pub(crate) fn receive(world: &mut World) {
                                                     }
                                                 }
 
+
                                                 let _ = netserver
                                                     .try_update(delta.as_secs_f64())
                                                     .map_err(|e| error!("Error updating netcode server: {:?}", e));
@@ -140,6 +140,18 @@ pub(crate) fn receive(world: &mut World) {
                                                     connection_manager.add(client_id, client_entity);
                                                 }
                                                 // handle disconnections
+
+                                                // disconnections because the io task was closed
+                                                if !to_disconnect.is_empty() {
+                                                    to_disconnect.into_iter().for_each(|addr| {
+                                                        #[allow(irrefutable_let_patterns)]
+                                                        if let ServerConnection::Netcode(server) = netserver {
+                                                            error!("Disconnecting client {addr:?} because of io error");
+                                                            let _ = server.disconnect_by_addr(addr);
+                                                        }
+                                                    })
+                                                }
+                                                // disconnects because we received a disconnect message
                                                 for client_id in netserver.new_disconnections().iter().copied() {
                                                     if netservers.client_server_map.remove(&client_id).is_some() {
                                                         connection_manager.remove(client_id);
@@ -248,7 +260,9 @@ pub(crate) fn send(
                 .get_mut(netserver_idx)
                 .context("could not find server with the provided netserver idx")?;
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
-                netserver.send(packet_byte.as_slice(), *client_id)?;
+                netserver
+                    .send(packet_byte.as_slice(), *client_id)
+                    .context(format!("could not send packet to client: {client_id:?}"))?;
             }
             Ok(())
         })

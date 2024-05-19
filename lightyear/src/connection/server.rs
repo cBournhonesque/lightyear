@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
+use enum_dispatch::enum_dispatch;
 use std::net::SocketAddr;
 
 use crate::connection::id::ClientId;
@@ -14,6 +15,7 @@ use crate::server::config::NetcodeConfig;
 use crate::server::io::Io;
 use crate::transport::config::SharedIoConfig;
 
+#[enum_dispatch]
 pub trait NetServer: Send + Sync {
     /// Start the server
     /// (i.e. start listening for client connections)
@@ -50,10 +52,11 @@ pub trait NetServer: Send + Sync {
     fn io_mut(&mut self) -> Option<&mut Io>;
 }
 
-/// A wrapper around a `Box<dyn NetServer>`
-#[derive(Resource)]
-pub struct ServerConnection {
-    server: Box<dyn NetServer>,
+#[enum_dispatch(NetServer)]
+pub enum ServerConnection {
+    Netcode(super::netcode::Server),
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    Steam(super::steam::server::Server),
 }
 
 pub type IoConfig = SharedIoConfig<ServerTransport>;
@@ -86,9 +89,7 @@ impl NetConfig {
         match self {
             NetConfig::Netcode { config, io } => {
                 let server = super::netcode::Server::new(config, io);
-                ServerConnection {
-                    server: Box::new(server),
-                }
+                ServerConnection::Netcode(server)
             }
             // TODO: might want to distinguish between steam with direct ip connections
             //  vs steam with p2p connections
@@ -100,57 +101,9 @@ impl NetConfig {
                 // TODO: handle errors
                 let server = super::steam::server::Server::new(config, conditioner)
                     .expect("could not create steam server");
-                ServerConnection {
-                    server: Box::new(server),
-                }
+                ServerConnection::Steam(server)
             }
         }
-    }
-}
-
-impl NetServer for ServerConnection {
-    fn start(&mut self) -> Result<()> {
-        self.server.start()
-    }
-
-    fn stop(&mut self) -> Result<()> {
-        self.server.stop()
-    }
-
-    fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
-        self.server.disconnect(client_id)
-    }
-
-    fn connected_client_ids(&self) -> Vec<ClientId> {
-        self.server.connected_client_ids()
-    }
-
-    fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        self.server.try_update(delta_ms)
-    }
-
-    fn recv(&mut self) -> Option<(Packet, ClientId)> {
-        self.server.recv()
-    }
-
-    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<()> {
-        self.server.send(buf, client_id)
-    }
-
-    fn new_connections(&self) -> Vec<ClientId> {
-        self.server.new_connections()
-    }
-
-    fn new_disconnections(&self) -> Vec<ClientId> {
-        self.server.new_disconnections()
-    }
-
-    fn io(&self) -> Option<&Io> {
-        self.server.io()
-    }
-
-    fn io_mut(&mut self) -> Option<&mut Io> {
-        self.server.io_mut()
     }
 }
 

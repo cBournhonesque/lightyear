@@ -933,13 +933,31 @@ impl<Ctx> NetcodeServer<Ctx> {
         }
         let addr = conn.addr;
         debug!("server disconnecting client {client_id}");
-        for _ in 0..self.cfg.num_disconnect_packets {
-            self.send_to_client(DisconnectPacket::create(), client_id, io)?;
-        }
         self.on_disconnect(client_id, addr);
+        for _ in 0..self.cfg.num_disconnect_packets {
+            // self.send_to_client(DisconnectPacket::create(), client_id, io)?;
+
+            // we do not use ? here because we want to continue even if the send fails
+            let _ = self
+                .send_to_client(DisconnectPacket::create(), client_id, io)
+                .inspect_err(|e| {
+                    error!("server failed to send disconnect packet: {e}");
+                });
+        }
         self.conn_cache.remove(client_id);
         Ok(())
     }
+
+    /// Disconnects a client.
+    ///
+    /// The server will send a number of redundant disconnect packets to the client, and then remove its connection info.
+    pub(crate) fn disconnect_by_addr(&mut self, addr: SocketAddr, io: &mut Io) -> Result<()> {
+        let Some(client_id) = self.conn_cache.client_id_map.get(&addr) else {
+            return Err(Error::ClientNotFound);
+        };
+        self.disconnect(*client_id, io)
+    }
+
     /// Disconnects all clients.
     pub fn disconnect_all(&mut self, io: &mut Io) -> Result<()> {
         debug!("server disconnecting all clients");
@@ -994,7 +1012,7 @@ pub(crate) struct NetcodeServerContext {
 
 #[derive(Resource)]
 pub struct Server {
-    server: NetcodeServer<NetcodeServerContext>,
+    pub(crate) server: NetcodeServer<NetcodeServerContext>,
     io_config: IoConfig,
     io: Option<Io>,
 }
@@ -1126,5 +1144,16 @@ impl Server {
             io_config,
             io: None,
         }
+    }
+
+    /// Disconnect a client from the server
+    /// (also adds the client_id to the list of newly disconnected clients)
+    pub(crate) fn disconnect_by_addr(&mut self, addr: SocketAddr) -> anyhow::Result<()> {
+        if let Some(io) = self.io.as_mut() {
+            self.server
+                .disconnect_by_addr(addr, io)
+                .context("Could not disconnect client")?;
+        }
+        Ok(())
     }
 }
