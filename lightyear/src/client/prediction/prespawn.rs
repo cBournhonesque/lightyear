@@ -10,7 +10,7 @@ use tracing::{debug, info, trace, warn};
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
-use crate::client::networking::{is_connected, NetworkingState};
+use crate::client::networking::NetworkingState;
 use crate::client::prediction::pre_prediction::PrePredictionPlugin;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};

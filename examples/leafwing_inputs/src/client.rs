@@ -5,6 +5,7 @@ use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use lightyear::shared::plugin::Identity;
 
 use crate::protocol::*;
 use crate::shared;

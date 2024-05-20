@@ -61,7 +61,9 @@ use crate::connection::client::NetClient;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::{InputMessage, UserAction};
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{server, AppMessageExt, ChannelDirection, SharedConfig, Tick, TickManager};
+use crate::prelude::{
+    is_host_server, server, AppMessageExt, ChannelDirection, SharedConfig, Tick, TickManager,
+};
 use crate::shared::config::Mode;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
@@ -166,14 +168,14 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                 // handle tick events from sync before sending the message
                 InputSystemSet::ReceiveTickEvents.run_if(
                     // there are no tick events in host-server mode
-                    client_is_synced.and_then(not(SharedConfig::is_host_server_condition)),
+                    client_is_synced.and_then(not(is_host_server)),
                 ),
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage
                     .in_set(InternalMainSet::<ClientMarker>::Send)
                     .run_if(
                         // no need to send input messages via io if we are in host-server mode
-                        client_is_synced.and_then(not(SharedConfig::is_host_server_condition)),
+                        client_is_synced.and_then(not(is_host_server)),
                     ),
                 InternalMainSet::<ClientMarker>::SendPackets,
             )
@@ -186,13 +188,13 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             FixedPreUpdate,
             send_input_directly_to_client_events::<A>
                 .in_set(InputSystemSet::WriteInputEvent)
-                .run_if(SharedConfig::is_host_server_condition),
+                .run_if(is_host_server),
         );
         app.add_systems(
             FixedPreUpdate,
             write_input_event::<A>
                 .in_set(InputSystemSet::WriteInputEvent)
-                .run_if(not(SharedConfig::is_host_server_condition)),
+                .run_if(not(is_host_server)),
         );
         app.add_systems(
             FixedPostUpdate,

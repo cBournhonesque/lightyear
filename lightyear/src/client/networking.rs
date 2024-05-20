@@ -20,14 +20,15 @@ use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::connection::server::{IoConfig, ServerConnections};
 use crate::prelude::{
-    ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager,
+    is_host_server, ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager,
+    TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
-use crate::server::networking::is_started;
 use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::components::Replicated;
+use crate::shared::run_conditions;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
@@ -53,9 +54,7 @@ impl Plugin for ClientNetworkingPlugin {
                     InternalMainSet::<ClientMarker>::EmitEvents.in_set(MainSet::EmitEvents),
                 )
                     .chain()
-                    .run_if(not(
-                        SharedConfig::is_host_server_condition.or_else(is_disconnected)
-                    )),
+                    .run_if(not(is_host_server.or_else(run_conditions::is_disconnected))),
             )
             .configure_sets(
                 PostUpdate,
@@ -67,9 +66,7 @@ impl Plugin for ClientNetworkingPlugin {
                         .in_set(MainSet::Send)
                         .run_if(is_client_ready_to_send),
                 )
-                    .run_if(not(
-                        SharedConfig::is_host_server_condition.or_else(is_disconnected)
-                    ))
+                    .run_if(not(is_host_server.or_else(run_conditions::is_disconnected)))
                     .chain(),
             )
             .configure_sets(
@@ -87,9 +84,7 @@ impl Plugin for ClientNetworkingPlugin {
                     // we are running the listen_io_state in a different set because it can impact the run_condition for the
                     // Receive system set
                     .before(InternalMainSet::<ClientMarker>::Receive)
-                    .run_if(not(
-                        SharedConfig::is_host_server_condition.or_else(is_disconnected)
-                    )),
+                    .run_if(not(is_host_server.or_else(run_conditions::is_disconnected))),
             )
             .add_systems(
                 PreUpdate,
@@ -117,10 +112,7 @@ impl Plugin for ClientNetworkingPlugin {
         // CONNECTED
         app.add_systems(
             OnEnter(NetworkingState::Connected),
-            (
-                on_connect,
-                on_connect_host_server.run_if(SharedConfig::is_host_server_condition),
-            ),
+            (on_connect, on_connect_host_server.run_if(is_host_server)),
         );
 
         // DISCONNECTED
@@ -128,7 +120,7 @@ impl Plugin for ClientNetworkingPlugin {
             OnEnter(NetworkingState::Disconnected),
             (
                 on_disconnect,
-                on_disconnect_host_server.run_if(SharedConfig::is_host_server_condition),
+                on_disconnect_host_server.run_if(is_host_server),
             ),
         );
     }
@@ -400,39 +392,6 @@ fn on_disconnect_host_server(
             entity: client_entity,
         });
     }
-}
-
-/// This run condition is provided to check if the client is connected.
-///
-/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
-/// since the `StateTransition` schedule runs after `PreUpdate`
-pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient.map_or(false, |c| {
-        c.state() == NetworkingState::Connected
-            && c.io()
-                .map_or(false, |io| matches!(io.state, IoState::Connected))
-    })
-}
-
-// TODO: this means that we are failing to exit the disconnecting mode!
-/// This run condition is provided to check if the client is disconnected.
-///
-/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
-/// since the `StateTransition` schedule runs after `PreUpdate`
-pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient.as_ref().map_or(true, |c| {
-        c.state() == NetworkingState::Disconnected
-            || c.io()
-                .map_or(true, |io| matches!(io.state, IoState::Disconnected))
-    })
-    // error!("Is Disconnected: {res:?}");
-    // if let Some(c) = netclient.as_ref() {
-    //     error!("ClientConnection state: {:?}", c.state());
-    //     if let Some(io) = c.io() {
-    //         error!("Io state: {:?}", io.state);
-    //     }
-    // }
-    // res
 }
 
 /// This runs only when we enter the [`Connecting`](NetworkingState::Connecting) state.

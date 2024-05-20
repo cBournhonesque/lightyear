@@ -45,28 +45,6 @@ pub enum Mode {
     // ClientOnly,
 }
 
-impl SharedConfig {
-    /// Returns true if we are running the server, but the server is acting as a client.
-    /// (in which case we can disable the networking/prediction/interpolation systems on the client)
-    ///
-    /// We are in HostServer mode if the server is running and the mode is set to HostServer
-    /// (checking if the mode is set to HostServer is not enough, it just means that the server plugin and client plugin are running
-    /// in the same App)
-    pub fn is_host_server_condition(
-        config: Option<Res<ServerConfig>>,
-        server: Option<Res<ServerConnections>>,
-    ) -> bool {
-        config.map_or(false, |config| {
-            matches!(config.shared.mode, Mode::HostServer)
-                && server.map_or(false, |server| server.is_listening())
-        })
-    }
-
-    pub fn is_mode_separate(config: Option<Res<ServerConfig>>) -> bool {
-        config.map_or(true, |config| config.shared.mode == Mode::Separate)
-    }
-}
-
 impl Default for SharedConfig {
     fn default() -> Self {
         Self {

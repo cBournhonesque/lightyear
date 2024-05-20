@@ -10,9 +10,8 @@ use bitcode::{Decode, Encode};
 
 use crate::client::connection::ConnectionManager;
 use crate::client::events::MessageEvent;
-use crate::client::networking::is_connected;
 use crate::packet::message::SingleData;
-use crate::prelude::{ChannelDirection, ChannelKind, Message};
+use crate::prelude::{is_connected, ChannelDirection, ChannelKind, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;

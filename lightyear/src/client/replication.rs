@@ -3,7 +3,6 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::client::connection::ConnectionManager;
-use crate::client::networking::is_connected;
 use crate::client::sync::client_is_synced;
 use crate::prelude::SharedConfig;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
@@ -12,6 +11,7 @@ use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 pub(crate) mod receive {
     use super::*;
+    use crate::prelude::{is_connected, is_host_server};
     #[derive(Default)]
     pub struct ClientReplicationReceivePlugin {
         pub tick_interval: Duration,
@@ -42,7 +42,7 @@ pub(crate) mod receive {
                 InternalReplicationSet::<ClientMarker>::All.run_if(
                     is_connected
                         .and_then(client_is_synced)
-                        .and_then(not(SharedConfig::is_host_server_condition)),
+                        .and_then(not(is_host_server)),
                 ),
             );
         }
@@ -58,9 +58,9 @@ pub(crate) mod send {
     use crate::prelude::client::NetClient;
     use crate::prelude::server::{ControlledBy, ServerConfig, ServerReplicationSet};
     use crate::prelude::{
-        ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent, PrePredicted,
-        ReplicateHierarchy, ReplicateOnceComponent, Replicated, ReplicationGroup,
-        ShouldBePredicted, TargetEntity, VisibilityMode,
+        is_connected, is_host_server, ClientId, ComponentRegistry, DisabledComponent,
+        OverrideTargetComponent, PrePredicted, ReplicateHierarchy, ReplicateOnceComponent,
+        Replicated, ReplicationGroup, ShouldBePredicted, TargetEntity, VisibilityMode,
     };
     use crate::server::events::EntitySpawnEvent;
     use crate::server::replication::send::SyncTarget;
@@ -99,7 +99,7 @@ pub(crate) mod send {
                     InternalReplicationSet::<ClientMarker>::All.run_if(
                         is_connected
                             .and_then(client_is_synced)
-                            .and_then(not(SharedConfig::is_host_server_condition)),
+                            .and_then(not(is_host_server)),
                     ),
                 )
                 // SYSTEMS
@@ -119,8 +119,7 @@ pub(crate) mod send {
                         ),
                         handle_replicating_add
                             .in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
-                        add_replicated_component_host_server
-                            .run_if(SharedConfig::is_host_server_condition),
+                        add_replicated_component_host_server.run_if(is_host_server),
                     ),
                 );
         }

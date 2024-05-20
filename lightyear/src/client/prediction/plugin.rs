@@ -9,7 +9,6 @@ use bevy::transform::TransformSystem;
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
-use crate::client::networking::is_connected;
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
@@ -27,7 +26,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{PreSpawnedPlayerObject, SharedConfig};
+use crate::prelude::{is_connected, is_host_server, PreSpawnedPlayerObject, SharedConfig};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
@@ -194,7 +193,7 @@ impl Plugin for PredictionPlugin {
         // we only run prediction:
         // - if we're not in host-server mode
         // - after the client is synced
-        let should_prediction_run = not(SharedConfig::is_host_server_condition)
+        let should_prediction_run = not(is_host_server)
             .and_then(is_connected)
             .and_then(client_is_synced);
 

@@ -6,12 +6,13 @@ use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
 
 use crate::client::config::ClientConfig;
-use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::{
     IoConfig, NetConfig, NetServer, ServerConnection, ServerConnections,
 };
-use crate::prelude::{ChannelRegistry, MainSet, MessageRegistry, Mode, TickManager, TimeManager};
+use crate::prelude::{
+    is_started, ChannelRegistry, MainSet, MessageRegistry, Mode, TickManager, TimeManager,
+};
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
 use crate::server::config::ServerConfig;
@@ -21,6 +22,7 @@ use crate::server::io::ServerIoEvent;
 use crate::server::visibility::room::RoomManager;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
+use crate::shared::run_conditions::is_disconnected;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use crate::shared::time_manager::is_server_ready_to_send;
 
@@ -273,22 +275,6 @@ pub(crate) fn send(
     // clear the list of newly connected clients
     // (cannot just use the ConnectionEvent because it is cleared after each frame)
     connection_manager.new_clients.clear();
-}
-
-/// Run condition to check that the server is ready to send packets
-///
-/// We check the status of the `ServerConnections` directly instead of using the `State<NetworkingState>`
-/// to avoid having a frame of delay since the `StateTransition` schedule runs after the `PreUpdate` schedule
-pub(crate) fn is_started(server: Option<Res<ServerConnections>>) -> bool {
-    server.map_or(false, |s| s.is_listening())
-}
-
-/// Run condition to check that the server is stopped.
-///
-/// We check the status of the `ServerConnections` directly instead of using the `State<NetworkingState>`
-/// to avoid having a frame of delay since the `StateTransition` schedule runs after the `PreUpdate` schedule
-pub(crate) fn is_stopped(server: Option<Res<ServerConnections>>) -> bool {
-    server.map_or(true, |s| !s.is_listening())
 }
 
 /// Bevy [`State`] representing the networking state of the server.

@@ -22,8 +22,7 @@ fn my_system(
 ```
 */
 use crate::prelude::server::ConnectionManager;
-use crate::prelude::ClientId;
-use crate::server::networking::is_started;
+use crate::prelude::{is_started, ClientId};
 use crate::server::visibility::room::{RoomManager, RoomSystemSets};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
 use bevy::ecs::entity::EntityHashSet;
