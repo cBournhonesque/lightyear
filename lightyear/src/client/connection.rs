@@ -110,13 +110,13 @@ impl ConnectionManager {
             packet_config.into(),
         );
         // get notified when a replication-update message gets acked/nacked
-        let update_nacks_receiver = message_manager.subscribe_nacks();
-        let update_acks_receiver = message_manager
+        let entity_updates_sender = &mut message_manager
             .channels
             .get_mut(&ChannelKind::of::<EntityUpdatesChannel>())
             .unwrap()
-            .sender
-            .subscribe_acks();
+            .sender;
+        let update_nacks_receiver = entity_updates_sender.subscribe_nacks();
+        let update_acks_receiver = entity_updates_sender.subscribe_acks();
         // get a channel to get notified when a replication update message gets actually send (to update priority)
         let replication_update_send_receiver =
             message_manager.get_replication_update_send_receiver();

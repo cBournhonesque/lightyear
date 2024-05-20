@@ -26,10 +26,11 @@ pub struct UnorderedUnreliableWithAcksSender {
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
 
-    // TODO: add this to reliable as well?
     // TODO: use a crate to broadcast to all subscribers?
     /// List of senders that want to be notified when a message is acked
     ack_senders: Vec<Sender<MessageId>>,
+    /// List of senders that want to be notified when a message is lost
+    nack_senders: Vec<Sender<MessageId>>,
     /// Keep track of which fragments were acked, so we can know when the entire fragment message
     /// was acked
     fragment_ack_receiver: FragmentAckReceiver,
@@ -44,6 +45,7 @@ impl UnorderedUnreliableWithAcksSender {
             next_send_message_id: MessageId::default(),
             fragment_sender: FragmentSender::new(),
             ack_senders: Vec::new(),
+            nack_senders: Vec::new(),
             fragment_ack_receiver: FragmentAckReceiver::new(),
             current_time: WrappedTime::default(),
         }
@@ -94,7 +96,7 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
     fn collect_messages_to_send(&mut self) {}
 
     /// Notify any subscribers that a message was acked
-    fn notify_message_delivered(&mut self, ack: &MessageAck) {
+    fn receive_ack(&mut self, ack: &MessageAck) {
         ack.fragment_id.map_or_else(
             || {
                 for sender in &self.ack_senders {
@@ -125,6 +127,21 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
         self.ack_senders.push(sender);
         receiver
     }
+
+    /// Create a new receiver that will receive a message id when a sent message on this channel
+    /// has been lost by the remote peer
+    fn subscribe_nacks(&mut self) -> Receiver<MessageId> {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        self.nack_senders.push(sender);
+        receiver
+    }
+
+    /// Send nacks to the subscribers of nacks
+    fn send_nacks(&mut self, nack: MessageId) {
+        for sender in &self.nack_senders {
+            sender.send(nack).unwrap();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -146,7 +163,7 @@ mod tests {
         assert_eq!(sender.next_send_message_id, MessageId(1));
 
         // ack it
-        sender.notify_message_delivered(&MessageAck {
+        sender.receive_ack(&MessageAck {
             message_id,
             fragment_id: None,
         });
@@ -161,12 +178,12 @@ mod tests {
         expected.add_new_fragment_to_wait_for(message_id, 2);
         assert_eq!(&sender.fragment_ack_receiver, &expected);
 
-        sender.notify_message_delivered(&MessageAck {
+        sender.receive_ack(&MessageAck {
             message_id,
             fragment_id: Some(0),
         });
         assert!(receiver.try_recv().unwrap_err().is_empty());
-        sender.notify_message_delivered(&MessageAck {
+        sender.receive_ack(&MessageAck {
             message_id,
             fragment_id: Some(1),
         });

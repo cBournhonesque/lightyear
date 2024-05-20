@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use bevy::utils::Duration;
 use bytes::Bytes;
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use tracing::{info, trace};
 
 use crate::channel::builder::ReliableSettings;
@@ -59,6 +59,10 @@ pub struct ReliableSender {
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
 
+    /// List of senders that want to be notified when a message is acked
+    ack_senders: Vec<Sender<MessageId>>,
+    /// List of senders that want to be notified when a message is lost
+    nack_senders: Vec<Sender<MessageId>>,
     current_rtt: Duration,
     current_time: WrappedTime,
 }
@@ -73,6 +77,8 @@ impl ReliableSender {
             fragmented_messages_to_send: Default::default(),
             message_ids_to_send: Default::default(),
             fragment_sender: FragmentSender::new(),
+            ack_senders: vec![],
+            nack_senders: vec![],
             current_rtt: Duration::default(),
             current_time: WrappedTime::default(),
         }
@@ -233,7 +239,7 @@ impl ChannelSend for ReliableSender {
         }
     }
 
-    fn notify_message_delivered(&mut self, message_ack: &MessageAck) {
+    fn receive_ack(&mut self, message_ack: &MessageAck) {
         if let Some(unacked_message) = self.unacked_messages.get_mut(&message_ack.message_id) {
             match &mut unacked_message.unacked_message {
                 UnackedMessage::Single { .. } => {
@@ -241,6 +247,9 @@ impl ChannelSend for ReliableSender {
                         panic!(
                             "Received a message ack for a fragment but message is a single message"
                         )
+                    }
+                    for sender in &self.ack_senders {
+                        sender.send(message_ack.message_id).unwrap();
                     }
                     self.unacked_messages.remove(&message_ack.message_id);
                 }
@@ -254,6 +263,9 @@ impl ChannelSend for ReliableSender {
                         // all fragments were acked
                         if fragment_acks.iter().all(|f| f.acked) {
                             self.unacked_messages.remove(&message_ack.message_id);
+                            for sender in &self.ack_senders {
+                                sender.send(message_ack.message_id).unwrap();
+                            }
                         }
                     }
                 }
@@ -265,8 +277,26 @@ impl ChannelSend for ReliableSender {
         !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()
     }
 
+    /// Create a new receiver that will receive a message id when a message is acked
     fn subscribe_acks(&mut self) -> Receiver<MessageId> {
-        todo!()
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        self.ack_senders.push(sender);
+        receiver
+    }
+
+    /// Create a new receiver that will receive a message id when a sent message on this channel
+    /// has been lost by the remote peer
+    fn subscribe_nacks(&mut self) -> Receiver<MessageId> {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        self.nack_senders.push(sender);
+        receiver
+    }
+
+    /// Send nacks to the subscribers of nacks
+    fn send_nacks(&mut self, nack: MessageId) {
+        for sender in &self.nack_senders {
+            sender.send(nack).unwrap();
+        }
     }
 }
 
@@ -313,7 +343,7 @@ mod tests {
         );
 
         // Ack the first message
-        sender.notify_message_delivered(&MessageAck {
+        sender.receive_ack(&MessageAck {
             message_id: MessageId(0),
             fragment_id: None,
         });

@@ -48,13 +48,20 @@ pub trait ChannelSend {
     fn collect_messages_to_send(&mut self);
 
     /// Called when we receive acknowledgement that a Message has been received
-    fn notify_message_delivered(&mut self, message_ack: &MessageAck);
+    fn receive_ack(&mut self, message_ack: &MessageAck);
 
     /// Returns true if there are messages in the buffer that are ready to be sent
     fn has_messages_to_send(&self) -> bool;
 
     /// Create a new receiver that will receive a message id when a sent message is acked
     fn subscribe_acks(&mut self) -> Receiver<MessageId>;
+
+    /// Create a new receiver that will receive a message id when a sent message on this channel
+    /// has been lost by the remote peer
+    fn subscribe_nacks(&mut self) -> Receiver<MessageId>;
+
+    /// Send nacks to the subscribers of nacks
+    fn send_nacks(&mut self, nack: MessageId);
 }
 
 /// Enum dispatch lets us derive ChannelSend on each enum variant

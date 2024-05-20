@@ -69,13 +69,6 @@ impl MessageManager {
             .subscribe_replication_update_sent_messages()
     }
 
-    /// Create an additional `Sender` to notify when a message has been lost
-    pub(crate) fn subscribe_nacks(&mut self) -> Receiver<MessageId> {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        self.nack_senders.push(sender);
-        receiver
-    }
-
     /// Update bookkeeping
     pub fn update(
         &mut self,
@@ -96,20 +89,9 @@ impl MessageManager {
                         .channels
                         .get_mut(&channel_kind)
                         .expect("Channel not found");
-                    // TODO: this is a bit ugly, we rely on the fact that EntityUpdatesChannel is the only channel
-                    //  that uses `is_watching_acks`, but users might add more!
-                    //  instead we should let the user subscribe to nacks on an individual channel basis
-                    //  (similar to what we do with acks)
-                    //  it's fine for an initial implementation
-                    if channel.setting.mode.is_watching_nacks() {
-                        // TODO: batch the messages?
-                        for message_ack in message_acks {
-                            for sender in &self.nack_senders {
-                                let _ = sender
-                                    .try_send(message_ack.message_id)
-                                    .inspect_err(|e| error!("error sending nack: {:?}", e));
-                            }
-                        }
+                    // TODO: batch the messages?
+                    for message_ack in message_acks {
+                        channel.sender.send_nacks(message_ack.message_id);
                     }
                 }
             }
@@ -283,7 +265,7 @@ impl MessageManager {
                         .get_mut(&channel_kind)
                         .context("Channel not found")?;
                     for message_ack in message_acks {
-                        channel.sender.notify_message_delivered(&message_ack);
+                        channel.sender.receive_ack(&message_ack);
                     }
                 }
             }
