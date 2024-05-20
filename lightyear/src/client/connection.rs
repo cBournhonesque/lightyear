@@ -91,6 +91,7 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         component_registry: &ComponentRegistry,
         message_registry: &MessageRegistry,

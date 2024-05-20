@@ -117,16 +117,13 @@ impl ReplicationSender {
     /// Get the `send_tick` for a given group.
     /// We will send all updates that happened after this bevy tick.
     pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId) -> Option<BevyTick> {
-        self.group_channels
-            .get(&group_id)
-            .map(|channel| {
-                if self.send_updates_since_last_ack {
-                    channel.ack_tick
-                } else {
-                    channel.send_tick
-                }
-            })
-            .flatten()
+        self.group_channels.get(&group_id).and_then(|channel| {
+            if self.send_updates_since_last_ack {
+                channel.ack_tick
+            } else {
+                channel.send_tick
+            }
+        })
     }
 
     /// Internal bookkeeping:

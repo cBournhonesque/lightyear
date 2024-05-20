@@ -91,7 +91,7 @@ impl PacketConfig {
     }
 }
 
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone, Debug, Default, Reflect)]
 pub struct ReplicationConfig {
     /// By default, we will send all component updates since the last time we sent an update for a given entity.
     /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
@@ -105,14 +105,6 @@ pub struct ReplicationConfig {
     /// we will send the update again even if the component wasn't updated, because we still haven't
     /// received an ACK from the client.
     pub send_updates_since_last_ack: bool,
-}
-
-impl Default for ReplicationConfig {
-    fn default() -> Self {
-        Self {
-            send_updates_since_last_ack: false,
-        }
-    }
 }
 
 /// The configuration object that lets you create a `ClientPlugin` with the desired settings.
