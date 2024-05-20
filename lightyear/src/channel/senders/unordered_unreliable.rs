@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use bytes::Bytes;
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
@@ -22,6 +22,8 @@ pub struct UnorderedUnreliableSender {
     next_send_fragmented_message_id: MessageId,
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
+    /// List of senders that want to be notified when a message is lost
+    nack_senders: Vec<Sender<MessageId>>,
 }
 
 impl UnorderedUnreliableSender {
@@ -31,6 +33,7 @@ impl UnorderedUnreliableSender {
             fragmented_messages_to_send: VecDeque::new(),
             next_send_fragmented_message_id: MessageId::default(),
             fragment_sender: FragmentSender::new(),
+            nack_senders: vec![],
         }
     }
 }
@@ -74,7 +77,7 @@ impl ChannelSend for UnorderedUnreliableSender {
     // not necessary for an unreliable sender (all the buffered messages can be sent)
     fn collect_messages_to_send(&mut self) {}
 
-    fn notify_message_delivered(&mut self, _: &MessageAck) {}
+    fn receive_ack(&mut self, _: &MessageAck) {}
 
     fn has_messages_to_send(&self) -> bool {
         !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()
@@ -82,6 +85,21 @@ impl ChannelSend for UnorderedUnreliableSender {
 
     fn subscribe_acks(&mut self) -> Receiver<MessageId> {
         unreachable!()
+    }
+
+    /// Create a new receiver that will receive a message id when a sent message on this channel
+    /// has been lost by the remote peer
+    fn subscribe_nacks(&mut self) -> Receiver<MessageId> {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        self.nack_senders.push(sender);
+        receiver
+    }
+
+    /// Send nacks to the subscribers of nacks
+    fn send_nacks(&mut self, nack: MessageId) {
+        for sender in &self.nack_senders {
+            sender.send(nack).unwrap();
+        }
     }
 }
 

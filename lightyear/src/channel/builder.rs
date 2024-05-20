@@ -183,19 +183,6 @@ impl ChannelMode {
             ChannelMode::TickBuffered => false,
         }
     }
-
-    /// Returns true if the channel cares about tracking ACKs of messages
-    pub(crate) fn is_watching_nacks(&self) -> bool {
-        match self {
-            ChannelMode::UnorderedUnreliableWithAcks => true,
-            ChannelMode::UnorderedUnreliable => false,
-            ChannelMode::SequencedUnreliable => false,
-            ChannelMode::UnorderedReliable(_) => false,
-            ChannelMode::SequencedReliable(_) => false,
-            ChannelMode::OrderedReliable(_) => false,
-            ChannelMode::TickBuffered => false,
-        }
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
