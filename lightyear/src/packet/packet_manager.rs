@@ -32,9 +32,9 @@ pub(crate) struct PacketBuilder {
 }
 
 impl PacketBuilder {
-    pub fn new() -> Self {
+    pub fn new(nack_rtt_multiple: f32) -> Self {
         Self {
-            header_manager: PacketHeaderManager::new(),
+            header_manager: PacketHeaderManager::new(nack_rtt_multiple),
             // write buffer to encode packets bit by bit
             try_write_buffer: WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY),
             write_buffer: WriteBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
@@ -644,7 +644,7 @@ mod tests {
     #[test]
     fn test_write_small_message() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketBuilder::new();
+        let mut manager = PacketBuilder::new(1.5);
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
@@ -671,7 +671,7 @@ mod tests {
     #[test]
     fn test_write_big_message() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketBuilder::new();
+        let mut manager = PacketBuilder::new(1.5);
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
@@ -687,7 +687,7 @@ mod tests {
     #[test]
     fn test_pack_big_message() {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketBuilder::new();
+        let mut manager = PacketBuilder::new(1.5);
         let channel_kind1 = ChannelKind::of::<Channel1>();
         let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
         let channel_kind2 = ChannelKind::of::<Channel2>();
@@ -762,7 +762,7 @@ mod tests {
     #[test]
     fn test_cannot_write_channel() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketBuilder::new();
+        let mut manager = PacketBuilder::new(1.5);
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let mut packet = manager.build_new_single_packet();

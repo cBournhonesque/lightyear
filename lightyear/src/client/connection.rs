@@ -13,7 +13,7 @@ use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
 use bitcode::encoding::Fixed;
 
 use crate::channel::senders::ChannelSend;
-use crate::client::config::PacketConfig;
+use crate::client::config::{PacketConfig, ReplicationConfig};
 use crate::client::message::ClientMessage;
 use crate::client::replication::send::ReplicateCache;
 use crate::client::sync::SyncConfig;
@@ -91,19 +91,27 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         component_registry: &ComponentRegistry,
         message_registry: &MessageRegistry,
         channel_registry: &ChannelRegistry,
+        replication_config: ReplicationConfig,
         packet_config: PacketConfig,
         sync_config: SyncConfig,
         ping_config: PingConfig,
         input_delay_ticks: u16,
     ) -> Self {
+        let bandwidth_cap_enabled = packet_config.bandwidth_cap_enabled;
         // create the message manager and the channels
-        let mut message_manager = MessageManager::new(channel_registry, packet_config.into());
-        // get the acks-tracker for entity updates
-        let update_acks_tracker = message_manager
+        let mut message_manager = MessageManager::new(
+            channel_registry,
+            packet_config.nack_rtt_multiple,
+            packet_config.into(),
+        );
+        // get notified when a replication-update message gets acked/nacked
+        let update_nacks_receiver = message_manager.subscribe_nacks();
+        let update_acks_receiver = message_manager
             .channels
             .get_mut(&ChannelKind::of::<EntityUpdatesChannel>())
             .unwrap()
@@ -112,8 +120,13 @@ impl ConnectionManager {
         // get a channel to get notified when a replication update message gets actually send (to update priority)
         let replication_update_send_receiver =
             message_manager.get_replication_update_send_receiver();
-        let replication_sender =
-            ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
+        let replication_sender = ReplicationSender::new(
+            update_acks_receiver,
+            update_nacks_receiver,
+            replication_update_send_receiver,
+            replication_config.send_updates_since_last_ack,
+            bandwidth_cap_enabled,
+        );
         let replication_receiver = ReplicationReceiver::new();
         Self {
             component_registry: component_registry.clone(),
@@ -150,9 +163,15 @@ impl ConnectionManager {
             .unwrap_or(Tick(0))
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    pub(crate) fn update(
+        &mut self,
+        world_tick: BevyTick,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) {
         self.message_manager
             .update(time_manager, &self.ping_manager, tick_manager);
+        self.replication_sender.update(world_tick);
         self.ping_manager.update(time_manager);
 
         // (we update the sync manager in POST_UPDATE)
@@ -269,8 +288,7 @@ impl ConnectionManager {
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
                     self.replication_sender
-                        .updates_message_id_to_group_id
-                        .insert(message_id, (group_id, bevy_tick));
+                        .buffer_replication_update_message(group_id, message_id, bevy_tick);
                 }
                 Ok(())
             })

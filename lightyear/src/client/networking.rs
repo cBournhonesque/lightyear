@@ -178,6 +178,7 @@ pub(crate) fn receive(world: &mut World) {
 
                                                             // update the connection (message manager, ping manager, etc.)
                                                             connection.update(
+                                                                world.change_tick(),
                                                                 time_manager.as_ref(),
                                                                 tick_manager.as_ref(),
                                                             );
@@ -454,6 +455,7 @@ fn rebuild_client_connection(world: &mut World) {
         world.resource::<ComponentRegistry>(),
         world.resource::<MessageRegistry>(),
         world.resource::<ChannelRegistry>(),
+        client_config.replication,
         client_config.packet,
         client_config.sync,
         client_config.ping,
@@ -506,8 +508,6 @@ fn connect(world: &mut World) {
             .set(NetworkingState::Connected);
     }
 }
-
-
 
 pub trait ClientCommands {
     /// Start the connection process

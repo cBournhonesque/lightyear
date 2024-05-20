@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context};
 use bevy::ptr::UnsafeCellDeref;
 use bevy::reflect::Reflect;
 use bytes::Bytes;
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use tracing::{error, info, trace};
 
 use bitcode::buffer::BufferTrait;
@@ -45,16 +45,22 @@ pub struct MessageManager {
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
     packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
+    nack_senders: Vec<Sender<MessageId>>,
 }
 
 impl MessageManager {
-    pub fn new(channel_registry: &ChannelRegistry, priority_config: PriorityConfig) -> Self {
+    pub fn new(
+        channel_registry: &ChannelRegistry,
+        nack_rtt_multiple: f32,
+        priority_config: PriorityConfig,
+    ) -> Self {
         Self {
-            packet_manager: PacketBuilder::new(),
+            packet_manager: PacketBuilder::new(nack_rtt_multiple),
             priority_manager: PriorityManager::new(priority_config),
             channels: channel_registry.channels(),
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
+            nack_senders: vec![],
         }
     }
 
@@ -63,14 +69,51 @@ impl MessageManager {
             .subscribe_replication_update_sent_messages()
     }
 
-    /// Update book-keeping
+    /// Create an additional `Sender` to notify when a message has been lost
+    pub(crate) fn subscribe_nacks(&mut self) -> Receiver<MessageId> {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        self.nack_senders.push(sender);
+        receiver
+    }
+
+    /// Update bookkeeping
     pub fn update(
         &mut self,
         time_manager: &TimeManager,
         ping_manager: &PingManager,
         tick_manager: &TickManager,
     ) {
-        self.packet_manager.header_manager.update(time_manager);
+        // on the sender side, gather the list of packets that haven't been received by the remote peer
+        let lost_packets = self
+            .packet_manager
+            .header_manager
+            .update(time_manager, ping_manager);
+        // notify that some messages have been lost
+        for lost_packet in lost_packets {
+            if let Some(message_map) = self.packet_to_message_ack_map.remove(&lost_packet) {
+                for (channel_kind, message_acks) in message_map {
+                    let channel = self
+                        .channels
+                        .get_mut(&channel_kind)
+                        .expect("Channel not found");
+                    // TODO: this is a bit ugly, we rely on the fact that EntityUpdatesChannel is the only channel
+                    //  that uses `is_watching_acks`, but users might add more!
+                    //  instead we should let the user subscribe to nacks on an individual channel basis
+                    //  (similar to what we do with acks)
+                    //  it's fine for an initial implementation
+                    if channel.setting.mode.is_watching_nacks() {
+                        // TODO: batch the messages?
+                        for message_ack in message_acks {
+                            for sender in &self.nack_senders {
+                                let _ = sender
+                                    .try_send(message_ack.message_id)
+                                    .inspect_err(|e| error!("error sending nack: {:?}", e));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         for channel in self.channels.values_mut() {
             channel
                 .sender
@@ -323,9 +366,9 @@ mod tests {
 
         // Create message managers
         let client_message_manager =
-            MessageManager::new(&channel_registry, PriorityConfig::default());
+            MessageManager::new(&channel_registry, 1.5, PriorityConfig::default());
         let server_message_manager =
-            MessageManager::new(&channel_registry, PriorityConfig::default());
+            MessageManager::new(&channel_registry, 1.5, PriorityConfig::default());
         (client_message_manager, server_message_manager)
     }
 

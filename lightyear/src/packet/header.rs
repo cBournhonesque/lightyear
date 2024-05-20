@@ -9,6 +9,7 @@ use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::PacketStatsManager;
 use crate::prelude::TimeManager;
+use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::time_manager::WrappedTime;
 
@@ -49,7 +50,13 @@ impl PacketHeader {
 const ACK_BITFIELD_SIZE: u8 = 32;
 // we can only buffer up to `MAX_SEND_PACKET_QUEUE_SIZE` packets for sending
 const MAX_SEND_PACKET_QUEUE_SIZE: u8 = 255;
-const CLEAR_UNACKED_PACKETS_DELAY: chrono::Duration = chrono::Duration::milliseconds(5000);
+
+/// minimum number of milliseconds after which we can consider a packet lost
+/// (to avoid edge case behaviour)
+const MIN_NACK_MILLIS: i64 = 10;
+
+/// maximum number of seconds after which we consider a packet lost
+const MAX_NACK_SECONDS: i64 = 3;
 
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
@@ -73,10 +80,15 @@ pub struct PacketHeaderManager {
     recv_buffer: ReceiveBuffer,
     // copy of current time so that we don't pollute the function signatures to much
     current_time: WrappedTime,
+    /// After how many multiples of RTT do we consider a packet to be lost?
+    ///
+    /// The default is 1.5; i.e. after 1.5 times the round trip time, we consider a packet lost if
+    /// we haven't received an ACK for it.
+    nack_rtt_multiple: f32,
 }
 
 impl PacketHeaderManager {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(nack_rtt_multiple: f32) -> Self {
         // let (ack_notification_sender, ack_notification_receiver) =
         //     crossbeam::channel::bounded(MAX_SEND_PACKET_QUEUE_SIZE as usize);
         Self {
@@ -88,21 +100,36 @@ impl PacketHeaderManager {
             // ack_notification_sender,
             // ack_notification_receiver,
             current_time: WrappedTime::default(),
+            nack_rtt_multiple,
         }
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager) {
+    /// Internal bookkeeping.
+    /// Returns a list of packets that are considered NACKed (i.e. acknowledged as losts)
+    pub(crate) fn update(
+        &mut self,
+        time_manager: &TimeManager,
+        ping_manager: &PingManager,
+    ) -> Vec<PacketId> {
         self.current_time = time_manager.current_time();
         self.stats_manager.update(time_manager);
+        let rtt = ping_manager.final_stats.rtt;
+        let nack_duration = chrono::Duration::from_std(rtt.mul_f32(self.nack_rtt_multiple))
+            .expect("duration should be valid")
+            .min(chrono::TimeDelta::seconds(MAX_NACK_SECONDS))
+            .max(chrono::TimeDelta::milliseconds(MIN_NACK_MILLIS));
         // clear sent packets that haven't received any ack for a while
+        let mut lost_packets = vec![];
         self.sent_packets_not_acked.retain(|packet_id, time_sent| {
-            if self.current_time - (*time_sent) > CLEAR_UNACKED_PACKETS_DELAY {
+            if self.current_time - (*time_sent) > nack_duration {
                 trace!("sent packet got lost");
+                lost_packets.push(*packet_id);
                 self.stats_manager.sent_packet_lost();
                 return false;
             }
             true
         });
+        lost_packets
     }
 
     // /// Get the receiver for the ack notification channel

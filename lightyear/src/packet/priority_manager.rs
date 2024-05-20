@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroU32;
 
-use crate::channel::builder::EntityUpdatesChannel;
+use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
 use crossbeam_channel::{Receiver, Sender};
 use governor::{DefaultDirectRateLimiter, Quota};
 use nonzero_ext::*;
@@ -83,7 +83,7 @@ impl PriorityManager {
         receiver
     }
 
-    // TODO: maybe accumulat ethe used_bytes in the priority_manager instead of returning here?
+    // TODO: maybe accumulate the used_bytes in the priority_manager instead of returning here?
     /// Filter the messages by priority and bandwidth quota
     /// Returns the list of messages that we can send, along with the amount of bytes we used
     /// in the rate limiter.
@@ -188,12 +188,7 @@ impl PriorityManager {
                 .or_insert((VecDeque::new(), VecDeque::new()));
 
             // notify the replication sender that the message was actually sent
-            let channel_kind = channel_registry
-                .get_kind_from_net_id(buffered_message.channel_net_id)
-                .unwrap();
-            if channel_kind == &ChannelKind::of::<EntityUpdatesChannel>()
-                || channel_kind == &ChannelKind::of::<EntityUpdatesChannel>()
-            {
+            if channel_registry.is_replication_channel(buffered_message.channel_net_id) {
                 // SAFETY: we are guaranteed in this situation to have a message id (because we use the unreliable with acks sender)
                 let message_id = buffered_message.message_container.message_id().unwrap();
                 for sender in self.replication_update_senders.iter() {

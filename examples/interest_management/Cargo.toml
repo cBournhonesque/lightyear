@@ -19,10 +19,10 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 lightyear_examples_common = { path = "../common" }
 leafwing-input-manager = "0.13"
 lightyear = { path = "../../lightyear", features = [
-    "webtransport",
-    "websocket",
-    "leafwing",
-    "steam",
+  "webtransport",
+  "websocket",
+  "leafwing",
+  "steam",
 ] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }

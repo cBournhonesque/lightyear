@@ -1,3 +1,33 @@
+- Replication current policy:
+  - send all updates since last ACK tick for that entity.
+- Replication new policy: send all updates since last send
+  - for an entity E, keep track of ACK tick, send tick, and change tick.
+  - if the entity changed (i.e. change_tick > send_tick), send update and set send_tick to change_tick.
+  - Save for entity E that we sent a message at tick T
+  - If message is receives, bump ACK tick to send_tick
+  - Message is considered lost if we didn't receive an ack after 1.5 * RTT. (i.e. we didn't receive an ack after send_tick + 1.5 * RTT)
+    if that's the case, send the send_tick back to ACK_TICK, so that we need to send the message again.
+ 
+
+- needs tests for: 
+  - update at tick 10, send_tick = 10, ack_tick = None,
+  - update at tick 12, send_tick = 12, ack_tick = None,
+  - ack tick 10, send_tick = 12, ack_tick = 10,
+  - lost tick 12, send_tick = 10, ack_tick = 10 (we revert send_tick to ack_tick)
+
+  - update at tick 10, send_tick = 10, ack_tick = None,
+  - update at tick 12, send_tick = 12, ack_tick = None,
+  - lost tick 12, send_tick = 10, ack_tick = None (we revert send_tick to ack_tick)
+  - ack tick 10, send_tick = 10, ack_tick = 10,
+
+  - update at tick 10, send_tick = 10, ack_tick = None
+  - update at tick
+
+
+
+
+  - saves bandwidth because 99% of packets should arrive correctly.
+
 - Add a `Controlled` component to an entity to specify that the player is controlling the entity
   - field (`controlled_by: NetworkTarget`) on the server `Replicate`
   - it means that the `Controlled` component gets replicated to the client who has control of this entity.

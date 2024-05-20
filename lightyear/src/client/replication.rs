@@ -375,22 +375,22 @@ pub(crate) mod send {
                     } else {
                         let group_id = group.group_id(Some(entity));
                         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-                        let collect_changes_since_this_tick = sender
+                        let send_tick = sender
                             .replication_sender
                             .group_channels
                             .entry(group_id)
                             .or_default()
-                            .collect_changes_since_this_tick;
+                            .send_tick;
 
                         // send the update for all changes newer than the last ack bevy tick for the group
-                        if collect_changes_since_this_tick.map_or(true, |c| {
+                        if send_tick.map_or(true, |c| {
                             component
                                 .last_changed()
                                 .is_newer_than(c, system_bevy_ticks.this_run())
                         }) {
                             trace!(
                                 change_tick = ?component.last_changed(),
-                                ?collect_changes_since_this_tick,
+                                ?send_tick,
                                 current_tick = ?system_bevy_ticks.this_run(),
                                 "prepare entity update changed check"
                             );

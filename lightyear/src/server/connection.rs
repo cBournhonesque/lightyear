@@ -34,7 +34,7 @@ use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
-use crate::server::config::PacketConfig;
+use crate::server::config::{PacketConfig, ReplicationConfig};
 use crate::server::events::{ConnectEvent, ServerEvents};
 use crate::server::message::ServerMessage;
 use crate::server::replication::send::ReplicateCache;
@@ -74,6 +74,9 @@ pub struct ConnectionManager {
     pub(crate) new_clients: Vec<ClientId>,
     pub(crate) writer: BitcodeWriter,
     pub(crate) reader_pool: BufferPool,
+
+    // CONFIG
+    replication_config: ReplicationConfig,
     packet_config: PacketConfig,
     ping_config: PingConfig,
 }
@@ -82,6 +85,7 @@ impl ConnectionManager {
     pub(crate) fn new(
         message_registry: MessageRegistry,
         channel_registry: ChannelRegistry,
+        replication_config: ReplicationConfig,
         packet_config: PacketConfig,
         ping_config: PingConfig,
     ) -> Self {
@@ -94,6 +98,7 @@ impl ConnectionManager {
             new_clients: vec![],
             writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
             reader_pool: BufferPool::new(1),
+            replication_config,
             packet_config,
             ping_config,
         }
@@ -210,9 +215,14 @@ impl ConnectionManager {
             .context("client id not found")
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    pub(crate) fn update(
+        &mut self,
+        world_tick: BevyTick,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) {
         self.connections.values_mut().for_each(|connection| {
-            connection.update(time_manager, tick_manager);
+            connection.update(world_tick, time_manager, tick_manager);
         });
     }
 
@@ -227,6 +237,7 @@ impl ConnectionManager {
                 client_id,
                 client_entity,
                 &self.channel_registry,
+                self.replication_config.clone(),
                 self.packet_config.clone(),
                 self.ping_config.clone(),
             );
@@ -384,13 +395,20 @@ impl Connection {
         client_id: ClientId,
         entity: Entity,
         channel_registry: &ChannelRegistry,
+        replication_config: ReplicationConfig,
         packet_config: PacketConfig,
         ping_config: PingConfig,
     ) -> Self {
+        let bandwidth_cap_enabled = packet_config.bandwidth_cap_enabled;
         // create the message manager and the channels
-        let mut message_manager = MessageManager::new(channel_registry, packet_config.into());
-        // get the acks-tracker for entity updates
-        let update_acks_tracker = message_manager
+        let mut message_manager = MessageManager::new(
+            channel_registry,
+            packet_config.nack_rtt_multiple,
+            packet_config.into(),
+        );
+        // get notified about acks/nacks for replication-update messages
+        let update_nacks_receiver = message_manager.subscribe_nacks();
+        let update_acks_receiver = message_manager
             .channels
             .get_mut(&ChannelKind::of::<EntityUpdatesChannel>())
             .unwrap()
@@ -399,8 +417,13 @@ impl Connection {
         // get a channel to get notified when a replication update message gets actually send (to update priority)
         let replication_update_send_receiver =
             message_manager.get_replication_update_send_receiver();
-        let replication_sender =
-            ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
+        let replication_sender = ReplicationSender::new(
+            update_acks_receiver,
+            update_nacks_receiver,
+            replication_update_send_receiver,
+            replication_config.send_updates_since_last_ack,
+            bandwidth_cap_enabled,
+        );
         let replication_receiver = ReplicationReceiver::new();
         Self {
             client_id,
@@ -421,9 +444,15 @@ impl Connection {
         }
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    pub(crate) fn update(
+        &mut self,
+        world_tick: BevyTick,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) {
         self.message_manager
             .update(time_manager, &self.ping_manager, tick_manager);
+        self.replication_sender.update(world_tick);
         self.ping_manager.update(time_manager);
     }
 
@@ -479,8 +508,7 @@ impl Connection {
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
                     self.replication_sender
-                        .updates_message_id_to_group_id
-                        .insert(message_id, (group_id, bevy_tick));
+                        .buffer_replication_update_message(group_id, message_id, bevy_tick);
                 }
                 Ok(())
             })
@@ -800,25 +828,25 @@ impl ConnectionManager {
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
-            let collect_changes_since_this_tick = replication_sender
+            let send_tick = replication_sender
                 .group_channels
                 .entry(group_id)
                 .or_default()
-                .collect_changes_since_this_tick;
-            // send the update for all changes newer than the last ack bevy tick for the group
+                .send_tick;
+            // send the update for all changes newer than the last send_tick for the group
             debug!(
                 ?kind,
                 change_tick = ?component_change_tick,
-                ?collect_changes_since_this_tick,
-                "prepare entity update changed check (we want the component-change-tick to be higher than collect-changes-since-this-tick)"
+                ?send_tick,
+                "prepare entity update changed check (we want the component-change-tick to be higher than send_tick)"
             );
 
-            if collect_changes_since_this_tick.map_or(true, |tick| {
+            if send_tick.map_or(true, |tick| {
                 component_change_tick.is_newer_than(tick, system_current_tick)
             }) {
                 trace!(
                     change_tick = ?component_change_tick,
-                    ?collect_changes_since_this_tick,
+                    ?send_tick,
                     current_tick = ?system_current_tick,
                     "prepare entity update changed check"
                 );
