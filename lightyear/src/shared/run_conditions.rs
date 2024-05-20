@@ -46,14 +46,7 @@ pub fn is_mode_separate(config: Option<Res<ServerConfig>>) -> bool {
 /// to avoid having a frame of delay since the `StateTransition` schedule runs after `PreUpdate`.
 /// We also check both the networking state and the io state (in case the io gets disconnected)
 pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient.map_or(false, |c| {
-        c.state() == NetworkingState::Connected
-            && c.io()
-                // TODO: maybe we don't need to check io because an io disconnect will trigger
-                //  a netcode disconnect?
-                // we default to true for connections that don't use io
-                .map_or(true, |io| matches!(io.state, IoState::Connected))
-    })
+    netclient.map_or(false, |c| c.state() == NetworkingState::Connected)
 }
 
 /// Returns true if the client is disconnected.
@@ -61,11 +54,9 @@ pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>`
 /// to avoid having a frame of delay since the `StateTransition` schedule runs after `PreUpdate`
 pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient.as_ref().map_or(true, |c| {
-        c.state() == NetworkingState::Disconnected
-            || c.io()
-                .map_or(true, |io| !matches!(io.state, IoState::Connected))
-    })
+    netclient
+        .as_ref()
+        .map_or(true, |c| c.state() == NetworkingState::Disconnected)
 }
 
 /// Returns true if the server is started.
