@@ -6,7 +6,6 @@ use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlu
 use bevy_xpbd_2d::parry::shape::Ball;
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
-use common::shared::FIXED_TIMESTEP_HZ;
 use leafwing_input_manager::prelude::ActionState;
 use tracing::Level;
 
@@ -14,6 +13,7 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
+use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
 const MAX_VELOCITY: f32 = 200.0;

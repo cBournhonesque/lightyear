@@ -212,6 +212,7 @@ pub mod prelude {
     pub use crate::shared::replication::resources::{
         ReplicateResourceExt, ReplicateResourceMetadata, StopReplicateResourceExt,
     };
+    pub use crate::shared::run_conditions::*;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};

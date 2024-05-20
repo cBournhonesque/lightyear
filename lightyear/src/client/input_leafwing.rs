@@ -60,7 +60,7 @@ use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{Mode, SharedConfig, TickManager};
+use crate::prelude::{is_host_server, Mode, SharedConfig, TickManager};
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, FixedUpdateSet, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
@@ -177,7 +177,7 @@ impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
 
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
-        let should_run = run_if_enabled::<A>.and_then(not(SharedConfig::is_host_server_condition));
+        let should_run = run_if_enabled::<A>.and_then(not(is_host_server));
 
         // app.init_resource::<ActionState<A>>();
         app.init_resource::<InputBuffer<A>>();

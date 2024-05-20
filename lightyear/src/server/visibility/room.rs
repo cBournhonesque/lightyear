@@ -50,9 +50,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace};
 
 use crate::connection::id::ClientId;
+use crate::prelude::is_started;
 use crate::server::connection::ConnectionManager;
 
-use crate::server::networking::is_started;
 use crate::server::visibility::immediate::{VisibilityManager, VisibilitySet};
 use crate::shared::replication::components::DespawnTracker;
 use crate::shared::replication::ReplicationSend;

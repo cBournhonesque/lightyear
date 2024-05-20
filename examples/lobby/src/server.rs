@@ -25,7 +25,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             Startup,
             // start the dedicated server immediately (but not host servers)
-            start_dedicated_server.run_if(SharedConfig::is_mode_separate),
+            start_dedicated_server.run_if(is_mode_separate),
         );
         app.add_systems(
             FixedUpdate,
@@ -41,7 +41,7 @@ impl Plugin for ExampleServerPlugin {
                 // in HostServer mode, we will spawn a player when a client connects
                 game::handle_connections
             )
-                .run_if(SharedConfig::is_host_server_condition),
+                .run_if(is_host_server),
         );
         app.add_systems(
             Update,
@@ -51,7 +51,7 @@ impl Plugin for ExampleServerPlugin {
                 lobby::handle_lobby_exit,
                 lobby::handle_start_game,
             )
-                .run_if(SharedConfig::is_mode_separate),
+                .run_if(is_mode_separate),
         );
     }
 }

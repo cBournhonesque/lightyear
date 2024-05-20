@@ -7,10 +7,9 @@ use crate::client::interpolation::Interpolated;
 use crate::client::prediction::Predicted;
 use crate::connection::client::NetClient;
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{PrePredicted, SharedConfig};
+use crate::prelude::{is_started, PrePredicted, SharedConfig};
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
-use crate::server::networking::is_started;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
@@ -51,7 +50,7 @@ pub(crate) mod receive {
 pub(crate) mod send {
     use super::*;
     use crate::prelude::{
-        ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent,
+        is_host_server, ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent,
         ReplicateHierarchy, ReplicateOnceComponent, ReplicationGroup, ShouldBePredicted,
         TargetEntity, VisibilityMode,
     };
@@ -128,7 +127,7 @@ pub(crate) mod send {
                 PostUpdate,
                 add_prediction_interpolation_components
                     .after(InternalMainSet::<ServerMarker>::Send)
-                    .run_if(SharedConfig::is_host_server_condition),
+                    .run_if(is_host_server),
             );
         }
     }

@@ -13,7 +13,7 @@ use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
 use crate::client::interpolation::Interpolated;
 use crate::client::sync::client_is_synced;
-use crate::prelude::{Mode, SharedConfig};
+use crate::prelude::{is_host_server, Mode, SharedConfig};
 
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
@@ -176,8 +176,7 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
-        let should_run_interpolation =
-            not(SharedConfig::is_host_server_condition).and_then(client_is_synced);
+        let should_run_interpolation = not(is_host_server).and_then(client_is_synced);
 
         // REFLECT
         app.register_type::<InterpolationConfig>()
