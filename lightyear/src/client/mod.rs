@@ -28,3 +28,6 @@ pub(crate) mod io;
 pub(crate) mod message;
 pub(crate) mod networking;
 pub mod replication;
+
+#[cfg(target_family = "wasm")]
+mod web;
