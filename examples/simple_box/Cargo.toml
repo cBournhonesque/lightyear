@@ -13,7 +13,10 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
+default = ["wasm-bindgen", "web-sys"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
+wasm-bindgen = ["dep:wasm-bindgen"]
+web-sys = ["dep:web-sys"]
 
 [dependencies]
 lightyear_examples_common = { path = "../common" }
@@ -34,10 +37,5 @@ metrics-exporter-prometheus = { version = "0.13.0", optional = true }
 bevy-inspector-egui = "0.24"
 
 wasm-bindgen = { version = "0.2.92", optional = true }
-web-sys = { version = "0.3.69", features = [
-    "Document", 
-    "Worker",
-    "Blob",
-    "Url"
-], optional = true }
+web-sys = { version = "0.3.69", features = ["Document", "Worker", "Blob", "Url"], optional = true }
 

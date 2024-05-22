@@ -14,9 +14,13 @@ use bevy::utils::Duration;
 use bevy_mod_picking::picking_core::Pickable;
 use bevy_mod_picking::prelude::{Click, On, Pointer};
 
+#[cfg(target_arch = "wasm32")]
 use std::sync::{Arc, RwLock};
+#[cfg(target_arch = "wasm32")]
 use bevy::{app::Main, ecs::world::World};
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+#[cfg(target_arch = "wasm32")]
 use web_sys::{js_sys::Array, window, Blob, Url, Worker};
 
 pub use lightyear::prelude::client::*;
