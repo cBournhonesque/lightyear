@@ -32,3 +32,12 @@ derive_more = { version = "0.99", features = ["add", "mul"] }
 rand = "0.8.1"
 metrics-exporter-prometheus = { version = "0.13.0", optional = true }
 bevy-inspector-egui = "0.24"
+
+wasm-bindgen = { version = "0.2.92", optional = true }
+web-sys = { version = "0.3.69", features = [
+    "Document", 
+    "Worker",
+    "Blob",
+    "Url"
+], optional = true }
+
