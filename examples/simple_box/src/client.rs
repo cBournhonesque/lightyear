@@ -14,6 +14,11 @@ use bevy::utils::Duration;
 use bevy_mod_picking::picking_core::Pickable;
 use bevy_mod_picking::prelude::{Click, On, Pointer};
 
+use std::sync::{Arc, RwLock};
+use bevy::{app::Main, ecs::world::World};
+use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+use web_sys::{js_sys::Array, window, Blob, Url, Worker};
+
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -46,6 +51,9 @@ impl Plugin for ExampleClientPlugin {
             ),
         );
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Startup, spawn_background_worker);
     }
 }
 
@@ -183,6 +191,30 @@ pub(crate) fn handle_interpolated_spawn(
     for mut color in interpolated.iter_mut() {
         color.0.set_s(0.1);
     }
+}
+
+/// Safety: This is only safe in single threaded WebAssembly environments
+#[cfg(target_arch = "wasm32")]
+fn spawn_background_worker(world: &mut World) {
+    let world_ptr = Arc::new(RwLock::new(world as *mut World));
+
+    // Timer for 60Hz
+    let blob = Blob::new_with_str_sequence(&Array::of1(&JsValue::from_str("setInterval(() => self.postMessage(0), 16.6);")).unchecked_into()).unwrap();
+
+    let worker = Worker::new(&Url::create_object_url_with_blob(&blob).unwrap()).unwrap();
+
+    let closure = Closure::<dyn FnMut()>::new(move || {
+        if window().unwrap().document().unwrap().hidden() {
+            // Imitate app.update()
+            let world = unsafe { world_ptr.write().unwrap().as_mut().unwrap() };
+            world.run_schedule(Main);
+            world.clear_trackers();
+        }
+    });
+
+    worker.set_onmessage(Some(closure.as_ref().unchecked_ref()));
+
+    closure.forget();
 }
 
 /// Create a button that allow you to connect/disconnect to a server
