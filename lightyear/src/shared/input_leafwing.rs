@@ -6,6 +6,7 @@ use leafwing_input_manager::prelude::ActionState;
 use crate::client::config::ClientConfig;
 use crate::client::input_leafwing::LeafwingInputConfig;
 use crate::inputs::leafwing::InputMessage;
+use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::{
     AppComponentExt, AppMessageExt, AppSerializeExt, ChannelDirection, LeafwingUserAction,
     MessageRegistry,
@@ -34,7 +35,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             .resource_mut::<MessageRegistry>()
             .add_message::<InputMessage<A>>(MessageType::LeafwingInput);
         app.add_map_entities::<InputMessage<A>>();
-        app.register_component::<ActionState<A>>(ChannelDirection::Bidirectional);
+        app.register_component::<ActionState<A>>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Simple);
         let is_client = app.world.get_resource::<ClientConfig>().is_some();
         let is_server = app.world.get_resource::<ServerConfig>().is_some();
         if is_client {
