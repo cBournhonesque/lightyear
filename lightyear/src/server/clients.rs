@@ -78,12 +78,12 @@ mod systems {
         for event in events.read() {
             // despawn all the controlled entities for the disconnected client
             if let Ok(controlled_entities) = client_query.get(event.entity) {
-                error!(
+                debug!(
                     "Despawning all entities controlled by client {:?}",
                     event.client_id
                 );
                 for entity in controlled_entities.iter() {
-                    error!(
+                    debug!(
                         "Despawning entity {entity:?} controlled by client {:?}",
                         event.client_id
                     );
