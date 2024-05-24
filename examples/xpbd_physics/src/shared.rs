@@ -60,8 +60,8 @@ impl Plugin for SharedPlugin {
             //     ]),
             //     ..default()
             // });
-            // app.add_systems(Startup, setup_diagnostic);
-            // app.add_plugins(ScreenDiagnosticsPlugin::default());
+            app.add_systems(Startup, setup_diagnostic);
+            app.add_plugins(ScreenDiagnosticsPlugin::default());
         }
         // bundles
         app.add_systems(Startup, init);
@@ -97,13 +97,33 @@ impl Plugin for SharedPlugin {
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
     onscreen
+        .add("Rollbacks".to_string(), ClientDiagnosticsPlugin::ROLLBACKS)
+        .aggregate(Aggregate::Value)
+        .format(|v| format!("{v:.0}"));
+    onscreen
+        .add(
+            "Rollback ticks".to_string(),
+            ClientDiagnosticsPlugin::ROLLBACK_TICKS,
+        )
+        .aggregate(Aggregate::Value)
+        .format(|v| format!("{v:.0}"));
+    onscreen
+        .add(
+            "RB depth".to_string(),
+            ClientDiagnosticsPlugin::ROLLBACK_DEPTH,
+        )
+        .aggregate(Aggregate::Value)
+        .format(|v| format!("{v:.1}"));
+    // screen diagnostics twitches due to layout change when a metric adds or removes
+    // a digit, so pad these metrics to 3 digits.
+    onscreen
         .add("KB_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
         .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.0}"));
+        .format(|v| format!("{v:0>3.0}"));
     onscreen
         .add("KB_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
         .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.0}"));
+        .format(|v| format!("{v:0>3.0}"));
 }
 
 // Generate pseudo-random color from id

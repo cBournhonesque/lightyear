@@ -22,6 +22,8 @@ pub mod sync;
 mod diagnostics;
 mod easings;
 
+pub use diagnostics::ClientDiagnosticsPlugin;
+
 pub(crate) mod io;
 pub(crate) mod message;
 pub(crate) mod networking;
