@@ -1,3 +1,4 @@
+use crate::client::connection::ConnectionManager;
 use crate::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
 use bevy::app::{App, Plugin, PluginGroup, PluginGroupBuilder, PostUpdate, Update};
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
@@ -8,6 +9,7 @@ use instant::Duration;
 
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::{is_host_server, SharedConfig};
+use crate::shared::ping::diagnostics::PingDiagnosticsPlugin;
 use crate::shared::run_conditions::is_disconnected;
 use crate::transport::io::IoDiagnosticsPlugin;
 
@@ -35,16 +37,34 @@ fn io_diagnostics_system(
     }
 }
 
+fn ping_diagnostics_system(connection: Res<ConnectionManager>, diagnostics: Diagnostics) {
+    PingDiagnosticsPlugin::add_measurements(&connection.ping_manager, diagnostics);
+}
+
 impl Plugin for ClientDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
+        {
+            let ping_plugin = PingDiagnosticsPlugin::default();
+            let flush_interval = ping_plugin.flush_interval;
+            app.add_plugins(ping_plugin);
+            app.add_systems(
+                PostUpdate,
+                ping_diagnostics_system.run_if(
+                    on_timer(flush_interval).and_then(not(is_host_server.or_else(is_disconnected))),
+                ),
+            );
+        }
         app.add_plugins(PredictionDiagnosticsPlugin::default());
-        app.add_plugins(IoDiagnosticsPlugin);
-        app.add_systems(
-            PostUpdate,
-            io_diagnostics_system.run_if(
-                on_timer(self.flush_interval)
-                    .and_then(not(is_host_server.or_else(is_disconnected))),
-            ),
-        );
+
+        {
+            app.add_plugins(IoDiagnosticsPlugin);
+            app.add_systems(
+                PostUpdate,
+                io_diagnostics_system.run_if(
+                    on_timer(self.flush_interval)
+                        .and_then(not(is_host_server.or_else(is_disconnected))),
+                ),
+            );
+        }
     }
 }

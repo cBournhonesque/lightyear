@@ -51,8 +51,10 @@ pub struct PingManager {
     pub(crate) sync_stats: SyncStatsBuffer,
     /// Current best estimates of various networking statistics
     pub final_stats: FinalStats,
-    /// Generation of the tick
-    remote_tick_generation: u16,
+    /// The number of pings we have sent
+    pub(crate) pings_sent: u32,
+    /// The number of pongs we have received
+    pub(crate) pongs_recv: u32,
 }
 
 /// Connection stats aggregated over several [`SyncStats`]
@@ -91,7 +93,8 @@ impl PingManager {
             // sync
             sync_stats: SyncStatsBuffer::new(),
             final_stats: FinalStats::default(),
-            remote_tick_generation: 0,
+            pings_sent: 0,
+            pongs_recv: 0,
         }
     }
 
@@ -125,8 +128,7 @@ impl PingManager {
             }
         }
 
-        // NOTE: no need to clear anything in the ping_store because new pings will overwrite
-        // older pings
+        // NOTE: no need to clear anything in the ping_store because new pings will overwrite older pings
     }
 
     /// Check if we are ready to send a ping to the remote
@@ -136,7 +138,7 @@ impl PingManager {
             self.ping_timer.reset();
 
             let ping_id = self.ping_store.push_new(time_manager.current_time());
-
+            self.pings_sent += 1;
             return Some(Ping { id: ping_id });
         }
         None
@@ -219,6 +221,7 @@ impl PingManager {
     /// Returns true if we have enough pongs to finalize the handshake
     pub(crate) fn process_pong(&mut self, pong: &Pong, current_time: WrappedTime) {
         trace!("Received pong: {:?}", pong);
+        self.pongs_recv += 1;
         let received_time = current_time;
 
         let Some(ping_sent_time) = self.ping_store.remove(pong.ping_id) else {
