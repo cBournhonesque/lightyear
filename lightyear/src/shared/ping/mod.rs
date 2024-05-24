@@ -4,4 +4,5 @@ pub mod manager;
 
 pub mod message;
 
+pub mod diagnostics;
 pub mod store;

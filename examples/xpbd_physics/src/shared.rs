@@ -13,6 +13,7 @@ use lightyear::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
+use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
@@ -54,13 +55,13 @@ impl Plugin for SharedPlugin {
                         .after(PredictionSet::VisualCorrection),
                 );
             }
-            // app.add_plugins(LogDiagnosticsPlugin {
-            //     filter: Some(vec![
-            //         IoDiagnosticsPlugin::BYTES_IN,
-            //         IoDiagnosticsPlugin::BYTES_OUT,
-            //     ]),
-            //     ..default()
-            // });
+            app.add_plugins(LogDiagnosticsPlugin {
+                filter: Some(vec![
+                    IoDiagnosticsPlugin::BYTES_IN,
+                    IoDiagnosticsPlugin::BYTES_OUT,
+                ]),
+                ..default()
+            });
             app.add_systems(Startup, setup_diagnostic);
             app.add_plugins(ScreenDiagnosticsPlugin::default());
         }

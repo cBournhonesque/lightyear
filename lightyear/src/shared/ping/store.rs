@@ -9,7 +9,7 @@ const PING_BUFFER_SIZE: usize = 128;
 
 /// Data structure to store the latest pings sent to remote
 pub struct PingStore {
-    /// Id that will be assigned to the next ping sent
+    /// ID that will be assigned to the next ping sent
     latest_ping_id: PingId,
     /// Buffer storing the latest pings sent along with their associated time
     /// Older pings will get overwritten by newer pings
