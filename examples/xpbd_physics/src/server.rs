@@ -3,6 +3,7 @@ use bevy::utils::Duration;
 use bevy::utils::HashMap;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
+use lightyear::inputs::leafwing::InputMessage;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -28,6 +29,12 @@ impl Plugin for ExampleServerPlugin {
         });
 
         app.add_systems(Startup, (start_server, init));
+        app.add_systems(
+            PreUpdate,
+            // this system will replicate the inputs of a client to other clients
+            // so that a client can predict other clients
+            replicate_inputs.after(MainSet::EmitEvents),
+        );
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
             PreUpdate,
@@ -59,13 +66,13 @@ fn init(mut commands: Commands, global: Res<Global>) {
         }),
     );
 
-    // the ball is server-authoritative
-    commands.spawn(BallBundle::new(
-        Vec2::new(0.0, 0.0),
-        Color::AZURE,
-        // if true, we predict the ball on clients
-        global.predict_all,
-    ));
+    // // the ball is server-authoritative
+    // commands.spawn(BallBundle::new(
+    //     Vec2::new(0.0, 0.0),
+    //     Color::AZURE,
+    //     // if true, we predict the ball on clients
+    //     global.predict_all,
+    // ));
 }
 
 /// Read client inputs and move players
@@ -91,6 +98,26 @@ pub(crate) fn movement(
             shared_movement_behaviour(velocity, action);
             trace!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
         }
+    }
+}
+
+pub(crate) fn replicate_inputs(
+    mut connection: ResMut<ConnectionManager>,
+    mut input_events: EventReader<MessageEvent<InputMessage<PlayerActions>>>,
+) {
+    for event in input_events.read() {
+        let inputs = event.message();
+        let client_id = event.context();
+
+        // Optional: do some validation on the inputs to check that there's no cheating
+
+        // rebroadcast the input to other clients
+        connection
+            .send_message_to_target::<InputChannel, _>(
+                inputs,
+                NetworkTarget::AllExceptSingle(*client_id),
+            )
+            .unwrap()
     }
 }
 

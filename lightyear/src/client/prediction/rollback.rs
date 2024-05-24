@@ -240,7 +240,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     let current_tick = tick_manager.tick();
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
         let rollback_tick = confirmed.tick;
-        //
+
         // // 0. Confirm that we are in rollback.
         // // NOTE: currently all predicted entities must be in the same replication group because I do not know how
         // //  to do a 'partial' rollback for only some entities

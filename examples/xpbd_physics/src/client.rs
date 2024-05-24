@@ -76,16 +76,16 @@ pub(crate) fn handle_connection(
                 (PlayerActions::Right, KeyCode::KeyD),
             ]),
         ));
-        commands.spawn((PlayerBundle::new(
-            client_id,
-            Vec2::new(50.0, y),
-            InputMap::new([
-                (PlayerActions::Up, KeyCode::ArrowUp),
-                (PlayerActions::Down, KeyCode::ArrowDown),
-                (PlayerActions::Left, KeyCode::ArrowLeft),
-                (PlayerActions::Right, KeyCode::ArrowRight),
-            ]),
-        ),));
+        // commands.spawn((PlayerBundle::new(
+        //     client_id,
+        //     Vec2::new(50.0, y),
+        //     InputMap::new([
+        //         (PlayerActions::Up, KeyCode::ArrowUp),
+        //         (PlayerActions::Down, KeyCode::ArrowDown),
+        //         (PlayerActions::Left, KeyCode::ArrowLeft),
+        //         (PlayerActions::Right, KeyCode::ArrowRight),
+        //     ]),
+        // ),));
     }
 }
 
@@ -181,9 +181,8 @@ pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut ColorComponent, A
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
+// When the interpolated copy of the client-owned entity is spawned, do stuff
+// - assign it a different color
 pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
 ) {

@@ -36,6 +36,8 @@ use super::LeafwingUserAction;
 // - no need to maintain our inputbuffer on the server
 
 // NOTE: right now, for simplicity, we will send all the action-diffs for all entities in one single message.
+// TODO: can we just use History<ActionState> then? why do we need a special component?
+/// The InputBuffer contains a history of the ActionState
 // TODO: improve this data structure
 #[derive(Resource, Component, Debug)]
 pub(crate) struct InputBuffer<A: LeafwingUserAction> {
@@ -44,7 +46,7 @@ pub(crate) struct InputBuffer<A: LeafwingUserAction> {
 }
 impl<A: LeafwingUserAction> std::fmt::Display for InputBuffer<A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ty = std::any::type_name::<InputBuffer<A>>();
+        let ty = A::short_type_path();
         let buffer_str = self
             .buffer
             .iter()
@@ -57,7 +59,7 @@ impl<A: LeafwingUserAction> std::fmt::Display for InputBuffer<A> {
             .join(", ");
         write!(
             f,
-            "{}. Start tick: {:?}. Buffer: {:?}",
+            "InputBuffer<{:?}> = Start tick: {:?}. Buffer: {:?}",
             ty, self.start_tick, buffer_str
         )
     }
@@ -99,7 +101,7 @@ pub struct ActionDiffEvent<A> {
 /// Uses a minimal storage format, in order to facilitate transport over the network.
 ///
 /// An `ActionState` can be fully reconstructed from a stream of `ActionDiff`
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Reflect)]
 pub enum ActionDiff<A> {
     /// The action was pressed
     Pressed {
@@ -384,10 +386,10 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
     /// Take the ActionDiff generated in the frame and use them to populate the buffer
     /// Note that multiple frame can use the same tick, in which case we will use the latest ActionDiff events
     /// for a given action
-    pub(crate) fn set(&mut self, tick: Tick, diffs: Vec<ActionDiff<A>>) {
+    pub(crate) fn set(&mut self, tick: Tick, diffs: &Vec<ActionDiff<A>>) {
         let diffs = diffs
-            .into_iter()
-            .map(|diff| (diff.action(), diff))
+            .iter()
+            .map(|diff| (diff.action(), diff.clone()))
             .collect();
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
@@ -462,9 +464,9 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
             .map(|v| v.values().cloned().collect())
             .unwrap_or(vec![])
     }
-    pub(crate) fn update_from_message(&mut self, end_tick: Tick, diffs: Vec<Vec<ActionDiff<A>>>) {
+    pub(crate) fn update_from_message(&mut self, end_tick: Tick, diffs: &Vec<Vec<ActionDiff<A>>>) {
         let message_start_tick = end_tick - diffs.len() as u16 + 1;
-        for (delta, diffs_for_tick) in diffs.into_iter().enumerate() {
+        for (delta, diffs_for_tick) in diffs.iter().enumerate() {
             let tick = message_start_tick + Tick(delta as u16);
             self.set(tick, diffs_for_tick);
         }
@@ -549,13 +551,13 @@ mod tests {
 
         diff_buffer.set(
             Tick(3),
-            vec![ActionDiff::Pressed {
+            &vec![ActionDiff::Pressed {
                 action: Action::Jump,
             }],
         );
         diff_buffer.set(
             Tick(7),
-            vec![ActionDiff::Released {
+            &vec![ActionDiff::Released {
                 action: Action::Jump,
             }],
         );
@@ -612,7 +614,7 @@ mod tests {
             vec![],
         ];
 
-        diff_buffer.update_from_message(end_tick, diffs);
+        diff_buffer.update_from_message(end_tick, &diffs);
 
         assert_eq!(diff_buffer.get(Tick(20)), vec![]);
         assert_eq!(diff_buffer.get(Tick(19)), vec![]);
