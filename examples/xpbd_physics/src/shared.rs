@@ -28,7 +28,9 @@ pub enum FixedSet {
 }
 
 #[derive(Clone)]
-pub struct SharedPlugin;
+pub struct SharedPlugin {
+    pub(crate) show_confirmed: bool,
+}
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
@@ -39,11 +41,18 @@ impl Plugin for SharedPlugin {
             // draw after interpolation is done
             app.add_systems(
                 PostUpdate,
-                (draw_confirmed_shadows, draw_elements)
-                    .chain()
+                draw_elements
                     .after(InterpolationSet::Interpolate)
                     .after(PredictionSet::VisualCorrection),
             );
+            if self.show_confirmed {
+                app.add_systems(
+                    PostUpdate,
+                    draw_confirmed_shadows
+                        .after(InterpolationSet::Interpolate)
+                        .after(PredictionSet::VisualCorrection),
+                );
+            }
             // app.add_plugins(LogDiagnosticsPlugin {
             //     filter: Some(vec![
             //         IoDiagnosticsPlugin::BYTES_IN,

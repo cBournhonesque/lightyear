@@ -35,7 +35,9 @@ fn main() {
             ExampleServerPlugin {
                 predict_all: settings.predict_all,
             },
-            SharedPlugin,
+            SharedPlugin {
+                show_confirmed: settings.show_confirmed,
+            },
         )
         // run the app
         .run();
@@ -63,4 +65,7 @@ pub struct MySettings {
     /// This controls the duration of the interpolation; the higher it is, the longer the interpolation
     /// will take
     pub(crate) correction_ticks_factor: f32,
+
+    /// If true, we will also show the Confirmed entities (on top of the Predicted entities)
+    pub(crate) show_confirmed: bool,
 }
