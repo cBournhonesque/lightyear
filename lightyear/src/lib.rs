@@ -46,7 +46,7 @@ There are several steps:
 - [Adding messages](MessageRegistry#adding-messages)
 - [Adding components](ComponentRegistry#adding-components)
 - [Adding channels](ChannelRegistry#adding-channels)
-- [Adding leafwing inputs](client::leafwing#adding-leafwing-inputs) or [Adding inputs](client::input#adding-a-new-input-type)
+- [Adding leafwing inputs](client::input::leafwing#adding-leafwing-inputs) or [Adding inputs](client::input::native#adding-a-new-input-type)
 
 ## Using lightyear
 
