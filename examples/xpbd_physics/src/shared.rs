@@ -9,6 +9,7 @@ use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
 use tracing::Level;
 
+use lightyear::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
@@ -97,20 +98,23 @@ impl Plugin for SharedPlugin {
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
     onscreen
-        .add("Rollbacks".to_string(), ClientDiagnosticsPlugin::ROLLBACKS)
+        .add(
+            "Rollbacks".to_string(),
+            PredictionDiagnosticsPlugin::ROLLBACKS,
+        )
         .aggregate(Aggregate::Value)
         .format(|v| format!("{v:.0}"));
     onscreen
         .add(
             "Rollback ticks".to_string(),
-            ClientDiagnosticsPlugin::ROLLBACK_TICKS,
+            PredictionDiagnosticsPlugin::ROLLBACK_TICKS,
         )
         .aggregate(Aggregate::Value)
         .format(|v| format!("{v:.0}"));
     onscreen
         .add(
             "RB depth".to_string(),
-            ClientDiagnosticsPlugin::ROLLBACK_DEPTH,
+            PredictionDiagnosticsPlugin::ROLLBACK_DEPTH,
         )
         .aggregate(Aggregate::Value)
         .format(|v| format!("{v:.1}"));

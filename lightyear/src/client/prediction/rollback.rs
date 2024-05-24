@@ -16,8 +16,8 @@ use tracing::{debug, error, trace, trace_span};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::diagnostics::ClientMetrics;
 use crate::client::prediction::correction::Correction;
+use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::client::SyncMetadata;
@@ -512,7 +512,7 @@ pub(crate) fn run_rollback(world: &mut World) {
     }
     debug!("Finished rollback. Current tick: {:?}", current_tick);
 
-    let mut metrics = world.get_resource_mut::<ClientMetrics>().unwrap();
+    let mut metrics = world.get_resource_mut::<PredictionMetrics>().unwrap();
     metrics.rollbacks += 1;
     metrics.rollback_ticks += num_rollback_ticks as u32;
 

@@ -60,7 +60,7 @@ impl PluginGroup for ClientPlugins {
             })
             .add(ClientEventsPlugin)
             .add(ClientNetworkingPlugin)
-            .add(ClientDiagnosticsPlugin)
+            .add(ClientDiagnosticsPlugin::default())
             .add(ClientReplicationReceivePlugin { tick_interval })
             .add(ClientReplicationSendPlugin { tick_interval })
             .add(PredictionPlugin)
