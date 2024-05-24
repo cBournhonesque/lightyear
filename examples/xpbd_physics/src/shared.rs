@@ -39,7 +39,8 @@ impl Plugin for SharedPlugin {
             // draw after interpolation is done
             app.add_systems(
                 PostUpdate,
-                draw_elements
+                (draw_confirmed_shadows, draw_elements)
+                    .chain()
                     .after(InterpolationSet::Interpolate)
                     .after(PredictionSet::VisualCorrection),
             );
@@ -210,6 +211,29 @@ pub(crate) fn last_log(
 
 pub(crate) fn log() {
     debug!("run physics schedule!");
+}
+
+/// System that draws the outlines of confirmed entities, with lines to the centre of their predicted location.
+pub(crate) fn draw_confirmed_shadows(
+    mut gizmos: Gizmos,
+    confirmed_q: Query<(&Position, &Rotation, &LinearVelocity, &Confirmed), With<PlayerId>>,
+    predicted_q: Query<&Position, With<PlayerId>>,
+) {
+    for (position, rotation, velocity, confirmed) in confirmed_q.iter() {
+        let speed = velocity.length() / MAX_VELOCITY;
+        let ghost_col = Color::GRAY.with_a(speed);
+        gizmos.rect_2d(
+            Vec2::new(position.x, position.y),
+            rotation.as_radians(),
+            Vec2::ONE * PLAYER_SIZE,
+            ghost_col,
+        );
+        if let Some(e) = confirmed.predicted {
+            if let Ok(pos) = predicted_q.get(e) {
+                gizmos.line_2d(**position, **pos, ghost_col);
+            }
+        }
+    }
 }
 
 /// System that draws the player's boxes and cursors
