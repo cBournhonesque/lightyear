@@ -66,13 +66,13 @@ fn init(mut commands: Commands, global: Res<Global>) {
         }),
     );
 
-    // // the ball is server-authoritative
-    // commands.spawn(BallBundle::new(
-    //     Vec2::new(0.0, 0.0),
-    //     Color::AZURE,
-    //     // if true, we predict the ball on clients
-    //     global.predict_all,
-    // ));
+    // the ball is server-authoritative
+    commands.spawn(BallBundle::new(
+        Vec2::new(0.0, 0.0),
+        Color::AZURE,
+        // if true, we predict the ball on clients
+        global.predict_all,
+    ));
 }
 
 /// Read client inputs and move players
