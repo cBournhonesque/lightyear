@@ -1053,7 +1053,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                             InputTarget::Entity(entity)
                             | InputTarget::PrePredictedEntity(entity) => {
                                 debug!("received input message for entity: {:?}. Applying to diff buffer.", entity);
-                                if let Ok(mut confirmed) = confirmed_query.get(*entity) {
+                                if let Ok(confirmed) = confirmed_query.get(*entity) {
                                     if let Some(predicted) = confirmed.predicted {
                                         if let Ok(mut action_diff_buffer) =
                                             predicted_query.get_mut(predicted)
