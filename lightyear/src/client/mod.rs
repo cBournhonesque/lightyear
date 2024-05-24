@@ -21,9 +21,7 @@ pub mod sync;
 
 mod diagnostics;
 mod easings;
-#[cfg_attr(docsrs, doc(cfg(feature = "leafwing")))]
-#[cfg(feature = "leafwing")]
-pub mod input_leafwing;
+
 pub(crate) mod io;
 pub(crate) mod message;
 pub(crate) mod networking;

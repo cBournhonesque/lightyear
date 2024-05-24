@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use crate::client::input::InputManager;
-use crate::prelude::client::{InputSystemSet, SyncConfig};
+use crate::prelude::client::{InputManager, InputSystemSet, SyncConfig};
 use crate::prelude::server::{InputEvent, Replicate};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;

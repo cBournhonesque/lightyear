@@ -5,7 +5,7 @@ use bevy::reflect::Reflect;
 use governor::Quota;
 use nonzero_ext::nonzero;
 
-use crate::client::input::InputConfig;
+use crate::client::input::native::InputConfig;
 use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;

@@ -1,11 +1,8 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
-use anyhow::Context;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
-
-use bitcode::encoding::Fixed;
 
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
@@ -20,7 +17,6 @@ use crate::prelude::server::MessageEvent;
 use crate::prelude::{client, is_started, MessageRegistry, Mode, SharedConfig, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::shared::replication::components::PrePredicted;
@@ -30,21 +26,6 @@ use crate::shared::sets::{InternalMainSet, ServerMarker};
 pub struct LeafwingInputPlugin<A> {
     marker: std::marker::PhantomData<A>,
 }
-
-// // TODO: also create events on top of this?
-// /// Keeps tracks of the global ActionState<A> of every client on the given tick
-// #[derive(Resource, Debug, Clone)]
-// pub struct GlobalActions<A: LeafwingUserAction> {
-//     inputs: HashMap<ClientId, ActionState<A>>,
-// }
-
-// impl<A: LeafwingUserAction> Default for GlobalActions<A> {
-//     fn default() -> Self {
-//         Self {
-//             inputs: HashMap::default(),
-//         }
-//     }
-// }
 
 impl<A> Default for LeafwingInputPlugin<A> {
     fn default() -> Self {
@@ -132,6 +113,7 @@ fn receive_input_message<A: LeafwingUserAction>(
     mut connection_manager: ResMut<ConnectionManager>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<&mut ActionDiffBuffer<A>>,
+    mut events: EventWriter<MessageEvent<InputMessage<A>>>,
 ) {
     let kind = MessageKind::of::<InputMessage<A>>();
     let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
@@ -154,9 +136,9 @@ fn receive_input_message<A: LeafwingUserAction>(
                         .remote_entity_map
                         .remote_to_local,
                 ) {
-                    Ok(mut message) => {
-                        debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-                        for (target, diffs) in std::mem::take(&mut message.diffs) {
+                    Ok(message) => {
+                        debug!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+                        for (target, diffs) in &message.diffs {
                             match target {
                                 // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
                                 // (which is possible because the server received the entity)
@@ -165,7 +147,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 InputTarget::Entity(entity)
                                 | InputTarget::PrePredictedEntity(entity) => {
                                     debug!("received input for entity: {:?}", entity);
-                                    if let Ok(mut buffer) = query.get_mut(entity) {
+                                    if let Ok(mut buffer) = query.get_mut(*entity) {
                                         debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
                                         buffer.update_from_message(message.end_tick, diffs);
                                     } else {
@@ -182,6 +164,12 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 }
                             }
                         }
+
+                        // TODO: rebroadcast is never used right now because
+                        //  - it's hard to specify on the client who we want to rebroadcast to
+                        //  - we shouldn't rebroadcast immediately, instead we want to let the server inspect the input
+                        //    to verify that there's no cheating
+
                         // rebroadcast
                         if target != NetworkTarget::None {
                             if let Ok(message_bytes) =
@@ -194,6 +182,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 ));
                             }
                         }
+                        events.send(MessageEvent::new(message, *client_id));
                     }
                     Err(e) => {
                         error!(?e, "could not deserialize leafwing input message");
@@ -233,6 +222,7 @@ fn update_action_state<A: LeafwingUserAction>(
             );
             diff.apply(action_state.deref_mut());
         });
+        debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update");
     }
 }
 

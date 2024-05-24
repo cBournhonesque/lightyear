@@ -49,6 +49,7 @@ impl ClientPlugins {
 }
 
 impl PluginGroup for ClientPlugins {
+    #[allow(clippy::let_and_return)]
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
         let tick_interval = self.config.shared.tick.tick_duration;

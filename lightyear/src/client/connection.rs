@@ -24,7 +24,7 @@ use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationGroup, TargetEntity};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
-use crate::protocol::message::MessageRegistry;
+use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::bitcode::reader::BufferPool;
@@ -83,6 +83,9 @@ pub struct ConnectionManager {
     /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
     pub(crate) replicate_component_cache: EntityHashMap<ReplicateCache>,
 
+    /// Used to read the leafwing InputMessages from other clients
+    #[cfg(feature = "leafwing")]
+    pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
     writer: BitcodeWriter,
@@ -138,6 +141,8 @@ impl ConnectionManager {
             sync_manager: SyncManager::new(sync_config, input_delay_ticks),
             replicate_component_cache: EntityHashMap::default(),
             events: ConnectionEvents::default(),
+            #[cfg(feature = "leafwing")]
+            received_leafwing_input_messages: HashMap::default(),
             received_messages: HashMap::default(),
             writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
             // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
@@ -340,6 +345,7 @@ impl ConnectionManager {
         tick_manager: &TickManager,
     ) {
         let _span = trace_span!("receive").entered();
+        let message_registry = world.resource::<MessageRegistry>();
         for (channel_kind, messages) in self.message_manager.read_messages() {
             let channel_name = self
                 .message_manager
@@ -366,10 +372,24 @@ impl ConnectionManager {
                             let net_id = reader
                                 .decode::<NetId>(Fixed)
                                 .expect("could not decode MessageKind");
-                            self.received_messages
-                                .entry(net_id)
-                                .or_default()
-                                .push(message.into());
+                            match message_registry.message_type(net_id) {
+                                #[cfg(feature = "leafwing")]
+                                MessageType::LeafwingInput => {
+                                    self.received_leafwing_input_messages
+                                        .entry(net_id)
+                                        .or_default()
+                                        .push(message.into());
+                                }
+                                MessageType::NativeInput => {
+                                    todo!()
+                                }
+                                MessageType::Normal => {
+                                    self.received_messages
+                                        .entry(net_id)
+                                        .or_default()
+                                        .push(message.into());
+                                }
+                            }
                         }
                         ServerMessage::Replication(replication) => {
                             // buffer the replication message

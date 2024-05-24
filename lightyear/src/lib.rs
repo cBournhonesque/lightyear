@@ -46,7 +46,7 @@ There are several steps:
 - [Adding messages](MessageRegistry#adding-messages)
 - [Adding components](ComponentRegistry#adding-components)
 - [Adding channels](ChannelRegistry#adding-channels)
-- [Adding leafwing inputs](client::input_leafwing#adding-leafwing-inputs) or [Adding inputs](client::input#adding-a-new-input-type)
+- [Adding leafwing inputs](client::input::leafwing#adding-leafwing-inputs) or [Adding inputs](client::input::native#adding-a-new-input-type)
 
 ## Using lightyear
 
@@ -182,13 +182,13 @@ pub mod prelude {
     pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
-        DefaultUnorderedUnreliableChannel, ReliableSettings,
+        DefaultUnorderedUnreliableChannel, InputChannel, ReliableSettings,
     };
     pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
     pub use crate::connection::id::ClientId;
     pub use crate::connection::netcode::{generate_key, ConnectToken, Key};
     #[cfg(feature = "leafwing")]
-    pub use crate::inputs::leafwing::LeafwingUserAction;
+    pub use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
     pub use crate::inputs::native::UserAction;
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
@@ -196,9 +196,9 @@ pub mod prelude {
     pub use crate::protocol::message::{AppMessageExt, MessageRegistry};
     pub use crate::protocol::serialize::AppSerializeExt;
     pub use crate::shared::config::{Mode, SharedConfig};
-    pub use crate::shared::input::InputPlugin;
     #[cfg(feature = "leafwing")]
-    pub use crate::shared::input_leafwing::LeafwingInputPlugin;
+    pub use crate::shared::input::leafwing::LeafwingInputPlugin;
+    pub use crate::shared::input::native::InputPlugin;
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
@@ -230,9 +230,9 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
-        pub use crate::client::input::{InputConfig, InputManager, InputSystemSet};
         #[cfg(feature = "leafwing")]
-        pub use crate::client::input_leafwing::{LeafwingInputConfig, ToggleActions};
+        pub use crate::client::input::leafwing::{LeafwingInputConfig, ToggleActions};
+        pub use crate::client::input::native::{InputConfig, InputManager, InputSystemSet};
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{
             InterpolationConfig, InterpolationDelay, InterpolationSet,

@@ -44,15 +44,15 @@ impl Plugin for SharedPlugin {
                     .after(InterpolationSet::Interpolate)
                     .after(PredictionSet::VisualCorrection),
             );
-            app.add_plugins(LogDiagnosticsPlugin {
-                filter: Some(vec![
-                    IoDiagnosticsPlugin::BYTES_IN,
-                    IoDiagnosticsPlugin::BYTES_OUT,
-                ]),
-                ..default()
-            });
-            app.add_systems(Startup, setup_diagnostic);
-            app.add_plugins(ScreenDiagnosticsPlugin::default());
+            // app.add_plugins(LogDiagnosticsPlugin {
+            //     filter: Some(vec![
+            //         IoDiagnosticsPlugin::BYTES_IN,
+            //         IoDiagnosticsPlugin::BYTES_OUT,
+            //     ]),
+            //     ..default()
+            // });
+            // app.add_systems(Startup, setup_diagnostic);
+            // app.add_plugins(ScreenDiagnosticsPlugin::default());
         }
         // bundles
         app.add_systems(Startup, init);

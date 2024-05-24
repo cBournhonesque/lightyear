@@ -30,10 +30,10 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         let is_client = app.world.get_resource::<ClientConfig>().is_some();
         let is_server = app.world.get_resource::<ServerConfig>().is_some();
         if is_client {
-            app.add_plugins(crate::client::input::InputPlugin::<A>::default());
+            app.add_plugins(crate::client::input::native::InputPlugin::<A>::default());
         }
         if is_server {
-            app.add_plugins(crate::server::input::InputPlugin::<A>::default());
+            app.add_plugins(crate::server::input::native::InputPlugin::<A>::default());
         }
     }
 }

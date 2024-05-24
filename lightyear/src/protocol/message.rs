@@ -205,6 +205,34 @@ impl<M> MessageRegistration<'_, M> {
     }
 }
 
+pub(crate) trait AppMessageInternalExt {
+    /// Function used internally to register a Message with a specific [`MessageType`]
+    fn add_message_internal<M: Message>(
+        &mut self,
+        direction: ChannelDirection,
+        message_type: MessageType,
+    ) -> MessageRegistration<'_, M>;
+}
+
+impl AppMessageInternalExt for App {
+    fn add_message_internal<M: Message>(
+        &mut self,
+        direction: ChannelDirection,
+        message_type: MessageType,
+    ) -> MessageRegistration<'_, M> {
+        let mut registry = self.world.resource_mut::<MessageRegistry>();
+        if !registry.is_registered::<M>() {
+            registry.add_message::<M>(message_type);
+        }
+        debug!("register message {}", std::any::type_name::<M>());
+        register_message_send::<M>(self, direction);
+        MessageRegistration {
+            app: self,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
 /// Add a message to the list of messages that can be sent
 pub trait AppMessageExt {
     /// Registers the message in the Registry
@@ -224,16 +252,7 @@ impl AppMessageExt for App {
         &mut self,
         direction: ChannelDirection,
     ) -> MessageRegistration<'_, M> {
-        let mut registry = self.world.resource_mut::<MessageRegistry>();
-        if !registry.is_registered::<M>() {
-            registry.add_message::<M>(MessageType::Normal);
-        }
-        debug!("register message {}", std::any::type_name::<M>());
-        register_message_send::<M>(self, direction);
-        MessageRegistration {
-            app: self,
-            _marker: std::marker::PhantomData,
-        }
+        self.add_message_internal(direction, MessageType::Normal)
     }
 
     /// Register a resource to be automatically replicated over the network

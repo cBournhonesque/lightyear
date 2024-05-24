@@ -15,9 +15,6 @@ pub(crate) mod io;
 
 pub mod plugin;
 
-#[cfg_attr(docsrs, doc(cfg(feature = "leafwing")))]
-#[cfg(feature = "leafwing")]
-pub mod input_leafwing;
 pub(crate) mod message;
 pub(crate) mod prediction;
 
