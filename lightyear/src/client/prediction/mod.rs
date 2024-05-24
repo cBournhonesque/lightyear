@@ -4,6 +4,7 @@ use std::fmt::Debug;
 
 pub(crate) mod correction;
 pub(crate) mod despawn;
+pub mod diagnostics;
 pub mod plugin;
 mod pre_prediction;
 pub mod predicted_history;

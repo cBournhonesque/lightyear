@@ -19,10 +19,8 @@ pub mod prediction;
 
 pub mod sync;
 
-mod diagnostics;
+pub mod diagnostics;
 mod easings;
-
-pub use diagnostics::ClientDiagnosticsPlugin;
 
 pub(crate) mod io;
 pub(crate) mod message;

@@ -253,7 +253,6 @@ pub mod prelude {
         pub use crate::client::replication::commands::DespawnReplicationCommandExt;
         pub use crate::client::replication::send::Replicate;
         pub use crate::client::sync::SyncConfig;
-        pub use crate::client::ClientDiagnosticsPlugin;
         pub use crate::connection::client::{
             Authentication, ClientConnection, IoConfig, NetClient, NetConfig,
         };
