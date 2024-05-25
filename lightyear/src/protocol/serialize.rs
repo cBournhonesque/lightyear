@@ -82,17 +82,18 @@ impl ErasedSerializeFns {
     }
 
     pub(crate) fn add_map_entities<M: MapEntities + 'static>(&mut self) {
-        self.map_entities = Some(erased_map_entities);
+        self.map_entities = Some(erased_map_entities::<M>);
     }
 
     pub(crate) fn map_entities<M: 'static>(&self, message: &mut M, entity_map: &mut EntityMap) {
         let ptr = PtrMut::from(message);
         if let Some(map_entities_fn) = self.map_entities {
-            map_entities_fn(ptr, entity_map)
+            unsafe { map_entities_fn(ptr, entity_map) }
         }
     }
 
-    pub(crate) fn serialize<M: 'static>(
+    /// SAFETY: the ErasedSerializeFns must be created for the type M
+    pub(crate) unsafe fn serialize<M: 'static>(
         &self,
         message: &M,
         writer: &mut BitcodeWriter,
@@ -101,16 +102,10 @@ impl ErasedSerializeFns {
         (self.serialize)(ptr, writer)
     }
 
-    pub(crate) fn erased_serialize(
-        &self,
-        message: Ptr,
-        writer: &mut BitcodeWriter,
-    ) -> anyhow::Result<()> {
-        (self.serialize)(message, writer)
-    }
-
     /// Deserialize the message value from the reader
-    pub(crate) fn deserialize<M: 'static>(
+    ///
+    /// SAFETY: the ErasedSerializeFns must be created for the type M
+    pub(crate) unsafe fn deserialize<M: 'static>(
         &self,
         reader: &mut BitcodeReader,
         entity_map: &mut EntityMap,

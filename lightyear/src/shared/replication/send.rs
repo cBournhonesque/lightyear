@@ -38,7 +38,7 @@ type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 /// When a [`EntityUpdatesMessage`] message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.
 /// It is useful when we get notified that the message was acked or lost.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct UpdateMessageMetadata {
     /// The group id that this message is about
     group_id: ReplicationGroupId,
@@ -115,7 +115,7 @@ impl ReplicationSender {
         }
     }
 
-    /// Keep track of the message_id/bevy_tick where a replication-update message has been sent
+    /// Keep track of the message_id/bevy_tick/tick where a replication-update message has been sent
     /// for a given group
     pub(crate) fn buffer_replication_update_message(
         &mut self,
@@ -469,13 +469,6 @@ impl ReplicationSender {
             .entry(kind)
             .or_default();
 
-        let compute_base_value_delta = || {
-            // compute a diff from the base value, and serialize that
-            registry
-                .serialize_diff_from_base_value(component_data, writer, kind)
-                .expect("could not serialize delta")
-        };
-
         // Serialize the data (either by computing the diff with a previously acked value, or by serializing the base value)
         let raw_data = entry
             .acked
@@ -489,19 +482,31 @@ impl ReplicationSender {
                     .first_entry()
                     .and_then(|item| {
                         item.get().get(&entity).and_then(|erased_data| {
-                            let delta = registry
-                                .erased_diff(Ptr::from(erased_data), component_data, kind)
-                                .expect("could not compute diff");
                             Some(
                                 registry
-                                    .erased_serialize_delta(Ptr::from(delta), writer, kind)
+                                    .serialize_diff(
+                                        unsafe { Ptr::new(*erased_data) },
+                                        component_data,
+                                        writer,
+                                        kind,
+                                    )
                                     .expect("could not serialize delta"),
                             )
                         })
                     })
-                    .unwrap_or_else(compute_base_value_delta)
+                    .unwrap_or_else(|| {
+                        // compute a diff from the base value, and serialize that
+                        registry
+                            .serialize_diff_from_base_value(component_data, writer, kind)
+                            .expect("could not serialize delta")
+                    })
             })
-            .unwrap_or_else(compute_base_value_delta);
+            .unwrap_or_else(|| {
+                // compute a diff from the base value, and serialize that
+                registry
+                    .serialize_diff_from_base_value(component_data, writer, kind)
+                    .expect("could not serialize delta")
+            });
 
         // Store the component data so that we can compute future diffs
         let cloned_data = registry
@@ -616,6 +621,9 @@ struct DeltaComponentSentData {
     component_data: BTreeMap<Tick, EntityHashMap<Entity, NonNull<u8>>>,
 }
 
+unsafe impl Send for DeltaComponentSentData {}
+unsafe impl Sync for DeltaComponentSentData {}
+
 /// Channel to keep track of sending replication messages for a given Group
 #[derive(Debug)]
 pub struct GroupChannel {
@@ -713,7 +721,14 @@ mod tests {
         let server_tick = stepper.server_tick();
 
         // check that we keep track of the message_id and bevy_tick at which we sent the update
-        let (message_id, (group_id, bevy_tick)) = sender!()
+        let (
+            message_id,
+            UpdateMessageMetadata {
+                group_id,
+                bevy_tick,
+                ..
+            },
+        ) = sender!()
             .updates_message_id_to_group_id
             .iter()
             .next()
@@ -745,22 +760,33 @@ mod tests {
         let bevy_tick_1 = BevyTick::new(0);
         let bevy_tick_2 = BevyTick::new(2);
         let bevy_tick_3 = BevyTick::new(4);
+        let tick_1 = Tick(0);
+        let tick_2 = Tick(2);
+        let tick_3 = Tick(4);
         // when we buffer a message to be sent, we update the `send_tick`
-        sender.buffer_replication_update_message(group_1, message_1, bevy_tick_1);
+        sender.buffer_replication_update_message(group_1, message_1, bevy_tick_1, tick_1);
         let group = sender.group_channels.get(&group_1).unwrap();
         assert_eq!(
             sender.updates_message_id_to_group_id.get(&message_1),
-            Some(&(group_1, bevy_tick_1))
+            Some(&UpdateMessageMetadata {
+                group_id: group_1,
+                bevy_tick: bevy_tick_1,
+                tick: tick_1
+            })
         );
         assert_eq!(group.send_tick, Some(bevy_tick_1));
         assert_eq!(group.ack_tick, None);
 
         // if we buffer a second message, we update the `send_tick`
-        sender.buffer_replication_update_message(group_1, message_2, bevy_tick_2);
+        sender.buffer_replication_update_message(group_1, message_2, bevy_tick_2, tick_2);
         let group = sender.group_channels.get(&group_1).unwrap();
         assert_eq!(
             sender.updates_message_id_to_group_id.get(&message_2),
-            Some(&(group_1, bevy_tick_2))
+            Some(&UpdateMessageMetadata {
+                group_id: group_1,
+                bevy_tick: bevy_tick_2,
+                tick: tick_2
+            })
         );
         assert_eq!(group.send_tick, Some(bevy_tick_2));
         assert_eq!(group.ack_tick, None);
@@ -776,11 +802,15 @@ mod tests {
         assert_eq!(group.ack_tick, Some(bevy_tick_2));
 
         // if we buffer a third message, we update the `send_tick`
-        sender.buffer_replication_update_message(group_1, message_3, bevy_tick_3);
+        sender.buffer_replication_update_message(group_1, message_3, bevy_tick_3, tick_3);
         let group = sender.group_channels.get(&group_1).unwrap();
         assert_eq!(
             sender.updates_message_id_to_group_id.get(&message_3),
-            Some(&(group_1, bevy_tick_3))
+            Some(&UpdateMessageMetadata {
+                group_id: group_1,
+                bevy_tick: bevy_tick_3,
+                tick: tick_3
+            })
         );
         assert_eq!(group.send_tick, Some(bevy_tick_3));
         assert_eq!(group.ack_tick, Some(bevy_tick_2));
@@ -823,13 +853,20 @@ mod tests {
         let bevy_tick_1 = BevyTick::new(0);
         let bevy_tick_2 = BevyTick::new(2);
         let bevy_tick_3 = BevyTick::new(4);
+        let tick_1 = Tick(0);
+        let tick_2 = Tick(2);
+        let tick_3 = Tick(4);
         // when we buffer a message to be sent, we don't update the `send_tick`
         // (because we wait until the message is actually send)
-        sender.buffer_replication_update_message(group_1, message_1, bevy_tick_1);
+        sender.buffer_replication_update_message(group_1, message_1, bevy_tick_1, tick_1);
         let group = sender.group_channels.get(&group_1).unwrap();
         assert_eq!(
             sender.updates_message_id_to_group_id.get(&message_1),
-            Some(&(group_1, bevy_tick_1))
+            Some(&UpdateMessageMetadata {
+                group_id: group_1,
+                bevy_tick: bevy_tick_1,
+                tick: tick_1
+            })
         );
         assert_eq!(group.send_tick, None);
         assert_eq!(group.ack_tick, None);
@@ -883,14 +920,14 @@ mod tests {
 
         // updates should be grouped with actions
         manager.prepare_entity_spawn(entity_1, group_1);
-        manager.prepare_component_insert(entity_1, group_1, net_id_1, raw_1.clone());
+        manager.prepare_component_insert(entity_1, group_1, raw_1.clone());
         manager.prepare_component_remove(entity_1, group_1, net_id_2);
-        manager.prepare_component_update(entity_1, group_1, net_id_3, raw_2.clone());
+        manager.prepare_component_update(entity_1, group_1, raw_2.clone());
 
         // handle another entity in the same group: will be added to EntityActions as well
-        manager.prepare_component_update(entity_2, group_1, net_id_2, raw_3.clone());
+        manager.prepare_component_update(entity_2, group_1, raw_3.clone());
 
-        manager.prepare_component_update(entity_3, group_2, net_id_3, raw_4.clone());
+        manager.prepare_component_update(entity_3, group_2, raw_4.clone());
 
         // the order of actions is not important if there are no relations between the entities
         let message = manager.finalize(Tick(2));

@@ -20,7 +20,9 @@ type ErasedBaseValueFn = unsafe fn() -> NonNull<u8>;
 /// SAFETY: the Ptr must be a valid pointer to a value of type C
 unsafe fn erased_clone<C: Clone>(data: Ptr) -> NonNull<u8> {
     let mut cloned = data.deref::<C>().clone();
-    let owned_ptr = NonNull::new(&mut cloned as *mut C).unwrap();
+    let cloned_ptr = &mut cloned as *mut C;
+    let cloned_ptr = cloned_ptr.cast::<u8>();
+    let owned_ptr = NonNull::new(cloned_ptr).unwrap();
     std::mem::forget(cloned);
     owned_ptr
 }
@@ -28,7 +30,9 @@ unsafe fn erased_clone<C: Clone>(data: Ptr) -> NonNull<u8> {
 /// SAFETY: the data and other Ptr must be a valid pointer to a value of type C
 unsafe fn erased_diff<C: Diffable>(data: Ptr, other: Ptr) -> NonNull<u8> {
     let mut delta = C::diff(data.deref::<C>(), other.deref::<C>());
-    NonNull::new(&mut delta as *mut C::Delta).unwrap()
+    let delta_ptr = &mut delta as *mut C::Delta;
+    let delta_ptr = delta_ptr.cast::<u8>();
+    NonNull::new(delta_ptr).unwrap()
 }
 
 /// SAFETY:
@@ -40,7 +44,9 @@ unsafe fn erased_apply_diff<C: Diffable>(data: PtrMut, delta: Ptr) {
 
 unsafe fn erased_base_value<C: Diffable>() -> NonNull<u8> {
     let mut base = C::base_value();
-    let base_ptr = NonNull::new(&mut base as *mut C).unwrap();
+    let base_ptr = &mut base as *mut C;
+    let base_ptr = base_ptr.cast::<u8>();
+    let base_ptr = NonNull::new(base_ptr).unwrap();
     std::mem::forget(base);
     base_ptr
 }
@@ -62,7 +68,7 @@ impl ErasedDeltaFns {
         Self {
             type_id: TypeId::of::<C>(),
             type_name: std::any::type_name::<C>(),
-            delta_kind: ComponentKind::from_type::<C::Delta>(),
+            delta_kind: ComponentKind::of::<C::Delta>(),
             clone: erased_clone::<C>,
             diff: erased_diff::<C>,
             apply_diff: erased_apply_diff::<C>,

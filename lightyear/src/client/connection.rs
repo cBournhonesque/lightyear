@@ -88,7 +88,7 @@ pub struct ConnectionManager {
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
-    writer: BitcodeWriter,
+    pub(crate) writer: BitcodeWriter,
     pub(crate) reader_pool: BufferPool,
     // TODO: maybe don't do any replication until connection is synced?
 }

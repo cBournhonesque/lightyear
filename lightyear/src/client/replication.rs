@@ -77,6 +77,7 @@ pub(crate) mod send {
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
+    use std::ops::DerefMut;
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {
@@ -336,10 +337,12 @@ pub(crate) mod send {
             With<Replicating>,
         >,
         system_bevy_ticks: SystemChangeTick,
-        mut sender: ResMut<ConnectionManager>,
+        mut connection: ResMut<ConnectionManager>,
     ) {
         let tick = tick_manager.tick();
         let kind = ComponentKind::of::<C>();
+        // enable split borrows
+        let connection = &mut *connection;
         query.iter().for_each(
             |(entity, component, target, group, delta_compression, disabled, replicate_once)| {
                 // do not replicate components that are disabled
@@ -368,21 +371,20 @@ pub(crate) mod send {
                 }
                 if insert || update {
                     let group_id = group.group_id(Some(entity));
-                    let writer = sender.writer();
                     let mut raw_data: RawData = vec![];
                     if insert || !delta_compression {
                         // serialize component
                         raw_data = registry
-                            .serialize(component.as_ref(), writer)
+                            .serialize(component.as_ref(), &mut connection.writer)
                             .expect("Could not serialize component")
                     }
                     if insert {
-                        sender
+                        connection
                             .replication_sender
                             .prepare_component_insert(entity, group_id, raw_data);
                     } else {
                         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-                        let send_tick = sender
+                        let send_tick = connection
                             .replication_sender
                             .group_channels
                             .entry(group_id)
@@ -408,19 +410,21 @@ pub(crate) mod send {
                             //     "Updating single component"
                             // );
                             if !delta_compression {
-                                sender
+                                connection
                                     .replication_sender
                                     .prepare_component_update(entity, group_id, raw_data);
                             } else {
-                                sender.replication_sender.prepare_delta_component_update(
-                                    entity,
-                                    group_id,
-                                    kind,
-                                    Ptr::from(component.as_ref()),
-                                    &registry,
-                                    writer,
-                                    tick,
-                                );
+                                connection
+                                    .replication_sender
+                                    .prepare_delta_component_update(
+                                        entity,
+                                        group_id,
+                                        kind,
+                                        Ptr::from(component.as_ref()),
+                                        &registry,
+                                        &mut connection.writer,
+                                        tick,
+                                    );
                             }
                         }
                     }

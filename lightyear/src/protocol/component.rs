@@ -34,7 +34,7 @@ use crate::prelude::{
 use crate::protocol::delta::ErasedDeltaFns;
 use crate::protocol::message::{MessageKind, MessageRegistration, MessageType};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
-use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn, SerializeFns};
+use crate::protocol::serialize::ErasedSerializeFns;
 use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::bitcode::writer::BitcodeWriter;
@@ -216,17 +216,17 @@ where
 }
 
 impl ComponentRegistry {
-    pub fn net_id<C: Component>(&self) -> ComponentNetId {
+    pub fn net_id<C: 'static>(&self) -> ComponentNetId {
         self.kind_map
             .net_id(&ComponentKind::of::<C>())
             .copied()
             .unwrap_or_else(|| panic!("Component {} is not registered", std::any::type_name::<C>()))
     }
-    pub fn get_net_id<C: Component>(&self) -> Option<ComponentNetId> {
+    pub fn get_net_id<C: 'static>(&self) -> Option<ComponentNetId> {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
     }
 
-    pub fn is_registered<C: Component>(&self) -> bool {
+    pub fn is_registered<C: 'static>(&self) -> bool {
         self.kind_map.net_id(&ComponentKind::of::<C>()).is_some()
     }
 
@@ -251,7 +251,7 @@ impl ComponentRegistry {
         }
     }
 
-    pub(crate) fn register_component<C: Message + PartialEq>(&mut self) {
+    pub(crate) fn register_component<C: Message>(&mut self) {
         let component_kind = self.kind_map.add::<C>();
         self.serialize_fns_map
             .insert(component_kind, ErasedSerializeFns::new::<C>());
@@ -339,7 +339,7 @@ impl ComponentRegistry {
             .interpolation = Some(unsafe { std::mem::transmute(interpolation_fn) });
     }
 
-    pub(crate) fn serialize<C>(
+    pub(crate) fn serialize<C: 'static>(
         &self,
         component: &C,
         writer: &mut BitcodeWriter,
@@ -352,7 +352,10 @@ impl ComponentRegistry {
         let net_id = self.kind_map.net_id(&kind).unwrap();
         writer.start_write();
         writer.encode(net_id, Fixed)?;
-        erased_fns.serialize(component, writer)?;
+        // SAFETY: the ErasedFns corresponds to type C
+        unsafe {
+            erased_fns.serialize(component, writer)?;
+        }
         Ok(writer.finish_write().to_vec())
     }
 
@@ -370,6 +373,7 @@ impl ComponentRegistry {
         let net_id = self.kind_map.net_id(&kind).unwrap();
         writer.start_write();
         writer.encode(net_id, Fixed)?;
+        // SAFETY: the ErasedSerializeFns corresponds to type C
         unsafe {
             (erased_fns.serialize)(component, writer)?;
         }
@@ -377,7 +381,7 @@ impl ComponentRegistry {
     }
 
     /// Deserialize only the component value (the ComponentNetId has already been read)
-    fn raw_deserialize<C>(
+    fn raw_deserialize<C: 'static>(
         &self,
         reader: &mut BitcodeReader,
         net_id: ComponentNetId,
@@ -391,7 +395,8 @@ impl ComponentRegistry {
             .serialize_fns_map
             .get(kind)
             .context("the component is not part of the protocol")?;
-        erased_fns.deserialize(reader, entity_map)
+        // SAFETY: the ErasedFns corresponds to type C
+        unsafe { erased_fns.deserialize(reader, entity_map) }
     }
 
     pub(crate) fn deserialize<C: Component>(
@@ -543,7 +548,7 @@ mod delta {
     use std::ptr::NonNull;
 
     impl ComponentRegistry {
-        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self) {
+        pub(crate) fn set_delta_compression<C: Component + Diffable>(&mut self) {
             let kind = ComponentKind::of::<C>();
             let write: RawWriteFn = Self::write_delta::<C>;
             self.delta_fns_map.insert(kind, ErasedDeltaFns::new::<C>());
@@ -596,25 +601,43 @@ mod delta {
             Ok(unsafe { (delta_fns.base_value)() })
         }
 
-        pub(crate) fn serialize_diff_from_base_value(
+        pub(crate) fn serialize_diff(
             &self,
-            component_data: Ptr,
+            start: Ptr,
+            new: Ptr,
             writer: &mut BitcodeWriter,
-            /// kind for C, not for C::Delta
+            // kind for C, not for C::Delta
             kind: ComponentKind,
         ) -> anyhow::Result<RawData> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
                 .context("the component does not have delta fns registered")?;
-            let base_value = Ptr::from(self.erased_base_value(kind).unwrap());
+            let delta = self
+                .erased_diff(start, new, kind)
+                .expect("could not compute diff");
+            self.erased_serialize(unsafe { Ptr::new(delta) }, writer, delta_fns.delta_kind)
+        }
+
+        pub(crate) fn serialize_diff_from_base_value(
+            &self,
+            component_data: Ptr,
+            writer: &mut BitcodeWriter,
+            // kind for C, not for C::Delta
+            kind: ComponentKind,
+        ) -> anyhow::Result<RawData> {
+            let delta_fns = self
+                .delta_fns_map
+                .get(&kind)
+                .context("the component does not have delta fns registered")?;
+            let base_value = unsafe { Ptr::new(self.erased_base_value(kind).unwrap()) };
             let delta = self
                 .erased_diff(base_value, component_data, kind)
                 .expect("could not compute diff");
-            self.erased_serialize(Ptr::from(delta), writer, delta_fns.delta_kind)
+            self.erased_serialize(unsafe { Ptr::new(delta) }, writer, delta_fns.delta_kind)
         }
 
-        pub(crate) fn write_delta<C: Component + PartialEq + Diffable>(
+        pub(crate) fn write_delta<C: Component + Diffable>(
             &self,
             reader: &mut BitcodeReader,
             net_id: ComponentNetId,
@@ -626,18 +649,19 @@ mod delta {
                 "Writing component delta {} to entity",
                 std::any::type_name::<C>()
             );
-            let delta = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
+            let delta_net_id = self.net_id::<C::Delta>();
+            let delta = self.raw_deserialize::<C::Delta>(reader, delta_net_id, entity_map)?;
             let entity = entity_world_mut.id();
             // TODO: do we need the tick information in the event?
             let tick = Tick(0);
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                c.apply_diff(delta);
+                c.apply_diff(&delta);
                 events.push_update_component(entity, net_id, tick);
             } else {
                 // TODO: or should the Delta contain a flag that indicates that the receiver should just use the BaseValue?
                 let mut c = C::base_value();
-                c.apply_diff(delta);
+                c.apply_diff(&delta);
                 events.push_insert_component(entity, net_id, tick);
             }
             Ok(())
@@ -826,7 +850,7 @@ impl<C> ComponentRegistration<'_, C> {
     where
         C: Component + Diffable,
     {
-        self.app.add_delta_compression();
+        self.app.add_delta_compression::<C>();
         self
     }
 }

@@ -753,7 +753,6 @@ impl ConnectionManager {
         kind: ComponentKind,
         component_data: Ptr,
         component_registry: &ComponentRegistry,
-        writer: &mut BitcodeWriter,
         replication_target: &ReplicationTarget,
         prediction_target: Option<&NetworkTarget>,
         group: &ReplicationGroup,
@@ -786,6 +785,7 @@ impl ConnectionManager {
 
         // even with delta-compression enabled
         // the diff can be shared for every client since we're inserting
+        let writer = &mut self.writer;
         let raw_data = if delta_compression {
             component_registry
                 .serialize_diff_from_base_value(component_data, writer, kind)
@@ -825,7 +825,6 @@ impl ConnectionManager {
         kind: ComponentKind,
         component: Ptr,
         registry: &ComponentRegistry,
-        writer: &mut BitcodeWriter,
         group: &ReplicationGroup,
         target: NetworkTarget,
         component_change_tick: BevyTick,
@@ -842,14 +841,14 @@ impl ConnectionManager {
         );
 
         let group_id = group.group_id(Some(entity));
-        let mut raw_data: RawData;
+        let mut raw_data: RawData = vec![];
         if !delta_compression {
             // we serialize once and re-use the result for all clients
-            raw_data = registry.erased_serialize(component, writer, kind)?;
+            raw_data = registry.erased_serialize(component, &mut self.writer, kind)?;
         }
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+            let replication_sender = &mut self.connections.get_mut(&client_id).context("cannot find connection")?.replication_sender;
             let send_tick = replication_sender
                 .group_channels
                 .entry(group_id)
@@ -882,7 +881,7 @@ impl ConnectionManager {
                     // TODO: avoid component clone with Arc<[u8]>
                     replication_sender.prepare_component_update(entity, group_id, raw_data.clone());
                 } else {
-                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, writer, tick);
+                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, tick);
                 }
             }
             Ok(())

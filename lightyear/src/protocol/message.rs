@@ -27,7 +27,7 @@ use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, ChannelKind, MainSet};
 use crate::protocol::component::{ComponentKind, ComponentRegistration};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
-use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn};
+use crate::protocol::serialize::ErasedSerializeFns;
 use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::bitcode::writer::BitcodeWriter;
@@ -311,7 +311,10 @@ impl MessageRegistry {
         let net_id = self.kind_map.net_id(&kind).unwrap();
         writer.start_write();
         writer.encode(net_id, Fixed)?;
-        erased_fns.serialize(message, writer)?;
+        // SAFETY: the ErasedSerializeFns was created for the type M
+        unsafe {
+            erased_fns.serialize(message, writer)?;
+        }
         Ok(writer.finish_write().to_vec())
     }
 
@@ -326,7 +329,8 @@ impl MessageRegistry {
             .serialize_fns_map
             .get(kind)
             .context("the message is not part of the protocol")?;
-        erased_fns.deserialize(reader, entity_map)
+        // SAFETY: the ErasedSerializeFns was created for the type M
+        unsafe { erased_fns.deserialize(reader, entity_map) }
     }
 }
 
