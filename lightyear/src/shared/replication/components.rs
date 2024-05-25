@@ -15,6 +15,7 @@ use crate::connection::id::ClientId;
 use crate::prelude::ParentSync;
 use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
 use crate::server::visibility::immediate::{ClientVisibility, VisibilityManager};
+use crate::shared::replication::delta::Diffable;
 use crate::shared::replication::network_target::NetworkTarget;
 
 /// Marker component that indicates that the entity was spawned via replication
@@ -93,12 +94,21 @@ impl Default for ReplicateHierarchy {
     }
 }
 
+// TODO: do we need this? or do we just check if delta compression fn is present in the registry?
+/// If this component is present, the component will be replicated via delta-compression.
+///
+/// Instead of sending the full component every time, we will only send the diffs between the old
+/// and new state.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+pub struct DeltaCompression<C> {
+    _marker: std::marker::PhantomData<C>,
+}
+
 // TODO: should these be sparse set or not?
 /// If this component is present, we won't replicate the component
 ///
 /// (By default, all components that are present in the [`ComponentRegistry`] will be replicated.)
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
 pub struct DisabledComponent<C> {
     _marker: std::marker::PhantomData<C>,
 }
@@ -114,7 +124,6 @@ impl<C> Default for DisabledComponent<C> {
 /// If this component is present, we will replicate only the inserts/removals of the component,
 /// not the updates (i.e. the component will get only replicated once at entity spawn)
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
 pub struct ReplicateOnceComponent<C> {
     _marker: std::marker::PhantomData<C>,
 }
@@ -254,14 +263,12 @@ pub enum VisibilityMode {
 
 /// Marker component that tells the client to spawn an Interpolated entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
 pub struct ShouldBeInterpolated;
 
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
 //  because we already do the mapping at other steps
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
 pub struct PrePredicted {
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
@@ -269,5 +276,4 @@ pub struct PrePredicted {
 
 /// Marker component that tells the client to spawn a Predicted entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
 pub struct ShouldBePredicted;

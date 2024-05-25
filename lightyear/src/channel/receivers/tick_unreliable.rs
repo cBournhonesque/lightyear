@@ -47,7 +47,7 @@ impl TickUnreliableReceiver {
             // TODO: send message to client to speedup?
         } else {
             // TODO: send message to client to slow down if too far ahead
-            self.recv_message_buffer.add_item(tick, data);
+            self.recv_message_buffer.push(tick, data);
         }
         Ok(())
     }

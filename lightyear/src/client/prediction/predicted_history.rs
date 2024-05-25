@@ -63,13 +63,12 @@ impl<C: SyncComponent> PredictionHistory<C> {
 
     /// Add to the buffer that we received an update for the component at the given tick
     pub(crate) fn add_update(&mut self, tick: Tick, component: C) {
-        self.buffer
-            .add_item(tick, ComponentState::Updated(component));
+        self.buffer.push(tick, ComponentState::Updated(component));
     }
 
     /// Add to the buffer that the component got removed at the given tick
     pub(crate) fn add_remove(&mut self, tick: Tick) {
-        self.buffer.add_item(tick, ComponentState::Removed);
+        self.buffer.push(tick, ComponentState::Removed);
     }
 
     // TODO: check if this logic is necessary/correct?
@@ -84,7 +83,7 @@ impl<C: SyncComponent> PredictionHistory<C> {
     pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<ComponentState<C>> {
         self.buffer.pop_until(&tick).map(|(tick, state)| {
             // TODO: this clone is pretty bad and avoidable. Probably switch to a sequence buffer?
-            self.buffer.add_item(tick, state.clone());
+            self.buffer.push(tick, state.clone());
             state
         })
     }

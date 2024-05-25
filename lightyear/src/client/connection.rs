@@ -293,7 +293,7 @@ impl ConnectionManager {
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
                     self.replication_sender
-                        .buffer_replication_update_message(group_id, message_id, bevy_tick);
+                        .buffer_replication_update_message(group_id, message_id, bevy_tick, tick);
                 }
                 Ok(())
             })

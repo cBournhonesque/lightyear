@@ -280,14 +280,14 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             None => {
                 predicted_history
                     .buffer
-                    .add_item(rollback_tick, ComponentState::Removed);
+                    .push(rollback_tick, ComponentState::Removed);
                 entity_mut.remove::<C>();
             }
             // confirm exist, update or insert on predicted
             Some(c) => {
                 predicted_history
                     .buffer
-                    .add_item(rollback_tick, ComponentState::Updated(c.clone()));
+                    .push(rollback_tick, ComponentState::Updated(c.clone()));
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted Full component to predicted");

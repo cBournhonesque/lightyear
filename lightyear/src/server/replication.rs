@@ -52,16 +52,19 @@ pub(crate) mod send {
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent,
         ReplicateHierarchy, ReplicateOnceComponent, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, VisibilityMode,
+        TargetEntity, TickManager, VisibilityMode,
     };
+    use crate::protocol::component::ComponentKind;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::components::{
-        Controlled, DespawnTracker, Replicating, ReplicationTarget, ShouldBeInterpolated,
+        Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
+        ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::{systems, ReplicationSend};
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
+    use bevy::ptr::Ptr;
 
     #[derive(Default)]
     pub struct ServerReplicationSendPlugin {
@@ -577,6 +580,7 @@ pub(crate) mod send {
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
     pub(crate) fn send_component_update<C: Component>(
+        tick_manager: Res<TickManager>,
         registry: Res<ComponentRegistry>,
         query: Query<
             (
@@ -586,6 +590,7 @@ pub(crate) mod send {
                 Option<&SyncTarget>,
                 &ReplicationGroup,
                 Option<&ReplicateVisibility>,
+                Has<DeltaCompression<C>>,
                 Has<DisabledComponent<C>>,
                 Has<ReplicateOnceComponent<C>>,
                 Option<&OverrideTargetComponent<C>>,
@@ -595,10 +600,11 @@ pub(crate) mod send {
         system_bevy_ticks: SystemChangeTick,
         mut sender: ResMut<ConnectionManager>,
     ) {
-        let kind = registry.net_id::<C>();
+        let tick = tick_manager.tick();
+        let kind = ComponentKind::of::<C>();
         query
             .iter()
-            .for_each(|(entity, component, replication_target, sync_target, group,  visibility, disabled, replicate_once, override_target)| {
+            .for_each(|(entity, component, replication_target, sync_target, group,  visibility, delta_compression, disabled, replicate_once, override_target)| {
                 // do not replicate components that are disabled
                 if disabled {
                     return;
@@ -679,24 +685,21 @@ pub(crate) mod send {
                     }
                 };
                 if !insert_target.is_empty() || !update_target.is_empty() {
-                    // serialize component
+                    let component_data = Ptr::from(component.as_ref());
                     let writer = sender.writer();
-                    let raw_data = registry
-                        .serialize(component.as_ref(), writer)
-                        .expect("Could not serialize component");
-
                     if !insert_target.is_empty() {
                         let _ = sender
                             .prepare_component_insert(
                                 entity,
                                 kind,
-                                // TODO: avoid the clone by using Arc<u8>?
-                                raw_data.clone(),
+                                component_data,
                                 &registry,
+                                writer,
                                 replication_target.as_ref(),
                                 sync_target.map(|sync_target| &sync_target.prediction),
                                 group,
-                                insert_target
+                                insert_target,
+                                delta_compression,
                             )
                             .inspect_err(|e| {
                                 error!("error sending component insert: {:?}", e);
@@ -707,11 +710,15 @@ pub(crate) mod send {
                             .prepare_component_update(
                                 entity,
                                 kind,
-                                raw_data,
+                                component_data,
+                                &registry,
+                                writer,
                                 group,
                                 update_target,
                                 component.last_changed(),
                                 system_bevy_ticks.this_run(),
+                                tick,
+                                delta_compression,
                             )
                             .inspect_err(|e| {
                                 error!("error sending component update: {:?}", e);

@@ -245,7 +245,7 @@ pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, Cl
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::Tick;
+    use crate::prelude::{ChannelDirection, Tick};
     use crate::protocol::channel::ChannelKind;
     use crate::tests::protocol::{Channel1, Channel2, Component1, Component2, Message1};
 
@@ -263,8 +263,8 @@ mod tests {
         let message1_a = Message1("hello".to_string());
         let message1_b = Message1("world".to_string());
         let mut component_registry = ComponentRegistry::default();
-        component_registry.register_component::<Component1>();
-        component_registry.register_component::<Component2>();
+        component_registry.register_component::<Component1>(ChannelDirection::Bidirectional);
+        component_registry.register_component::<Component2>(ChannelDirection::Bidirectional);
         let net_id_1 = component_registry.net_id::<Component1>();
         let net_id_2 = component_registry.net_id::<Component2>();
         events_1.push_remove_component(entity_1, net_id_1, Tick(0));

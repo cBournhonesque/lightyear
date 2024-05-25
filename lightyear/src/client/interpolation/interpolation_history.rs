@@ -165,7 +165,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
                     manager.map_entities(&mut component, component_registry.as_ref());
                     trace!(?kind, tick = ?tick, "adding confirmed update to history");
                     // update the history at the value that the entity currently is
-                    history.buffer.add_item(tick, component);
+                    history.buffer.push(tick, component);
 
                     // TODO: here we do not want to update directly the component, that will be done during interpolation
                 }

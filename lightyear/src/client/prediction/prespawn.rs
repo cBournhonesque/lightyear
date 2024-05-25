@@ -211,7 +211,7 @@ impl PreSpawnedPlayerObjectPlugin {
                             .push(entity);
                         // add a timer on the entity so that it gets despawned if the interpolation tick
                         // reaches it without matching with any server entity
-                        manager.prespawn_tick_to_hash.add_item(tick, hash);
+                        manager.prespawn_tick_to_hash.push(tick, hash);
                         // predicted_entities.push(entity);
                     }
 

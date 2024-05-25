@@ -25,14 +25,14 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
     }
 }
 
-impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
+impl<K: Ord + Clone, T: PartialEq> ReadyBuffer<K, T> {
     /// Adds an item to the heap marked by time
-    pub fn add_item(&mut self, key: K, item: T) {
+    pub fn push(&mut self, key: K, item: T) {
         self.heap.push(ItemWithReadyKey { key, item });
     }
 
-    /// Returns whether or not there is an item that is ready to be returned
-    /// (i.e. we are beyond the instant associated with the item)
+    /// Returns whether or not there is an item with a key more recent or equal to `current_key`
+    /// that is ready to be returned (i.e. we are beyond the instant associated with the item)
     pub fn has_item(&self, current_key: &K) -> bool {
         // if self.heap.is_empty() {
         //     return false;
@@ -43,6 +43,16 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
             return matches!(cmp, Ordering::Less | Ordering::Equal);
         }
         false
+    }
+
+    /// Same as `pop_item` but does not remove the item from the queue
+    pub fn peek_item(&self, current_key: &K) -> Option<(K, &T)> {
+        if self.has_item(current_key) {
+            if let Some(container) = self.heap.peek() {
+                return Some((container.key.clone(), &container.item));
+            }
+        }
+        None
     }
 
     /// Pops the top item (with smallest key) from the queue if the key is above the provided `current_key`
@@ -182,9 +192,9 @@ mod tests {
         let now = Instant::now();
 
         // can insert items in any order of time
-        heap.add_item(now + Duration::from_secs(2), 2);
-        heap.add_item(now + Duration::from_secs(1), 1);
-        heap.add_item(now + Duration::from_secs(3), 3);
+        heap.push(now + Duration::from_secs(2), 2);
+        heap.push(now + Duration::from_secs(1), 1);
+        heap.push(now + Duration::from_secs(3), 3);
 
         // no items are visible
         assert!(!heap.has_item(&Instant::now()));
@@ -205,22 +215,22 @@ mod tests {
         assert_eq!(buffer.pop_until(&Tick(0)), None);
 
         // check when we try to access an exact tick
-        buffer.add_item(Tick(1), 1);
-        buffer.add_item(Tick(2), 2);
+        buffer.push(Tick(1), 1);
+        buffer.push(Tick(2), 2);
         assert_eq!(buffer.pop_until(&Tick(2)), Some((Tick(2), 2)));
         // check that we cleared older ticks
         assert!(buffer.is_empty());
 
         // check when we try to access a value in-between ticks
-        buffer.add_item(Tick(1), 1);
-        buffer.add_item(Tick(3), 3);
+        buffer.push(Tick(1), 1);
+        buffer.push(Tick(3), 3);
         assert_eq!(buffer.pop_until(&Tick(2)), Some((Tick(1), 1)));
         assert_eq!(buffer.len(), 1);
         assert_eq!(buffer.pop_until(&Tick(4)), Some((Tick(3), 3)));
         assert!(buffer.is_empty());
 
         // check when we try to access a value before any ticks
-        buffer.add_item(Tick(1), 1);
+        buffer.push(Tick(1), 1);
         assert_eq!(buffer.pop_until(&Tick(0)), None);
         assert_eq!(buffer.len(), 1);
     }
@@ -229,10 +239,10 @@ mod tests {
     fn test_drain_until() {
         let mut buffer = ReadyBuffer::new();
 
-        buffer.add_item(Tick(1), 1);
-        buffer.add_item(Tick(2), 2);
-        buffer.add_item(Tick(3), 3);
-        buffer.add_item(Tick(4), 4);
+        buffer.push(Tick(1), 1);
+        buffer.push(Tick(2), 2);
+        buffer.push(Tick(3), 3);
+        buffer.push(Tick(4), 4);
 
         assert_eq!(
             buffer.drain_until(&Tick(2)),
@@ -252,10 +262,10 @@ mod tests {
     fn test_drain_after() {
         let mut buffer = ReadyBuffer::new();
 
-        buffer.add_item(Tick(1), 1);
-        buffer.add_item(Tick(2), 2);
-        buffer.add_item(Tick(3), 3);
-        buffer.add_item(Tick(4), 4);
+        buffer.push(Tick(1), 1);
+        buffer.push(Tick(2), 2);
+        buffer.push(Tick(3), 3);
+        buffer.push(Tick(4), 4);
 
         assert_eq!(
             buffer.drain_after(&Tick(3)),

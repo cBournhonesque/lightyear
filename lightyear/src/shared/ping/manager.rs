@@ -244,7 +244,7 @@ impl PingManager {
 
             // update stats buffer
             self.sync_stats
-                .add_item(received_time, SyncStats { round_trip_delay });
+                .push(received_time, SyncStats { round_trip_delay });
 
             // recompute stats whenever we get a new pong
             self.compute_stats();
