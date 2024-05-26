@@ -371,14 +371,21 @@ pub(crate) mod send {
                 }
                 if insert || update {
                     let group_id = group.group_id(Some(entity));
-                    let mut raw_data: RawData = vec![];
-                    if insert || !delta_compression {
-                        // serialize component
-                        raw_data = registry
-                            .serialize(component.as_ref(), &mut connection.writer)
-                            .expect("Could not serialize component")
-                    }
+                    let component_data = Ptr::from(component.as_ref());
+                    let writer = &mut connection.writer;
                     if insert {
+                        let raw_data = if delta_compression {
+                            // SAFETY: the component_data corresponds to the kind
+                            unsafe {
+                                registry
+                                    .serialize_diff_from_base_value(component_data, writer, kind)
+                                    .expect("could not serialize delta")
+                            }
+                        } else {
+                            registry
+                                .erased_serialize(component_data, writer, kind)
+                                .expect("could not serialize component")
+                        };
                         connection
                             .replication_sender
                             .prepare_component_insert(entity, group_id, raw_data);
@@ -410,6 +417,9 @@ pub(crate) mod send {
                             //     "Updating single component"
                             // );
                             if !delta_compression {
+                                let raw_data = registry
+                                    .erased_serialize(component_data, writer, kind)
+                                    .expect("could not serialize component");
                                 connection
                                     .replication_sender
                                     .prepare_component_update(entity, group_id, raw_data);
@@ -420,9 +430,10 @@ pub(crate) mod send {
                                         entity,
                                         group_id,
                                         kind,
-                                        Ptr::from(component.as_ref()),
+                                        component_data,
                                         &registry,
-                                        &mut connection.writer,
+                                        writer,
+                                        &mut connection.delta_manager,
                                         tick,
                                     );
                             }

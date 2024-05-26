@@ -46,7 +46,7 @@ use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{
     Controlled, ReplicationGroupId, ReplicationTarget, ShouldBeInterpolated,
 };
-use crate::shared::replication::delta::Diffable;
+use crate::shared::replication::delta::{DeltaManager, Diffable};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -65,6 +65,7 @@ pub struct ConnectionManager {
     pub(crate) message_registry: MessageRegistry,
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents,
+    pub(crate) delta_manager: DeltaManager,
 
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
@@ -96,6 +97,7 @@ impl ConnectionManager {
             message_registry,
             channel_registry,
             events: ServerEvents::new(),
+            delta_manager: DeltaManager::default(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
             writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
@@ -694,11 +696,13 @@ impl Connection {
         packet: Packet,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
+        delta_manager: &mut DeltaManager,
     ) -> Result<()> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(packet)?;
         // notify the replication sender that some sent messages were received
-        self.replication_sender.recv_update_acks(component_registry);
+        self.replication_sender
+            .recv_update_acks(component_registry, delta_manager);
         debug!("Received server packet with tick: {:?}", tick);
         Ok(())
     }
@@ -854,7 +858,9 @@ impl ConnectionManager {
             // we serialize once and re-use the result for all clients
             raw_data = registry.erased_serialize(component, &mut self.writer, kind)?;
         }
+        let mut num_targets = 0;
         self.apply_replication(target).try_for_each(|client_id| {
+            num_targets += 1;
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             let replication_sender = &mut self.connections.get_mut(&client_id).context("cannot find connection")?.replication_sender;
             let send_tick = replication_sender
@@ -889,11 +895,30 @@ impl ConnectionManager {
                     // TODO: avoid component clone with Arc<[u8]>
                     replication_sender.prepare_component_update(entity, group_id, raw_data.clone());
                 } else {
-                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, tick);
+                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick);
                 }
             }
-            Ok(())
-        })
+            Ok::<(), anyhow::Error>(())
+        })?;
+
+        if delta_compression {
+            // store the component value in a storage shared between all connections, so that we can compute diffs
+            self.delta_manager
+                .data
+                .store_component_value(entity, tick, kind, component, group_id, registry);
+            // register the number of clients that the component was sent to
+            // (if we receive an ack from all these clients for a given tick, we can remove the component value from the storage
+            //  for all the ticks that are older than the last acked tick)
+            // TODO: if clients 1 and 2 send an ACK for tick 3, and client 3 sends an ack for tick 5 (but lost tick 3),
+            //  we should still consider that we can delete all the data older than tick 3!
+            self.delta_manager
+                .acks
+                .entry(group_id)
+                .or_default()
+                .insert(tick, num_targets);
+        }
+
+        Ok(())
     }
 }
 

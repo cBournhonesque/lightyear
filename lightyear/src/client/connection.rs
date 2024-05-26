@@ -38,6 +38,7 @@ use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
+use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -73,6 +74,7 @@ pub struct ConnectionManager {
     pub(crate) component_registry: ComponentRegistry,
     pub(crate) message_registry: MessageRegistry,
     pub(crate) message_manager: MessageManager,
+    pub(crate) delta_manager: DeltaManager,
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
     pub(crate) events: ConnectionEvents,
@@ -135,6 +137,7 @@ impl ConnectionManager {
             component_registry: component_registry.clone(),
             message_registry: message_registry.clone(),
             message_manager,
+            delta_manager: DeltaManager::default(),
             replication_sender,
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
@@ -485,7 +488,8 @@ impl ConnectionManager {
         }
         trace!(?tick, last_server_tick = ?self.sync_manager.latest_received_server_tick, "Recv server packet");
         // notify the replication sender that some sent messages were received
-        self.replication_sender.recv_update_acks(component_registry);
+        self.replication_sender
+            .recv_update_acks(component_registry, &mut self.delta_manager);
         Ok(())
     }
 }

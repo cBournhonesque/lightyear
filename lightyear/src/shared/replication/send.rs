@@ -24,7 +24,7 @@ use crate::protocol::registry::NetId;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::RawData;
 use crate::shared::replication::components::ReplicationGroupId;
-use crate::shared::replication::delta::Diffable;
+use crate::shared::replication::delta::{DeltaManager, Diffable};
 use crate::utils::ready_buffer::ReadyBuffer;
 
 use super::{
@@ -146,7 +146,7 @@ impl ReplicationSender {
     pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId) -> Option<BevyTick> {
         self.group_channels.get(&group_id).and_then(|channel| {
             if self.send_updates_since_last_ack {
-                channel.ack_tick
+                channel.ack_bevy_tick
             } else {
                 channel.send_tick
             }
@@ -175,19 +175,14 @@ impl ReplicationSender {
                     // newer than the current ack_tick
                     // (otherwise it just means we lost some old message, and we don't need to do anything)
                     if channel
-                        .ack_tick
+                        .ack_bevy_tick
                         .is_some_and(|ack_tick| bevy_tick.is_newer_than(ack_tick, world_tick))
                     {
-                        channel.send_tick = channel.ack_tick;
+                        channel.send_tick = channel.ack_bevy_tick;
                     }
 
-                    // we can drop the diff data for that tick since we will never be able to compute diffs from it
-                    channel
-                        .delta_component_values
-                        .values_mut()
-                        .for_each(|entry| {
-                            entry.component_data.remove(&tick);
-                        });
+                    // TODO: if all clients lost a given message, than we can immediately drop the delta-compression data
+                    //  for that tick
                 } else {
                     error!("Received an update message-id nack but the corresponding group channel does not exist");
                 }
@@ -247,7 +242,11 @@ impl ReplicationSender {
 
     // TODO: call this in a system after receive?
     /// We call this after the Receive SystemSet; to update the bevy_tick at which we received entity updates for each group
-    pub(crate) fn recv_update_acks(&mut self, component_registry: &ComponentRegistry) {
+    pub(crate) fn recv_update_acks(
+        &mut self,
+        component_registry: &ComponentRegistry,
+        delta_manager: &mut DeltaManager,
+    ) {
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.updates_ack_receiver.try_recv() {
             // remember to remove the entry from the map to avoid memory leakage
@@ -260,32 +259,11 @@ impl ReplicationSender {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
                     // update the ack tick for the channel
                     debug!(?bevy_tick, "Update channel ack_tick");
-                    channel.ack_tick = Some(bevy_tick);
+                    channel.ack_bevy_tick = Some(bevy_tick);
+                    channel.ack_tick = Some(tick);
 
-                    // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
-                    // update delta-compression data
-                    channel
-                        .delta_component_values
-                        .iter_mut()
-                        .for_each(|(kind, entry)| {
-                            // if we sent a message at that tick, we can set ack to true (it
-                            // will stay true from now on)
-                            if entry.component_data.contains_key(&tick) {
-                                entry.acked = true;
-                                // we can remove all the keys older than the acked key
-                                let new_data =
-                                    entry.component_data.split_off(&tick).into_iter().collect();
-                                // call drop on all the data that we are removing
-                                entry.component_data.values_mut().for_each(|data| {
-                                    data.values_mut().for_each(|owned_ptr| unsafe {
-                                        // SAFETY: the ptr corresponds the component associated with kind
-                                        component_registry.erased_drop(*owned_ptr, *kind).unwrap();
-                                    });
-                                });
-                                // only keep the data that is more recent (inclusive) than the acked tick
-                                entry.component_data = new_data;
-                            }
-                        });
+                    // update the acks for the delta manager
+                    delta_manager.receive_ack(tick, group_id, component_registry);
                 } else {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
                 }
@@ -468,52 +446,26 @@ impl ReplicationSender {
         component_data: Ptr,
         registry: &ComponentRegistry,
         writer: &mut BitcodeWriter,
+        delta_manager: &mut DeltaManager,
         tick: Tick,
     ) {
         let group_channel = self.group_channels.entry(group_id).or_default();
-
-        let entry = group_channel
-            .delta_component_values
-            .entry(kind)
-            .or_default();
-
-        // Serialize the data (either by computing the diff with a previously acked value, or by serializing the base value)
-        let raw_data = entry
-            .acked
-            .then(|| {
-                // get the last previously sent value for this component that was acked
-                // the oldest value is the one that was acked (since we keep removing all the items
-                // before the last one acked)
-                // we do not want to pop because the value might be used for future diffs
-                entry
-                    .component_data
-                    .first_entry()
-                    .and_then(|item| {
-                        item.get().get(&entity).and_then(|erased_data| {
-                            Some(
-                                // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
-                                unsafe {
-                                    registry
-                                        .serialize_diff(
-                                            Ptr::new(*erased_data),
-                                            component_data,
-                                            writer,
-                                            kind,
-                                        )
-                                        .expect("could not serialize delta")
-                                },
-                            )
-                        })
-                    })
-                    .unwrap_or_else(|| {
-                        // SAFETY: the component_data is a pointer to a component that corresponds to kind
-                        unsafe {
-                            // compute a diff from the base value, and serialize that
-                            registry
-                                .serialize_diff_from_base_value(component_data, writer, kind)
-                                .expect("could not serialize delta")
-                        }
-                    })
+        // Get the latest acked tick for this replication group
+        let raw_data = group_channel
+            .ack_tick
+            .map(|ack_tick| {
+                // we have an ack tick for this replication group, get the corresponding component value
+                // so we can compute a diff
+                let old_data = delta_manager
+                    .data
+                    .get_component_value(entity, ack_tick, kind, group_id)
+                    .expect("we should have stored a component value for this tick");
+                // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
+                unsafe {
+                    registry
+                        .serialize_diff(old_data, component_data, writer, kind)
+                        .expect("could not serialize delta")
+                }
             })
             .unwrap_or_else(|| {
                 // SAFETY: the component_data is a pointer to a component that corresponds to kind
@@ -524,20 +476,6 @@ impl ReplicationSender {
                         .expect("could not serialize delta")
                 }
             });
-
-        // Store the component data so that we can compute future diffs
-        // SAFETY: the component_data corresponds to the kind
-        let cloned_data = unsafe {
-            registry
-                .erased_clone(component_data, kind)
-                .expect("could not clone component data")
-        };
-        entry
-            .component_data
-            .entry(tick)
-            .or_default()
-            .insert(entity, cloned_data);
-
         trace!(?kind, "Inserting pending update!");
         self.pending_updates
             .entry(group_id)
@@ -624,34 +562,9 @@ impl ReplicationSender {
     }
 }
 
-/// Type-erased component data that we store for delta compression
-///
-/// We keep in memory the value of some past components so that we can compute delta-compression
-/// between the last acked value and the current value.
-#[derive(Debug, Default)]
-pub(crate) struct DeltaComponentSentData {
-    /// Is true if the value for the lowest tick was acked by the client.
-    ///
-    /// At the start it's false, and then it stays true all the time, since we will keep doing diffs
-    /// with the last acked value.
-    // TODO: may be false with tick-clamping
-    acked: bool,
-    // TODO: use any_vec?
-    /// NonNull<u8> is the type-erased owned component data
-    component_data: BTreeMap<Tick, EntityHashMap<Entity, NonNull<u8>>>,
-}
-
-unsafe impl Send for DeltaComponentSentData {}
-unsafe impl Sync for DeltaComponentSentData {}
-
 /// Channel to keep track of sending replication messages for a given Group
 #[derive(Debug)]
 pub struct GroupChannel {
-    /// For the components that have delta compression enabled, we need to store in memory
-    /// the last value that was acked by the client, so that we can send the delta between the last acked value
-    /// This is a map from the
-    // TODO: maybe use a BlobVec since we want to store type-erased data?
-    pub delta_component_values: HashMap<ComponentKind, DeltaComponentSentData>,
     pub actions_next_send_message_id: MessageId,
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
     /// Bevy Tick when we last sent an update for this group.
@@ -667,7 +580,8 @@ pub struct GroupChannel {
     /// (meaning that we don't need to send updates that happened before that `send_tick` anymore)
     ///
     /// If a message is lost, we bump the `send_tick` back to the `ack_tick`, because we might need to re-send those updates.
-    pub ack_tick: Option<BevyTick>,
+    pub ack_bevy_tick: Option<BevyTick>,
+    pub ack_tick: Option<Tick>,
 
     // last tick for which we sent an action message
     pub last_action_tick: Option<Tick>,
@@ -682,9 +596,9 @@ pub struct GroupChannel {
 impl Default for GroupChannel {
     fn default() -> Self {
         Self {
-            delta_component_values: HashMap::default(),
             actions_next_send_message_id: MessageId(0),
             send_tick: None,
+            ack_bevy_tick: None,
             ack_tick: None,
             last_action_tick: None,
             accumulated_priority: None,
@@ -795,6 +709,7 @@ mod tests {
     fn test_send_tick_no_priority() {
         // create fake channels for receiving updates about acks and sends
         let component_registry = ComponentRegistry::default();
+        let mut delta_manager = DeltaManager::default();
         let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
         let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
         let (tx_send, rx_send) = crossbeam_channel::unbounded();
@@ -825,7 +740,7 @@ mod tests {
             })
         );
         assert_eq!(group.send_tick, Some(bevy_tick_1));
-        assert_eq!(group.ack_tick, None);
+        assert_eq!(group.ack_bevy_tick, None);
 
         // if we buffer a second message, we update the `send_tick`
         sender.buffer_replication_update_message(group_1, message_2, bevy_tick_2, tick_2);
@@ -839,17 +754,17 @@ mod tests {
             })
         );
         assert_eq!(group.send_tick, Some(bevy_tick_2));
-        assert_eq!(group.ack_tick, None);
+        assert_eq!(group.ack_bevy_tick, None);
 
         // if we receive an ack for the second message, we update the `ack_tick`
         tx_ack.try_send(message_2).unwrap();
-        sender.recv_update_acks(&component_registry);
+        sender.recv_update_acks(&component_registry, &mut delta_manager);
         let group = sender.group_channels.get(&group_1).unwrap();
         assert!(!sender
             .updates_message_id_to_group_id
             .contains_key(&message_2));
         assert_eq!(group.send_tick, Some(bevy_tick_2));
-        assert_eq!(group.ack_tick, Some(bevy_tick_2));
+        assert_eq!(group.ack_bevy_tick, Some(bevy_tick_2));
 
         // if we buffer a third message, we update the `send_tick`
         sender.buffer_replication_update_message(group_1, message_3, bevy_tick_3, tick_3);
@@ -863,7 +778,7 @@ mod tests {
             })
         );
         assert_eq!(group.send_tick, Some(bevy_tick_3));
-        assert_eq!(group.ack_tick, Some(bevy_tick_2));
+        assert_eq!(group.ack_bevy_tick, Some(bevy_tick_2));
 
         // if we receive a nack for the first message, we don't care because that message's bevy tick
         // is lower than our ack tick
@@ -882,7 +797,7 @@ mod tests {
             .contains_key(&message_3),);
         // this time the `send_tick` is updated to the `ack_tick`
         assert_eq!(group.send_tick, Some(bevy_tick_2));
-        assert_eq!(group.ack_tick, Some(bevy_tick_2));
+        assert_eq!(group.ack_bevy_tick, Some(bevy_tick_2));
     }
 
     #[test]
@@ -919,14 +834,14 @@ mod tests {
             })
         );
         assert_eq!(group.send_tick, None);
-        assert_eq!(group.ack_tick, None);
+        assert_eq!(group.ack_bevy_tick, None);
 
         tx_send.try_send(message_1).unwrap();
         // when the message is actually sent, we update the `send_tick`
         sender.recv_send_notification();
         let group = sender.group_channels.get(&group_1).unwrap();
         assert_eq!(group.send_tick, Some(bevy_tick_1));
-        assert_eq!(group.ack_tick, None);
+        assert_eq!(group.ack_bevy_tick, None);
     }
 
     // TODO: add tests for replication with entity relations!
