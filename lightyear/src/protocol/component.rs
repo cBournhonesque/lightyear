@@ -570,7 +570,7 @@ mod delta {
         }
 
         /// SAFETY: the data from the Ptr must correspond to the correct ComponentKind
-        pub(crate) fn erased_drop(
+        pub(crate) unsafe fn erased_drop(
             &self,
             data: NonNull<u8>,
             kind: ComponentKind,
@@ -579,7 +579,7 @@ mod delta {
                 .delta_fns_map
                 .get(&kind)
                 .context("the component does not have delta fns registered")?;
-            Ok(unsafe { (delta_fns.drop)(data) })
+            Ok((delta_fns.drop)(data))
         }
 
         /// SAFETY: The Ptrs must correspond to the correct ComponentKind

@@ -305,7 +305,7 @@ pub enum InputSystemSet {
     /// Receive the InputMessage from other clients
     ReceiveInputMessages,
     // FIXED UPDATE
-    /// System Set where we update the ActionState and the InputBuffersk
+    /// System Set where we update the ActionState and the InputBuffers
     /// - no rollback: we write the ActionState to the InputBuffers
     /// - rollback: we fetch the ActionState value from the InputBuffers
     BufferClientInputs,

@@ -706,6 +706,35 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn test_delta_compression() {
+        // buffer delta compression value at T1 (at the beginning it's a diff against base)
+
+        // TODO: maybe we should store the value only if we send the message?
+        //  because we store the value just to compute diffs, but if we don't actually send the message
+        //  then there's no point
+
+        // check that the component value was stored
+        // check that the diff is a diff against base
+
+        // buffer a new delta compression value at T2
+
+        // check that the component value was stored
+        // check that the diff is a diff against base
+
+        // receive an ack for the second tick
+
+        // check that the component value for the first tick was dropped
+        // check that acked is set to true
+
+        // buffer a new delta compression value at T3
+
+        // check that the diff is computed from the last acked value
+        // check that the component value is stored
+
+        // receive a lost notification for the third tick
+    }
+
     /// Test that if we receive a nack, we bump the send_tick down to the ack tick
     #[test]
     fn test_integration_send_tick_updates_on_packet_nack() {

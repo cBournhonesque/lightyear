@@ -11,12 +11,9 @@ use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
 type ErasedCloneFn = unsafe fn(data: Ptr) -> NonNull<u8>;
-
 type ErasedDiffFn = unsafe fn(data: Ptr, other: Ptr) -> NonNull<u8>;
 type ErasedBaseDiffFn = unsafe fn(data: Ptr) -> NonNull<u8>;
-
 type ErasedApplyDiffFn = unsafe fn(data: PtrMut, delta: Ptr);
-
 type ErasedDropFn = unsafe fn(data: NonNull<u8>);
 
 /// SAFETY: the Ptr must be a valid pointer to a value of type C
@@ -60,7 +57,7 @@ unsafe fn erased_apply_diff<C: Diffable>(data: PtrMut, delta: Ptr) {
 unsafe fn erased_drop<C>(data: NonNull<u8>) {
     // reclaim the memory inside the box
     // the box's destructor will then free the memory and run drop
-    Box::from_raw(data.cast::<C>().as_ptr());
+    let _ = Box::from_raw(data.cast::<C>().as_ptr());
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -158,5 +155,14 @@ mod tests {
         unsafe {
             (erased_fns.drop_delta_message)(casted.cast());
         }
+    }
+
+    #[test]
+    fn test_apply_diff() {
+        let erased_fns = ErasedDeltaFns::new::<Component6>();
+        let mut old_data = Component6(vec![1]);
+        let diff: <Component6 as Diffable>::Delta = vec![2];
+        unsafe { (erased_fns.apply_diff)(PtrMut::from(&mut old_data), Ptr::from(&diff)) };
+        assert_eq!(old_data, Component6(vec![1, 2]));
     }
 }
