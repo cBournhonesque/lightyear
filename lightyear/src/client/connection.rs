@@ -457,7 +457,12 @@ impl ConnectionManager {
         }
     }
 
-    pub(crate) fn recv_packet(&mut self, packet: Packet, tick_manager: &TickManager) -> Result<()> {
+    pub(crate) fn recv_packet(
+        &mut self,
+        packet: Packet,
+        tick_manager: &TickManager,
+        component_registry: &ComponentRegistry,
+    ) -> Result<()> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(packet)?;
         debug!("Received server packet with tick: {:?}", tick);
@@ -480,7 +485,7 @@ impl ConnectionManager {
         }
         trace!(?tick, last_server_tick = ?self.sync_manager.latest_received_server_tick, "Recv server packet");
         // notify the replication sender that some sent messages were received
-        self.replication_sender.recv_update_acks();
+        self.replication_sender.recv_update_acks(component_registry);
         Ok(())
     }
 }

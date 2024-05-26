@@ -689,11 +689,16 @@ impl Connection {
         std::mem::replace(&mut self.events, ConnectionEvents::new())
     }
 
-    pub fn recv_packet(&mut self, packet: Packet, tick_manager: &TickManager) -> Result<()> {
+    pub fn recv_packet(
+        &mut self,
+        packet: Packet,
+        tick_manager: &TickManager,
+        component_registry: &ComponentRegistry,
+    ) -> Result<()> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(packet)?;
         // notify the replication sender that some sent messages were received
-        self.replication_sender.recv_update_acks();
+        self.replication_sender.recv_update_acks(component_registry);
         debug!("Received server packet with tick: {:?}", tick);
         Ok(())
     }
@@ -787,9 +792,12 @@ impl ConnectionManager {
         // the diff can be shared for every client since we're inserting
         let writer = &mut self.writer;
         let raw_data = if delta_compression {
-            component_registry
-                .serialize_diff_from_base_value(component_data, writer, kind)
-                .expect("could not serialize delta")
+            // SAFETY: the component_data corresponds to the kind
+            unsafe {
+                component_registry
+                    .serialize_diff_from_base_value(component_data, writer, kind)
+                    .expect("could not serialize delta")
+            }
         } else {
             component_registry
                 .erased_serialize(component_data, writer, kind)

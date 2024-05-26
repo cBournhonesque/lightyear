@@ -185,7 +185,7 @@ pub(crate) fn receive(world: &mut World) {
                                                         // RECV PACKETS: buffer packets into message managers
                                                         while let Some(packet) = netclient.recv() {
                                                             connection
-                                                                .recv_packet(packet, tick_manager.as_ref())
+                                                                .recv_packet(packet, tick_manager.as_ref(), world.resource::<ComponentRegistry>())
                                                                 .unwrap();
                                                         }
                                                         // RECEIVE: receive packets from message managers

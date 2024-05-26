@@ -9,7 +9,7 @@ use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity, Reflect};
-use bevy::ptr::{OwningPtr, Ptr};
+use bevy::ptr::{OwningPtr, Ptr, PtrMut};
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{hashbrown, HashMap, HashSet};
 use crossbeam_channel::Receiver;
@@ -247,7 +247,7 @@ impl ReplicationSender {
 
     // TODO: call this in a system after receive?
     /// We call this after the Receive SystemSet; to update the bevy_tick at which we received entity updates for each group
-    pub(crate) fn recv_update_acks(&mut self) {
+    pub(crate) fn recv_update_acks(&mut self, component_registry: &ComponentRegistry) {
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.updates_ack_receiver.try_recv() {
             // remember to remove the entry from the map to avoid memory leakage
@@ -266,16 +266,26 @@ impl ReplicationSender {
                     // update delta-compression data
                     channel
                         .delta_component_values
-                        .values_mut()
-                        .for_each(|entry| {
+                        .iter_mut()
+                        .for_each(|(kind, entry)| {
                             // if we sent a message at that tick, we can set ack to true (it
                             // will stay true from now on)
                             if entry.component_data.contains_key(&tick) {
                                 entry.acked = true;
-                                // TODO: REMEMBER TO CALL DROP ON THE DATA!
                                 // we can remove all the keys older than the acked key
-                                entry.component_data =
+                                let new_data =
                                     entry.component_data.split_off(&tick).into_iter().collect();
+                                // call drop on all the data that we are removing
+                                entry.component_data.values_mut().for_each(|data| {
+                                    data.values_mut().for_each(|owned_ptr| unsafe {
+                                        // SAFETY: we have unique ownership of the data
+                                        let ptr = PtrMut::new(*owned_ptr);
+                                        // SAFETY: the ptr corresponds the component associated with kind
+                                        component_registry.erased_drop(ptr, *kind).unwrap();
+                                    });
+                                });
+                                // only keep the data that is more recent (inclusive) than the acked tick
+                                entry.component_data = new_data;
                             }
                         });
                 } else {
@@ -483,35 +493,47 @@ impl ReplicationSender {
                     .and_then(|item| {
                         item.get().get(&entity).and_then(|erased_data| {
                             Some(
-                                registry
-                                    .serialize_diff(
-                                        unsafe { Ptr::new(*erased_data) },
-                                        component_data,
-                                        writer,
-                                        kind,
-                                    )
-                                    .expect("could not serialize delta"),
+                                // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
+                                unsafe {
+                                    registry
+                                        .serialize_diff(
+                                            Ptr::new(*erased_data),
+                                            component_data,
+                                            writer,
+                                            kind,
+                                        )
+                                        .expect("could not serialize delta")
+                                },
                             )
                         })
                     })
                     .unwrap_or_else(|| {
-                        // compute a diff from the base value, and serialize that
-                        registry
-                            .serialize_diff_from_base_value(component_data, writer, kind)
-                            .expect("could not serialize delta")
+                        // SAFETY: the component_data is a pointer to a component that corresponds to kind
+                        unsafe {
+                            // compute a diff from the base value, and serialize that
+                            registry
+                                .serialize_diff_from_base_value(component_data, writer, kind)
+                                .expect("could not serialize delta")
+                        }
                     })
             })
             .unwrap_or_else(|| {
-                // compute a diff from the base value, and serialize that
-                registry
-                    .serialize_diff_from_base_value(component_data, writer, kind)
-                    .expect("could not serialize delta")
+                // SAFETY: the component_data is a pointer to a component that corresponds to kind
+                unsafe {
+                    // compute a diff from the base value, and serialize that
+                    registry
+                        .serialize_diff_from_base_value(component_data, writer, kind)
+                        .expect("could not serialize delta")
+                }
             });
 
         // Store the component data so that we can compute future diffs
-        let cloned_data = registry
-            .erased_clone(component_data, kind)
-            .expect("could not clone component data");
+        // SAFETY: the component_data corresponds to the kind
+        let cloned_data = unsafe {
+            registry
+                .erased_clone(component_data, kind)
+                .expect("could not clone component data")
+        };
         entry
             .component_data
             .entry(tick)
@@ -745,6 +767,7 @@ mod tests {
     #[test]
     fn test_send_tick_no_priority() {
         // create fake channels for receiving updates about acks and sends
+        let component_registry = ComponentRegistry::default();
         let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
         let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
         let (tx_send, rx_send) = crossbeam_channel::unbounded();
@@ -793,7 +816,7 @@ mod tests {
 
         // if we receive an ack for the second message, we update the `ack_tick`
         tx_ack.try_send(message_2).unwrap();
-        sender.recv_update_acks();
+        sender.recv_update_acks(&component_registry);
         let group = sender.group_channels.get(&group_1).unwrap();
         assert!(!sender
             .updates_message_id_to_group_id

@@ -179,7 +179,8 @@ pub(crate) fn receive(world: &mut World) {
                                                     // TODO: use connection to apply on BOTH message manager and replication manager
                                                     if let Ok(connection) = connection_manager
                                                         .connection_mut(client_id) {
-                                                        connection.recv_packet(packet, tick_manager.as_ref()).expect("could not receive packet");
+                                                        let component_registry = world.resource::<ComponentRegistry>();
+                                                        connection.recv_packet(packet, tick_manager.as_ref(), component_registry).expect("could not receive packet");
                                                     } else {
                                                         // it's still possible to receive some packets from a client that just disconnected.
                                                         // (multiple packets arrived at the same time from that client)

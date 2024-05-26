@@ -46,7 +46,7 @@ use crate::shared::events::connection::{
 };
 use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
-use crate::shared::replication::delta::Diffable;
+use crate::shared::replication::delta::{DeltaMessage, Diffable};
 use crate::shared::replication::entity_map::EntityMap;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::InternalMainSet;
@@ -544,18 +544,20 @@ impl ComponentRegistry {
 
 mod delta {
     use super::*;
+    use crate::shared::replication::delta::DeltaType;
     use bevy::ptr::PtrMut;
     use std::ptr::NonNull;
 
     impl ComponentRegistry {
-        pub(crate) fn set_delta_compression<C: Component + Diffable>(&mut self) {
+        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self) {
             let kind = ComponentKind::of::<C>();
             let write: RawWriteFn = Self::write_delta::<C>;
             self.delta_fns_map.insert(kind, ErasedDeltaFns::new::<C>());
             self.replication_map.get_mut(&kind).unwrap().write = write;
         }
 
-        pub(crate) fn erased_clone(
+        /// SAFETY: the Ptr must correspond to the correct ComponentKind
+        pub(crate) unsafe fn erased_clone(
             &self,
             data: Ptr,
             kind: ComponentKind,
@@ -564,44 +566,20 @@ mod delta {
                 .delta_fns_map
                 .get(&kind)
                 .context("the component does not have delta fns registered")?;
-            Ok(unsafe { (delta_fns.clone)(data) })
+            Ok((delta_fns.clone)(data))
         }
 
-        pub(crate) fn erased_diff(
-            &self,
-            data: Ptr,
-            other: Ptr,
-            kind: ComponentKind,
-        ) -> anyhow::Result<NonNull<u8>> {
+        /// SAFETY: the data from the Ptr must correspond to the correct ComponentKind
+        pub(crate) fn erased_drop(&self, data: PtrMut, kind: ComponentKind) -> anyhow::Result<()> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
                 .context("the component does not have delta fns registered")?;
-            Ok(unsafe { (delta_fns.diff)(data, other) })
+            Ok(unsafe { (delta_fns.drop)(data) })
         }
 
-        pub(crate) fn erased_apply_diff(
-            &self,
-            data: PtrMut,
-            delta: Ptr,
-            kind: ComponentKind,
-        ) -> anyhow::Result<()> {
-            let delta_fns = self
-                .delta_fns_map
-                .get(&kind)
-                .context("the component does not have delta fns registered")?;
-            Ok(unsafe { (delta_fns.apply_diff)(data, delta) })
-        }
-
-        pub(crate) fn erased_base_value(&self, kind: ComponentKind) -> anyhow::Result<NonNull<u8>> {
-            let delta_fns = self
-                .delta_fns_map
-                .get(&kind)
-                .context("the component does not have delta fns registered")?;
-            Ok(unsafe { (delta_fns.base_value)() })
-        }
-
-        pub(crate) fn serialize_diff(
+        /// SAFETY: The Ptrs must correspond to the correct ComponentKind
+        pub(crate) unsafe fn serialize_diff(
             &self,
             start: Ptr,
             new: Ptr,
@@ -613,13 +591,16 @@ mod delta {
                 .delta_fns_map
                 .get(&kind)
                 .context("the component does not have delta fns registered")?;
-            let delta = self
-                .erased_diff(start, new, kind)
-                .expect("could not compute diff");
-            self.erased_serialize(unsafe { Ptr::new(delta) }, writer, delta_fns.delta_kind)
+
+            let delta = (delta_fns.diff)(start, new);
+            let raw_data = self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind);
+            // drop the delta message
+            (delta_fns.drop_delta_message)(PtrMut::new(delta));
+            raw_data
         }
 
-        pub(crate) fn serialize_diff_from_base_value(
+        /// SAFETY: The Ptrs must correspond to the correct ComponentKind
+        pub(crate) unsafe fn serialize_diff_from_base_value(
             &self,
             component_data: Ptr,
             writer: &mut BitcodeWriter,
@@ -630,14 +611,14 @@ mod delta {
                 .delta_fns_map
                 .get(&kind)
                 .context("the component does not have delta fns registered")?;
-            let base_value = unsafe { Ptr::new(self.erased_base_value(kind).unwrap()) };
-            let delta = self
-                .erased_diff(base_value, component_data, kind)
-                .expect("could not compute diff");
-            self.erased_serialize(unsafe { Ptr::new(delta) }, writer, delta_fns.delta_kind)
+            let delta = (delta_fns.diff_from_base)(component_data);
+            let raw_data = self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind);
+            // drop the delta message
+            (delta_fns.drop_delta_message)(PtrMut::new(delta));
+            raw_data
         }
 
-        pub(crate) fn write_delta<C: Component + Diffable>(
+        pub(crate) fn write_delta<C: Component + PartialEq + Diffable>(
             &self,
             reader: &mut BitcodeReader,
             net_id: ComponentNetId,
@@ -650,19 +631,37 @@ mod delta {
                 std::any::type_name::<C>()
             );
             let delta_net_id = self.net_id::<C::Delta>();
-            let delta = self.raw_deserialize::<C::Delta>(reader, delta_net_id, entity_map)?;
+            let delta =
+                self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
             let entity = entity_world_mut.id();
             // TODO: do we need the tick information in the event?
             let tick = Tick(0);
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
-            if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                c.apply_diff(&delta);
-                events.push_update_component(entity, net_id, tick);
-            } else {
-                // TODO: or should the Delta contain a flag that indicates that the receiver should just use the BaseValue?
-                let mut c = C::base_value();
-                c.apply_diff(&delta);
-                events.push_insert_component(entity, net_id, tick);
+            match delta.delta_type {
+                DeltaType::Normal => {
+                    let Some(mut c) = entity_world_mut.get_mut::<C>() else {
+                        return Err(anyhow::anyhow!(
+                            "Component {} is not part of the entity, but we received a diff for delta-compression",
+                            std::any::type_name::<C>()
+                        ));
+                    };
+                    c.apply_diff(&delta.delta);
+                    events.push_update_component(entity, net_id, tick);
+                }
+                DeltaType::FromBase => {
+                    let mut new_value = C::base_value();
+                    new_value.apply_diff(&delta.delta);
+                    if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                        // only apply the update if the component is different, to not trigger change detection
+                        if c.as_ref() != &new_value {
+                            *c = new_value;
+                            events.push_update_component(entity, net_id, tick);
+                        }
+                    } else {
+                        entity_world_mut.insert(new_value);
+                        events.push_insert_component(entity, net_id, tick);
+                    }
+                }
             }
             Ok(())
         }
@@ -747,7 +746,7 @@ pub trait AppComponentExt {
     //  so that instead of sending the full value we just send a diff from the BaseValue,
     //  or a flag that indicates that the receiver should just use the BaseValue
     /// Enable delta compression when serializing this component
-    fn add_delta_compression<C: Component + Diffable>(&mut self);
+    fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self);
 }
 
 pub struct ComponentRegistration<'a, C> {
@@ -848,7 +847,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// Enable delta compression when serializing this component
     pub fn add_delta_compression(self) -> Self
     where
-        C: Component + Diffable,
+        C: Component + PartialEq + Diffable,
     {
         self.app.add_delta_compression::<C>();
         self
@@ -937,10 +936,10 @@ impl AppComponentExt for App {
         registry.set_interpolation::<C>(interpolation_fn);
     }
 
-    fn add_delta_compression<C: Component + Diffable>(&mut self) {
+    fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         // add the delta as a message
-        registry.register_component::<<C as Diffable>::Delta>();
+        registry.register_component::<DeltaMessage<<C as Diffable>::Delta>>();
         // update the write function to use the delta compression logic
         registry.set_delta_compression::<C>();
     }
