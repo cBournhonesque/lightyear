@@ -570,7 +570,11 @@ mod delta {
         }
 
         /// SAFETY: the data from the Ptr must correspond to the correct ComponentKind
-        pub(crate) fn erased_drop(&self, data: PtrMut, kind: ComponentKind) -> anyhow::Result<()> {
+        pub(crate) fn erased_drop(
+            &self,
+            data: NonNull<u8>,
+            kind: ComponentKind,
+        ) -> anyhow::Result<()> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
@@ -595,7 +599,7 @@ mod delta {
             let delta = (delta_fns.diff)(start, new);
             let raw_data = self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind);
             // drop the delta message
-            (delta_fns.drop_delta_message)(PtrMut::new(delta));
+            (delta_fns.drop_delta_message)(delta);
             raw_data
         }
 
@@ -614,7 +618,7 @@ mod delta {
             let delta = (delta_fns.diff_from_base)(component_data);
             let raw_data = self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind);
             // drop the delta message
-            (delta_fns.drop_delta_message)(PtrMut::new(delta));
+            (delta_fns.drop_delta_message)(delta);
             raw_data
         }
 

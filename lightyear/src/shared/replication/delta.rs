@@ -5,7 +5,7 @@ use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 
-#[derive(Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {
     /// This delta is computed from a previous value
     Normal,
@@ -14,6 +14,8 @@ pub enum DeltaType {
 }
 
 /// A message that contains a delta between two states (for serializing delta compression)
+// Need repr(C) to be able to cast the pointer to a u8 pointer
+#[repr(C)]
 #[derive(Encode, Decode, Deserialize, Serialize)]
 pub struct DeltaMessage<M> {
     pub(crate) delta_type: DeltaType,
@@ -32,8 +34,8 @@ pub trait Diffable: Clone {
     /// we can compute a delta compared to the `Base` default state
     fn base_value() -> Self;
 
-    /// Compute the delta between two states
-    fn diff(&self, other: &Self) -> Self::Delta;
+    /// Compute the diff from the old state (self) to the new state (new)
+    fn diff(&self, new: &Self) -> Self::Delta;
 
     /// Apply a delta to the current state to reach the new state
     fn apply_diff(&mut self, delta: &Self::Delta);

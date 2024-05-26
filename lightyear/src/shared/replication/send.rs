@@ -39,7 +39,7 @@ type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 /// we keep track of some information related to this message.
 /// It is useful when we get notified that the message was acked or lost.
 #[derive(Debug, PartialEq)]
-struct UpdateMessageMetadata {
+pub(crate) struct UpdateMessageMetadata {
     /// The group id that this message is about
     group_id: ReplicationGroupId,
     /// The BevyTick at which we buffered the message
@@ -278,10 +278,8 @@ impl ReplicationSender {
                                 // call drop on all the data that we are removing
                                 entry.component_data.values_mut().for_each(|data| {
                                     data.values_mut().for_each(|owned_ptr| unsafe {
-                                        // SAFETY: we have unique ownership of the data
-                                        let ptr = PtrMut::new(*owned_ptr);
                                         // SAFETY: the ptr corresponds the component associated with kind
-                                        component_registry.erased_drop(ptr, *kind).unwrap();
+                                        component_registry.erased_drop(*owned_ptr, *kind).unwrap();
                                     });
                                 });
                                 // only keep the data that is more recent (inclusive) than the acked tick
@@ -631,7 +629,7 @@ impl ReplicationSender {
 /// We keep in memory the value of some past components so that we can compute delta-compression
 /// between the last acked value and the current value.
 #[derive(Debug, Default)]
-struct DeltaComponentSentData {
+pub(crate) struct DeltaComponentSentData {
     /// Is true if the value for the lowest tick was acked by the client.
     ///
     /// At the start it's false, and then it stays true all the time, since we will keep doing diffs
