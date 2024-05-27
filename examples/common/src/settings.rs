@@ -227,7 +227,6 @@ pub(crate) fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConf
                     game_port: *game_port,
                     query_port: *query_port,
                     max_clients: 16,
-                    accept_connection_request_fn: None,
                     version: "1.0".to_string(),
                 },
                 conditioner: settings

@@ -1,7 +1,7 @@
 use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::connection::server::{AcceptConnectionRequestFn, NetServer};
+use crate::connection::server::NetServer;
 use crate::packet::packet::Packet;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
@@ -21,32 +21,16 @@ use tracing::{error, info};
 
 use super::{get_networking_options, SingleClientThreadSafe};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SteamConfig {
     pub app_id: u32,
     pub server_ip: Ipv4Addr,
     pub game_port: u16,
     pub query_port: u16,
     pub max_clients: usize,
-    pub accept_connection_request_fn: Option<AcceptConnectionRequestFn>,
     // pub mode: ServerMode,
     // TODO: name this protocol to match netcode?
     pub version: String,
-}
-
-// Has to be implemented manually because closures are not Debug
-impl ::core::fmt::Debug for SteamConfig {
-    #[inline]
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        f.debug_struct("SteamConfig")
-            .field("app_id", &self.app_id)
-            .field("server_ip", &self.server_ip)
-            .field("game_port", &self.game_port)
-            .field("query_port", &self.query_port)
-            .field("max_clients", &self.max_clients)
-            .field("version", &self.version)
-            .finish()
-    }
 }
 
 impl Default for SteamConfig {
@@ -58,7 +42,6 @@ impl Default for SteamConfig {
             game_port: 27015,
             query_port: 27016,
             max_clients: 16,
-            accept_connection_request_fn: None,
             // mode: ServerMode::NoAuthentication,
             version: "1.0".to_string(),
         }
@@ -201,11 +184,8 @@ impl NetServer for Server {
                         continue;
                     };
                     info!("Client with id: {:?} requesting connection!", steam_id);
-                    let permitted = self
-                        .config
-                        .accept_connection_request_fn
-                        .as_mut()
-                        .map_or(true, |f| f(ClientId::Steam(steam_id.raw())));
+                    // TODO: improve permission check
+                    let permitted = true;
                     if permitted {
                         if let Err(e) = event.accept() {
                             error!("Failed to accept connection from {steam_id:?}: {e}");

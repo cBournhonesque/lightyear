@@ -8,7 +8,7 @@ use tracing::{debug, error, trace};
 
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
-use crate::connection::server::{AcceptConnectionRequestFn, IoConfig, NetServer};
+use crate::connection::server::{IoConfig, NetServer};
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::config::NetcodeConfig;
@@ -246,7 +246,6 @@ pub struct ServerConfig<Ctx> {
     keep_alive_send_rate: f64,
     token_expire_secs: i32,
     client_timeout_secs: i32,
-    handle_connection_request_fn: Option<AcceptConnectionRequestFn>,
     server_addr: SocketAddr,
     context: Ctx,
     on_connect: Option<Callback<Ctx>>,
@@ -260,7 +259,6 @@ impl Default for ServerConfig<()> {
             keep_alive_send_rate: PACKET_SEND_RATE_SEC,
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
-            handle_connection_request_fn: None,
             server_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             context: (),
             on_connect: None,
@@ -281,7 +279,6 @@ impl<Ctx> ServerConfig<Ctx> {
             keep_alive_send_rate: PACKET_SEND_RATE_SEC,
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
-            handle_connection_request_fn: None,
             server_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             context: ctx,
             on_connect: None,
@@ -615,23 +612,6 @@ impl<Ctx> NetcodeServer<Ctx> {
             )?;
             return Ok(());
         };
-        if !self
-            .cfg
-            .handle_connection_request_fn
-            .as_mut()
-            .map_or(true, |f| {
-                f(crate::prelude::ClientId::Netcode(token.client_id))
-            })
-        {
-            debug!("server denied connection request. handle_connection_request_fn returned false");
-            self.send_to_addr(
-                DeniedPacket::create(),
-                from_addr,
-                token.server_to_client_key,
-                sender,
-            )?;
-            return Ok(());
-        }
         self.conn_cache.add(
             token.client_id,
             from_addr,
@@ -1156,7 +1136,6 @@ impl Server {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
-        cfg.handle_connection_request_fn = config.accept_connection_request_fn;
         let server = NetcodeServer::with_config(config.protocol_id, config.private_key, cfg)
             .expect("Could not create server netcode");
 
