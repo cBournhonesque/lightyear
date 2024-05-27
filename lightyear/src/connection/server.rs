@@ -3,6 +3,7 @@ use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 use enum_dispatch::enum_dispatch;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
@@ -14,6 +15,11 @@ use crate::prelude::LinkConditionerConfig;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::Io;
 use crate::transport::config::SharedIoConfig;
+
+/// This function will be run when receiving a connection request.
+///
+/// This should return true if the connection request is accepted, false otherwise.
+pub(crate) type AcceptConnectionRequestFn = Arc<dyn Fn(ClientId) -> bool + Send + Sync>;
 
 #[enum_dispatch]
 pub trait NetServer: Send + Sync {
@@ -75,6 +81,23 @@ pub enum NetConfig {
     },
 }
 
+impl NetConfig {
+    pub fn set_accept_connection_request_fn(
+        &mut self,
+        accept_connection_request_fn: AcceptConnectionRequestFn,
+    ) {
+        match self {
+            NetConfig::Netcode { config, .. } => {
+                config.accept_connection_request_fn = Some(accept_connection_request_fn);
+            }
+            #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+            NetConfig::Steam { config, .. } => {
+                config.accept_connection_request_fn = Some(accept_connection_request_fn);
+            }
+        }
+    }
+}
+
 impl Default for NetConfig {
     fn default() -> Self {
         NetConfig::Netcode {
@@ -115,7 +138,7 @@ type ServerConnectionIdx = usize;
 #[derive(Resource)]
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub(crate) servers: Vec<ServerConnection>,
+    pub servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
     /// Track whether the server is ready to listen to incoming connections
