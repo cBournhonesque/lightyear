@@ -202,7 +202,13 @@ impl Bytes for DeniedReason {
                     ));
                 }
                 writer.write_u8(reason.len() as u8)?;
-                writer.write(reason.as_bytes())?;
+                let num_write = writer.write(reason.as_bytes())?;
+                if num_write != reason.len() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "invalid denied reason",
+                    ));
+                }
             }
         }
         Ok(())
@@ -225,7 +231,13 @@ impl Bytes for DeniedReason {
         } else if variant == 6 {
             let len = reader.read_u8()? as usize;
             let mut reason = [0; u8::MAX as usize];
-            reader.read(&mut reason)?;
+            let num_read = reader.read(&mut reason)?;
+            if num_read != len {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid denied reason",
+                ));
+            }
             let reason_str = String::from_utf8(reason[..len].to_vec())
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid denied reason"))?;
             Ok(DeniedReason::Custom(reason_str))
