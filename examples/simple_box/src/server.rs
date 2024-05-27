@@ -12,6 +12,7 @@ use bevy::utils::HashMap;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationTarget;
+use std::sync::Arc;
 
 use crate::protocol::*;
 use crate::shared;
@@ -28,7 +29,12 @@ impl Plugin for ExampleServerPlugin {
 }
 
 /// Start the server
-fn start_server(mut commands: Commands) {
+fn start_server(mut config: ResMut<ServerConfig>, mut commands: Commands) {
+    for net_config in &mut config.net {
+        net_config.set_accept_connection_request_fn(Arc::new(|client_id| {
+            client_id != ClientId::Netcode(0)
+        }));
+    }
     commands.start_server();
 }
 

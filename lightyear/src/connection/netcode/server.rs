@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context};
@@ -8,7 +9,9 @@ use tracing::{debug, error, trace};
 
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
-use crate::connection::server::{IoConfig, NetServer};
+use crate::connection::server::{
+    ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer,
+};
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::config::NetcodeConfig;
@@ -246,6 +249,7 @@ pub struct ServerConfig<Ctx> {
     keep_alive_send_rate: f64,
     token_expire_secs: i32,
     client_timeout_secs: i32,
+    connection_request_handler: Arc<dyn ConnectionRequestHandler>,
     server_addr: SocketAddr,
     context: Ctx,
     on_connect: Option<Callback<Ctx>>,
@@ -259,6 +263,7 @@ impl Default for ServerConfig<()> {
             keep_alive_send_rate: PACKET_SEND_RATE_SEC,
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
+            connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
             server_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             context: (),
             on_connect: None,
@@ -279,6 +284,7 @@ impl<Ctx> ServerConfig<Ctx> {
             keep_alive_send_rate: PACKET_SEND_RATE_SEC,
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
+            connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
             server_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             context: ctx,
             on_connect: None,
@@ -605,13 +611,27 @@ impl<Ctx> NetcodeServer<Ctx> {
         if self.num_connected_clients() >= MAX_CLIENTS {
             debug!("server denied connection request. server is full");
             self.send_to_addr(
-                DeniedPacket::create(),
+                DeniedPacket::create(DeniedReason::ServerFull),
                 from_addr,
                 token.server_to_client_key,
                 sender,
             )?;
             return Ok(());
         };
+        if let Some(denied_reason) = self
+            .cfg
+            .connection_request_handler
+            .handle_request(crate::prelude::ClientId::Netcode(token.client_id))
+        {
+            debug!("server denied connection request. handle_connection_request_fn returned false");
+            self.send_to_addr(
+                DeniedPacket::create(denied_reason),
+                from_addr,
+                token.server_to_client_key,
+                sender,
+            )?;
+            return Ok(());
+        }
         self.conn_cache.add(
             token.client_id,
             from_addr,
@@ -662,7 +682,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         if self.num_connected_clients() >= MAX_CLIENTS {
             debug!("server denied connection response. server is full");
             self.send_to_addr(
-                DeniedPacket::create(),
+                DeniedPacket::create(DeniedReason::ServerFull),
                 from_addr,
                 self.conn_cache
                     .clients
@@ -1136,6 +1156,7 @@ impl Server {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
+        cfg.connection_request_handler = config.connection_request_handler;
         let server = NetcodeServer::with_config(config.protocol_id, config.private_key, cfg)
             .expect("Could not create server netcode");
 

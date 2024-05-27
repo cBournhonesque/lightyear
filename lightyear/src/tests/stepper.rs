@@ -213,6 +213,42 @@ impl BevyStepper {
         }
     }
 
+    pub(crate) fn start(&mut self) {
+        self.server_app
+            .world
+            .run_system_once(|mut commands: Commands| commands.start_server());
+        self.client_app
+            .world
+            .run_system_once(|mut commands: Commands| commands.connect_client());
+
+        // Advance the world to let the connection process complete
+        for _ in 0..100 {
+            if self
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .is_synced()
+            {
+                break;
+            }
+            self.frame_step();
+        }
+    }
+
+    pub(crate) fn stop(&mut self) {
+        self.server_app
+            .world
+            .run_system_once(|mut commands: Commands| commands.stop_server());
+        self.client_app
+            .world
+            .run_system_once(|mut commands: Commands| commands.disconnect_client());
+
+        // Advance the world to let the disconnection process complete
+        for _ in 0..100 {
+            self.frame_step();
+        }
+    }
+
     pub(crate) fn advance_time(&mut self, duration: Duration) {
         self.current_time += duration;
         self.client_app

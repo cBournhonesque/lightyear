@@ -8,6 +8,7 @@ use chacha20poly1305::XNonce;
 use tracing::debug;
 
 use crate::connection::netcode::ClientId;
+use crate::connection::server::DeniedReason;
 
 use super::{
     bytes::Bytes,
@@ -158,22 +159,107 @@ impl Bytes for RequestPacket {
     }
 }
 
-pub struct DeniedPacket {}
+pub struct DeniedPacket {
+    pub reason: DeniedReason,
+}
 
 impl DeniedPacket {
-    pub fn create() -> Packet<'static> {
-        Packet::Denied(DeniedPacket {})
+    pub fn create(reason: DeniedReason) -> Packet<'static> {
+        Packet::Denied(DeniedPacket { reason })
+    }
+}
+
+impl Bytes for DeniedReason {
+    type Error = io::Error;
+
+    fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
+        match self {
+            DeniedReason::ServerFull => {
+                writer.write_u8(0)?;
+            }
+            DeniedReason::Banned => {
+                writer.write_u8(1)?;
+            }
+            DeniedReason::InternalError => {
+                writer.write_u8(2)?;
+            }
+            DeniedReason::AlreadyConnected => {
+                writer.write_u8(3)?;
+            }
+            DeniedReason::TokenAlreadyUsed => {
+                writer.write_u8(4)?;
+            }
+            DeniedReason::InvalidToken => {
+                writer.write_u8(5)?;
+            }
+            DeniedReason::Custom(reason) => {
+                writer.write_u8(6)?;
+                // the reason cannot exceed u8::MAX in size
+                if reason.len() > u8::MAX as usize {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "custom denied reason too long",
+                    ));
+                }
+                writer.write_u8(reason.len() as u8)?;
+                let num_write = writer.write(reason.as_bytes())?;
+                if num_write != reason.len() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "invalid denied reason",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn read_from(reader: &mut impl ReadBytesExt) -> Result<Self, Self::Error> {
+        let variant = reader.read_u8()?;
+        if variant == 0 {
+            Ok(DeniedReason::ServerFull)
+        } else if variant == 1 {
+            Ok(DeniedReason::Banned)
+        } else if variant == 2 {
+            Ok(DeniedReason::InternalError)
+        } else if variant == 3 {
+            Ok(DeniedReason::AlreadyConnected)
+        } else if variant == 4 {
+            Ok(DeniedReason::TokenAlreadyUsed)
+        } else if variant == 5 {
+            Ok(DeniedReason::InvalidToken)
+        } else if variant == 6 {
+            let len = reader.read_u8()? as usize;
+            let mut reason = [0; u8::MAX as usize];
+            let num_read = reader.read(&mut reason)?;
+            if num_read != len {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid denied reason",
+                ));
+            }
+            let reason_str = String::from_utf8(reason[..len].to_vec())
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid denied reason"))?;
+            Ok(DeniedReason::Custom(reason_str))
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid denied reason",
+            ))
+        }
     }
 }
 
 impl Bytes for DeniedPacket {
     type Error = io::Error;
-    fn write_to(&self, _writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
+        self.reason.write_to(writer)?;
         Ok(())
     }
 
-    fn read_from(_reader: &mut impl byteorder::ReadBytesExt) -> Result<Self, io::Error> {
-        Ok(Self {})
+    fn read_from(reader: &mut impl byteorder::ReadBytesExt) -> Result<Self, io::Error> {
+        let reason = DeniedReason::read_from(reader)?;
+        Ok(Self { reason })
     }
 }
 
@@ -579,13 +665,15 @@ mod tests {
     }
 
     #[test]
-    fn denied_packet() {
+    fn denied_packet_custom_reason() {
         let packet_key = generate_key();
         let protocol_id = 0x1234_5678_9abc_def0;
         let sequence = 0u64;
         let mut replay_protection = ReplayProtection::new();
 
-        let packet = Packet::Denied(DeniedPacket {});
+        let packet = Packet::Denied(DeniedPacket {
+            reason: DeniedReason::Custom(String::from("a")),
+        });
 
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet
@@ -602,9 +690,42 @@ mod tests {
         )
         .unwrap();
 
-        let Packet::Denied(_denied_pkt) = packet else {
+        let Packet::Denied(denied_pkt) = packet else {
             panic!("wrong packet type");
         };
+        assert_eq!(denied_pkt.reason, DeniedReason::Custom(String::from("a")));
+    }
+
+    #[test]
+    fn denied_packet() {
+        let packet_key = generate_key();
+        let protocol_id = 0x1234_5678_9abc_def0;
+        let sequence = 0u64;
+        let mut replay_protection = ReplayProtection::new();
+
+        let packet = Packet::Denied(DeniedPacket {
+            reason: DeniedReason::ServerFull,
+        });
+
+        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let size = packet
+            .write(&mut buf, sequence, &packet_key, protocol_id)
+            .unwrap();
+
+        let packet = Packet::read(
+            &mut buf[..size],
+            protocol_id,
+            0,
+            packet_key,
+            Some(&mut replay_protection),
+            0xff,
+        )
+        .unwrap();
+
+        let Packet::Denied(denied_pkt) = packet else {
+            panic!("wrong packet type");
+        };
+        assert_eq!(denied_pkt.reason, DeniedReason::ServerFull);
     }
 
     #[test]

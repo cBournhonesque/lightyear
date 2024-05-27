@@ -1,7 +1,9 @@
 use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::connection::server::NetServer;
+use crate::connection::server::{
+    ConnectionRequestHandler, DefaultConnectionRequestHandler, NetServer,
+};
 use crate::packet::packet::Packet;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
@@ -28,6 +30,8 @@ pub struct SteamConfig {
     pub game_port: u16,
     pub query_port: u16,
     pub max_clients: usize,
+    /// A closure that will be used to accept or reject incoming connections
+    pub connection_request_handler: Arc<dyn ConnectionRequestHandler>,
     // pub mode: ServerMode,
     // TODO: name this protocol to match netcode?
     pub version: String,
@@ -42,6 +46,7 @@ impl Default for SteamConfig {
             game_port: 27015,
             query_port: 27016,
             max_clients: 16,
+            connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
             // mode: ServerMode::NoAuthentication,
             version: "1.0".to_string(),
         }
@@ -184,16 +189,18 @@ impl NetServer for Server {
                         continue;
                     };
                     info!("Client with id: {:?} requesting connection!", steam_id);
-                    // TODO: improve permission check
-                    let permitted = true;
-                    if permitted {
+                    if let Some(denied_reason) = self
+                        .config
+                        .connection_request_handler
+                        .handle_request(ClientId::Steam(steam_id.raw()))
+                    {
+                        event.reject(NetConnectionEnd::AppGeneric, Some(denied_reason));
+                        continue;
+                    } else {
                         if let Err(e) = event.accept() {
                             error!("Failed to accept connection from {steam_id:?}: {e}");
                         }
                         info!("Accepted connection from client {:?}", steam_id);
-                    } else {
-                        event.reject(NetConnectionEnd::AppGeneric, Some("Not allowed"));
-                        continue;
                     }
                 }
             }

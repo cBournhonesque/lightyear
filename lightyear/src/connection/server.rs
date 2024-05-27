@@ -2,7 +2,11 @@ use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 use enum_dispatch::enum_dispatch;
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::fmt::Debug;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
@@ -14,6 +18,36 @@ use crate::prelude::LinkConditionerConfig;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::Io;
 use crate::transport::config::SharedIoConfig;
+
+/// Reasons for denying a connection request
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub enum DeniedReason {
+    ServerFull,
+    Banned,
+    InternalError,
+    AlreadyConnected,
+    TokenAlreadyUsed,
+    InvalidToken,
+    Custom(String),
+}
+
+/// Trait for handling connection requests from clients.
+pub trait ConnectionRequestHandler: Debug + Send + Sync {
+    /// Handle a connection request from a client.
+    /// Returns None if the connection is accepted,
+    /// Returns Some(reason) if the connection is denied.
+    fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason>;
+}
+
+/// By default, all connection requests are accepted by the server.
+#[derive(Debug, Clone)]
+pub struct DefaultConnectionRequestHandler;
+
+impl ConnectionRequestHandler for DefaultConnectionRequestHandler {
+    fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason> {
+        None
+    }
+}
 
 #[enum_dispatch]
 pub trait NetServer: Send + Sync {
@@ -75,6 +109,24 @@ pub enum NetConfig {
     },
 }
 
+impl NetConfig {
+    /// Update the `accept_connection_request_fn` field in the config
+    pub fn set_connection_request_handler(
+        &mut self,
+        connection_request_handler: Arc<dyn ConnectionRequestHandler>,
+    ) {
+        match self {
+            NetConfig::Netcode { config, .. } => {
+                config.connection_request_handler = connection_request_handler;
+            }
+            #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+            NetConfig::Steam { config, .. } => {
+                config.connection_request_handler = connection_request_handler;
+            }
+        }
+    }
+}
+
 impl Default for NetConfig {
     fn default() -> Self {
         NetConfig::Netcode {
@@ -115,7 +167,7 @@ type ServerConnectionIdx = usize;
 #[derive(Resource)]
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub(crate) servers: Vec<ServerConnection>,
+    pub servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
     /// Track whether the server is ready to listen to incoming connections
