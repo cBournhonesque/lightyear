@@ -896,7 +896,7 @@ mod tests {
         manager.prepare_component_update(entity_3, group_2, raw_4.clone());
 
         // the order of actions is not important if there are no relations between the entities
-        let message = manager.finalize(Tick(2));
+        let message = manager.finalize(Tick(2), BevyTick::new(2));
         let actions = message.first().unwrap();
         assert_eq!(actions.0, ChannelKind::of::<EntityActionsChannel>());
         assert_eq!(actions.1, group_1);
