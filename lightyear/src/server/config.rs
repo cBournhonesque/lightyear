@@ -4,11 +4,11 @@ use governor::Quota;
 use nonzero_ext::nonzero;
 
 use crate::connection::netcode::{Key, PRIVATE_KEY_BYTES};
-use crate::connection::server::NetConfig;
+use crate::connection::server::{AcceptConnectionRequestFn, NetConfig};
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
     pub keep_alive_send_rate: f64,
@@ -18,6 +18,20 @@ pub struct NetcodeConfig {
     pub client_timeout_secs: i32,
     pub protocol_id: u64,
     pub private_key: Key,
+    pub accept_connection_request_fn: Option<AcceptConnectionRequestFn>,
+}
+// Has to be manually implemented because Closures do not implement Debug
+impl ::core::fmt::Debug for NetcodeConfig {
+    #[inline]
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        f.debug_struct("NetcodeConfig")
+            .field("num_disconnect_packets", &self.num_disconnect_packets)
+            .field("keep_alive_send_rate", &self.keep_alive_send_rate)
+            .field("client_timeout_secs", &self.client_timeout_secs)
+            .field("protocol_id", &self.protocol_id)
+            .field("private_key", &self.private_key)
+            .finish()
+    }
 }
 
 impl Default for NetcodeConfig {
@@ -28,6 +42,7 @@ impl Default for NetcodeConfig {
             client_timeout_secs: 3,
             protocol_id: 0,
             private_key: [0; PRIVATE_KEY_BYTES],
+            accept_connection_request_fn: None,
         }
     }
 }
