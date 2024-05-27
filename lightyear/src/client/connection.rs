@@ -551,5 +551,6 @@ impl ReplicationSend for ConnectionManager {
     fn cleanup(&mut self, tick: Tick) {
         debug!("Running replication clean");
         self.replication_sender.cleanup(tick);
+        self.delta_manager.tick_cleanup(tick);
     }
 }

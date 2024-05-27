@@ -276,18 +276,24 @@ impl ReplicationSender {
     /// Do some internal bookkeeping:
     /// - handle tick wrapping
     pub(crate) fn cleanup(&mut self, tick: Tick) {
+        let delta = (u16::MAX / 3) as i16;
         // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
         // (meaning that there's no need when we receive the update to check if we have already received a previous action)
         for group_channel in self.group_channels.values_mut() {
             debug!("Checking group channel: {:?}", group_channel);
             if let Some(last_action_tick) = group_channel.last_action_tick {
-                if tick - last_action_tick > (i16::MAX / 2) {
+                if tick - last_action_tick > delta {
                     debug!(
                     ?tick,
                     ?last_action_tick,
                     ?group_channel,
                     "Setting the last_action tick to None because there hasn't been any new actions in a while");
                     group_channel.last_action_tick = None;
+                }
+            }
+            if let Some(ack_tick) = group_channel.ack_tick {
+                if tick - ack_tick > delta {
+                    group_channel.ack_tick = None;
                 }
             }
         }
@@ -360,23 +366,6 @@ impl ReplicationSender {
         component: RawData,
         bevy_tick: BevyTick,
     ) {
-        // if self
-        //     .pending_unique_components
-        //     .entry(group_id)
-        //     .or_default()
-        //     .entry(entity)
-        //     .or_default()
-        //     .contains(&kind)
-        // {
-        //     debug!(
-        //         ?group_id,
-        //         ?entity,
-        //         ?kind,
-        //         "Trying to insert a component that is already in the message"
-        //     );
-        //     return;
-        // }
-
         // update the send tick so that we don't send updates immediately after the insert message
         // (the insert message is guaranteed to be received at some point)
         self.group_channels.entry(group_id).or_default().send_tick = Some(bevy_tick);
@@ -387,12 +376,6 @@ impl ReplicationSender {
             .or_default()
             .insert
             .push(component);
-        // self.pending_unique_components
-        //     .entry(group_id)
-        //     .or_default()
-        //     .entry(entity)
-        //     .or_default()
-        //     .insert(kind);
     }
 
     pub(crate) fn prepare_component_remove(
@@ -402,22 +385,6 @@ impl ReplicationSender {
         kind: ComponentNetId,
     ) {
         // TODO: is the pending_unique_components even necessary? how could we even happen multiple inserts/updates for the same component?
-        // if self
-        //     .pending_unique_components
-        //     .entry(group_id)
-        //     .or_default()
-        //     .entry(entity)
-        //     .or_default()
-        //     .contains(&kind)
-        // {
-        //     error!(
-        //         ?group_id,
-        //         ?entity,
-        //         ?kind,
-        //         "Trying to remove a component that is already in the message as an insert/update"
-        //     );
-        //     return;
-        // }
         self.pending_actions
             .entry(group_id)
             .or_default()
@@ -488,12 +455,6 @@ impl ReplicationSender {
             .entry(entity)
             .or_default()
             .push(raw_data);
-        // self.pending_unique_components
-        //     .entry(group_id)
-        //     .or_default()
-        //     .entry(entity)
-        //     .or_default()
-        //     .insert(kind);
     }
 
     /// Finalize the replication messages
@@ -559,10 +520,7 @@ impl ReplicationSender {
             debug!(?messages, "Sending replication messages");
         }
 
-        // clear send buffers
-        // self.pending_unique_components.clear();
-
-        // TODO: also return for each message a list of the components that have diff data
+        // TODO: also return for each message a list of the components that have delta-compression data?
         messages
     }
 }
@@ -586,6 +544,7 @@ pub struct GroupChannel {
     ///
     /// If a message is lost, we bump the `send_tick` back to the `ack_tick`, because we might need to re-send those updates.
     pub ack_bevy_tick: Option<BevyTick>,
+    /// Used for delta-compression
     pub ack_tick: Option<Tick>,
 
     // last tick for which we sent an action message

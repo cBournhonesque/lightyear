@@ -256,297 +256,329 @@ impl ComponentRegistry {
         self.serialize_fns_map
             .insert(component_kind, ErasedSerializeFns::new::<C>());
     }
+}
 
-    pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self) {
-        let kind = ComponentKind::of::<C>();
-        let write: RawWriteFn = Self::write::<C>;
-        let remove: RawRemoveFn = Self::remove::<C>;
-        self.replication_map.insert(
-            kind,
-            ReplicationMetadata {
-                write,
-                remove: Some(remove),
-            },
-        );
-    }
+mod serialize {
+    use super::*;
 
-    pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
-        let kind = ComponentKind::of::<C>();
-        if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
+    impl ComponentRegistry {
+        pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
+            let kind = ComponentKind::of::<C>();
+            if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
+                erased_fns.add_map_entities::<C>();
+            }
+        }
+
+        pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
+            let kind = ComponentKind::of::<C>();
+            let erased_fns = self.serialize_fns_map.get_mut(&kind).unwrap_or_else(|| {
+                panic!(
+                    "Component {} is not part of the protocol",
+                    std::any::type_name::<C>()
+                )
+            });
             erased_fns.add_map_entities::<C>();
         }
-    }
 
-    pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
-        let kind = ComponentKind::of::<C>();
-        let erased_fns = self.serialize_fns_map.get_mut(&kind).unwrap_or_else(|| {
-            panic!(
-                "Component {} is not part of the protocol",
-                std::any::type_name::<C>()
-            )
-        });
-        erased_fns.add_map_entities::<C>();
-    }
-
-    pub(crate) fn set_prediction_mode<C: SyncComponent>(&mut self, mode: ComponentSyncMode) {
-        let kind = ComponentKind::of::<C>();
-        let default_equality_fn = <C as PartialEq>::eq;
-        self.prediction_map
-            .entry(kind)
-            .or_insert_with(|| PredictionMetadata::default_from::<C>(mode));
-    }
-
-    pub(crate) fn set_should_rollback<C: Component + PartialEq>(
-        &mut self,
-        should_rollback: ShouldRollbackFn<C>,
-    ) {
-        let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .entry(kind)
-            .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
-            .should_rollback = unsafe { std::mem::transmute(should_rollback) };
-    }
-
-    pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
-        self.set_correction(<C as Linear>::lerp);
-    }
-
-    pub(crate) fn set_correction<C: Component + PartialEq>(&mut self, correction_fn: LerpFn<C>) {
-        let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .entry(kind)
-            .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
-            .correction = Some(unsafe { std::mem::transmute(correction_fn) });
-    }
-
-    pub(crate) fn set_interpolation_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
-        let kind = ComponentKind::of::<C>();
-        self.interpolation_map
-            .entry(kind)
-            .or_insert_with(|| InterpolationMetadata {
-                interpolation_mode: mode,
-                interpolation: None,
-            });
-    }
-
-    pub(crate) fn set_linear_interpolation<C: Component + Linear>(&mut self) {
-        self.set_interpolation(<C as Linear>::lerp);
-    }
-
-    pub(crate) fn set_interpolation<C: Component>(&mut self, interpolation_fn: LerpFn<C>) {
-        let kind = ComponentKind::of::<C>();
-        self.interpolation_map
-            .entry(kind)
-            .or_insert_with(|| InterpolationMetadata {
-                interpolation_mode: ComponentSyncMode::Full,
-                interpolation: None,
-            })
-            .interpolation = Some(unsafe { std::mem::transmute(interpolation_fn) });
-    }
-
-    pub(crate) fn serialize<C: 'static>(
-        &self,
-        component: &C,
-        writer: &mut BitcodeWriter,
-    ) -> anyhow::Result<RawData> {
-        let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .serialize_fns_map
-            .get(&kind)
-            .context("the component is not part of the protocol")?;
-        let net_id = self.kind_map.net_id(&kind).unwrap();
-        writer.start_write();
-        writer.encode(net_id, Fixed)?;
-        // SAFETY: the ErasedFns corresponds to type C
-        unsafe {
-            erased_fns.serialize(component, writer)?;
-        }
-        Ok(writer.finish_write().to_vec())
-    }
-
-    /// SAFETY: the Ptr must correspond to the correct ComponentKind
-    pub(crate) fn erased_serialize(
-        &self,
-        component: Ptr,
-        writer: &mut BitcodeWriter,
-        kind: ComponentKind,
-    ) -> anyhow::Result<RawData> {
-        let erased_fns = self
-            .serialize_fns_map
-            .get(&kind)
-            .context("the component is not part of the protocol")?;
-        let net_id = self.kind_map.net_id(&kind).unwrap();
-        writer.start_write();
-        writer.encode(net_id, Fixed)?;
-        // SAFETY: the ErasedSerializeFns corresponds to type C
-        unsafe {
-            (erased_fns.serialize)(component, writer)?;
-        }
-        Ok(writer.finish_write().to_vec())
-    }
-
-    /// Deserialize only the component value (the ComponentNetId has already been read)
-    fn raw_deserialize<C: 'static>(
-        &self,
-        reader: &mut BitcodeReader,
-        net_id: ComponentNetId,
-        entity_map: &mut EntityMap,
-    ) -> anyhow::Result<C> {
-        let kind = self
-            .kind_map
-            .kind(net_id)
-            .context("unknown component kind")?;
-        let erased_fns = self
-            .serialize_fns_map
-            .get(kind)
-            .context("the component is not part of the protocol")?;
-        // SAFETY: the ErasedFns corresponds to type C
-        unsafe { erased_fns.deserialize(reader, entity_map) }
-    }
-
-    pub(crate) fn deserialize<C: Component>(
-        &self,
-        reader: &mut BitcodeReader,
-        entity_map: &mut EntityMap,
-    ) -> anyhow::Result<C> {
-        let net_id = reader.decode::<ComponentNetId>(Fixed)?;
-        self.raw_deserialize(reader, net_id, entity_map)
-    }
-
-    pub(crate) fn map_entities<C: 'static>(&self, component: &mut C, entity_map: &mut EntityMap) {
-        let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .serialize_fns_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .unwrap();
-        erased_fns.map_entities(component, entity_map)
-    }
-
-    pub(crate) fn prediction_mode<C: Component>(&self) -> ComponentSyncMode {
-        let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .map_or(ComponentSyncMode::None, |metadata| metadata.prediction_mode)
-    }
-
-    pub(crate) fn interpolation_mode<C: Component>(&self) -> ComponentSyncMode {
-        let kind = ComponentKind::of::<C>();
-        self.interpolation_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .map_or(ComponentSyncMode::None, |metadata| {
-                metadata.interpolation_mode
-            })
-    }
-
-    pub(crate) fn has_correction<C: Component>(&self) -> bool {
-        let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .map_or(false, |metadata| metadata.correction.is_some())
-    }
-
-    /// Returns true if we should do a rollback
-    pub(crate) fn should_rollback<C: Component>(&self, this: &C, that: &C) -> bool {
-        let kind = ComponentKind::of::<C>();
-        let prediction_metadata = self
-            .prediction_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .unwrap();
-        let should_rollback_fn: ShouldRollbackFn<C> =
-            unsafe { std::mem::transmute(prediction_metadata.should_rollback) };
-        should_rollback_fn(this, that)
-    }
-
-    pub(crate) fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
-        let kind = ComponentKind::of::<C>();
-        let prediction_metadata = self
-            .prediction_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .unwrap();
-        let correction_fn: LerpFn<C> =
-            unsafe { std::mem::transmute(prediction_metadata.correction.unwrap()) };
-        correction_fn(predicted, corrected, t)
-    }
-
-    pub(crate) fn interpolate<C: Component>(&self, start: &C, end: &C, t: f32) -> C {
-        let kind = ComponentKind::of::<C>();
-        let interpolation_metadata = self
-            .interpolation_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .unwrap();
-        let interpolation_fn: LerpFn<C> =
-            unsafe { std::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
-        interpolation_fn(start, end, t)
-    }
-
-    /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
-    pub(crate) fn raw_write(
-        &self,
-        reader: &mut BitcodeReader,
-        entity_world_mut: &mut EntityWorldMut,
-        entity_map: &mut EntityMap,
-        events: &mut ConnectionEvents,
-    ) -> anyhow::Result<()> {
-        let net_id = reader.decode::<ComponentNetId>(Fixed)?;
-        let kind = self
-            .kind_map
-            .kind(net_id)
-            .context("unknown component kind")?;
-        let replication_metadata = self
-            .replication_map
-            .get(kind)
-            .context("the component is not part of the protocol")?;
-        (replication_metadata.write)(self, reader, net_id, entity_world_mut, entity_map, events)
-    }
-
-    pub(crate) fn write<C: Component + PartialEq>(
-        &self,
-        reader: &mut BitcodeReader,
-        net_id: ComponentNetId,
-        entity_world_mut: &mut EntityWorldMut,
-        entity_map: &mut EntityMap,
-        events: &mut ConnectionEvents,
-    ) -> anyhow::Result<()> {
-        trace!("Writing component {} to entity", std::any::type_name::<C>());
-        let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
-        let entity = entity_world_mut.id();
-        // TODO: do we need the tick information in the event?
-        let tick = Tick(0);
-        // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
-        if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-            // only apply the update if the component is different, to not trigger change detection
-            if c.as_ref() != &component {
-                events.push_update_component(entity, net_id, tick);
-                *c = component;
+        pub(crate) fn serialize<C: 'static>(
+            &self,
+            component: &C,
+            writer: &mut BitcodeWriter,
+        ) -> anyhow::Result<RawData> {
+            let kind = ComponentKind::of::<C>();
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .context("the component is not part of the protocol")?;
+            let net_id = self.kind_map.net_id(&kind).unwrap();
+            writer.start_write();
+            writer.encode(net_id, Fixed)?;
+            // SAFETY: the ErasedFns corresponds to type C
+            unsafe {
+                erased_fns.serialize(component, writer)?;
             }
-        } else {
-            events.push_insert_component(entity, net_id, tick);
-            entity_world_mut.insert(component);
+            Ok(writer.finish_write().to_vec())
         }
-        Ok(())
-    }
 
-    pub(crate) fn raw_remove(&self, net_id: ComponentNetId, entity_world_mut: &mut EntityWorldMut) {
-        let kind = self.kind_map.kind(net_id).expect("unknown component kind");
-        let replication_metadata = self
-            .replication_map
-            .get(kind)
-            .expect("the component is not part of the protocol");
-        let f = replication_metadata
-            .remove
-            .expect("the component does not have a remove function");
-        f(self, entity_world_mut);
-    }
+        /// SAFETY: the Ptr must correspond to the correct ComponentKind
+        pub(crate) fn erased_serialize(
+            &self,
+            component: Ptr,
+            writer: &mut BitcodeWriter,
+            kind: ComponentKind,
+        ) -> anyhow::Result<RawData> {
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .context("the component is not part of the protocol")?;
+            let net_id = self.kind_map.net_id(&kind).unwrap();
+            writer.start_write();
+            writer.encode(net_id, Fixed)?;
+            // SAFETY: the ErasedSerializeFns corresponds to type C
+            unsafe {
+                (erased_fns.serialize)(component, writer)?;
+            }
+            Ok(writer.finish_write().to_vec())
+        }
 
-    pub(crate) fn remove<C: Component>(&self, entity_world_mut: &mut EntityWorldMut) {
-        entity_world_mut.remove::<C>();
+        /// Deserialize only the component value (the ComponentNetId has already been read)
+        pub(crate) fn raw_deserialize<C: 'static>(
+            &self,
+            reader: &mut BitcodeReader,
+            net_id: ComponentNetId,
+            entity_map: &mut EntityMap,
+        ) -> anyhow::Result<C> {
+            let kind = self
+                .kind_map
+                .kind(net_id)
+                .context("unknown component kind")?;
+            let erased_fns = self
+                .serialize_fns_map
+                .get(kind)
+                .context("the component is not part of the protocol")?;
+            // SAFETY: the ErasedFns corresponds to type C
+            unsafe { erased_fns.deserialize(reader, entity_map) }
+        }
+
+        pub(crate) fn deserialize<C: Component>(
+            &self,
+            reader: &mut BitcodeReader,
+            entity_map: &mut EntityMap,
+        ) -> anyhow::Result<C> {
+            let net_id = reader.decode::<ComponentNetId>(Fixed)?;
+            self.raw_deserialize(reader, net_id, entity_map)
+        }
+
+        pub(crate) fn map_entities<C: 'static>(
+            &self,
+            component: &mut C,
+            entity_map: &mut EntityMap,
+        ) {
+            let kind = ComponentKind::of::<C>();
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .context("the component is not part of the protocol")
+                .unwrap();
+            erased_fns.map_entities(component, entity_map)
+        }
+    }
+}
+
+mod prediction {
+    use super::*;
+
+    impl ComponentRegistry {
+        pub(crate) fn set_prediction_mode<C: SyncComponent>(&mut self, mode: ComponentSyncMode) {
+            let kind = ComponentKind::of::<C>();
+            let default_equality_fn = <C as PartialEq>::eq;
+            self.prediction_map
+                .entry(kind)
+                .or_insert_with(|| PredictionMetadata::default_from::<C>(mode));
+        }
+
+        pub(crate) fn set_should_rollback<C: Component + PartialEq>(
+            &mut self,
+            should_rollback: ShouldRollbackFn<C>,
+        ) {
+            let kind = ComponentKind::of::<C>();
+            self.prediction_map
+                .entry(kind)
+                .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
+                .should_rollback = unsafe { std::mem::transmute(should_rollback) };
+        }
+
+        pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
+            self.set_correction(<C as Linear>::lerp);
+        }
+
+        pub(crate) fn set_correction<C: Component + PartialEq>(
+            &mut self,
+            correction_fn: LerpFn<C>,
+        ) {
+            let kind = ComponentKind::of::<C>();
+            self.prediction_map
+                .entry(kind)
+                .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
+                .correction = Some(unsafe { std::mem::transmute(correction_fn) });
+        }
+        pub(crate) fn prediction_mode<C: Component>(&self) -> ComponentSyncMode {
+            let kind = ComponentKind::of::<C>();
+            self.prediction_map
+                .get(&kind)
+                .context("the component is not part of the protocol")
+                .map_or(ComponentSyncMode::None, |metadata| metadata.prediction_mode)
+        }
+
+        pub(crate) fn has_correction<C: Component>(&self) -> bool {
+            let kind = ComponentKind::of::<C>();
+            self.prediction_map
+                .get(&kind)
+                .context("the component is not part of the protocol")
+                .map_or(false, |metadata| metadata.correction.is_some())
+        }
+
+        /// Returns true if we should do a rollback
+        pub(crate) fn should_rollback<C: Component>(&self, this: &C, that: &C) -> bool {
+            let kind = ComponentKind::of::<C>();
+            let prediction_metadata = self
+                .prediction_map
+                .get(&kind)
+                .context("the component is not part of the protocol")
+                .unwrap();
+            let should_rollback_fn: ShouldRollbackFn<C> =
+                unsafe { std::mem::transmute(prediction_metadata.should_rollback) };
+            should_rollback_fn(this, that)
+        }
+
+        pub(crate) fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
+            let kind = ComponentKind::of::<C>();
+            let prediction_metadata = self
+                .prediction_map
+                .get(&kind)
+                .context("the component is not part of the protocol")
+                .unwrap();
+            let correction_fn: LerpFn<C> =
+                unsafe { std::mem::transmute(prediction_metadata.correction.unwrap()) };
+            correction_fn(predicted, corrected, t)
+        }
+    }
+}
+
+mod interpolation {
+    use super::*;
+
+    impl ComponentRegistry {
+        pub(crate) fn set_interpolation_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
+            let kind = ComponentKind::of::<C>();
+            self.interpolation_map
+                .entry(kind)
+                .or_insert_with(|| InterpolationMetadata {
+                    interpolation_mode: mode,
+                    interpolation: None,
+                });
+        }
+
+        pub(crate) fn set_linear_interpolation<C: Component + Linear>(&mut self) {
+            self.set_interpolation(<C as Linear>::lerp);
+        }
+
+        pub(crate) fn set_interpolation<C: Component>(&mut self, interpolation_fn: LerpFn<C>) {
+            let kind = ComponentKind::of::<C>();
+            self.interpolation_map
+                .entry(kind)
+                .or_insert_with(|| InterpolationMetadata {
+                    interpolation_mode: ComponentSyncMode::Full,
+                    interpolation: None,
+                })
+                .interpolation = Some(unsafe { std::mem::transmute(interpolation_fn) });
+        }
+        pub(crate) fn interpolation_mode<C: Component>(&self) -> ComponentSyncMode {
+            let kind = ComponentKind::of::<C>();
+            self.interpolation_map
+                .get(&kind)
+                .context("the component is not part of the protocol")
+                .map_or(ComponentSyncMode::None, |metadata| {
+                    metadata.interpolation_mode
+                })
+        }
+        pub(crate) fn interpolate<C: Component>(&self, start: &C, end: &C, t: f32) -> C {
+            let kind = ComponentKind::of::<C>();
+            let interpolation_metadata = self
+                .interpolation_map
+                .get(&kind)
+                .context("the component is not part of the protocol")
+                .unwrap();
+            let interpolation_fn: LerpFn<C> =
+                unsafe { std::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
+            interpolation_fn(start, end, t)
+        }
+    }
+}
+
+mod replication {
+    use super::*;
+
+    impl ComponentRegistry {
+        pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self) {
+            let kind = ComponentKind::of::<C>();
+            let write: RawWriteFn = Self::write::<C>;
+            let remove: RawRemoveFn = Self::remove::<C>;
+            self.replication_map.insert(
+                kind,
+                ReplicationMetadata {
+                    write,
+                    remove: Some(remove),
+                },
+            );
+        }
+
+        /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
+        pub(crate) fn raw_write(
+            &self,
+            reader: &mut BitcodeReader,
+            entity_world_mut: &mut EntityWorldMut,
+            entity_map: &mut EntityMap,
+            events: &mut ConnectionEvents,
+        ) -> anyhow::Result<()> {
+            let net_id = reader.decode::<ComponentNetId>(Fixed)?;
+            let kind = self
+                .kind_map
+                .kind(net_id)
+                .context("unknown component kind")?;
+            let replication_metadata = self
+                .replication_map
+                .get(kind)
+                .context("the component is not part of the protocol")?;
+            (replication_metadata.write)(self, reader, net_id, entity_world_mut, entity_map, events)
+        }
+
+        pub(crate) fn write<C: Component + PartialEq>(
+            &self,
+            reader: &mut BitcodeReader,
+            net_id: ComponentNetId,
+            entity_world_mut: &mut EntityWorldMut,
+            entity_map: &mut EntityMap,
+            events: &mut ConnectionEvents,
+        ) -> anyhow::Result<()> {
+            trace!("Writing component {} to entity", std::any::type_name::<C>());
+            let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
+            let entity = entity_world_mut.id();
+            // TODO: do we need the tick information in the event?
+            let tick = Tick(0);
+            // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
+            if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                // only apply the update if the component is different, to not trigger change detection
+                if c.as_ref() != &component {
+                    events.push_update_component(entity, net_id, tick);
+                    *c = component;
+                }
+            } else {
+                events.push_insert_component(entity, net_id, tick);
+                entity_world_mut.insert(component);
+            }
+            Ok(())
+        }
+
+        pub(crate) fn raw_remove(
+            &self,
+            net_id: ComponentNetId,
+            entity_world_mut: &mut EntityWorldMut,
+        ) {
+            let kind = self.kind_map.kind(net_id).expect("unknown component kind");
+            let replication_metadata = self
+                .replication_map
+                .get(kind)
+                .expect("the component is not part of the protocol");
+            let f = replication_metadata
+                .remove
+                .expect("the component does not have a remove function");
+            f(self, entity_world_mut);
+        }
+
+        pub(crate) fn remove<C: Component>(&self, entity_world_mut: &mut EntityWorldMut) {
+            entity_world_mut.remove::<C>();
+        }
     }
 }
 
@@ -557,6 +589,7 @@ mod delta {
     use std::ptr::NonNull;
 
     impl ComponentRegistry {
+        /// Register delta compression functions for a component
         pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self) {
             let kind = ComponentKind::of::<C>();
             let delta_kind = ComponentKind::of::<DeltaMessage<C::Delta>>();
