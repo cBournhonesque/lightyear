@@ -139,3 +139,41 @@ pub struct ServerConfig {
     pub replication: ReplicationConfig,
     pub ping: PingConfig,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::networking::NetworkingState;
+    use crate::prelude::ClientId;
+    use crate::shared::plugin::Identity::Server;
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+    use bevy::prelude::State;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_accept_connection_request_fn() {
+        let mut stepper = BevyStepper::default();
+        stepper.stop();
+
+        // add a hook to handle incoming connection request
+        for netconfig in &mut stepper.server_app.world.resource_mut::<ServerConfig>().net {
+            netconfig.set_accept_connection_request_fn(Arc::new(|client_id| {
+                // reject connections from the test client
+                client_id != ClientId::Netcode(TEST_CLIENT_ID)
+            }));
+        }
+
+        // try to connect
+        stepper.start();
+
+        // check that the client could not connect
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<State<NetworkingState>>()
+                .get(),
+            &NetworkingState::Disconnected
+        );
+    }
+}
