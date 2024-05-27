@@ -1,0 +1,60 @@
+MySettings(
+  input_delay_ticks: 3,
+  correction_ticks_factor: 1.5,
+  predict_all: true,
+  show_confirmed: true,
+  common: Settings(
+    client: ClientSettings(
+            inspector: true,
+            client_id: 0,
+            client_port: 0, // the OS will assign a random open port
+            server_addr: "127.0.0.1",
+            conditioner: Some(Conditioner(
+                latency_ms: 75,
+                jitter_ms: 10,
+                packet_loss: 0.02
+            )),
+            server_port: 5000,
+            transport: WebTransport(
+                // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
+                // the server will print the certificate digest on startup
+                certificate_digest: "1c:70:84:ed:c1:ce:2e:2e:59:30:3a:30:d1:8e:11:d9:a9:d7:df:4e:e3:06:68:5a:7f:5b:e0:c2:0d:96:71:b6",
+            ),
+            // server_port: 5001,
+            // transport: Udp,
+            // server_port: 5002,
+            // transport: WebSocket,
+            // server_port: 5003,
+            // transport: Steam(
+            //     app_id: 480,
+            // )
+        ),
+        server: ServerSettings(
+            headless: false,
+            inspector: true,
+            conditioner: None,
+            transport: [
+                WebTransport(
+                    local_port: 5000
+                ),
+                Udp(
+                    local_port: 5001
+                ),
+                WebSocket(
+                    local_port: 5002
+                ),
+                // Steam(
+                //     app_id: 480,
+                //     server_ip: "0.0.0.0",
+                //     game_port: 5003,
+                //     query_port: 27016,
+                // ),
+            ],
+        ),
+        shared: SharedSettings(
+            protocol_id: 0,
+            private_key: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            compression: None,
+        )
+    )
+)
