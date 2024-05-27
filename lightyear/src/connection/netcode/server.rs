@@ -10,8 +10,7 @@ use tracing::{debug, error, trace};
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::{
-    AcceptConnectionRequestFn, ConnectionRequestHandler, DefaultConnectionRequestHandler, IoConfig,
-    NetServer,
+    ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer,
 };
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
@@ -612,7 +611,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         if self.num_connected_clients() >= MAX_CLIENTS {
             debug!("server denied connection request. server is full");
             self.send_to_addr(
-                DeniedPacket::create(),
+                DeniedPacket::create(DeniedReason::ServerFull),
                 from_addr,
                 token.server_to_client_key,
                 sender,
@@ -626,7 +625,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         {
             debug!("server denied connection request. handle_connection_request_fn returned false");
             self.send_to_addr(
-                DeniedPacket::create(),
+                DeniedPacket::create(denied_reason),
                 from_addr,
                 token.server_to_client_key,
                 sender,
@@ -683,7 +682,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         if self.num_connected_clients() >= MAX_CLIENTS {
             debug!("server denied connection response. server is full");
             self.send_to_addr(
-                DeniedPacket::create(),
+                DeniedPacket::create(DeniedReason::ServerFull),
                 from_addr,
                 self.conn_cache
                     .clients

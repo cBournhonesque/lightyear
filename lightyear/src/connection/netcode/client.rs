@@ -378,9 +378,13 @@ impl<Ctx> NetcodeClient<Ctx> {
         }
         match (packet, self.state) {
             (
-                Packet::Denied(_),
+                Packet::Denied(pkt),
                 ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse,
             ) => {
+                error!(
+                    "client connection denied by server. Reason: {:?}",
+                    pkt.reason
+                );
                 self.should_disconnect = true;
                 self.should_disconnect_state = ClientState::ConnectionDenied;
             }

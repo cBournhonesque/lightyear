@@ -19,12 +19,7 @@ use crate::server::config::NetcodeConfig;
 use crate::server::io::Io;
 use crate::transport::config::SharedIoConfig;
 
-/// This function will be run when receiving a connection request.
-///
-/// This should return true if the connection request is accepted, false otherwise.
-// NOTE: has to use Arc so that the closure can be `Clone`
-pub(crate) type AcceptConnectionRequestFn = Arc<dyn Fn(ClientId) -> bool + Send + Sync>;
-
+/// Reasons for denying a connection request
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum DeniedReason {
     ServerFull,
@@ -33,9 +28,10 @@ pub enum DeniedReason {
     AlreadyConnected,
     TokenAlreadyUsed,
     InvalidToken,
-    Custom(Cow<'static, str>),
+    Custom(String),
 }
 
+/// Trait for handling connection requests from clients.
 pub trait ConnectionRequestHandler: Debug + Send + Sync {
     /// Handle a connection request from a client.
     /// Returns None if the connection is accepted,
@@ -43,6 +39,7 @@ pub trait ConnectionRequestHandler: Debug + Send + Sync {
     fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason>;
 }
 
+/// By default, all connection requests are accepted by the server.
 #[derive(Debug, Clone)]
 pub struct DefaultConnectionRequestHandler;
 

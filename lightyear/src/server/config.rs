@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::connection::netcode::{Key, PRIVATE_KEY_BYTES};
 use crate::connection::server::{
-    AcceptConnectionRequestFn, ConnectionRequestHandler, DefaultConnectionRequestHandler, NetConfig,
+    ConnectionRequestHandler, DefaultConnectionRequestHandler, NetConfig,
 };
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
