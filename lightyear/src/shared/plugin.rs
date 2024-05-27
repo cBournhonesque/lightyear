@@ -4,6 +4,7 @@ use crate::connection::server::ServerConnections;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
+use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::{
     AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig,
     MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject,
@@ -108,7 +109,9 @@ impl Plugin for SharedPlugin {
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
         app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
             .add_map_entities();
-        app.register_component::<Controlled>(ChannelDirection::Bidirectional);
+        app.register_component::<Controlled>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
         // check that the protocol was built correctly
         app.world.resource::<ComponentRegistry>().check();
     }
