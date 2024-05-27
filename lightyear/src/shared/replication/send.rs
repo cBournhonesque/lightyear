@@ -366,9 +366,6 @@ impl ReplicationSender {
         component: RawData,
         bevy_tick: BevyTick,
     ) {
-        // update the send tick so that we don't send updates immediately after the insert message
-        // (the insert message is guaranteed to be received at some point)
-        self.group_channels.entry(group_id).or_default().send_tick = Some(bevy_tick);
         self.pending_actions
             .entry(group_id)
             .or_default()
@@ -461,6 +458,7 @@ impl ReplicationSender {
     pub(crate) fn finalize(
         &mut self,
         tick: Tick,
+        bevy_tick: BevyTick,
     ) -> Vec<(ChannelKind, ReplicationGroupId, ReplicationMessageData, f32)> {
         let mut messages = Vec::new();
 
@@ -478,6 +476,10 @@ impl ReplicationSender {
                 }
             }
             let channel = self.group_channels.entry(group_id).or_default();
+            // update the send tick so that we don't send updates immediately after an insert message
+            // (which would happen because the send_tick is only set to Some(x) after an Update message is sent)
+            // This is ok to do because EntityActions messages are guaranteed to be sent at some point.
+            channel.send_tick = Some(bevy_tick);
             let priority = channel
                 .accumulated_priority
                 .unwrap_or(channel.base_priority);

@@ -486,7 +486,7 @@ impl Connection {
         bevy_tick: BevyTick,
     ) -> Result<()> {
         self.replication_sender
-            .finalize(tick)
+            .finalize(tick, bevy_tick)
             .into_iter()
             .try_for_each(|(channel, group_id, message_data, priority)| {
                 let should_track_ack = matches!(message_data, ReplicationMessageData::Updates(_));
