@@ -61,8 +61,8 @@ impl Plugin for ClientDiagnosticsPlugin {
             app.add_systems(
                 PostUpdate,
                 io_diagnostics_system.run_if(
-                    on_timer(self.flush_interval)
-                        .and_then(not(is_host_server.or_else(is_disconnected))),
+                    // on_timer(self.flush_interval).and_then(
+                    not(is_host_server.or_else(is_disconnected)),
                 ),
             );
         }
