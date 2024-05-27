@@ -211,7 +211,7 @@ impl PreSpawnedPlayerObjectPlugin {
                             .push(entity);
                         // add a timer on the entity so that it gets despawned if the interpolation tick
                         // reaches it without matching with any server entity
-                        manager.prespawn_tick_to_hash.add_item(tick, hash);
+                        manager.prespawn_tick_to_hash.push(tick, hash);
                         // predicted_entities.push(entity);
                     }
 
@@ -496,7 +496,7 @@ mod tests {
 
         let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
-        let expected_hash: u64 = 2725794787191662762;
+        let expected_hash: u64 = 6598339966483644418;
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,
             HashMap::from_iter(vec![(

@@ -62,7 +62,7 @@ impl PacketStatsManager {
         let current_stats = std::mem::take(&mut self.current_stats);
         self.rolling_stats += current_stats;
         self.stats_buffer
-            .add_item(time_manager.current_time(), current_stats);
+            .push(time_manager.current_time(), current_stats);
 
         // compute stats
         self.compute_stats();

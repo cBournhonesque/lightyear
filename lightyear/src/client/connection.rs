@@ -38,6 +38,7 @@ use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
+use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -73,6 +74,7 @@ pub struct ConnectionManager {
     pub(crate) component_registry: ComponentRegistry,
     pub(crate) message_registry: MessageRegistry,
     pub(crate) message_manager: MessageManager,
+    pub(crate) delta_manager: DeltaManager,
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
     pub(crate) events: ConnectionEvents,
@@ -88,7 +90,7 @@ pub struct ConnectionManager {
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
-    writer: BitcodeWriter,
+    pub(crate) writer: BitcodeWriter,
     pub(crate) reader_pool: BufferPool,
     // TODO: maybe don't do any replication until connection is synced?
 }
@@ -135,6 +137,7 @@ impl ConnectionManager {
             component_registry: component_registry.clone(),
             message_registry: message_registry.clone(),
             message_manager,
+            delta_manager: DeltaManager::default(),
             replication_sender,
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
@@ -293,7 +296,7 @@ impl ConnectionManager {
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
                     self.replication_sender
-                        .buffer_replication_update_message(group_id, message_id, bevy_tick);
+                        .buffer_replication_update_message(group_id, message_id, bevy_tick, tick);
                 }
                 Ok(())
             })
@@ -457,7 +460,12 @@ impl ConnectionManager {
         }
     }
 
-    pub(crate) fn recv_packet(&mut self, packet: Packet, tick_manager: &TickManager) -> Result<()> {
+    pub(crate) fn recv_packet(
+        &mut self,
+        packet: Packet,
+        tick_manager: &TickManager,
+        component_registry: &ComponentRegistry,
+    ) -> Result<()> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(packet)?;
         debug!("Received server packet with tick: {:?}", tick);
@@ -480,7 +488,8 @@ impl ConnectionManager {
         }
         trace!(?tick, last_server_tick = ?self.sync_manager.latest_received_server_tick, "Recv server packet");
         // notify the replication sender that some sent messages were received
-        self.replication_sender.recv_update_acks();
+        self.replication_sender
+            .recv_update_acks(component_registry, &mut self.delta_manager);
         Ok(())
     }
 }
@@ -542,5 +551,6 @@ impl ReplicationSend for ConnectionManager {
     fn cleanup(&mut self, tick: Tick) {
         debug!("Running replication clean");
         self.replication_sender.cleanup(tick);
+        self.delta_manager.tick_cleanup(tick);
     }
 }

@@ -60,19 +60,24 @@ pub(crate) mod send {
     use crate::prelude::{
         is_connected, is_host_server, ClientId, ComponentRegistry, DisabledComponent,
         OverrideTargetComponent, PrePredicted, ReplicateHierarchy, ReplicateOnceComponent,
-        Replicated, ReplicationGroup, ShouldBePredicted, TargetEntity, VisibilityMode,
+        Replicated, ReplicationGroup, ShouldBePredicted, TargetEntity, TickManager, VisibilityMode,
     };
+    use crate::protocol::component::ComponentKind;
+    use crate::serialize::RawData;
     use crate::server::events::EntitySpawnEvent;
     use crate::server::replication::send::SyncTarget;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::components::{
-        Controlled, DespawnTracker, Replicating, ReplicationTarget, ShouldBeInterpolated,
+        Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
+        ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::{systems, ReplicationSend};
     use crate::shared::sets::ServerMarker;
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
+    use bevy::ptr::Ptr;
+    use std::ops::DerefMut;
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {
@@ -317,6 +322,7 @@ pub(crate) mod send {
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
     pub(crate) fn send_component_update<C: Component>(
+        tick_manager: Res<TickManager>,
         registry: Res<ComponentRegistry>,
         query: Query<
             (
@@ -324,17 +330,21 @@ pub(crate) mod send {
                 Ref<C>,
                 Ref<ReplicateToServer>,
                 &ReplicationGroup,
+                Has<DeltaCompression<C>>,
                 Has<DisabledComponent<C>>,
                 Has<ReplicateOnceComponent<C>>,
             ),
             With<Replicating>,
         >,
         system_bevy_ticks: SystemChangeTick,
-        mut sender: ResMut<ConnectionManager>,
+        mut connection: ResMut<ConnectionManager>,
     ) {
-        let kind = registry.net_id::<C>();
+        let tick = tick_manager.tick();
+        let kind = ComponentKind::of::<C>();
+        // enable split borrows
+        let connection = &mut *connection;
         query.iter().for_each(
-            |(entity, component, target, group, disabled, replicate_once)| {
+            |(entity, component, target, group, delta_compression, disabled, replicate_once)| {
                 // do not replicate components that are disabled
                 if disabled {
                     return;
@@ -360,21 +370,31 @@ pub(crate) mod send {
                     update = true;
                 }
                 if insert || update {
-                    // serialize component
-                    let writer = sender.writer();
-                    let raw_data = registry
-                        .serialize(component.as_ref(), writer)
-                        .expect("Could not serialize component");
-
+                    let group_id = group.group_id(Some(entity));
+                    let component_data = Ptr::from(component.as_ref());
+                    let writer = &mut connection.writer;
                     if insert {
-                        let group_id = group.group_id(Some(entity));
-                        sender
-                            .replication_sender
-                            .prepare_component_insert(entity, group_id, kind, raw_data);
+                        let raw_data = if delta_compression {
+                            // SAFETY: the component_data corresponds to the kind
+                            unsafe {
+                                registry
+                                    .serialize_diff_from_base_value(component_data, writer, kind)
+                                    .expect("could not serialize delta")
+                            }
+                        } else {
+                            registry
+                                .erased_serialize(component_data, writer, kind)
+                                .expect("could not serialize component")
+                        };
+                        connection.replication_sender.prepare_component_insert(
+                            entity,
+                            group_id,
+                            raw_data,
+                            system_bevy_ticks.this_run(),
+                        );
                     } else {
-                        let group_id = group.group_id(Some(entity));
                         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-                        let send_tick = sender
+                        let send_tick = connection
                             .replication_sender
                             .group_channels
                             .entry(group_id)
@@ -399,9 +419,27 @@ pub(crate) mod send {
                             //     tick = ?self.tick_manager.tick(),
                             //     "Updating single component"
                             // );
-                            sender
-                                .replication_sender
-                                .prepare_entity_update(entity, group_id, kind, raw_data);
+                            if !delta_compression {
+                                let raw_data = registry
+                                    .erased_serialize(component_data, writer, kind)
+                                    .expect("could not serialize component");
+                                connection
+                                    .replication_sender
+                                    .prepare_component_update(entity, group_id, raw_data);
+                            } else {
+                                connection
+                                    .replication_sender
+                                    .prepare_delta_component_update(
+                                        entity,
+                                        group_id,
+                                        kind,
+                                        component_data,
+                                        &registry,
+                                        writer,
+                                        &mut connection.delta_manager,
+                                        tick,
+                                    );
+                            }
                         }
                     }
                 }
@@ -475,9 +513,9 @@ pub(crate) mod send {
                 .insert(client::Replicate::default());
             // TODO: we need to run a couple frames because the server doesn't read the client's updates
             //  because they are from the future
-            stepper.frame_step();
-            stepper.frame_step();
-            stepper.frame_step();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
 
             // check that the entity was spawned
             stepper

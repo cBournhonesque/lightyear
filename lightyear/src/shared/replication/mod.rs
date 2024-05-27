@@ -31,6 +31,7 @@ use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarg
 
 pub mod components;
 
+pub mod delta;
 pub mod entity_map;
 pub(crate) mod hierarchy;
 pub mod network_target;
@@ -87,8 +88,12 @@ pub struct EntityUpdatesMessage {
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
     /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
     last_action_tick: Option<Tick>,
+    /// Updates containing the full component data
     #[bitcode(with_serde)]
     pub(crate) updates: Vec<(Entity, Vec<RawData>)>,
+    // /// Updates containing diffs with a previous value
+    // #[bitcode(with_serde)]
+    // diff_updates: Vec<(Entity, Vec<RawData>)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]

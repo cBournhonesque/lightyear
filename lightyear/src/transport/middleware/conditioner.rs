@@ -67,7 +67,7 @@ impl<P: Eq> LinkConditioner<P> {
         if latency > 0 {
             packet_timestamp += Duration::from_millis(latency as u64);
         }
-        self.time_queue.add_item(packet_timestamp, packet);
+        self.time_queue.push(packet_timestamp, packet);
     }
 
     /// Check if a packet is ready to be returned

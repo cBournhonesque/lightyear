@@ -132,6 +132,12 @@ pub(crate) fn check_rollback<C: SyncComponent>(
         //  We receive a message with entity B updates, but no entity A updates, **which means that entity A is still in the same state as before**
         //  on the confirmed tick! This means that we received an update for entity A, and we still need to check for rollback.
 
+        // TODO: using `!confirmed.is_changed` is a potential bug! we only want a rollback check to trigger when the confirmed tick is updated!
+        //  but not when the confirmed entity is first spawned, no? when the entity is first spawn, currently
+        //  we still do a rollback check immediately
+        //  instead use `!confirmed.is_changed() || confirmed.is_added() { continue; }`?
+        //  but figure out how to adapt tests
+
         // 0. only check rollback when any entity in the replication group has been updated
         // (i.e. the confirmed tick has been updated)
         if !confirmed.is_changed() {
@@ -280,14 +286,14 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             None => {
                 predicted_history
                     .buffer
-                    .add_item(rollback_tick, ComponentState::Removed);
+                    .push(rollback_tick, ComponentState::Removed);
                 entity_mut.remove::<C>();
             }
             // confirm exist, update or insert on predicted
             Some(c) => {
                 predicted_history
                     .buffer
-                    .add_item(rollback_tick, ComponentState::Updated(c.clone()));
+                    .push(rollback_tick, ComponentState::Updated(c.clone()));
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted Full component to predicted");
@@ -757,6 +763,7 @@ mod integration_tests {
             .get_mut::<Confirmed>()
             .unwrap()
             .predicted = Some(predicted);
+        stepper.frame_step();
         (stepper, confirmed, predicted)
     }
 

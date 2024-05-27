@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
+use bevy::ptr::Ptr;
 use bevy::utils::{HashMap, HashSet};
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
@@ -25,7 +26,7 @@ use crate::prelude::{
     ShouldBePredicted, TargetEntity,
 };
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::{ComponentNetId, ComponentRegistry};
+use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
 use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
@@ -45,6 +46,7 @@ use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{
     Controlled, ReplicationGroupId, ReplicationTarget, ShouldBeInterpolated,
 };
+use crate::shared::replication::delta::{DeltaManager, Diffable};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -63,6 +65,7 @@ pub struct ConnectionManager {
     pub(crate) message_registry: MessageRegistry,
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents,
+    pub(crate) delta_manager: DeltaManager,
 
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
@@ -94,6 +97,7 @@ impl ConnectionManager {
             message_registry,
             channel_registry,
             events: ServerEvents::new(),
+            delta_manager: DeltaManager::default(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
             writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
@@ -353,6 +357,7 @@ impl ConnectionManager {
         client_id: ClientId,
         component_registry: &ComponentRegistry,
         data: &C,
+        bevy_tick: BevyTick,
     ) -> Result<()> {
         let net_id = component_registry
             .get_net_id::<C>()
@@ -360,7 +365,7 @@ impl ConnectionManager {
         let raw_data = component_registry.serialize(data, &mut self.writer)?;
         self.connection_mut(client_id)?
             .replication_sender
-            .prepare_component_insert(entity, group_id, net_id, raw_data);
+            .prepare_component_insert(entity, group_id, raw_data, bevy_tick);
         Ok(())
     }
 }
@@ -508,7 +513,7 @@ impl Connection {
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
                     self.replication_sender
-                        .buffer_replication_update_message(group_id, message_id, bevy_tick);
+                        .buffer_replication_update_message(group_id, message_id, bevy_tick, tick);
                 }
                 Ok(())
             })
@@ -687,11 +692,18 @@ impl Connection {
         std::mem::replace(&mut self.events, ConnectionEvents::new())
     }
 
-    pub fn recv_packet(&mut self, packet: Packet, tick_manager: &TickManager) -> Result<()> {
+    pub fn recv_packet(
+        &mut self,
+        packet: Packet,
+        tick_manager: &TickManager,
+        component_registry: &ComponentRegistry,
+        delta_manager: &mut DeltaManager,
+    ) -> Result<()> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(packet)?;
         // notify the replication sender that some sent messages were received
-        self.replication_sender.recv_update_acks();
+        self.replication_sender
+            .recv_update_acks(component_registry, delta_manager);
         debug!("Received server packet with tick: {:?}", tick);
         Ok(())
     }
@@ -748,14 +760,18 @@ impl ConnectionManager {
     pub(crate) fn prepare_component_insert(
         &mut self,
         entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
+        kind: ComponentKind,
+        component_data: Ptr,
         component_registry: &ComponentRegistry,
         replication_target: &ReplicationTarget,
         prediction_target: Option<&NetworkTarget>,
         group: &ReplicationGroup,
         target: NetworkTarget,
+        delta_compression: bool,
+        tick: Tick,
+        bevy_tick: BevyTick,
     ) -> Result<()> {
+        // TODO: first check that the target is not empty!
         let group_id = group.group_id(Some(entity));
 
         // TODO: think about this. this feels a bit clumsy
@@ -774,15 +790,37 @@ impl ConnectionManager {
 
         // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
         let mut actual_target = target;
-        let should_be_predicted_kind = component_registry
-            .get_net_id::<ShouldBePredicted>()
-            .context("ShouldBePredicted is not registered")?;
-        let pre_spawned_player_object_kind = component_registry
-            .get_net_id::<PreSpawnedPlayerObject>()
-            .context("PreSpawnedPlayerObject is not registered")?;
+        let should_be_predicted_kind = ComponentKind::of::<ShouldBePredicted>();
+        let pre_spawned_player_object_kind = ComponentKind::of::<PreSpawnedPlayerObject>();
         if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
             actual_target = prediction_target.unwrap().clone();
         }
+
+        // even with delta-compression enabled
+        // the diff can be shared for every client since we're inserting
+        let writer = &mut self.writer;
+        let raw_data = if delta_compression {
+            // store the component value in a storage shared between all connections, so that we can compute diffs
+            // NOTE: we don't update the ack data because we only receive acks for ReplicationUpdate messages
+            self.delta_manager.data.store_component_value(
+                entity,
+                tick,
+                kind,
+                component_data,
+                group_id,
+                component_registry,
+            );
+            // SAFETY: the component_data corresponds to the kind
+            unsafe {
+                component_registry
+                    .serialize_diff_from_base_value(component_data, writer, kind)
+                    .expect("could not serialize delta")
+            }
+        } else {
+            component_registry
+                .erased_serialize(component_data, writer, kind)
+                .expect("could not serialize component")
+        };
         self.apply_replication(actual_target)
             .try_for_each(|client_id| {
                 // trace!(
@@ -800,7 +838,8 @@ impl ConnectionManager {
                 //     .update_collect_changes_since_this_tick(system_current_tick);
                 self.connection_mut(client_id)?
                     .replication_sender
-                    .prepare_component_insert(entity, group_id, kind, component.clone());
+                    // TODO: avoid the clone by using Arc<u8>?
+                    .prepare_component_insert(entity, group_id, raw_data.clone(), bevy_tick);
                 Ok(())
             })
     }
@@ -809,12 +848,15 @@ impl ConnectionManager {
     pub(crate) fn prepare_component_update(
         &mut self,
         entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
+        kind: ComponentKind,
+        component: Ptr,
+        registry: &ComponentRegistry,
         group: &ReplicationGroup,
         target: NetworkTarget,
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
+        tick: Tick,
+        delta_compression: bool,
     ) -> Result<()> {
         trace!(
             ?kind,
@@ -825,9 +867,15 @@ impl ConnectionManager {
         );
 
         let group_id = group.group_id(Some(entity));
+        let mut raw_data: RawData = vec![];
+        if !delta_compression {
+            // we serialize once and re-use the result for all clients
+            raw_data = registry.erased_serialize(component, &mut self.writer, kind)?;
+        }
+        let mut num_targets = 0;
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+            let replication_sender = &mut self.connections.get_mut(&client_id).context("cannot find connection")?.replication_sender;
             let send_tick = replication_sender
                 .group_channels
                 .entry(group_id)
@@ -844,6 +892,7 @@ impl ConnectionManager {
             if send_tick.map_or(true, |tick| {
                 component_change_tick.is_newer_than(tick, system_current_tick)
             }) {
+                num_targets += 1;
                 trace!(
                     change_tick = ?component_change_tick,
                     ?send_tick,
@@ -856,11 +905,34 @@ impl ConnectionManager {
                 //     tick = ?self.tick_manager.tick(),
                 //     "Updating single component"
                 // );
-                // TODO: avoid component clone with Arc<[u8]>
-                replication_sender.prepare_entity_update(entity, group_id, kind, component.clone());
+                if !delta_compression {
+                    // TODO: avoid component clone with Arc<[u8]>
+                    replication_sender.prepare_component_update(entity, group_id, raw_data.clone());
+                } else {
+                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick);
+                }
             }
-            Ok(())
-        })
+            Ok::<(), anyhow::Error>(())
+        })?;
+
+        if delta_compression && num_targets > 0 {
+            // store the component value in a storage shared between all connections, so that we can compute diffs
+            self.delta_manager
+                .data
+                .store_component_value(entity, tick, kind, component, group_id, registry);
+            // register the number of clients that the component was sent to
+            // (if we receive an ack from all these clients for a given tick, we can remove the component value from the storage
+            //  for all the ticks that are older than the last acked tick)
+            // TODO: if clients 1 and 2 send an ACK for tick 3, and client 3 sends an ack for tick 5 (but lost tick 3),
+            //  we should still consider that we can delete all the data older than tick 3!
+            self.delta_manager
+                .acks
+                .entry(group_id)
+                .or_default()
+                .insert(tick, num_targets);
+        }
+
+        Ok(())
     }
 }
 

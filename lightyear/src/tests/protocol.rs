@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::client::components::ComponentSyncMode;
 use crate::prelude::*;
+use crate::shared::replication::delta::Diffable;
 
 // Messages
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
@@ -51,6 +52,27 @@ impl Mul<f32> for &Component5 {
     type Output = Component5;
     fn mul(self, rhs: f32) -> Self::Output {
         Component5(self.0 * rhs)
+    }
+}
+
+#[repr(C)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct Component6(pub Vec<usize>);
+
+// NOTE: for the delta-compression to work, the components must have the same prefix, starting with [1]
+impl Diffable for Component6 {
+    type Delta = Vec<usize>;
+
+    fn base_value() -> Self {
+        Self(vec![1])
+    }
+
+    fn diff(&self, other: &Self) -> Self::Delta {
+        Vec::from_iter(other.0[self.0.len()..].iter().cloned())
+    }
+
+    fn apply_diff(&mut self, delta: &Self::Delta) {
+        self.0.extend(delta);
     }
 }
 
@@ -119,6 +141,9 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation(ComponentSyncMode::Full)
             .add_linear_interpolation_fn();
+
+        app.register_component::<Component6>(ChannelDirection::ServerToClient)
+            .add_delta_compression();
 
         // resources
         app.register_resource::<Resource1>(ChannelDirection::ServerToClient);
