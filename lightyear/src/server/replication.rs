@@ -351,6 +351,7 @@ pub(crate) mod send {
             Option<&ReplicateVisibility>,
         )>,
         mut sender: ResMut<ConnectionManager>,
+        system_ticks: SystemChangeTick,
     ) {
         // Replicate to already connected clients (replicate only new entities)
         query.iter().for_each(|(entity, replication_target, sync_target, group, controlled_by, target_entity, visibility )| {
@@ -426,7 +427,7 @@ pub(crate) mod send {
             let _ = sender.apply_replication(target).try_for_each(|client_id| {
                 // let the client know that this entity is controlled by them
                 if controlled_by.targets(&client_id) {
-                    sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled)?;
+                    sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled, system_ticks.this_run())?;
                 }
                 // if we need to do prediction/interpolation, send a marker component to indicate that to the client
                 if sync_target.prediction.targets(&client_id) {
@@ -437,6 +438,7 @@ pub(crate) mod send {
                         client_id,
                         component_registry.as_ref(),
                         &ShouldBePredicted,
+                        system_ticks.this_run()
                     )?;
                 }
                 if sync_target.interpolation.targets(&client_id) {
@@ -446,6 +448,7 @@ pub(crate) mod send {
                         client_id,
                         component_registry.as_ref(),
                         &ShouldBeInterpolated,
+                        system_ticks.this_run()
                     )?;
                 }
 
@@ -699,6 +702,8 @@ pub(crate) mod send {
                                 group,
                                 insert_target,
                                 delta_compression,
+                                tick,
+                                system_bevy_ticks.this_run()
                             )
                             .inspect_err(|e| {
                                 error!("error sending component insert: {:?}", e);
@@ -836,7 +841,7 @@ pub(crate) mod send {
         use crate::prelude::server::{ControlledBy, Replicate, VisibilityManager};
         use crate::prelude::{client, server, Replicated};
         use crate::server::replication::send::SyncTarget;
-        use crate::shared::replication::components::Controlled;
+        use crate::shared::replication::components::{Controlled, ReplicationGroupId};
         use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
@@ -1299,6 +1304,100 @@ pub(crate) mod send {
             );
         }
 
+        /// Use the non-delta replication for a component that has delta-compression functions registered
+        #[test]
+        fn test_component_insert_without_delta_for_delta_component() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world
+                .spawn(server::Replicate::default())
+                .id();
+            stepper.frame_step();
+            stepper.frame_step();
+            let client_entity = *stepper
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+
+            // add component
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .insert(Component6(vec![3, 4]));
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![3, 4])
+            );
+        }
+
+        #[test]
+        fn test_component_insert_delta() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world
+                .spawn((
+                    Replicate::default(),
+                    Component6(vec![1, 2]),
+                    DeltaCompression::<Component6>::default(),
+                ))
+                .id();
+            stepper.frame_step();
+            let tick = stepper.server_tick();
+            stepper.frame_step();
+            let client_entity = *stepper
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![1, 2])
+            );
+            // check that the component value was stored in the delta manager cache
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .data
+                .get_component_value(
+                    server_entity,
+                    tick,
+                    ComponentKind::of::<Component6>(),
+                    ReplicationGroupId(server_entity.to_bits())
+                )
+                .is_some());
+        }
+
         #[test]
         fn test_component_insert_visibility_maintained() {
             let mut stepper = BevyStepper::default();
@@ -1595,6 +1694,148 @@ pub(crate) mod send {
                     .expect("component missing"),
                 &Component1(2.0)
             );
+        }
+
+        #[test]
+        fn test_component_update_delta() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world
+                .spawn((
+                    Replicate::default(),
+                    Component6(vec![1, 2]),
+                    DeltaCompression::<Component6>::default(),
+                ))
+                .id();
+            let group_id = ReplicationGroupId(server_entity.to_bits());
+            stepper.frame_step();
+            let insert_tick = stepper.server_tick();
+            stepper.frame_step();
+            let client_entity = *stepper
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![1, 2])
+            );
+            // check that the component value was stored in the delta manager cache
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .data
+                .get_component_value(
+                    server_entity,
+                    insert_tick,
+                    ComponentKind::of::<Component6>(),
+                    group_id,
+                )
+                .is_some());
+
+            // apply update
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .get_mut::<Component6>()
+                .unwrap()
+                .0 = vec![1, 2, 3];
+            stepper.frame_step();
+            let update_tick = stepper.server_tick();
+            // check that the delta manager has been updated correctly
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .data
+                .get_component_value(
+                    server_entity,
+                    insert_tick,
+                    ComponentKind::of::<Component6>(),
+                    group_id,
+                )
+                .is_some());
+            assert_eq!(
+                *stepper
+                    .server_app
+                    .world
+                    .resource::<ConnectionManager>()
+                    .delta_manager
+                    .acks
+                    .get(&group_id)
+                    .expect("no acks data for the group_id found")
+                    .get(&update_tick)
+                    .unwrap(),
+                1
+            );
+            stepper.frame_step();
+
+            // check that the component was updated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![1, 2, 3])
+            );
+            // check that the component value for the update_tick was stored in the delta manager cache
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .data
+                .get_component_value(
+                    server_entity,
+                    update_tick,
+                    ComponentKind::of::<Component6>(),
+                    group_id,
+                )
+                .is_some());
+            // check that the component value for the insert_tick was removed from the delta manager cache
+            // since all clients received the update for update_tick (so the insert_tick is no longer needed)
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .data
+                .get_component_value(
+                    server_entity,
+                    insert_tick,
+                    ComponentKind::of::<Component6>(),
+                    group_id,
+                )
+                .is_none());
+            // check that there is no acks data for the update tick, since all clients received the update
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .acks
+                .get(&group_id)
+                .expect("no acks data for the group_id found")
+                .get(&update_tick)
+                .is_none());
         }
 
         /// Check that updates are not sent if the `ReplicationTarget` component gets removed.

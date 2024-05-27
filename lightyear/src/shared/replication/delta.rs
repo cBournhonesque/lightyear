@@ -51,7 +51,7 @@ pub trait Diffable: Clone {
     fn apply_diff(&mut self, delta: &Self::Delta);
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct DeltaManager {
     pub(crate) data: DeltaComponentStore,
     pub(crate) acks: EntityHashMap<ReplicationGroupId, HashMap<Tick, usize>>,
@@ -67,18 +67,15 @@ impl DeltaManager {
         component_registry: &ComponentRegistry,
     ) {
         let mut delete = false;
-        if let Some(sent_number) = self
-            .acks
-            .get_mut(&replication_group)
-            .unwrap()
-            .get_mut(&tick)
-        {
-            if *sent_number == 1 {
-                // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
-                // all the clients have acked this message, we can remove the data for all ticks older than this one
-                delete = true;
-            } else {
-                *sent_number -= 1;
+        if let Some(group_data) = self.acks.get_mut(&replication_group) {
+            if let Some(sent_number) = group_data.get_mut(&tick) {
+                if *sent_number == 1 {
+                    // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
+                    // all the clients have acked this message, we can remove the data for all ticks older than this one
+                    delete = true;
+                } else {
+                    *sent_number -= 1;
+                }
             }
         }
         if delete {
@@ -101,7 +98,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 /// send state and the current state.
 /// We want this store to be shared across all ReplicationSenders (if there are multiple connections),
 /// to avoid copying the component value for each connection
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct DeltaComponentStore {
     // TODO: maybe store the values on the components directly?
     data: EntityHashMap<
@@ -173,5 +170,69 @@ impl DeltaComponentStore {
             // only keep the data that is more recent (inclusive) than the acked tick
             *data = recent_data;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::protocol::Component6;
+
+    #[test]
+    fn test_add_get_data() {
+        let mut registry = ComponentRegistry::default();
+        registry.register_component::<Component6>();
+        registry.set_delta_compression::<Component6>();
+        let mut store = DeltaComponentStore::default();
+        let entity = Entity::from_raw(0);
+        let tick = Tick(0);
+        let replication_group = ReplicationGroupId(0);
+        let component = Component6(vec![1, 2]);
+        let ptr = Ptr::from(&component);
+        let kind = ComponentKind::of::<Component6>();
+
+        store.store_component_value(entity, tick, kind, ptr, replication_group, &registry);
+
+        let retrieved = store
+            .get_component_value(entity, tick, kind, replication_group)
+            .unwrap();
+        let retrieved_component = unsafe { retrieved.deref::<Component6>() };
+        assert_eq!(retrieved_component, &component);
+    }
+
+    #[test]
+    fn test_delete_old_data() {
+        let mut registry = ComponentRegistry::default();
+        registry.register_component::<Component6>();
+        registry.set_delta_compression::<Component6>();
+        let mut store = DeltaComponentStore::default();
+        let entity = Entity::from_raw(0);
+        let tick_1 = Tick(1);
+        let tick_2 = Tick(2);
+        let tick_3 = Tick(3);
+        let replication_group = ReplicationGroupId(0);
+        let component = Component6(vec![1, 2]);
+        let ptr = Ptr::from(&component);
+        let kind = ComponentKind::of::<Component6>();
+
+        store.store_component_value(entity, tick_1, kind, ptr, replication_group, &registry);
+        store.store_component_value(entity, tick_2, kind, ptr, replication_group, &registry);
+        store.store_component_value(entity, tick_3, kind, ptr, replication_group, &registry);
+
+        store.delete_old_data(tick_2, replication_group, &registry);
+
+        assert!(store
+            .get_component_value(entity, tick_1, kind, replication_group)
+            .is_none());
+        let retrieved = store
+            .get_component_value(entity, tick_2, kind, replication_group)
+            .unwrap();
+        let retrieved_component = unsafe { retrieved.deref::<Component6>() };
+        assert_eq!(retrieved_component, &component);
+        let retrieved = store
+            .get_component_value(entity, tick_3, kind, replication_group)
+            .unwrap();
+        let retrieved_component = unsafe { retrieved.deref::<Component6>() };
+        assert_eq!(retrieved_component, &component);
     }
 }

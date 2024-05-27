@@ -386,9 +386,12 @@ pub(crate) mod send {
                                 .erased_serialize(component_data, writer, kind)
                                 .expect("could not serialize component")
                         };
-                        connection
-                            .replication_sender
-                            .prepare_component_insert(entity, group_id, raw_data);
+                        connection.replication_sender.prepare_component_insert(
+                            entity,
+                            group_id,
+                            raw_data,
+                            system_bevy_ticks.this_run(),
+                        );
                     } else {
                         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
                         let send_tick = connection
@@ -510,9 +513,9 @@ pub(crate) mod send {
                 .insert(client::Replicate::default());
             // TODO: we need to run a couple frames because the server doesn't read the client's updates
             //  because they are from the future
-            stepper.frame_step();
-            stepper.frame_step();
-            stepper.frame_step();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
 
             // check that the entity was spawned
             stepper

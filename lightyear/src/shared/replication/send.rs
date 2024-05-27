@@ -358,6 +358,7 @@ impl ReplicationSender {
         entity: Entity,
         group_id: ReplicationGroupId,
         component: RawData,
+        bevy_tick: BevyTick,
     ) {
         // if self
         //     .pending_unique_components
@@ -375,6 +376,10 @@ impl ReplicationSender {
         //     );
         //     return;
         // }
+
+        // update the send tick so that we don't send updates immediately after the insert message
+        // (the insert message is guaranteed to be received at some point)
+        self.group_channels.entry(group_id).or_default().send_tick = Some(bevy_tick);
         self.pending_actions
             .entry(group_id)
             .or_default()
@@ -614,7 +619,7 @@ mod tests {
     use crate::prelude::{ClientId, ReplicationGroup};
     use crate::server::connection::ConnectionManager;
     use crate::shared::replication::components::ReplicationGroupIdBuilder;
-    use crate::tests::protocol::Component1;
+    use crate::tests::protocol::{Component1, Component6};
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::prelude::*;
 
@@ -622,7 +627,42 @@ mod tests {
 
     #[test]
     fn test_delta_compression() {
-        // buffer delta compression value at T1 (at the beginning it's a diff against base)
+        // let mut component_registry = ComponentRegistry::default();
+        // component_registry.register_component::<Component6>();
+        // component_registry.set_delta_compression::<Component6>();
+        // let mut delta_manager = DeltaManager::default();
+        // let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
+        // let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
+        // let (tx_send, rx_send) = crossbeam_channel::unbounded();
+        // let mut sender = ReplicationSender::new(rx_ack, rx_nack, rx_send, false, false);
+        //
+        // let group_1 = ReplicationGroupId(0);
+        // let entity_1 = Entity::from_raw(0);
+        // sender
+        //     .group_channels
+        //     .insert(group_1, GroupChannel::default());
+        // let message_1 = MessageId(0);
+        // let message_2 = MessageId(1);
+        // let message_3 = MessageId(2);
+        // let bevy_tick_1 = BevyTick::new(0);
+        // let bevy_tick_2 = BevyTick::new(2);
+        // let bevy_tick_3 = BevyTick::new(4);
+        // let tick_1 = Tick(0);
+        // let tick_2 = Tick(2);
+        // let tick_3 = Tick(4);
+        //
+        // // buffer delta compression value at T1 (at the beginning it's a diff against base)
+        // sender.prepare_delta_component_update(
+        //     entity_1,
+        //     group_1,
+        //     ComponentKind::of::<Component6>(),
+        //     Ptr::from(&Component6(vec![1, 2])),
+        //     &component_registry,
+        //     &mut BitcodeWriter::default(),
+        //     &mut delta_manager,
+        //     tick_1,
+        // );
+        // sender.buffer_replication_update_message(group_1, message_1, bevy_tick_1, tick_1);
 
         // TODO: maybe we should store the value only if we send the message?
         //  because we store the value just to compute diffs, but if we don't actually send the message
@@ -885,7 +925,7 @@ mod tests {
 
         // updates should be grouped with actions
         manager.prepare_entity_spawn(entity_1, group_1);
-        manager.prepare_component_insert(entity_1, group_1, raw_1.clone());
+        manager.prepare_component_insert(entity_1, group_1, raw_1.clone(), BevyTick::new(0));
         manager.prepare_component_remove(entity_1, group_1, net_id_2);
         manager.prepare_component_update(entity_1, group_1, raw_2.clone());
 

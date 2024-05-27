@@ -153,7 +153,7 @@ pub struct ComponentRegistry {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
     pub write: RawWriteFn,
-    pub remove: RawRemoveFn,
+    pub remove: Option<RawRemoveFn>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -257,12 +257,17 @@ impl ComponentRegistry {
             .insert(component_kind, ErasedSerializeFns::new::<C>());
     }
 
-    pub(crate) fn set_replication_fns<C: Component + Message + PartialEq>(&mut self) {
+    pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self) {
         let kind = ComponentKind::of::<C>();
         let write: RawWriteFn = Self::write::<C>;
         let remove: RawRemoveFn = Self::remove::<C>;
-        self.replication_map
-            .insert(kind, ReplicationMetadata { write, remove });
+        self.replication_map.insert(
+            kind,
+            ReplicationMetadata {
+                write,
+                remove: Some(remove),
+            },
+        );
     }
 
     pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
@@ -534,7 +539,10 @@ impl ComponentRegistry {
             .replication_map
             .get(kind)
             .expect("the component is not part of the protocol");
-        (replication_metadata.remove)(self, entity_world_mut);
+        let f = replication_metadata
+            .remove
+            .expect("the component does not have a remove function");
+        f(self, entity_world_mut);
     }
 
     pub(crate) fn remove<C: Component>(&self, entity_world_mut: &mut EntityWorldMut) {
@@ -551,9 +559,22 @@ mod delta {
     impl ComponentRegistry {
         pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self) {
             let kind = ComponentKind::of::<C>();
-            let write: RawWriteFn = Self::write_delta::<C>;
+            let delta_kind = ComponentKind::of::<DeltaMessage<C::Delta>>();
+            // add the delta as a message
+            self.register_component::<DeltaMessage<C::Delta>>();
+            // add delta-related type-erased functions
             self.delta_fns_map.insert(kind, ErasedDeltaFns::new::<C>());
-            self.replication_map.get_mut(&kind).unwrap().write = write;
+            // add write/remove functions associated with the delta component's net_id
+            // (since the serialized message will contain the delta component's net_id)
+            // update the write function to use the delta compression logic
+            let write: RawWriteFn = Self::write_delta::<C>;
+            self.replication_map.insert(
+                delta_kind,
+                ReplicationMetadata {
+                    write,
+                    remove: None,
+                },
+            );
         }
 
         /// SAFETY: the Ptr must correspond to the correct ComponentKind
@@ -579,7 +600,8 @@ mod delta {
                 .delta_fns_map
                 .get(&kind)
                 .context("the component does not have delta fns registered")?;
-            Ok((delta_fns.drop)(data))
+            (delta_fns.drop)(data);
+            Ok(())
         }
 
         /// SAFETY: The Ptrs must correspond to the correct ComponentKind
@@ -622,6 +644,7 @@ mod delta {
             raw_data
         }
 
+        /// Deserialize the DeltaMessage<C::Delta> and apply it to the component
         pub(crate) fn write_delta<C: Component + PartialEq + Diffable>(
             &self,
             reader: &mut BitcodeReader,
@@ -634,7 +657,7 @@ mod delta {
                 "Writing component delta {} to entity",
                 std::any::type_name::<C>()
             );
-            let delta_net_id = self.net_id::<C::Delta>();
+            let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
             let entity = entity_world_mut.id();
@@ -942,9 +965,6 @@ impl AppComponentExt for App {
 
     fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
-        // add the delta as a message
-        registry.register_component::<DeltaMessage<<C as Diffable>::Delta>>();
-        // update the write function to use the delta compression logic
         registry.set_delta_compression::<C>();
     }
 }

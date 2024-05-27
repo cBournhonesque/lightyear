@@ -357,6 +357,7 @@ impl ConnectionManager {
         client_id: ClientId,
         component_registry: &ComponentRegistry,
         data: &C,
+        bevy_tick: BevyTick,
     ) -> Result<()> {
         let net_id = component_registry
             .get_net_id::<C>()
@@ -364,7 +365,7 @@ impl ConnectionManager {
         let raw_data = component_registry.serialize(data, &mut self.writer)?;
         self.connection_mut(client_id)?
             .replication_sender
-            .prepare_component_insert(entity, group_id, raw_data);
+            .prepare_component_insert(entity, group_id, raw_data, bevy_tick);
         Ok(())
     }
 }
@@ -767,7 +768,10 @@ impl ConnectionManager {
         group: &ReplicationGroup,
         target: NetworkTarget,
         delta_compression: bool,
+        tick: Tick,
+        bevy_tick: BevyTick,
     ) -> Result<()> {
+        // TODO: first check that the target is not empty!
         let group_id = group.group_id(Some(entity));
 
         // TODO: think about this. this feels a bit clumsy
@@ -796,6 +800,16 @@ impl ConnectionManager {
         // the diff can be shared for every client since we're inserting
         let writer = &mut self.writer;
         let raw_data = if delta_compression {
+            // store the component value in a storage shared between all connections, so that we can compute diffs
+            // NOTE: we don't update the ack data because we only receive acks for ReplicationUpdate messages
+            self.delta_manager.data.store_component_value(
+                entity,
+                tick,
+                kind,
+                component_data,
+                group_id,
+                component_registry,
+            );
             // SAFETY: the component_data corresponds to the kind
             unsafe {
                 component_registry
@@ -825,7 +839,7 @@ impl ConnectionManager {
                 self.connection_mut(client_id)?
                     .replication_sender
                     // TODO: avoid the clone by using Arc<u8>?
-                    .prepare_component_insert(entity, group_id, raw_data.clone());
+                    .prepare_component_insert(entity, group_id, raw_data.clone(), bevy_tick);
                 Ok(())
             })
     }
@@ -860,7 +874,6 @@ impl ConnectionManager {
         }
         let mut num_targets = 0;
         self.apply_replication(target).try_for_each(|client_id| {
-            num_targets += 1;
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             let replication_sender = &mut self.connections.get_mut(&client_id).context("cannot find connection")?.replication_sender;
             let send_tick = replication_sender
@@ -879,6 +892,7 @@ impl ConnectionManager {
             if send_tick.map_or(true, |tick| {
                 component_change_tick.is_newer_than(tick, system_current_tick)
             }) {
+                num_targets += 1;
                 trace!(
                     change_tick = ?component_change_tick,
                     ?send_tick,
@@ -901,7 +915,7 @@ impl ConnectionManager {
             Ok::<(), anyhow::Error>(())
         })?;
 
-        if delta_compression {
+        if delta_compression && num_targets > 0 {
             // store the component value in a storage shared between all connections, so that we can compute diffs
             self.delta_manager
                 .data

@@ -59,6 +59,7 @@ impl Mul<f32> for &Component5 {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Component6(pub Vec<usize>);
 
+// NOTE: for the delta-compression to work, the components must have the same prefix, starting with [1]
 impl Diffable for Component6 {
     type Delta = Vec<usize>;
 
@@ -67,7 +68,7 @@ impl Diffable for Component6 {
     }
 
     fn diff(&self, other: &Self) -> Self::Delta {
-        Vec::from_iter(other.0[self.0.len()..].into_iter().cloned())
+        Vec::from_iter(other.0[self.0.len()..].iter().cloned())
     }
 
     fn apply_diff(&mut self, delta: &Self::Delta) {

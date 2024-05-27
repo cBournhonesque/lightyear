@@ -112,7 +112,11 @@ impl BevyStepper {
         let config = ServerConfig {
             shared: shared_config.clone(),
             net: vec![net_config],
-            ping: PingConfig::default(),
+            ping: PingConfig {
+                // send pings every tick, so that the acks are received every frame
+                ping_interval: Duration::default(),
+                ..default()
+            },
             ..default()
         };
         let plugin = server::ServerPlugins::new(config);
@@ -137,6 +141,11 @@ impl BevyStepper {
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
+            ping: PingConfig {
+                // send pings every tick, so that the acks are received every frame
+                ping_interval: Duration::default(),
+                ..default()
+            },
             ..default()
         };
         let plugin = client::ClientPlugins::new(config);

@@ -104,6 +104,14 @@ pub struct DeltaCompression<C> {
     _marker: std::marker::PhantomData<C>,
 }
 
+impl<C> Default for DeltaCompression<C> {
+    fn default() -> Self {
+        Self {
+            _marker: Default::default(),
+        }
+    }
+}
+
 // TODO: should these be sparse set or not?
 /// If this component is present, we won't replicate the component
 ///
