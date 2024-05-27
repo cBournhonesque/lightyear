@@ -19,6 +19,7 @@ use crate::transport::config::SharedIoConfig;
 /// This function will be run when receiving a connection request.
 ///
 /// This should return true if the connection request is accepted, false otherwise.
+// NOTE: has to use Arc so that the closure can be `Clone`
 pub(crate) type AcceptConnectionRequestFn = Arc<dyn Fn(ClientId) -> bool + Send + Sync>;
 
 #[enum_dispatch]
@@ -82,6 +83,7 @@ pub enum NetConfig {
 }
 
 impl NetConfig {
+    /// Update the `accept_connection_request_fn` field in the config
     pub fn set_accept_connection_request_fn(
         &mut self,
         accept_connection_request_fn: AcceptConnectionRequestFn,

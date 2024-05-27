@@ -28,6 +28,7 @@ pub struct SteamConfig {
     pub game_port: u16,
     pub query_port: u16,
     pub max_clients: usize,
+    /// A closure that will be used to accept or reject incoming connections
     pub accept_connection_request_fn: Option<AcceptConnectionRequestFn>,
     // pub mode: ServerMode,
     // TODO: name this protocol to match netcode?
