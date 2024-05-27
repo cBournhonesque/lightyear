@@ -2,6 +2,9 @@ use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 use enum_dispatch::enum_dispatch;
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -21,6 +24,33 @@ use crate::transport::config::SharedIoConfig;
 /// This should return true if the connection request is accepted, false otherwise.
 // NOTE: has to use Arc so that the closure can be `Clone`
 pub(crate) type AcceptConnectionRequestFn = Arc<dyn Fn(ClientId) -> bool + Send + Sync>;
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub enum DeniedReason {
+    ServerFull,
+    Banned,
+    InternalError,
+    AlreadyConnected,
+    TokenAlreadyUsed,
+    InvalidToken,
+    Custom(Cow<'static, str>),
+}
+
+pub trait ConnectionRequestHandler: Debug + Send + Sync {
+    /// Handle a connection request from a client.
+    /// Returns None if the connection is accepted,
+    /// Returns Some(reason) if the connection is denied.
+    fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason>;
+}
+
+#[derive(Debug, Clone)]
+pub struct DefaultConnectionRequestHandler;
+
+impl ConnectionRequestHandler for DefaultConnectionRequestHandler {
+    fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason> {
+        None
+    }
+}
 
 #[enum_dispatch]
 pub trait NetServer: Send + Sync {
@@ -84,17 +114,17 @@ pub enum NetConfig {
 
 impl NetConfig {
     /// Update the `accept_connection_request_fn` field in the config
-    pub fn set_accept_connection_request_fn(
+    pub fn set_connection_request_handler(
         &mut self,
-        accept_connection_request_fn: AcceptConnectionRequestFn,
+        connection_request_handler: Arc<dyn ConnectionRequestHandler>,
     ) {
         match self {
             NetConfig::Netcode { config, .. } => {
-                config.accept_connection_request_fn = Some(accept_connection_request_fn);
+                config.connection_request_handler = connection_request_handler;
             }
             #[cfg(all(feature = "steam", not(target_family = "wasm")))]
             NetConfig::Steam { config, .. } => {
-                config.accept_connection_request_fn = Some(accept_connection_request_fn);
+                config.connection_request_handler = connection_request_handler;
             }
         }
     }

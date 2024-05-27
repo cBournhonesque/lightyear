@@ -2,13 +2,16 @@
 use bevy::prelude::{Reflect, Resource};
 use governor::Quota;
 use nonzero_ext::nonzero;
+use std::sync::Arc;
 
 use crate::connection::netcode::{Key, PRIVATE_KEY_BYTES};
-use crate::connection::server::{AcceptConnectionRequestFn, NetConfig};
+use crate::connection::server::{
+    AcceptConnectionRequestFn, ConnectionRequestHandler, DefaultConnectionRequestHandler, NetConfig,
+};
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
     pub keep_alive_send_rate: f64,
@@ -19,20 +22,7 @@ pub struct NetcodeConfig {
     pub protocol_id: u64,
     pub private_key: Key,
     /// A closure that will be used to accept or reject incoming connections
-    pub accept_connection_request_fn: Option<AcceptConnectionRequestFn>,
-}
-// Has to be manually implemented because Closures do not implement Debug
-impl ::core::fmt::Debug for NetcodeConfig {
-    #[inline]
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        f.debug_struct("NetcodeConfig")
-            .field("num_disconnect_packets", &self.num_disconnect_packets)
-            .field("keep_alive_send_rate", &self.keep_alive_send_rate)
-            .field("client_timeout_secs", &self.client_timeout_secs)
-            .field("protocol_id", &self.protocol_id)
-            .field("private_key", &self.private_key)
-            .finish()
-    }
+    pub connection_request_handler: Arc<dyn ConnectionRequestHandler>,
 }
 
 impl Default for NetcodeConfig {
@@ -43,7 +33,7 @@ impl Default for NetcodeConfig {
             client_timeout_secs: 3,
             protocol_id: 0,
             private_key: [0; PRIVATE_KEY_BYTES],
-            accept_connection_request_fn: None,
+            connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
         }
     }
 }
@@ -144,11 +134,28 @@ pub struct ServerConfig {
 mod tests {
     use super::*;
     use crate::client::networking::NetworkingState;
+    use crate::connection::server::DeniedReason;
     use crate::prelude::ClientId;
     use crate::shared::plugin::Identity::Server;
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::State;
+    use std::fmt::{Debug, Formatter};
     use std::sync::Arc;
+
+    #[derive(Debug, Clone)]
+    struct CustomConnectionRequestHandler;
+
+    impl ConnectionRequestHandler for CustomConnectionRequestHandler {
+        fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason> {
+            if client_id == ClientId::Netcode(TEST_CLIENT_ID) {
+                Some(DeniedReason::Custom(
+                    "Test client is not allowed to connect".into(),
+                ))
+            } else {
+                None
+            }
+        }
+    }
 
     #[test]
     fn test_accept_connection_request_fn() {
@@ -157,10 +164,8 @@ mod tests {
 
         // add a hook to handle incoming connection request
         for netconfig in &mut stepper.server_app.world.resource_mut::<ServerConfig>().net {
-            netconfig.set_accept_connection_request_fn(Arc::new(|client_id| {
-                // reject connections from the test client
-                client_id != ClientId::Netcode(TEST_CLIENT_ID)
-            }));
+            // reject connections from the test client
+            netconfig.set_connection_request_handler(Arc::new(CustomConnectionRequestHandler));
         }
 
         // try to connect

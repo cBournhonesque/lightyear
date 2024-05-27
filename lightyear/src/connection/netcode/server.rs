@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context};
@@ -8,7 +9,10 @@ use tracing::{debug, error, trace};
 
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
-use crate::connection::server::{AcceptConnectionRequestFn, IoConfig, NetServer};
+use crate::connection::server::{
+    AcceptConnectionRequestFn, ConnectionRequestHandler, DefaultConnectionRequestHandler, IoConfig,
+    NetServer,
+};
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::config::NetcodeConfig;
@@ -246,7 +250,7 @@ pub struct ServerConfig<Ctx> {
     keep_alive_send_rate: f64,
     token_expire_secs: i32,
     client_timeout_secs: i32,
-    handle_connection_request_fn: Option<AcceptConnectionRequestFn>,
+    connection_request_handler: Arc<dyn ConnectionRequestHandler>,
     server_addr: SocketAddr,
     context: Ctx,
     on_connect: Option<Callback<Ctx>>,
@@ -260,7 +264,7 @@ impl Default for ServerConfig<()> {
             keep_alive_send_rate: PACKET_SEND_RATE_SEC,
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
-            handle_connection_request_fn: None,
+            connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
             server_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             context: (),
             on_connect: None,
@@ -281,7 +285,7 @@ impl<Ctx> ServerConfig<Ctx> {
             keep_alive_send_rate: PACKET_SEND_RATE_SEC,
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
-            handle_connection_request_fn: None,
+            connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
             server_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             context: ctx,
             on_connect: None,
@@ -615,13 +619,10 @@ impl<Ctx> NetcodeServer<Ctx> {
             )?;
             return Ok(());
         };
-        if !self
+        if let Some(denied_reason) = self
             .cfg
-            .handle_connection_request_fn
-            .as_mut()
-            .map_or(true, |f| {
-                f(crate::prelude::ClientId::Netcode(token.client_id))
-            })
+            .connection_request_handler
+            .handle_request(crate::prelude::ClientId::Netcode(token.client_id))
         {
             debug!("server denied connection request. handle_connection_request_fn returned false");
             self.send_to_addr(
@@ -1156,7 +1157,7 @@ impl Server {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
-        cfg.handle_connection_request_fn = config.accept_connection_request_fn;
+        cfg.connection_request_handler = config.connection_request_handler;
         let server = NetcodeServer::with_config(config.protocol_id, config.private_key, cfg)
             .expect("Could not create server netcode");
 
