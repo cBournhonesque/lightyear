@@ -107,7 +107,12 @@ pub struct ReplicationConfig {
     pub send_updates_since_last_ack: bool,
 }
 
-/// Configuration for the server plugin
+/// Configuration for the server plugin.
+///
+/// The [`ServerConfig`] is a bevy Resource. You can access it in your systems using `Res<ServerConfig>`.
+///
+/// You can also modify it while the app is running, and the new values will be used on the next
+/// time that the server is started. This can be useful to change some configuration values at runtime.
 #[derive(Clone, Debug, Default, Resource)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
