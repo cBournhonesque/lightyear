@@ -18,7 +18,6 @@ pub struct NetcodeConfig {
     pub client_timeout_secs: i32,
     pub protocol_id: u64,
     pub private_key: Key,
-    /// A closure that will be used to accept or reject incoming connections
     pub accept_connection_request_fn: Option<AcceptConnectionRequestFn>,
 }
 // Has to be manually implemented because Closures do not implement Debug
