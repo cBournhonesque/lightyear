@@ -28,7 +28,7 @@ const NUM_MESSAGE: &[usize] = &[0, 10, 100, 1000, 10000];
 
 /// Sending N message from server to channel, with a local io
 #[divan::bench(
-    sample_count = 1,
+    sample_count = 100,
     args = NUM_MESSAGE,
 )]
 fn send_message(bencher: Bencher, n: usize) {

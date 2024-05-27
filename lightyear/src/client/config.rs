@@ -10,6 +10,7 @@ use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;
 use crate::connection::client::NetConfig;
+use crate::prelude::server::ServerConfig;
 use crate::shared::config::{Mode, SharedConfig};
 use crate::shared::ping::manager::PingConfig;
 
@@ -121,6 +122,13 @@ pub struct ReplicationConfig {
 /// };
 /// let client = ClientPlugin::new(PluginConfig::new(config, protocol()));
 /// ```
+///
+///
+/// The [`ClientConfig`] is a bevy [`Resource`]. You can access it in your systems using `Res<ClientConfig>`.
+///
+/// You can also modify it while the app is running, and the new values will be used on the next
+/// time that the client tries to connect. This can be useful to change some configuration values at runtime.
+/// For example, you can update the server address dynamically to choose which server to connect to.
 #[derive(Resource, Clone, Default, Reflect)]
 #[reflect(Resource, from_reflect = false)]
 pub struct ClientConfig {
