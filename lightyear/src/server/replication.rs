@@ -842,6 +842,7 @@ pub(crate) mod send {
         use crate::prelude::{client, server, LinkConditionerConfig, Replicated};
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
+        use crate::shared::replication::delta::DeltaComponentHistory;
         use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
@@ -1997,8 +1998,8 @@ pub(crate) mod send {
                 &Component6(vec![1, 2, 3, 4])
             );
             stepper.frame_step();
-            // TODO: THIS IS NOT CORRECT BEHAVIOUR!
-            // the client receives the second update; it doesn't work well because the update is not idempotent!
+            // the client receives the second update, it still works well because we apply the diff
+            // from the previous_value [1, 2, 3]
             assert_eq!(
                 stepper
                     .client_app
@@ -2006,7 +2007,7 @@ pub(crate) mod send {
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
-                &Component6(vec![1, 2, 3, 4, 4, 5])
+                &Component6(vec![1, 2, 3, 4, 5])
             );
         }
 
@@ -2052,6 +2053,7 @@ pub(crate) mod send {
                 .id();
             let group_id = ReplicationGroupId(server_entity.to_bits());
             stepper.frame_step();
+            let insert_tick = stepper.server_tick();
             // apply an update (diff = added 2 since we compute the diff FromBase)
             stepper
                 .server_app
@@ -2062,7 +2064,7 @@ pub(crate) mod send {
                 .0 = HashSet::from([2]);
             // replicate and make sure that the server received the client ack
             stepper.frame_step();
-            let update_tick = stepper.server_tick();
+            let base_update_tick = stepper.server_tick();
             stepper.frame_step();
             stepper.frame_step();
             stepper.frame_step();
@@ -2094,7 +2096,7 @@ pub(crate) mod send {
                 .acks
                 .get(&group_id)
                 .expect("no acks data for the group_id found")
-                .get(&update_tick)
+                .get(&base_update_tick)
                 .is_none());
             // apply update (the update should be from the last acked value, aka add 3, remove 2)
             stepper
@@ -2126,8 +2128,8 @@ pub(crate) mod send {
                 &Component7(HashSet::from([3]))
             );
             stepper.frame_step();
-            // TODO: THIS IS NOT CORRECT BEHAVIOUR!
-            // the client receives the second update; it doesn't work well even if the update is idempotent!
+            // the client receives the second update, and it still works well because we apply the diff
+            // against the stored history value
             assert_eq!(
                 stepper
                     .client_app
@@ -2135,8 +2137,27 @@ pub(crate) mod send {
                     .entity(client_entity)
                     .get::<Component7>()
                     .expect("component missing"),
-                &Component7(HashSet::from([3, 4]))
+                &Component7(HashSet::from([4]))
             );
+            // check that the history still contains the component for the component update
+            // (because we only purge when we receive a strictly more recent tick)
+            assert!(stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<DeltaComponentHistory<Component7>>()
+                .expect("component missing")
+                .buffer
+                .contains_key(&update_tick));
+            // but it doesn't contain the component for the initial insert
+            assert!(!stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<DeltaComponentHistory<Component7>>()
+                .expect("component missing")
+                .buffer
+                .contains_key(&insert_tick));
         }
 
         /// Check that updates are not sent if the `ReplicationTarget` component gets removed.

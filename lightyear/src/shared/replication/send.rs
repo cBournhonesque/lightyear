@@ -432,7 +432,7 @@ impl ReplicationSender {
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
                     registry
-                        .serialize_diff(old_data, component_data, writer, kind)
+                        .serialize_diff(ack_tick, old_data, component_data, writer, kind)
                         .expect("could not serialize delta")
                 }
             })

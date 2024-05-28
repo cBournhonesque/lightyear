@@ -188,6 +188,7 @@ type RawWriteFn = fn(
     &ComponentRegistry,
     &mut BitcodeReader,
     ComponentNetId,
+    Tick,
     &mut EntityWorldMut,
     &mut EntityMap,
     &mut ConnectionEvents,
@@ -518,6 +519,7 @@ mod replication {
             &self,
             reader: &mut BitcodeReader,
             entity_world_mut: &mut EntityWorldMut,
+            tick: Tick,
             entity_map: &mut EntityMap,
             events: &mut ConnectionEvents,
         ) -> anyhow::Result<()> {
@@ -530,13 +532,22 @@ mod replication {
                 .replication_map
                 .get(kind)
                 .context("the component is not part of the protocol")?;
-            (replication_metadata.write)(self, reader, net_id, entity_world_mut, entity_map, events)
+            (replication_metadata.write)(
+                self,
+                reader,
+                net_id,
+                tick,
+                entity_world_mut,
+                entity_map,
+                events,
+            )
         }
 
         pub(crate) fn write<C: Component + PartialEq>(
             &self,
             reader: &mut BitcodeReader,
             net_id: ComponentNetId,
+            tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
             entity_map: &mut EntityMap,
             events: &mut ConnectionEvents,
@@ -544,8 +555,6 @@ mod replication {
             trace!("Writing component {} to entity", std::any::type_name::<C>());
             let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
             let entity = entity_world_mut.id();
-            // TODO: do we need the tick information in the event?
-            let tick = Tick(0);
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             if let Some(mut c) = entity_world_mut.get_mut::<C>() {
                 // only apply the update if the component is different, to not trigger change detection
@@ -584,7 +593,8 @@ mod replication {
 
 mod delta {
     use super::*;
-    use crate::shared::replication::delta::DeltaType;
+    use crate::prelude::client::ConfirmedHistory;
+    use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
     use bevy::ptr::PtrMut;
     use std::ptr::NonNull;
 
@@ -640,6 +650,7 @@ mod delta {
         /// SAFETY: The Ptrs must correspond to the correct ComponentKind
         pub(crate) unsafe fn serialize_diff(
             &self,
+            start_tick: Tick,
             start: Ptr,
             new: Ptr,
             writer: &mut BitcodeWriter,
@@ -651,7 +662,7 @@ mod delta {
                 .get(&kind)
                 .context("the component does not have delta fns registered")?;
 
-            let delta = (delta_fns.diff)(start, new);
+            let delta = (delta_fns.diff)(start_tick, start, new);
             let raw_data = self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind);
             // drop the delta message
             (delta_fns.drop_delta_message)(delta);
@@ -682,6 +693,7 @@ mod delta {
             &self,
             reader: &mut BitcodeReader,
             net_id: ComponentNetId,
+            tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
             entity_map: &mut EntityMap,
             events: &mut ConnectionEvents,
@@ -694,23 +706,43 @@ mod delta {
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
             let entity = entity_world_mut.id();
-            // TODO: do we need the tick information in the event?
-            let tick = Tick(0);
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             match delta.delta_type {
-                DeltaType::Normal => {
-                    let Some(mut c) = entity_world_mut.get_mut::<C>() else {
+                DeltaType::Normal { previous_tick } => {
+                    let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
+                    else {
                         return Err(anyhow::anyhow!(
-                            "Component {} is not part of the entity, but we received a diff for delta-compression",
+                            "Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
                             std::any::type_name::<C>()
                         ));
                     };
-                    c.apply_diff(&delta.delta);
+                    let Some(past_value) = history.buffer.get(&previous_tick) else {
+                        return Err(anyhow::anyhow!(
+                            "Entity {entity:?} does not have a ConfirmedHistory<{}> entry for tick {previous_tick:?}, but we received a diff for delta-compression",
+                            std::any::type_name::<C>()
+                        ));
+                    };
+                    // TODO: is it possible to have one clone instead of 2?
+                    let mut new_value = past_value.clone();
+                    new_value.apply_diff(&delta.delta);
+                    // we can remove all the values strictly older than previous_tick in the component history
+                    // (since we now that server has receive an ack for previous_tick)
+                    history.buffer = history.buffer.split_off(&previous_tick);
+                    // store the new value in the history
+                    history.buffer.insert(tick, new_value.clone());
+                    let Some(mut c) = entity_world_mut.get_mut::<C>() else {
+                        return Err(anyhow::anyhow!(
+                            "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
+                            std::any::type_name::<C>()
+                        ));
+                    };
+                    *c = new_value;
                     events.push_update_component(entity, net_id, tick);
                 }
                 DeltaType::FromBase => {
                     let mut new_value = C::base_value();
                     new_value.apply_diff(&delta.delta);
+                    let value = new_value.clone();
                     if let Some(mut c) = entity_world_mut.get_mut::<C>() {
                         // only apply the update if the component is different, to not trigger change detection
                         if c.as_ref() != &new_value {
@@ -720,6 +752,18 @@ mod delta {
                     } else {
                         entity_world_mut.insert(new_value);
                         events.push_insert_component(entity, net_id, tick);
+                    }
+                    // store the component value in the delta component history, so that we can compute
+                    // diffs from it
+                    if let Some(mut history) =
+                        entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
+                    {
+                        history.buffer.insert(tick, value);
+                    } else {
+                        // create a DeltaComponentHistory and insert the value
+                        let mut history = DeltaComponentHistory::default();
+                        history.buffer.insert(tick, value);
+                        entity_world_mut.insert(history);
                     }
                 }
             }

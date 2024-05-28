@@ -323,6 +323,7 @@ impl ReplicationReceiver {
                             .raw_write(
                                 &mut self.reader,
                                 &mut local_entity_mut,
+                                tick,
                                 &mut self.remote_entity_map.remote_to_local,
                                 events,
                             )
@@ -361,6 +362,7 @@ impl ReplicationReceiver {
                             .raw_write(
                                 &mut self.reader,
                                 &mut local_entity_mut,
+                                tick,
                                 &mut self.remote_entity_map.remote_to_local,
                                 events,
                             )
@@ -384,6 +386,7 @@ impl ReplicationReceiver {
                                 .raw_write(
                                     &mut self.reader,
                                     &mut local_entity_mut,
+                                    tick,
                                     &mut self.remote_entity_map.remote_to_local,
                                     events,
                                 )

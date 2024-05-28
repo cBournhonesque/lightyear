@@ -1,4 +1,4 @@
-use crate::prelude::Message;
+use crate::prelude::{Message, Tick};
 use crate::protocol::component::ComponentKind;
 use crate::protocol::serialize::ErasedMapEntitiesFn;
 use crate::protocol::BitSerializable;
@@ -11,7 +11,7 @@ use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
 type ErasedCloneFn = unsafe fn(data: Ptr) -> NonNull<u8>;
-type ErasedDiffFn = unsafe fn(data: Ptr, other: Ptr) -> NonNull<u8>;
+type ErasedDiffFn = unsafe fn(start_tick: Tick, start: Ptr, present: Ptr) -> NonNull<u8>;
 type ErasedBaseDiffFn = unsafe fn(data: Ptr) -> NonNull<u8>;
 type ErasedApplyDiffFn = unsafe fn(data: PtrMut, delta: Ptr);
 type ErasedDropFn = unsafe fn(data: NonNull<u8>);
@@ -26,10 +26,14 @@ unsafe fn erased_clone<C: Clone>(data: Ptr) -> NonNull<u8> {
 /// Get two Ptrs to a component C and compute the diff between them.
 ///
 /// SAFETY: the data and other Ptr must be a valid pointer to a value of type C
-unsafe fn erased_diff<C: Diffable>(old: Ptr, new: Ptr) -> NonNull<u8> {
-    let delta = C::diff(old.deref::<C>(), new.deref::<C>());
+unsafe fn erased_diff<C: Diffable>(
+    previous_tick: Tick,
+    previous: Ptr,
+    present: Ptr,
+) -> NonNull<u8> {
+    let delta = C::diff(previous.deref::<C>(), present.deref::<C>());
     let delta_message = DeltaMessage {
-        delta_type: DeltaType::Normal,
+        delta_type: DeltaType::Normal { previous_tick },
         delta,
     };
     let leaked_data = Box::leak(Box::new(delta_message));
@@ -131,10 +135,16 @@ mod tests {
         let diff = old_data.diff(&new_data);
         assert_eq!(diff, vec![2]);
 
-        let delta = unsafe { (erased_fns.diff)(Ptr::from(&old_data), Ptr::from(&new_data)) };
+        let delta =
+            unsafe { (erased_fns.diff)(Tick(0), Ptr::from(&old_data), Ptr::from(&new_data)) };
         let casted = delta.cast::<DeltaMessage<Vec<usize>>>();
         let delta_message = unsafe { casted.as_ref() };
-        assert_eq!(delta_message.delta_type, DeltaType::Normal);
+        assert_eq!(
+            delta_message.delta_type,
+            DeltaType::Normal {
+                previous_tick: Tick(0),
+            }
+        );
         assert_eq!(delta_message.delta, diff);
         // free memory
         unsafe {
