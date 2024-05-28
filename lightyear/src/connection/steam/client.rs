@@ -46,6 +46,7 @@ impl Default for SteamConfig {
 pub static CLIENT: OnceLock<(steamworks::Client<ClientManager>, SingleClientThreadSafe)> =
     OnceLock::new();
 
+/// Steam networking client wrapper
 pub struct Client {
     config: SteamConfig,
     connection: Option<NetConnection<ClientManager>>,
