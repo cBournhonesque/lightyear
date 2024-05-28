@@ -3,6 +3,7 @@ use std::ops::Mul;
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect, Resource};
+use bevy::utils::HashSet;
 use cfg_if::cfg_if;
 use derive_more::{Add, Mul};
 use lightyear_macros::ChannelInternal;
@@ -55,12 +56,12 @@ impl Mul<f32> for &Component5 {
     }
 }
 
-#[repr(C)]
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Component6(pub Vec<usize>);
 
 // NOTE: for the delta-compression to work, the components must have the same prefix, starting with [1]
 impl Diffable for Component6 {
+    // const IDEMPOTENT: bool = false;
     type Delta = Vec<usize>;
 
     fn base_value() -> Self {
@@ -73,6 +74,32 @@ impl Diffable for Component6 {
 
     fn apply_diff(&mut self, delta: &Self::Delta) {
         self.0.extend(delta);
+    }
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct Component7(pub HashSet<usize>);
+
+// NOTE: for the delta-compression to work, the components must have the same prefix, starting with [1]
+impl Diffable for Component7 {
+    // const IDEMPOTENT: bool = true;
+    // additions, removals
+    type Delta = (HashSet<usize>, HashSet<usize>);
+
+    fn base_value() -> Self {
+        Self(HashSet::new())
+    }
+
+    fn diff(&self, other: &Self) -> Self::Delta {
+        let added = other.0.difference(&self.0).cloned().collect();
+        let removed = self.0.difference(&other.0).cloned().collect();
+        (added, removed)
+    }
+
+    fn apply_diff(&mut self, delta: &Self::Delta) {
+        let (added, removed) = delta;
+        self.0.extend(added);
+        self.0.retain(|x| !removed.contains(x));
     }
 }
 
@@ -143,6 +170,9 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation_fn();
 
         app.register_component::<Component6>(ChannelDirection::ServerToClient)
+            .add_delta_compression();
+
+        app.register_component::<Component7>(ChannelDirection::ServerToClient)
             .add_delta_compression();
 
         // resources
