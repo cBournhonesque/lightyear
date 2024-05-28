@@ -8,6 +8,7 @@ use bevy_xpbd_2d::parry::shape::{Ball, SharedShape};
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
+use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
 
 use lightyear::prelude::client::*;
@@ -155,6 +156,7 @@ pub fn shared_player_firing(
             &ColorComponent,
             &ActionState<PlayerActions>,
             &mut Weapon,
+            Has<Controlled>,
         ),
         (
             With<PlayerId>,
@@ -165,8 +167,13 @@ pub fn shared_player_firing(
     tick_manager: Res<TickManager>,
     identity: NetworkIdentity,
 ) {
-    for (pos, rot, vel, color, action, mut weapon) in q.iter_mut() {
+    for (pos, rot, vel, color, action, mut weapon, is_local) in q.iter_mut() {
         if !action.pressed(&PlayerActions::Fire) {
+            continue;
+        }
+        if identity.is_client() && !is_local {
+            // don't spawn bullets based on ActionState for remote players
+            info!("Not spawning, remote player fires");
             continue;
         }
         if (weapon.last_fire_tick + Tick(weapon.cooldown)) > tick_manager.tick() {
@@ -188,7 +195,7 @@ pub fn shared_player_firing(
             };
             commands.entity(bullet_entity).insert(replicate);
         }
-        // info!("spawned bullet {bullet_entity:?}");
+        info!("spawned bullet for ActionState {bullet_entity:?}");
     }
 }
 
