@@ -45,7 +45,7 @@ pub fn is_mode_separate(config: Option<Res<ServerConfig>>) -> bool {
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>`
 /// to avoid having a frame of delay since the `StateTransition` schedule runs after `PreUpdate`.
 /// We also check both the networking state and the io state (in case the io gets disconnected)
-pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
+pub fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
     netclient.map_or(false, |c| c.state() == NetworkingState::Connected)
 }
 
@@ -53,7 +53,7 @@ pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
 ///
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>`
 /// to avoid having a frame of delay since the `StateTransition` schedule runs after `PreUpdate`
-pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
+pub fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
     netclient
         .as_ref()
         .map_or(true, |c| c.state() == NetworkingState::Disconnected)
@@ -63,7 +63,7 @@ pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool 
 ///
 /// We check the status of the `ServerConnections` directly instead of using the `State<NetworkingState>`
 /// to avoid having a frame of delay since the `StateTransition` schedule runs after the `PreUpdate` schedule
-pub(crate) fn is_started(server: Option<Res<ServerConnections>>) -> bool {
+pub fn is_started(server: Option<Res<ServerConnections>>) -> bool {
     server.map_or(false, |s| s.is_listening())
 }
 
@@ -71,6 +71,6 @@ pub(crate) fn is_started(server: Option<Res<ServerConnections>>) -> bool {
 ///
 /// We check the status of the `ServerConnections` directly instead of using the `State<NetworkingState>`
 /// to avoid having a frame of delay since the `StateTransition` schedule runs after the `PreUpdate` schedule
-pub(crate) fn is_stopped(server: Option<Res<ServerConnections>>) -> bool {
+pub fn is_stopped(server: Option<Res<ServerConnections>>) -> bool {
     server.map_or(true, |s| !s.is_listening())
 }
