@@ -1,3 +1,5 @@
+use std::f32::consts::TAU;
+
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy::utils::HashMap;
@@ -7,9 +9,11 @@ use lightyear::inputs::leafwing::InputMessage;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
 use crate::shared;
+use crate::shared::spawn_bullet;
 use crate::shared::ApplyInputsQuery;
 use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 
@@ -39,7 +43,12 @@ impl Plugin for ExampleServerPlugin {
         // spawn player entities once they connect
         app.add_systems(Update, handle_connections);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedSet::Main));
+        app.add_systems(
+            FixedUpdate,
+            (player_movement, shared::shared_player_firing)
+                .chain()
+                .in_set(FixedSet::Main),
+        );
     }
 }
 
@@ -63,11 +72,13 @@ fn init(mut commands: Commands) {
             ..default()
         }),
     );
-    // the ball is server-authoritative
-    let id = commands
-        .spawn(BallBundle::new(Vec2::new(0.0, 0.0), Color::AZURE))
-        .id();
-    info!("Spawning ball: {id:?}");
+    // the balls are server-authoritative
+    const NUM_BALLS: usize = 6;
+    for i in 0..NUM_BALLS {
+        let angle: f32 = i as f32 * (TAU / NUM_BALLS as f32);
+        let pos = Vec2::new(125.0 * angle.cos(), 125.0 * angle.sin());
+        commands.spawn(BallBundle::new(pos, Color::AZURE));
+    }
 }
 
 /// Read inputs and move players
@@ -135,6 +146,8 @@ pub(crate) fn handle_connections(
                 Position(Vec2::new(x, y)),
                 replicate,
                 PhysicsBundle::player_ship(),
+                // Rate of fire: 2 bullets per second
+                Weapon::new((FIXED_TIMESTEP_HZ / 2.0) as u16),
                 // We don't want to replicate the ActionState to the original client, since they are updating it with
                 // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
                 // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!

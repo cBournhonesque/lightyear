@@ -203,26 +203,81 @@ pub fn shared_movement_behaviour(aiq: ApplyInputsQueryItem) {
     }
 }
 
-// // This system defines how we update the player's positions when we receive an input
-// pub(crate) fn shared_movement_behaviour(
-//     mut velocity: Mut<LinearVelocity>,
-//     action: &ActionState<PlayerActions>,
-// ) {
-//     const MOVE_SPEED: f32 = 10.0;
-//     if action.pressed(&PlayerActions::Up) {
-//         velocity.y += MOVE_SPEED;
-//     }
-//     if action.pressed(&PlayerActions::Down) {
-//         velocity.y -= MOVE_SPEED;
-//     }
-//     if action.pressed(&PlayerActions::Left) {
-//         velocity.x -= MOVE_SPEED;
-//     }
-//     if action.pressed(&PlayerActions::Right) {
-//         velocity.x += MOVE_SPEED;
-//     }
-//     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
-// }
+// NB we are not restricting this query to `Controlled` entities on the clients, because it's possible one can
+//    receive PlayerActions for remote players ahead of the server simulating the tick (lag, input delay, etc)
+//    in which case we prespawn their bullets on the correct tick, just like we do for our own bullets.
+pub fn shared_player_firing(
+    mut q: Query<
+        (
+            &Position,
+            &Rotation,
+            &LinearVelocity,
+            &ColorComponent,
+            &ActionState<PlayerActions>,
+            &mut Weapon,
+        ),
+        (
+            With<PlayerId>,
+            Or<(With<Predicted>, With<ReplicationTarget>)>,
+        ),
+    >,
+    mut commands: Commands,
+    tick_manager: Res<TickManager>,
+    identity: NetworkIdentity,
+) {
+    for (pos, rot, vel, color, action, mut weapon) in q.iter_mut() {
+        if !action.pressed(&PlayerActions::Fire) {
+            continue;
+        }
+        if (weapon.last_fire_tick + Tick(weapon.cooldown)) > tick_manager.tick() {
+            // cooldown period - can't fire.
+            continue;
+        }
+        weapon.last_fire_tick = tick_manager.tick();
+
+        let bullet_entity = spawn_bullet(&mut commands, pos, rot, vel, color.0);
+        if identity.is_server() {
+            let replicate = server::Replicate {
+                sync: server::SyncTarget {
+                    prediction: NetworkTarget::All,
+                    ..Default::default()
+                },
+                // make sure that all entities that are predicted are part of the same replication group
+                group: REPLICATION_GROUP,
+                ..default()
+            };
+            commands.entity(bullet_entity).insert(replicate);
+        }
+        // info!("spawned bullet {bullet_entity:?}");
+    }
+}
+
+// On clients, we need to add PreSpawnedPlayerObject
+// On server, we need to add Replicate
+pub fn spawn_bullet(
+    commands: &mut Commands,
+    player_position: &Position,
+    player_rotation: &Rotation,
+    player_velocity: &LinearVelocity,
+    color: Color,
+) -> Entity {
+    let bullet_spawn_offset = Vec2::Y * (SHIP_LENGTH / 2.0 + 1.0);
+    let bullet_speed = 500.0;
+
+    let bullet_origin = player_position.0 + player_rotation.rotate(bullet_spawn_offset);
+    let bullet_linvel = player_rotation.rotate(Vec2::Y * bullet_speed) + player_velocity.0;
+
+    commands
+        .spawn((
+            BulletMarker,
+            Position(bullet_origin),
+            LinearVelocity(bullet_linvel),
+            PhysicsBundle::bullet(),
+            ColorComponent(color),
+            PreSpawnedPlayerObject::default(),
+        ))
+        .id()
+}
 
 pub(crate) fn after_physics_log(
     tick_manager: Res<TickManager>,
@@ -290,11 +345,14 @@ pub(crate) fn draw_confirmed_shadows(
     mut gizmos: Gizmos,
     confirmed_q: Query<
         (&Position, &Rotation, &LinearVelocity, &Confirmed),
-        Or<(With<PlayerId>, With<BallMarker>)>,
+        Or<(With<PlayerId>, With<BallMarker>, With<BulletMarker>)>,
     >,
     predicted_q: Query<
         (&Position, &Collider, &ColorComponent),
-        (With<Predicted>, Or<(With<PlayerId>, With<BallMarker>)>),
+        (
+            With<Predicted>,
+            Or<(With<PlayerId>, With<BallMarker>, With<BulletMarker>)>,
+        ),
     >,
 ) {
     for (position, rotation, velocity, confirmed) in confirmed_q.iter() {
@@ -315,20 +373,26 @@ pub(crate) fn draw_confirmed_shadows(
 #[allow(clippy::type_complexity)]
 fn draw_predicted_entities(
     mut gizmos: Gizmos,
-    players: Query<
-        (&Position, &Rotation, &ColorComponent, &Collider),
-        (With<Predicted>, With<PlayerId>),
-    >,
-    balls: Query<
-        (&Position, &Rotation, &ColorComponent, &Collider),
-        (With<Predicted>, With<BallMarker>),
+    predicted: Query<
+        (
+            &Position,
+            &Rotation,
+            &ColorComponent,
+            &Collider,
+            Has<PreSpawnedPlayerObject>,
+        ),
+        Or<(With<PreSpawnedPlayerObject>, With<Predicted>)>,
     >,
 ) {
-    for (position, rotation, color, collider) in &players {
-        render_shape(collider.shape(), position, rotation, &mut gizmos, color.0);
-    }
-    for (position, rotation, color, collider) in &balls {
-        render_shape(collider.shape(), position, rotation, &mut gizmos, color.0);
+    for (position, rotation, color, collider, prespawned) in &predicted {
+        // render prespawned translucent until acknowledged by the server
+        // (at which point the PreSpawnedPlayerObject component is removed)
+        let col = if prespawned {
+            color.0.with_a(0.5)
+        } else {
+            color.0
+        };
+        render_shape(collider.shape(), position, rotation, &mut gizmos, col);
     }
 }
 
@@ -345,7 +409,7 @@ fn draw_confirmed_entities(
     mut gizmos: Gizmos,
     confirmed: Query<
         (&Position, &Rotation, &ColorComponent, &Collider),
-        Or<(With<PlayerId>, With<BallMarker>)>,
+        Or<(With<PlayerId>, With<BallMarker>, With<BulletMarker>)>,
     >,
 ) {
     for (position, rotation, color, collider) in &confirmed {
