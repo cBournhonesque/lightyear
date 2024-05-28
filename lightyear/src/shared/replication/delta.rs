@@ -1,11 +1,13 @@
 //! Logic related to delta compression (sending only the changes between two states, instead of the new state)
 
+use crate::client::components::SyncComponent;
 use crate::prelude::{ComponentRegistry, Message, Tick};
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::ReplicationGroupId;
+use crate::utils::ready_buffer::ReadyBuffer;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::Entity;
+use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
 use bevy::utils::HashMap;
 use bitcode::{Decode, Encode};
@@ -18,7 +20,10 @@ use std::ptr::NonNull;
 #[derive(Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {
     /// This delta is computed from a previous value
-    Normal,
+    Normal {
+        /// The tick of the previous state
+        previous_tick: Tick,
+    },
     /// This delta is computed from the Base value
     FromBase,
 }
@@ -37,11 +42,10 @@ pub struct DeltaMessage<M> {
 /// - Compute the delta between two states
 /// - Apply the delta to an old state to get the new state
 ///
-/// Two examples could be:
+/// Some examples could be:
 /// - your component contains a hashmap, and your delta is `Add(key, value)` and `Remove(key)`
 /// - your component is a struct with multiple fields, and your delta only contains data for the fields that changed.
-///
-/// Currently the delta-compression logic doesn't work correctly!
+/// (to avoid sending the full struct every time over the network)
 pub trait Diffable: Clone {
     // /// Set to true if the Deltas are idempotent (applying the same delta multiple times has no effect)
     // const IDEMPOTENT: bool;
@@ -57,6 +61,23 @@ pub trait Diffable: Clone {
 
     /// Apply a delta to the current state to reach the new state
     fn apply_diff(&mut self, delta: &Self::Delta);
+}
+
+/// Store a history of past delta-component values so we can apply diffs properly
+#[derive(Component, Debug)]
+pub struct DeltaComponentHistory<C> {
+    // We cannot use a ReadyBuffer because we need to be able to fetch values at arbitrary ticks
+    // not just the most recent ticks
+    pub buffer: BTreeMap<Tick, C>,
+}
+
+// Implementing Default manually to not require C: Default
+impl<C> Default for DeltaComponentHistory<C> {
+    fn default() -> Self {
+        Self {
+            buffer: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Default, Debug)]
