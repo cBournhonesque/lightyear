@@ -9,6 +9,7 @@ use lightyear::shared::replication::components::Controlled;
 
 use crate::protocol::*;
 use crate::shared;
+use crate::shared::spawn_bullet;
 use crate::shared::ApplyInputsQuery;
 use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 
@@ -31,8 +32,14 @@ impl Plugin for ExampleClientPlugin {
                 .before(PredictionSet::SpawnPrediction),
         );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedSet::Main));
-        app.add_systems(Update, (add_ball_physics, handle_new_player));
+        app.add_systems(
+            FixedUpdate,
+            (player_movement, shared::shared_player_firing).in_set(FixedSet::Main),
+        );
+        app.add_systems(
+            Update,
+            (add_ball_physics, add_bullet_physics, handle_new_player),
+        );
     }
 }
 
@@ -57,28 +64,6 @@ pub(crate) fn handle_connection(
                 ..default()
             },
         ));
-        // let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
-        // // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
-        // commands.spawn(PlayerBundle::new(
-        //     client_id,
-        //     Vec2::new(-50.0, y),
-        //     InputMap::new([
-        //         (PlayerActions::Up, KeyCode::KeyW),
-        //         (PlayerActions::Down, KeyCode::KeyS),
-        //         (PlayerActions::Left, KeyCode::KeyA),
-        //         (PlayerActions::Right, KeyCode::KeyD),
-        //     ]),
-        // ));
-        // commands.spawn((PlayerBundle::new(
-        //     client_id,
-        //     Vec2::new(50.0, y),
-        //     InputMap::new([
-        //         (PlayerActions::Up, KeyCode::ArrowUp),
-        //         (PlayerActions::Down, KeyCode::ArrowDown),
-        //         (PlayerActions::Left, KeyCode::ArrowLeft),
-        //         (PlayerActions::Right, KeyCode::ArrowRight),
-        //     ]),
-        // ),));
     }
 }
 
@@ -109,6 +94,26 @@ fn add_ball_physics(
     }
 }
 
+#[allow(clippy::type_complexity)]
+fn add_bullet_physics(
+    mut commands: Commands,
+    mut bullet_query: Query<
+        Entity,
+        (
+            With<BulletMarker>,
+            // insert the physics components on predicted entity
+            Added<Predicted>,
+            // prespawned by client entities will have physics components already
+            // Without<Collider>,
+        ),
+    >,
+) {
+    for entity in bullet_query.iter_mut() {
+        info!("Got bullet, adding physics  {entity:?}");
+        commands.entity(entity).insert(PhysicsBundle::bullet());
+    }
+}
+
 /// When we receive other players (whether they are predicted or interpolated), we want to add the physics components
 /// so that our predicted entities can predict collisions with them correctly
 #[allow(clippy::type_complexity)]
@@ -128,6 +133,7 @@ fn handle_new_player(
                     (PlayerActions::Down, KeyCode::ArrowDown),
                     (PlayerActions::Left, KeyCode::ArrowLeft),
                     (PlayerActions::Right, KeyCode::ArrowRight),
+                    (PlayerActions::Fire, KeyCode::Space),
                 ]))
                 .insert(ActionState::<PlayerActions>::default());
         } else {

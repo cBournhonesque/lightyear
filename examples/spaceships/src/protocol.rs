@@ -10,10 +10,12 @@ use lightyear::prelude::client;
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::shared::color_from_id;
 
 pub const BALL_SIZE: f32 = 15.0;
+pub const BULLET_SIZE: f32 = 1.5;
 pub const SHIP_WIDTH: f32 = 19.0;
 pub const SHIP_LENGTH: f32 = 32.0;
 
@@ -60,6 +62,39 @@ pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 //     }
 // }
 
+// Bullet
+#[derive(Bundle)]
+pub(crate) struct BulletBundle {
+    position: Position,
+    velocity: LinearVelocity,
+    color: ColorComponent,
+    replicate: Replicate,
+    marker: BulletMarker,
+    physics: PhysicsBundle,
+}
+
+impl BulletBundle {
+    pub(crate) fn new(position: Vec2, velocity: Vec2, color: Color) -> Self {
+        let sync_target = SyncTarget {
+            prediction: NetworkTarget::All,
+            ..default()
+        };
+        let replicate = Replicate {
+            sync: sync_target,
+            group: REPLICATION_GROUP,
+            ..default()
+        };
+        Self {
+            position: Position(position),
+            velocity: LinearVelocity(velocity),
+            color: ColorComponent(color),
+            replicate,
+            physics: PhysicsBundle::bullet(),
+            marker: BulletMarker,
+        }
+    }
+}
+
 // Ball
 #[derive(Bundle)]
 pub(crate) struct BallBundle {
@@ -102,10 +137,19 @@ pub(crate) struct PhysicsBundle {
 }
 
 impl PhysicsBundle {
+    pub(crate) fn bullet() -> Self {
+        Self {
+            collider: Collider::circle(BULLET_SIZE),
+            collider_density: ColliderDensity(0.05),
+            rigid_body: RigidBody::Dynamic,
+            external_force: ExternalForce::default(),
+        }
+    }
+
     pub(crate) fn ball() -> Self {
         Self {
             collider: Collider::circle(BALL_SIZE),
-            collider_density: ColliderDensity(0.05),
+            collider_density: ColliderDensity(0.5),
             rigid_body: RigidBody::Dynamic,
             external_force: ExternalForce::ZERO.with_persistence(false),
         }
@@ -141,6 +185,25 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BulletMarker;
+
+// to debounce shots - once you fire (on `last_fire_tick` you have to wait `cooldown` ticks before firing again)
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub(crate) struct Weapon {
+    pub(crate) last_fire_tick: Tick,
+    pub(crate) cooldown: u16,
+}
+
+impl Weapon {
+    pub(crate) fn new(cooldown: u16) -> Self {
+        Self {
+            last_fire_tick: Tick(0),
+            cooldown,
+        }
+    }
+}
+
 // Channels
 
 #[derive(Channel)]
@@ -159,6 +222,7 @@ pub enum PlayerActions {
     Down,
     Left,
     Right,
+    Fire,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
@@ -191,6 +255,16 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(ComponentSyncMode::Once);
 
         app.register_component::<BallMarker>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_component::<BulletMarker>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        // just replicate Weapon once - depending on applying PlayerActions to update the cooldown
+        // and firing for now?
+        app.register_component::<Weapon>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
