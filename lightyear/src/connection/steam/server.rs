@@ -194,7 +194,7 @@ impl NetServer for Server {
                         .connection_request_handler
                         .handle_request(ClientId::Steam(steam_id.raw()))
                     {
-                        event.reject(NetConnectionEnd::AppGeneric, Some(denied_reason));
+                        event.reject(NetConnectionEnd::AppGeneric, Some("{denied_reason:?}"));
                         continue;
                     } else {
                         if let Err(e) = event.accept() {
