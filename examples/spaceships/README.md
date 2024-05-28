@@ -3,7 +3,35 @@
 Based on the `xpbd_demo` but everything is predicted, server authoritative spawning of players,
 movement using physics forces instead of directly setting velocities.
 
---
+
+# Example scenario when replicating inputs immediately makes sense
+
+two clients connected, A and B. Each is 20ms away from the server.
+
+fixed update is 15ms per tick. (approx 64hz)
+
+both clients have a 3 tick input delay. assume this is a decent compromise on a low-latency client between things feeling snappy enough locally, and players with higher latencies not having to rollback loads for every update and experiencing too much jank.
+
+let's say updates from the server for tick N arrive at the clients while they are simulating N+3.
+
+client A simulates tick 10, user presses Fire.
+due to input delay of 3, this is immediately transmitted to the server as "[A] fire=true @ tick 13"
+when simulating frame 13, client A will prespawn their own bullet based on their ActionState for that tick.
+(when the server simulates tick 13, it will spawn a bullet, which is then replicated back and ultimately merged with our predicted one)
+
+A's inputs for tick 13 (sent on A's tick 10) take 20ms to reach the server, then 20ms to reach client B. 
+A & B have the same input delay and latency, so should be simulating roughly the same tick at the same time.
+20ms + 20ms = 40ms / 15ms = inputs are in-flight between A->server->B for 2.7 ticks.
+
+So B will receive A's inputs for tick 13 when it is at tick 12.7, ie just in time.
+
+so on the B client, at the start of tick 13, the ActionState component for remote player A's predicted entity will be set to fire=true, but because B is simulating in the future compared to the server, there will not yet be a server update with a replicated bullet spawn message.
+
+at B's tick 13 we can spawn the predicted bullet on behalf of A, based on their ActionState. In theory this should not require any rollbacks when the server also spawns the bullet on the server's tick 13, and replicates it to B, which will receive it around B's tick 16 - check history, decide no rollback needed.
+
+alternatively if we don't spawn the bullet based on the actionstate, around when B simulates tick 16 it will receive server updates for the bullet spawn that happened on tick 13. B will then have to rollback to 13, spawn the bullet, fast-forward back to 16. The bullet will appear to spawn 3-ticks ahead of where it was fired from.
+
+## ----
 
 This example showcases several things:
 
