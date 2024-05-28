@@ -24,44 +24,6 @@ pub const SHIP_LENGTH: f32 = 32.0;
 // will always be consistent (= on the same tick)
 pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
-// Player
-// #[derive(Bundle)]
-// pub(crate) struct PlayerBundle {
-//     id: PlayerId,
-//     position: Position,
-//     color: ColorComponent,
-//     replicate: client::Replicate,
-//     physics: PhysicsBundle,
-//     inputs: InputManagerBundle<PlayerActions>,
-//     // IMPORTANT: this lets the server know that the entity is pre-predicted
-//     // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-//     // as the Predicted version
-//     pre_predicted: PrePredicted,
-// }
-
-// impl PlayerBundle {
-//     pub(crate) fn new(id: ClientId, position: Vec2, input_map: InputMap<PlayerActions>) -> Self {
-//         let color = color_from_id(id);
-//         Self {
-//             id: PlayerId(id),
-//             position: Position(position),
-//             color: ColorComponent(color),
-//             replicate: client::Replicate {
-//                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
-//                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
-//                 group: REPLICATION_GROUP,
-//                 ..default()
-//             },
-//             physics: PhysicsBundle::player(),
-//             inputs: InputManagerBundle::<PlayerActions> {
-//                 action_state: ActionState::default(),
-//                 input_map,
-//             },
-//             pre_predicted: PrePredicted::default(),
-//         }
-//     }
-// }
-
 // Bullet
 #[derive(Bundle)]
 pub(crate) struct BulletBundle {

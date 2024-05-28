@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 mod client;
 mod protocol;
+mod renderer;
 mod server;
 mod shared;
 
