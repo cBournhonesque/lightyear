@@ -42,6 +42,27 @@ pub struct LocalBevyStepper {
     pub current_time: bevy::utils::Instant,
 }
 
+impl Default for LocalBevyStepper {
+    fn default() -> Self {
+        let frame_duration = Duration::from_secs_f64(1.0 / 60.0);
+        let tick_duration = Duration::from_secs_f64(1.0 / 64.0);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..default()
+        };
+        let mut stepper = LocalBevyStepper::new(
+            1,
+            shared_config,
+            SyncConfig::default(),
+            PredictionConfig::default(),
+            InterpolationConfig::default(),
+            frame_duration,
+        );
+        stepper.init();
+        stepper
+    }
+}
+
 // Do not forget to use --features mock_time when using the LinkConditioner
 impl LocalBevyStepper {
     pub fn new(
@@ -166,6 +187,25 @@ impl LocalBevyStepper {
             tick_duration: shared_config.tick.tick_duration,
             current_time: now,
         }
+    }
+
+    pub fn default_n_clients(n: usize) -> Self {
+        let frame_duration = Duration::from_secs_f64(1.0 / 60.0);
+        let tick_duration = Duration::from_secs_f64(1.0 / 64.0);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..default()
+        };
+        let mut stepper = LocalBevyStepper::new(
+            n,
+            shared_config,
+            SyncConfig::default(),
+            PredictionConfig::default(),
+            InterpolationConfig::default(),
+            frame_duration,
+        );
+        stepper.init();
+        stepper
     }
 
     pub fn client_resource<R: Resource>(&self, client_id: ClientId) -> &R {
