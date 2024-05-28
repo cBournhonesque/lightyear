@@ -124,17 +124,19 @@ impl NetClient for Client {
                 virtual_port,
                 steam_id,
             } => {
-                self.steamworks_client
-                    .read()
-                    .expect("could not get steamworks client")
-                    .get_client()
-                    .networking_sockets()
-                    .connect_p2p(
-                        NetworkingIdentity::new_steam_id(SteamId::from_raw(steam_id)),
-                        virtual_port,
-                        vec![],
-                    )
-                    .context("failed to create p2p connection")?;
+                self.connection = Some(
+                    self.steamworks_client
+                        .read()
+                        .expect("could not get steamworks client")
+                        .get_client()
+                        .networking_sockets()
+                        .connect_p2p(
+                            NetworkingIdentity::new_steam_id(SteamId::from_raw(steam_id)),
+                            virtual_port,
+                            vec![],
+                        )
+                        .context("failed to create p2p connection")?,
+                );
             }
         }
         Ok(())
