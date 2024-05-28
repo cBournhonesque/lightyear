@@ -42,11 +42,10 @@ pub struct DeltaMessage<M> {
 /// - Compute the delta between two states
 /// - Apply the delta to an old state to get the new state
 ///
-/// Two examples could be:
+/// Some examples could be:
 /// - your component contains a hashmap, and your delta is `Add(key, value)` and `Remove(key)`
 /// - your component is a struct with multiple fields, and your delta only contains data for the fields that changed.
-///
-/// Currently the delta-compression logic doesn't work correctly!
+/// (to avoid sending the full struct every time over the network)
 pub trait Diffable: Clone {
     // /// Set to true if the Deltas are idempotent (applying the same delta multiple times has no effect)
     // const IDEMPOTENT: bool;
