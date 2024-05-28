@@ -40,9 +40,13 @@ impl Default for SteamConfig {
     }
 }
 
+/// Steam socket configuration for clients
 #[derive(Debug, Clone)]
 pub enum SocketConfig {
+    /// Connect to a server by IP address. Suitable for dedicated servers.
     Ip { server_addr: SocketAddr },
+    /// Connect to another Steam user hosting a server. Suitable for
+    /// peer-to-peer games.
     P2P { virtual_port: i32, steam_id: u64 },
 }
 

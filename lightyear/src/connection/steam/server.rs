@@ -50,16 +50,17 @@ impl Default for SteamConfig {
     }
 }
 
+/// Steam socket configuration for servers
 #[derive(Debug, Clone)]
 pub enum SocketConfig {
+    /// This server accepts connections via IP address. Suitable for dedicated servers.
     Ip {
         server_ip: Ipv4Addr,
         game_port: u16,
         query_port: u16,
     },
-    P2P {
-        virtual_port: i32,
-    },
+    /// This server accepts Steam P2P connections. Suitable for peer-to-peer games.
+    P2P { virtual_port: i32 },
 }
 
 impl Default for SocketConfig {
