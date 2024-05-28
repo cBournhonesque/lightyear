@@ -838,14 +838,15 @@ pub(crate) mod send {
         use super::*;
         use crate::client::events::ComponentUpdateEvent;
         use crate::prelude::client::Confirmed;
-        use crate::prelude::server::{ControlledBy, Replicate, VisibilityManager};
-        use crate::prelude::{client, server, Replicated};
+        use crate::prelude::server::{ControlledBy, NetConfig, Replicate, VisibilityManager};
+        use crate::prelude::{client, server, LinkConditionerConfig, Replicated};
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
         use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
         use bevy::prelude::{default, EventReader, Resource, Update};
+        use bevy::utils::HashSet;
 
         // TODO: test entity spawn newly connected client
 
@@ -1836,6 +1837,306 @@ pub(crate) mod send {
                 .expect("no acks data for the group_id found")
                 .get(&update_tick)
                 .is_none());
+        }
+
+        /// We want to test the following case:
+        /// - server sends a diff between ticks 1-3
+        /// - client receives that and applies it
+        /// - server sends a diff between ticks 1-5 (because the server hasn't received the
+        /// ack for tick 3 yet)
+        /// - client receives that, applies it, and it still works even if client was already on tick 3
+        /// We can emulate this by adding some delay on the server receiving client packets via the link conditioner.
+        #[test]
+        fn test_component_update_delta_non_idempotent_slow_ack() {
+            let mut stepper = BevyStepper::default();
+            stepper.stop();
+
+            #[allow(irrefutable_let_patterns)]
+            if let NetConfig::Netcode { io, .. } = stepper
+                .server_app
+                .world
+                .resource_mut::<ServerConfig>()
+                .net
+                .first_mut()
+                .unwrap()
+            {
+                io.conditioner = Some(LinkConditionerConfig {
+                    // the server receives client packets after 3 ticks
+                    incoming_latency: Duration::from_millis(30),
+                    incoming_jitter: Default::default(),
+                    incoming_loss: 0.0,
+                })
+            }
+            stepper.start();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world
+                .spawn((
+                    Replicate::default(),
+                    Component6(vec![1, 2]),
+                    DeltaCompression::<Component6>::default(),
+                ))
+                .id();
+            let group_id = ReplicationGroupId(server_entity.to_bits());
+            stepper.frame_step();
+            let insert_tick = stepper.server_tick();
+            stepper.frame_step();
+            let client_entity = *stepper
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![1, 2])
+            );
+            // apply update (we haven't received the ack from the client so our diff should be
+            // from the base value, aka [2, 3])
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .get_mut::<Component6>()
+                .unwrap()
+                .0 = vec![1, 2, 3];
+            stepper.frame_step();
+            let update_tick = stepper.server_tick();
+            // check that the delta manager has been updated correctly
+            // the update_tick message hasn't been acked yet
+            assert_eq!(
+                stepper
+                    .server_app
+                    .world
+                    .resource::<ConnectionManager>()
+                    .delta_manager
+                    .acks
+                    .get(&group_id)
+                    .expect("no acks data for the group_id found")
+                    .get(&update_tick)
+                    .expect("no acks count found for the update_tick"),
+                &1
+            );
+            stepper.frame_step();
+            // it still works because the DeltaType is FromBase, so the client re-applies the diff from the base value
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![1, 2, 3])
+            );
+            // the insert_tick message hasn't been acked yet
+            assert_eq!(
+                stepper
+                    .server_app
+                    .world
+                    .resource::<ConnectionManager>()
+                    .delta_manager
+                    .acks
+                    .get(&group_id)
+                    .expect("no acks data for the group_id found")
+                    .get(&update_tick)
+                    .expect("no acks count found for the update_tick"),
+                &1
+            );
+            // wait a few ticks to be share that the server received the client ack
+            stepper.frame_step();
+            stepper.frame_step();
+            stepper.frame_step();
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .acks
+                .get(&group_id)
+                .expect("no acks data for the group_id found")
+                .get(&update_tick)
+                .is_none());
+            // apply update (the update should be from the last acked value, aka [4])
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .get_mut::<Component6>()
+                .unwrap()
+                .0 = vec![1, 2, 3, 4];
+            stepper.frame_step();
+            let update_tick = stepper.server_tick();
+
+            // apply another update (the update should still be from the last acked value, aka [4, 5])
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .get_mut::<Component6>()
+                .unwrap()
+                .0 = vec![1, 2, 3, 4, 5];
+            stepper.frame_step();
+            // the client receives the first update
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![1, 2, 3, 4])
+            );
+            stepper.frame_step();
+            // TODO: THIS IS NOT CORRECT BEHAVIOUR!
+            // the client receives the second update; it doesn't work well because the update is not idempotent!
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![1, 2, 3, 4, 4, 5])
+            );
+        }
+
+        /// We want to test the following case:
+        /// - server sends a diff between ticks 1-3
+        /// - client receives that and applies it
+        /// - server sends a diff between ticks 1-5 (because the server hasn't received the
+        /// ack for tick 3 yet)
+        /// - client receives that, applies it, and it still works even if client was already on tick 3
+        /// We can emulate this by adding some delay on the server receiving client packets via the link conditioner.
+        #[test]
+        fn test_component_update_delta_idempotent_slow_ack() {
+            let mut stepper = BevyStepper::default();
+            stepper.stop();
+
+            #[allow(irrefutable_let_patterns)]
+            if let NetConfig::Netcode { io, .. } = stepper
+                .server_app
+                .world
+                .resource_mut::<ServerConfig>()
+                .net
+                .first_mut()
+                .unwrap()
+            {
+                io.conditioner = Some(LinkConditionerConfig {
+                    // the server receives client packets after 3 ticks
+                    incoming_latency: Duration::from_millis(30),
+                    incoming_jitter: Default::default(),
+                    incoming_loss: 0.0,
+                })
+            }
+            stepper.start();
+
+            // spawn an entity on server (diff = added 1)
+            let server_entity = stepper
+                .server_app
+                .world
+                .spawn((
+                    Replicate::default(),
+                    Component7(HashSet::from([1])),
+                    DeltaCompression::<Component7>::default(),
+                ))
+                .id();
+            let group_id = ReplicationGroupId(server_entity.to_bits());
+            stepper.frame_step();
+            // apply an update (diff = added 2 since we compute the diff FromBase)
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .get_mut::<Component7>()
+                .unwrap()
+                .0 = HashSet::from([2]);
+            // replicate and make sure that the server received the client ack
+            stepper.frame_step();
+            let update_tick = stepper.server_tick();
+            stepper.frame_step();
+            stepper.frame_step();
+            stepper.frame_step();
+            stepper.frame_step();
+            let client_entity = *stepper
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component7>()
+                    .expect("component missing"),
+                &Component7(HashSet::from([2]))
+            );
+            // check that the server received an ack
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .acks
+                .get(&group_id)
+                .expect("no acks data for the group_id found")
+                .get(&update_tick)
+                .is_none());
+            // apply update (the update should be from the last acked value, aka add 3, remove 2)
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .get_mut::<Component7>()
+                .unwrap()
+                .0 = HashSet::from([3]);
+            stepper.frame_step();
+            let update_tick = stepper.server_tick();
+            // apply another update (the update should still be from the last acked value, aka add 4, remove 2
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .get_mut::<Component7>()
+                .unwrap()
+                .0 = HashSet::from([4]);
+            stepper.frame_step();
+            // the client receives the first update
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component7>()
+                    .expect("component missing"),
+                &Component7(HashSet::from([3]))
+            );
+            stepper.frame_step();
+            // TODO: THIS IS NOT CORRECT BEHAVIOUR!
+            // the client receives the second update; it doesn't work well even if the update is idempotent!
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component7>()
+                    .expect("component missing"),
+                &Component7(HashSet::from([3, 4]))
+            );
         }
 
         /// Check that updates are not sent if the `ReplicationTarget` component gets removed.

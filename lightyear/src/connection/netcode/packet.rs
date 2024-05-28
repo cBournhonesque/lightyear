@@ -1,3 +1,4 @@
+use std::io::Seek;
 use std::{
     io::{self, Read, Write},
     mem::size_of,
@@ -230,15 +231,9 @@ impl Bytes for DeniedReason {
             Ok(DeniedReason::InvalidToken)
         } else if variant == 6 {
             let len = reader.read_u8()? as usize;
-            let mut reason = [0; u8::MAX as usize];
-            let num_read = reader.read(&mut reason)?;
-            if num_read != len {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid denied reason",
-                ));
-            }
-            let reason_str = String::from_utf8(reason[..len].to_vec())
+            let mut string_buf = vec![0; len];
+            reader.read_exact(&mut string_buf)?;
+            let reason_str = String::from_utf8(string_buf)
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid denied reason"))?;
             Ok(DeniedReason::Custom(reason_str))
         } else {
