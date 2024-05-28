@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-use crate::connection::steam::server::SteamConfig;
+use crate::connection::steam::{server::SteamConfig, steamworks_client::SteamworksClient};
 use crate::packet::packet::Packet;
 use crate::prelude::client::ClientTransport;
 use crate::prelude::server::ServerTransport;
@@ -104,6 +104,7 @@ pub enum NetConfig {
     },
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     Steam {
+        steamworks_client: Option<Arc<RwLock<SteamworksClient>>>,
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
     },
@@ -147,12 +148,19 @@ impl NetConfig {
             //  vs steam with p2p connections
             #[cfg(all(feature = "steam", not(target_family = "wasm")))]
             NetConfig::Steam {
+                steamworks_client,
                 config,
                 conditioner,
             } => {
                 // TODO: handle errors
-                let server = super::steam::server::Server::new(config, conditioner)
-                    .expect("could not create steam server");
+                let server = super::steam::server::Server::new(
+                    steamworks_client.unwrap_or_else(|| {
+                        Arc::new(RwLock::new(SteamworksClient::new(config.app_id)))
+                    }),
+                    config,
+                    conditioner,
+                )
+                .expect("could not create steam server");
                 ServerConnection::Steam(server)
             }
         }

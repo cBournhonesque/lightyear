@@ -21,14 +21,13 @@ use steamworks::networking_types::{
 use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SingleClient, SteamError};
 use tracing::{error, info};
 
-use super::{get_networking_options, SingleClientThreadSafe};
+use super::get_networking_options;
+use super::steamworks_client::SteamworksClient;
 
 #[derive(Debug, Clone)]
 pub struct SteamConfig {
     pub app_id: u32,
-    pub server_ip: Ipv4Addr,
-    pub game_port: u16,
-    pub query_port: u16,
+    pub socket_config: SocketConfig,
     pub max_clients: usize,
     /// A closure that will be used to accept or reject incoming connections
     pub connection_request_handler: Arc<dyn ConnectionRequestHandler>,
@@ -42,9 +41,7 @@ impl Default for SteamConfig {
         Self {
             // app id of the public Space Wars demo app
             app_id: 480,
-            server_ip: Ipv4Addr::new(127, 0, 0, 1),
-            game_port: 27015,
-            query_port: 27016,
+            socket_config: Default::default(),
             max_clients: 16,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
             // mode: ServerMode::NoAuthentication,
@@ -53,12 +50,33 @@ impl Default for SteamConfig {
     }
 }
 
+/// Steam socket configuration for servers
+#[derive(Debug, Clone)]
+pub enum SocketConfig {
+    /// This server accepts connections via IP address. Suitable for dedicated servers.
+    Ip {
+        server_ip: Ipv4Addr,
+        game_port: u16,
+        query_port: u16,
+    },
+    /// This server accepts Steam P2P connections. Suitable for peer-to-peer games.
+    P2P { virtual_port: i32 },
+}
+
+impl Default for SocketConfig {
+    fn default() -> Self {
+        Self::Ip {
+            server_ip: Ipv4Addr::new(127, 0, 0, 1),
+            game_port: 27015,
+            query_port: 27016,
+        }
+    }
+}
+
 // TODO: enable p2p by replacing ServerManager with ClientManager?
 pub struct Server {
-    // TODO: update to use ServerManager...
-    client: steamworks::Client<ClientManager>,
-    single_client: SingleClientThreadSafe,
-    server: steamworks::Server,
+    steamworks_client: Arc<RwLock<SteamworksClient>>,
+    server: Option<steamworks::Server>,
     config: SteamConfig,
     listen_socket: Option<ListenSocket<ClientManager>>,
     connections: HashMap<ClientId, NetConnection<ClientManager>>,
@@ -70,21 +88,32 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(config: SteamConfig, conditioner: Option<LinkConditionerConfig>) -> Result<Self> {
-        let (client, single) = steamworks::Client::init_app(config.app_id)
-            .context("could not initialize steam client")?;
-        let (server, _) = steamworks::Server::init(
-            config.server_ip,
-            config.game_port,
-            config.query_port,
-            ServerMode::NoAuthentication,
-            // config.mode.clone(),
-            &config.version.clone(),
-        )
-        .context("could not initialize steam server")?;
+    pub fn new(
+        steamworks_client: Arc<RwLock<SteamworksClient>>,
+        config: SteamConfig,
+        conditioner: Option<LinkConditionerConfig>,
+    ) -> Result<Self> {
+        let server = match &config.socket_config {
+            SocketConfig::Ip {
+                server_ip,
+                game_port,
+                query_port,
+            } => {
+                let (server, _) = steamworks::Server::init(
+                    *server_ip,
+                    *game_port,
+                    *query_port,
+                    ServerMode::NoAuthentication,
+                    // config.mode.clone(),
+                    &config.version.clone(),
+                )
+                .context("could not initialize steam server")?;
+                Some(server)
+            }
+            SocketConfig::P2P { .. } => None,
+        };
         Ok(Self {
-            client,
-            single_client: SingleClientThreadSafe(single),
+            steamworks_client,
             server,
             config,
             listen_socket: None,
@@ -100,16 +129,43 @@ impl Server {
 
 impl NetServer for Server {
     fn start(&mut self) -> Result<()> {
-        let options = get_networking_options(&self.conditioner);
-        let server_addr = SocketAddr::new(self.config.server_ip.into(), self.config.game_port);
-        self.listen_socket = Some(
-            self.client
-                .networking_sockets()
-                // TODO: using the NetworkingConfigEntry options seems to cause an issue. See: https://github.com/Noxime/steamworks-rs/issues/169
-                .create_listen_socket_ip(server_addr, vec![])
-                .context("could not create server listen socket")?,
-        );
-        info!("Steam socket started on {:?}", server_addr);
+        // TODO: using the NetworkingConfigEntry options seems to cause an issue. See: https://github.com/Noxime/steamworks-rs/issues/169
+        // let options = get_networking_options(&self.conditioner);
+
+        match self.config.socket_config {
+            SocketConfig::Ip {
+                server_ip,
+                game_port,
+                ..
+            } => {
+                let server_addr = SocketAddr::new(server_ip.into(), game_port);
+                self.listen_socket = Some(
+                    self.steamworks_client
+                        .read()
+                        .expect("could not get steamworks client")
+                        .get_client()
+                        .networking_sockets()
+                        .create_listen_socket_ip(server_addr, vec![])
+                        .context("could not create server listen socket")?,
+                );
+                info!("Steam socket started on {:?}", server_addr);
+            }
+            SocketConfig::P2P { virtual_port } => {
+                self.listen_socket = Some(
+                    self.steamworks_client
+                        .read()
+                        .expect("could not get steamworks client")
+                        .get_client()
+                        .networking_sockets()
+                        .create_listen_socket_p2p(virtual_port, vec![])
+                        .context("could not create server listen socket")?,
+                );
+                info!(
+                    "Steam P2P socket started on virtual port: {:?}",
+                    virtual_port
+                );
+            }
+        };
         Ok(())
     }
 
@@ -141,7 +197,11 @@ impl NetServer for Server {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        self.single_client.0.run_callbacks();
+        self.steamworks_client
+            .write()
+            .expect("could not get steamworks client")
+            .get_single()
+            .run_callbacks();
 
         // reset connection events
         self.new_connections.clear();
