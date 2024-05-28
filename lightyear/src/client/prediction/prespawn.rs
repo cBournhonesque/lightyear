@@ -73,7 +73,7 @@ impl Plugin for PreSpawnedPlayerObjectPlugin {
             // we first try to see if the entity was a PreSpawnedPlayerObject
             // if we couldn't match it then the component gets removed and then should we try the normal spawn-prediction flow
             // TODO: or should we just consider that there was an error, and not go through the normal prediction flow?
-            (Self::spawn_pre_spawned_player_object, apply_deferred)
+            (Self::match_with_received_server_entity, apply_deferred)
                 .chain()
                 .in_set(PreSpawnedPlayerObjectSet::Spawn),
         );
@@ -111,9 +111,10 @@ impl PreSpawnedPlayerObjectPlugin {
                 |world: &mut World, component_registry: Mut<ComponentRegistry>| {
                     let components = world.components();
 
-                    // ignore confirmed entities just in case we somehow didn't remove their hash during PreUpdate
+                    // ignore replicated entities, we only want to iterate through entities
+                    // spawned on the client
                     let mut pre_spawned_query = world
-                .query_filtered::<(EntityRef, Ref<PreSpawnedPlayerObject>), Without<Confirmed>>();
+                .query_filtered::<(EntityRef, Ref<PreSpawnedPlayerObject>), (Without<Replicated>, Without<Confirmed>)>();
                     // let mut predicted_entities = vec![];
                     for (entity_ref, prespawn) in pre_spawned_query.iter(world) {
                         // we only care about newly-added PreSpawnedPlayerObject components
@@ -121,86 +122,92 @@ impl PreSpawnedPlayerObjectPlugin {
                             continue;
                         }
                         let entity = entity_ref.id();
-                        let hash = prespawn.hash.map_or_else(
-                    || {
-                        // TODO: try EntityHasher instead since we only hash the 64 lower bits of TypeId
-                        // TODO: should I create the hasher once outside?
-                        // let mut hasher =
-                        //     bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
+                        let hash = prespawn.hash.map_or_else(|| {
+                            // TODO: try EntityHasher instead since we only hash the 64 lower bits of TypeId
+                            // TODO: should I create the hasher once outside?
+                            // let mut hasher =
+                            //     bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
 
-                        let mut hasher = seahash::SeaHasher::new();
-                        // let mut hasher = xxhash_rust::xxh3::Xxh3Builder::new()
-                        //     .with_seed(1)
-                        //     .build_hasher();
-                        // TODO: the default hasher doesn't seem to be deterministic across processes
-                        // let mut hasher = bevy::utils::AHasher::default();
+                            let mut hasher = seahash::SeaHasher::new();
+                            // let mut hasher = xxhash_rust::xxh3::Xxh3Builder::new()
+                            //     .with_seed(1)
+                            //     .build_hasher();
+                            // TODO: the default hasher doesn't seem to be deterministic across processes
+                            // let mut hasher = bevy::utils::AHasher::default();
 
-                        // TODO: this only works currently for entities that are spawned during Update!
-                        //  if we want the tick to be valid, compute_hash should also be run at the end of FixedUpdate::Main
-                        //  so that we have the exact spawn tick! Solutions:
-                        //  run compute_hash in post-update as well
-                        // we include the spawn tick in the hash
-                        tick.hash(&mut hasher);
-                        //
-                        // // TODO: we only want to use components from the protocol, because server/client might use a lot of different stuff...
-                        // entity_ref.contains_type_id()
+                            // TODO: this only works currently for entities that are spawned during Update!
+                            //  if we want the tick to be valid, compute_hash should also be run at the end of FixedUpdate::Main
+                            //  so that we have the exact spawn tick! Solutions:
+                            //  run compute_hash in post-update as well
+                            // we include the spawn tick in the hash
+                            tick.hash(&mut hasher);
+                            //
+                            // // TODO: we only want to use components from the protocol, because server/client might use a lot of different stuff...
+                            // entity_ref.contains_type_id()
 
-                        // NOTE: we cannot call hash() multiple times because the components in the archetype
-                        //  might get iterated in any order!
-                        //  Instead we will get the sorted list of types to hash first, sorted by type_id
-                        let mut kinds_to_hash = entity_ref
-                            .archetype()
-                            .components()
-                            .filter_map(|component_id| {
-                                if let Some(type_id) =
-                                    world.components().get_info(component_id).unwrap().type_id()
-                                {
-                                    // ignore some book-keeping components
-                                    if type_id != TypeId::of::<VisibilityMode>()
-                                        && type_id != TypeId::of::<ReplicationTarget>()
-                                        && type_id != TypeId::of::<SyncTarget>()
-                                        && type_id != TypeId::of::<ControlledBy>()
-                                        && type_id != TypeId::of::<Replicating>()
-                                        && type_id != TypeId::of::<Replicated>()
-                                        && type_id != TypeId::of::<ReplicateToServer>()
-                                        && type_id != TypeId::of::<ReplicateVisibility>()
-                                        && type_id != TypeId::of::<VisibilityMode>()
-                                        && type_id != TypeId::of::<TargetEntity>()
-                                        && type_id != TypeId::of::<ReplicateHierarchy>()
-                                        && type_id != TypeId::of::<PreSpawnedPlayerObject>()
-                                        && type_id != TypeId::of::<ShouldBePredicted>()
-                                        && type_id != TypeId::of::<DespawnTracker>()
-                                        && type_id != TypeId::of::<ParentSync>()
+                            // NOTE: we cannot call hash() multiple times because the components in the archetype
+                            //  might get iterated in any order!
+                            //  Instead we will get the sorted list of types to hash first, sorted by type_id
+                            let mut kinds_to_hash = entity_ref
+                                .archetype()
+                                .components()
+                                .filter_map(|component_id| {
+                                    if let Some(type_id) =
+                                        world.components().get_info(component_id).unwrap().type_id()
                                     {
-                                        return component_registry.kind_map.net_id(&ComponentKind::from(type_id)).copied();
+                                        // ignore some book-keeping components
+                                        if type_id != TypeId::of::<VisibilityMode>()
+                                            && type_id != TypeId::of::<ReplicationTarget>()
+                                            && type_id != TypeId::of::<SyncTarget>()
+                                            && type_id != TypeId::of::<ControlledBy>()
+                                            && type_id != TypeId::of::<Replicating>()
+                                            && type_id != TypeId::of::<Replicated>()
+                                            && type_id != TypeId::of::<ReplicateToServer>()
+                                            && type_id != TypeId::of::<ReplicateVisibility>()
+                                            && type_id != TypeId::of::<VisibilityMode>()
+                                            && type_id != TypeId::of::<TargetEntity>()
+                                            && type_id != TypeId::of::<ReplicateHierarchy>()
+                                            && type_id != TypeId::of::<PreSpawnedPlayerObject>()
+                                            && type_id != TypeId::of::<ShouldBePredicted>()
+                                            && type_id != TypeId::of::<DespawnTracker>()
+                                            && type_id != TypeId::of::<ParentSync>()
+                                        {
+                                            return component_registry.kind_map.net_id(&ComponentKind::from(type_id)).copied();
+                                        }
                                     }
-                                }
-                                None
-                            })
-                            .collect::<Vec<_>>();
-                        kinds_to_hash.sort();
-                        kinds_to_hash.into_iter().for_each(|kind| {
-                            trace!(?kind, "using kind for hash");
-                            kind.hash(&mut hasher)
+                                    None
+                                })
+                                .collect::<Vec<_>>();
+                            kinds_to_hash.sort();
+                            kinds_to_hash.into_iter().for_each(|kind| {
+                                trace!(?kind, "using kind for hash");
+                                kind.hash(&mut hasher)
+                            });
+
+                            // No need to set the value on the component here, we only need the value in the resource!
+                            // prespawn.hash = Some(hasher.finish());
+
+                            let new_hash = hasher.finish();
+                            debug!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                            new_hash
+                        },
+                        |hash| {
+                            trace!(
+                                ?entity,
+                                ?tick,
+                                ?hash,
+                                "the hash has already been computed for the entity!"
+                            );
+                            hash
                         });
 
-                        // No need to set the value on the component here, we only need the value in the resource!
-                        // prespawn.hash = Some(hasher.finish());
+                        // check if we can match with an existing server entity that was received
+                        // before the client entity was spawned
+                        // this could happen if we are predicting remote players:
+                        // - client 1 presses input and spawns a prespawned-object
+                        // - the pre-spawned object AND the input are replicated to player 2
+                        // - player 2 receives BOTH the replicated object and the input, and spawns a duplicate object
 
-                        let new_hash = hasher.finish();
-                        debug!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
-                        new_hash
-                    },
-                    |hash| {
-                        trace!(
-                            ?entity,
-                            ?tick,
-                            ?hash,
-                            "the hash has already been computed for the entity!"
-                        );
-                        hash
-                    },
-                );
 
                         // TODO: what to do in multiple entities share the same hash?
                         //  just match a random one of them? or should the user have a more precise hash?
@@ -234,10 +241,11 @@ impl PreSpawnedPlayerObjectPlugin {
     /// When we receive an entity from the server that contains the PreSpawnedPlayerObject component,
     /// that means that we already spawned it on the client.
     /// Try to match which client entity it is and take authority over it.
-    pub(crate) fn spawn_pre_spawned_player_object(
+    pub(crate) fn match_with_received_server_entity(
         mut commands: Commands,
         connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
+        // TODO: replace with Query<&PreSpawnedPlayerObject, Added<Replicating>> ?
         mut events: EventReader<ComponentInsertEvent<PreSpawnedPlayerObject>>,
         query: Query<&PreSpawnedPlayerObject>,
     ) {
