@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use anyhow::Result;
 use bevy::ecs::system::SystemParam;
@@ -69,7 +68,7 @@ pub(crate) enum NetClientDispatch {
 /// (either a Netcode, Steam, or Local client)
 #[derive(Resource)]
 pub struct ClientConnection {
-    pub(crate) client: NetClientDispatch,
+    pub client: NetClientDispatch,
 }
 
 pub type IoConfig = SharedIoConfig<ClientTransport>;
