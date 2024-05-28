@@ -6,6 +6,7 @@ use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlu
 use bevy_xpbd_2d::parry::shape::{Ball, SharedShape};
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
+use leafwing_input_manager::action_state::ActionState;
 use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
 use lightyear::prelude::client::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
@@ -120,11 +121,12 @@ fn draw_predicted_entities(
             &ColorComponent,
             &Collider,
             Has<PreSpawnedPlayerObject>,
+            Option<&ActionState<PlayerActions>>,
         ),
         Or<(With<PreSpawnedPlayerObject>, With<Predicted>)>,
     >,
 ) {
-    for (position, rotation, color, collider, prespawned) in &predicted {
+    for (position, rotation, color, collider, prespawned, opt_action) in &predicted {
         // render prespawned translucent until acknowledged by the server
         // (at which point the PreSpawnedPlayerObject component is removed)
         let col = if prespawned {
@@ -133,6 +135,25 @@ fn draw_predicted_entities(
             color.0
         };
         render_shape(collider.shape(), position, rotation, &mut gizmos, col);
+        // render engine exhaust for players holding down thrust.
+        if let Some(action) = opt_action {
+            if action.pressed(&PlayerActions::Up) {
+                let width = 0.6 * (SHIP_WIDTH / 2.0);
+                let points = vec![
+                    Vec2::new(width, (-SHIP_LENGTH / 2.) - 3.0),
+                    Vec2::new(-width, (-SHIP_LENGTH / 2.) - 3.0),
+                    Vec2::new(0.0, (-SHIP_LENGTH / 2.) - 10.0),
+                ];
+                let collider = Collider::convex_hull(points).unwrap();
+                render_shape(
+                    collider.shape(),
+                    position,
+                    rotation,
+                    &mut gizmos,
+                    col.with_a(0.7),
+                );
+            }
+        }
     }
 }
 
