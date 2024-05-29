@@ -13,9 +13,9 @@ use async_compat::Compat;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
 
-use lightyear::prelude::client::Authentication;
 #[cfg(not(target_family = "wasm"))]
 use lightyear::prelude::client::SteamConfig;
+use lightyear::prelude::client::{Authentication, SocketConfig};
 use lightyear::prelude::{CompressionConfig, LinkConditionerConfig};
 
 use lightyear::prelude::{client, server};
@@ -221,11 +221,14 @@ pub(crate) fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConf
                 game_port,
                 query_port,
             } => server::NetConfig::Steam {
+                steamworks_client: None,
                 config: server::SteamConfig {
                     app_id: *app_id,
-                    server_ip: *server_ip,
-                    game_port: *game_port,
-                    query_port: *query_port,
+                    socket_config: server::SocketConfig::Ip {
+                        server_ip: *server_ip,
+                        game_port: *game_port,
+                        query_port: *query_port,
+                    },
                     max_clients: 16,
                     ..default()
                 },
@@ -305,8 +308,9 @@ pub(crate) fn get_client_net_config(settings: &Settings, client_id: u64) -> clie
         ),
         #[cfg(not(target_family = "wasm"))]
         ClientTransports::Steam { app_id } => client::NetConfig::Steam {
+            steamworks_client: None,
             config: SteamConfig {
-                server_addr,
+                socket_config: SocketConfig::Ip { server_addr },
                 app_id: *app_id,
             },
             conditioner: settings

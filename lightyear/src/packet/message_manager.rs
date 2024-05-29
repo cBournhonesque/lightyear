@@ -91,6 +91,12 @@ impl MessageManager {
                         .expect("Channel not found");
                     // TODO: batch the messages?
                     for message_ack in message_acks {
+                        trace!(
+                            ?lost_packet,
+                            ?channel_kind,
+                            "message lost: {:?}",
+                            message_ack.message_id
+                        );
                         channel.sender.send_nacks(message_ack.message_id);
                     }
                 }

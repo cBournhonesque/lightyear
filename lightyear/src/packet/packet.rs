@@ -24,7 +24,8 @@ wrapping_id!(PacketId);
 const HEADER_BYTES: usize = 11;
 /// The maximum of bytes that the payload of the packet can contain (excluding the header)
 /// remove 1 byte for byte alignment at the end
-pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 1;
+// TODO: we removed 10 bytes at the end to take some margin, but we should understand why 1 does not work!
+pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 10;
 
 /// The maximum number of bytes for a message before it is fragmented
 /// The final size of the fragmented packet (channel_net_id: 2, fragment_id: 1, tick: 2, message_id: 2, num_fragments: 1, number of bytes in fragment: 4)
