@@ -7,7 +7,7 @@ use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
-use bevy::tasks::futures_lite::StreamExt;
+use bevy::reflect::Reflect;
 use bevy::tasks::IoTaskPool;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -15,40 +15,51 @@ use std::sync::{Arc, OnceLock, RwLock};
 use steamworks::networking_sockets::{NetConnection, NetworkingSockets};
 use steamworks::networking_types::{
     NetConnectionEnd, NetConnectionInfo, NetworkingConfigEntry, NetworkingConfigValue,
-    NetworkingConnectionState, SendFlags,
+    NetworkingConnectionState, NetworkingIdentity, SendFlags,
 };
-use steamworks::{ClientManager, SingleClient};
+use steamworks::{ClientManager, SingleClient, SteamId};
 use tracing::{info, warn};
 
-use super::{get_networking_options, SingleClientThreadSafe};
+use super::get_networking_options;
+use super::steamworks_client::SteamworksClient;
 
 const MAX_MESSAGE_BATCH_SIZE: usize = 512;
 
 #[derive(Debug, Clone)]
 pub struct SteamConfig {
-    pub server_addr: SocketAddr,
+    pub socket_config: SocketConfig,
     pub app_id: u32,
 }
+
 impl Default for SteamConfig {
     fn default() -> Self {
         Self {
-            server_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 27015)),
-            // app id of the public Space Wars demo app
+            socket_config: Default::default(),
             app_id: 480,
         }
     }
 }
 
-// My initial plan was to have the `steamworks::Client` and `SingleClient` be fields of the [`Client`] struct.
-// Everytime we try to reconnect, we could just drop the previous Client (which shutdowns the steam API)
-// and call `init_app` again. However apparently the Shutdown api does nothing, the api only shuts down
-// when the program ends.
-// Instead, we will initialize lazy a static Client only once per program.
-pub static CLIENT: OnceLock<(steamworks::Client<ClientManager>, SingleClientThreadSafe)> =
-    OnceLock::new();
+/// Steam socket configuration for clients
+#[derive(Debug, Clone)]
+pub enum SocketConfig {
+    /// Connect to a server by IP address. Suitable for dedicated servers.
+    Ip { server_addr: SocketAddr },
+    /// Connect to another Steam user hosting a server. Suitable for
+    /// peer-to-peer games.
+    P2P { virtual_port: i32, steam_id: u64 },
+}
 
-/// Steam networking client wrapper
+impl Default for SocketConfig {
+    fn default() -> Self {
+        SocketConfig::Ip {
+            server_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 27015)),
+        }
+    }
+}
+
 pub struct Client {
+    steamworks_client: Arc<RwLock<SteamworksClient>>,
     config: SteamConfig,
     connection: Option<NetConnection<ClientManager>>,
     packet_queue: VecDeque<Packet>,
@@ -57,14 +68,13 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(config: SteamConfig, conditioner: Option<LinkConditionerConfig>) -> Result<Self> {
-        CLIENT.get_or_init(|| {
-            info!("Creating new steamworks api client.");
-            let (client, single) = steamworks::Client::init_app(config.app_id).unwrap();
-            (client, SingleClientThreadSafe(single))
-        });
-
+    pub fn new(
+        steamworks_client: Arc<RwLock<SteamworksClient>>,
+        config: SteamConfig,
+        conditioner: Option<LinkConditionerConfig>,
+    ) -> Result<Self> {
         Ok(Self {
+            steamworks_client,
             config,
             connection: None,
             packet_queue: VecDeque::new(),
@@ -75,7 +85,10 @@ impl Client {
 
     fn connection_info(&self) -> Option<Result<NetConnectionInfo>> {
         self.connection.as_ref().map(|connection| {
-            Self::client()
+            self.steamworks_client
+                .read()
+                .expect("could not get steamworks client")
+                .get_client()
                 .networking_sockets()
                 .get_connection_info(connection)
                 .map_err(|err| anyhow!("could not get connection info"))
@@ -88,29 +101,48 @@ impl Client {
             .map_or(Ok(NetworkingConnectionState::None), |info| info.state())
             .context("could not get connection state")
     }
-
-    fn client() -> &'static steamworks::Client<ClientManager> {
-        &CLIENT.get().unwrap().0
-    }
-
-    fn single_client() -> &'static SingleClient {
-        &CLIENT.get().unwrap().1 .0
-    }
 }
 
 impl NetClient for Client {
     fn connect(&mut self) -> Result<()> {
-        let options = get_networking_options(&self.conditioner);
-        self.connection = Some(
-            Self::client()
-                .networking_sockets()
-                .connect_by_ip_address(self.config.server_addr, vec![])
-                .context("failed to create connection")?,
-        );
-        info!(
-            "Opened steam connection to server at address: {}",
-            self.config.server_addr
-        );
+        // TODO: using the NetworkingConfigEntry options seems to cause an issue. See: https://github.com/Noxime/steamworks-rs/issues/169
+        // let options = get_networking_options(&self.conditioner);
+
+        match self.config.socket_config {
+            SocketConfig::Ip { server_addr } => {
+                self.connection = Some(
+                    self.steamworks_client
+                        .read()
+                        .expect("could not get steamworks client")
+                        .get_client()
+                        .networking_sockets()
+                        .connect_by_ip_address(server_addr, vec![])
+                        .context("failed to create ip connection")?,
+                );
+                info!(
+                    "Opened steam connection to server at address: {}",
+                    server_addr
+                );
+            }
+            SocketConfig::P2P {
+                virtual_port,
+                steam_id,
+            } => {
+                self.connection = Some(
+                    self.steamworks_client
+                        .read()
+                        .expect("could not get steamworks client")
+                        .get_client()
+                        .networking_sockets()
+                        .connect_p2p(
+                            NetworkingIdentity::new_steam_id(SteamId::from_raw(steam_id)),
+                            virtual_port,
+                            vec![],
+                        )
+                        .context("failed to create p2p connection")?,
+                );
+            }
+        }
         Ok(())
     }
 
@@ -142,7 +174,11 @@ impl NetClient for Client {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        Self::single_client().run_callbacks();
+        self.steamworks_client
+            .write()
+            .expect("could not get steamworks single client")
+            .get_single()
+            .run_callbacks();
 
         // TODO: should I maintain an internal state for the connection? or just rely on `connection_state()` ?
         // update connection state
@@ -188,7 +224,15 @@ impl NetClient for Client {
     }
 
     fn id(&self) -> ClientId {
-        ClientId::Steam(Self::client().user().steam_id().raw())
+        ClientId::Steam(
+            self.steamworks_client
+                .read()
+                .expect("could not get steamworks client")
+                .get_client()
+                .user()
+                .steam_id()
+                .raw(),
+        )
     }
 
     fn local_addr(&self) -> SocketAddr {

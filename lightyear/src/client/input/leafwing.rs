@@ -651,7 +651,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
-    global_action_diff_buffer: Option<Res<ActionDiffBuffer<A>>>,
+    // global_action_diff_buffer: Option<Res<ActionDiffBuffer<A>>>,
     action_diff_buffer_query: Query<
         (
             Entity,
@@ -703,7 +703,8 @@ fn prepare_input_message<A: LeafwingUserAction>(
             // TODO: I feel like pre-predicted inputs work well only for global-inputs, because then the server can know
             //  for which client the inputs were!
 
-            // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server)
+            // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server, when
+            // receiving the message. It's possible because the server received the PrePredicted entity before)
             action_diff_buffer.add_to_message(
                 &mut message,
                 tick,
@@ -735,9 +736,9 @@ fn prepare_input_message<A: LeafwingUserAction>(
         }
     }
 
-    if let Some(action_diff_buffer) = global_action_diff_buffer {
-        action_diff_buffer.add_to_message(&mut message, tick, message_len, InputTarget::Global);
-    }
+    // if let Some(action_diff_buffer) = global_action_diff_buffer {
+    //     action_diff_buffer.add_to_message(&mut message, tick, message_len, InputTarget::Global);
+    // }
 
     // all inputs are absent
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
@@ -1047,33 +1048,41 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                 Ok(message) => {
                     debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
                     for (target, diffs) in &message.diffs {
-                        match target {
-                            // - the input target has already been set to the server entity in the InputMessage
-                            // - it has been entity to an entity on the client during deserialization
-                            InputTarget::Entity(entity)
-                            | InputTarget::PrePredictedEntity(entity) => {
-                                debug!("received input message for entity: {:?}. Applying to diff buffer.", entity);
-                                if let Ok(confirmed) = confirmed_query.get(*entity) {
-                                    if let Some(predicted) = confirmed.predicted {
-                                        if let Ok(mut action_diff_buffer) =
-                                            predicted_query.get_mut(predicted)
-                                        {
-                                            debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
-                                            action_diff_buffer
-                                                .update_from_message(message.end_tick, diffs);
-                                        }
+                        // - the input target has already been set to the server entity in the InputMessage
+                        // - it has been mapped to a client-entity on the client during deserialization
+                        //   ONLY if it's PrePredicted (look at the MapEntities implementation)
+                        let entity = match target {
+                            InputTarget::Entity(entity) => {
+                                // TODO: find a better way!
+                                // if InputTarget = Entity, we still need to do the mapping
+                                connection
+                                    .replication_receiver
+                                    .remote_entity_map
+                                    .get_local(*entity)
+                            }
+                            InputTarget::PrePredictedEntity(entity) => Some(entity),
+                            InputTarget::Global => continue,
+                        };
+                        if let Some(entity) = entity {
+                            debug!(
+                                "received input message for entity: {:?}. Applying to diff buffer.",
+                                entity
+                            );
+                            if let Ok(confirmed) = confirmed_query.get(*entity) {
+                                if let Some(predicted) = confirmed.predicted {
+                                    if let Ok(mut action_diff_buffer) =
+                                        predicted_query.get_mut(predicted)
+                                    {
+                                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+                                        action_diff_buffer
+                                            .update_from_message(message.end_tick, diffs);
                                     }
-                                } else {
-                                    error!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                                 }
+                            } else {
+                                error!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                             }
-                            InputTarget::Global => {
-                                // TODO: handle global diffs for each client! How? create one entity per client?
-                                //  or have a resource containing the global ActionState for each client?
-                                // if let Some(ref mut buffer) = global {
-                                //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
-                                // }
-                            }
+                        } else {
+                            error!("received remote player input message for unrecognized entity");
                         }
                     }
                 }

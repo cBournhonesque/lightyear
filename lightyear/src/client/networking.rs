@@ -12,7 +12,7 @@ use tracing::{error, trace};
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
+use crate::client::events::{ConnectEvent, DisconnectEvent};
 use crate::client::interpolation::Interpolated;
 use crate::client::io::ClientIoEvent;
 use crate::client::prediction::Predicted;
@@ -28,7 +28,6 @@ use crate::prelude::{
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
 use crate::shared::config::Mode;
-use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::components::Replicated;
 use crate::shared::run_conditions;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
