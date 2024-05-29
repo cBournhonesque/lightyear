@@ -187,7 +187,8 @@ impl ReplicationSender {
                     error!("Received an update message-id nack but the corresponding group channel does not exist");
                 }
             } else {
-                error!("Received an update message-id nack but we don't know the corresponding group id");
+                // NOTE: this happens when a message-id is split between multiple packets (fragmented messages)
+                trace!("Received an update message-id nack ({message_id:?}) but we don't know the corresponding group id");
             }
         }
     }

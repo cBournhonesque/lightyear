@@ -11,7 +11,7 @@ MySettings(
             conditioner: Some(Conditioner(
                 latency_ms: 150,
                 jitter_ms: 10,
-                packet_loss: 0.02
+                packet_loss: 0.12
             )),
             server_port: 5000,
             transport: WebTransport(
