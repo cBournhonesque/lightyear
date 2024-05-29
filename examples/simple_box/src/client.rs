@@ -274,7 +274,7 @@ fn button_system(
         for (entity, children, mut on_click) in &mut interaction_query {
             let mut text = text_query.get_mut(children[0]).unwrap();
             match state.get() {
-                NetworkingState::Disconnected | NetworkingState::None => {
+                NetworkingState::Disconnected => {
                     text.sections[0].value = "Connect".to_string();
                     *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
                         commands.connect_client();
