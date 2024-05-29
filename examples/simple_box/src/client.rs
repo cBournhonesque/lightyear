@@ -26,7 +26,10 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_connect_button);
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
+        app.add_systems(
+            PreUpdate,
+            (handle_connection, handle_disconnection).after(MainSet::Receive),
+        );
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
@@ -72,6 +75,15 @@ pub(crate) fn handle_connection(
             ),
             ClientIdText,
         ));
+    }
+}
+
+/// Listen for events to know when the client is disconnected, and print out the reason
+/// of the disconnection
+pub(crate) fn handle_disconnection(mut events: EventReader<DisconnectEvent>) {
+    for event in events.read() {
+        let reason = &event.reason;
+        error!("Disconnected from server: {:?}", reason);
     }
 }
 
@@ -262,7 +274,7 @@ fn button_system(
         for (entity, children, mut on_click) in &mut interaction_query {
             let mut text = text_query.get_mut(children[0]).unwrap();
             match state.get() {
-                NetworkingState::Disconnected => {
+                NetworkingState::Disconnected | NetworkingState::None => {
                     text.sections[0].value = "Connect".to_string();
                     *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
                         commands.connect_client();

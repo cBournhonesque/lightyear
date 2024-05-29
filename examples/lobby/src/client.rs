@@ -39,6 +39,7 @@ impl Plugin for ExampleClientPlugin {
         app.init_resource::<lobby::LobbyTable>();
         app.init_resource::<Lobbies>();
         app.init_state::<AppState>();
+        app.add_systems(Startup, on_disconnect);
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         app.add_systems(
             FixedPreUpdate,
@@ -371,7 +372,7 @@ mod lobby {
                     AppState::Game => {}
                 };
                 match state.get() {
-                    NetworkingState::Disconnected => {
+                    NetworkingState::Disconnected | NetworkingState::None => {
                         if ui.button("Join lobby list").clicked() {
                             // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
                             // - the new host must run in host-server

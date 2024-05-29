@@ -1,7 +1,7 @@
 //! Common run conditions
 
 use crate::client::networking::NetworkingState;
-use crate::connection::client::{ClientConnection, NetClient};
+use crate::connection::client::{ClientConnection, ConnectionState, NetClient};
 use crate::connection::server::ServerConnections;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{Mode, NetworkIdentity};
@@ -46,7 +46,7 @@ pub fn is_mode_separate(config: Option<Res<ServerConfig>>) -> bool {
 /// to avoid having a frame of delay since the `StateTransition` schedule runs after `PreUpdate`.
 /// We also check both the networking state and the io state (in case the io gets disconnected)
 pub fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient.map_or(false, |c| c.state() == NetworkingState::Connected)
+    netclient.map_or(false, |c| matches!(c.state(), ConnectionState::Connected))
 }
 
 /// Returns true if the client is disconnected.
@@ -54,9 +54,9 @@ pub fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>`
 /// to avoid having a frame of delay since the `StateTransition` schedule runs after `PreUpdate`
 pub fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient
-        .as_ref()
-        .map_or(true, |c| c.state() == NetworkingState::Disconnected)
+    netclient.as_ref().map_or(true, |c| {
+        matches!(c.state(), ConnectionState::Disconnected { .. })
+    })
 }
 
 /// Returns true if the server is started.

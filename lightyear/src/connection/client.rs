@@ -20,6 +20,13 @@ use crate::prelude::client::ClientTransport;
 use crate::prelude::{generate_key, Key, LinkConditionerConfig};
 use crate::transport::config::SharedIoConfig;
 
+#[derive(Debug)]
+pub enum ConnectionState {
+    Disconnected { reason: Option<DisconnectReason> },
+    Connecting,
+    Connected,
+}
+
 // TODO: add diagnostics methods?
 #[enum_dispatch]
 pub trait NetClient: Send + Sync {
@@ -31,8 +38,8 @@ pub trait NetClient: Send + Sync {
     /// Disconnect from the server
     fn disconnect(&mut self) -> Result<()>;
 
-    /// Returns the [`NetworkingState`] of the client
-    fn state(&self) -> NetworkingState;
+    /// Returns the [`ConnectionState`] of the client
+    fn state(&self) -> ConnectionState;
 
     /// Update the connection state + internal bookkeeping (keep-alives, etc.)
     fn try_update(&mut self, delta_ms: f64) -> Result<()>;
@@ -69,6 +76,16 @@ pub enum NetClientDispatch {
 #[derive(Resource)]
 pub struct ClientConnection {
     pub client: NetClientDispatch,
+    pub(crate) disconnect_reason: Option<DisconnectReason>,
+}
+
+/// Enumerates the possible reasons for a client to disconnect from the server
+#[derive(Debug)]
+pub enum DisconnectReason {
+    Transport(crate::transport::error::Error),
+    Netcode(super::netcode::ClientState),
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    Steam(steamworks::networking_types::NetConnectionEnd),
 }
 
 pub type IoConfig = SharedIoConfig<ClientTransport>;
@@ -128,6 +145,7 @@ impl NetConfig {
                 };
                 ClientConnection {
                     client: NetClientDispatch::Netcode(client),
+                    disconnect_reason: None,
                 }
             }
             #[cfg(all(feature = "steam", not(target_family = "wasm")))]
@@ -140,12 +158,14 @@ impl NetConfig {
                     .expect("could not create steam client");
                 ClientConnection {
                     client: NetClientDispatch::Steam(client),
+                    disconnect_reason: None,
                 }
             }
             NetConfig::Local { id } => {
                 let client = super::local::client::Client::new(id);
                 ClientConnection {
                     client: NetClientDispatch::Local(client),
+                    disconnect_reason: None,
                 }
             }
         }
@@ -161,7 +181,7 @@ impl NetClient for ClientConnection {
         self.client.disconnect()
     }
 
-    fn state(&self) -> NetworkingState {
+    fn state(&self) -> ConnectionState {
         self.client.state()
     }
 

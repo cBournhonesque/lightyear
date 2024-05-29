@@ -1,5 +1,5 @@
 use crate::client::networking::NetworkingState;
-use crate::connection::client::NetClient;
+use crate::connection::client::{ConnectionState, DisconnectReason, NetClient};
 use crate::connection::id::ClientId;
 use crate::packet::packet::Packet;
 use crate::prelude::client::Io;
@@ -7,6 +7,7 @@ use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
+use bevy::tasks::futures_lite::StreamExt;
 use bevy::tasks::IoTaskPool;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -120,16 +121,23 @@ impl NetClient for Client {
         Ok(())
     }
 
-    fn state(&self) -> NetworkingState {
+    fn state(&self) -> ConnectionState {
         match self
             .connection_state()
             .unwrap_or(NetworkingConnectionState::None)
         {
             NetworkingConnectionState::Connecting | NetworkingConnectionState::FindingRoute => {
-                NetworkingState::Connecting
+                ConnectionState::Connecting
             }
-            NetworkingConnectionState::Connected => NetworkingState::Connected,
-            _ => NetworkingState::Disconnected,
+            NetworkingConnectionState::Connected => ConnectionState::Connected,
+            _ => {
+                let reason = self
+                    .connection_info()
+                    .map_or(None, |info| info.ok().map(|i| i.end_reason()))
+                    .flatten()
+                    .map(|r| DisconnectReason::Steam(r));
+                ConnectionState::Disconnected { reason }
+            }
         }
     }
 

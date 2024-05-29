@@ -1,6 +1,6 @@
 use crate::client::io::Io;
 use crate::client::networking::NetworkingState;
-use crate::connection::client::NetClient;
+use crate::connection::client::{ConnectionState, NetClient};
 use crate::packet::packet::Packet;
 use crate::prelude::ClientId;
 use crate::transport::LOCAL_SOCKET;
@@ -33,11 +33,11 @@ impl NetClient for Client {
         Ok(())
     }
 
-    fn state(&self) -> NetworkingState {
+    fn state(&self) -> ConnectionState {
         if self.is_connected {
-            NetworkingState::Connected
+            ConnectionState::Connected
         } else {
-            NetworkingState::Disconnected
+            ConnectionState::Disconnected { reason: None }
         }
     }
 

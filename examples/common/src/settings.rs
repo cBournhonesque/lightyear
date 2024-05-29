@@ -269,7 +269,7 @@ pub(crate) fn build_client_netcode_config(
 
 /// Parse the settings into a `NetConfig` that is used to configure how the lightyear client
 /// connects to the server
-pub(crate) fn get_client_net_config(settings: &Settings, client_id: u64) -> client::NetConfig {
+pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::NetConfig {
     let server_addr = SocketAddr::new(
         settings.client.server_addr.into(),
         settings.client.server_port,
