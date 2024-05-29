@@ -7,7 +7,7 @@ use bevy::prelude::Resource;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::client::io::Io;
-use crate::connection::client::{IoConfig, NetClient};
+use crate::connection::client::{ConnectionState, DisconnectReason, IoConfig, NetClient};
 use crate::connection::id;
 use crate::prelude::client::NetworkingState;
 use crate::serialize::bitcode::reader::BufferPool;
@@ -679,13 +679,15 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
         Ok(())
     }
 
-    fn state(&self) -> NetworkingState {
+    fn state(&self) -> ConnectionState {
         match self.client.state() {
             ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse => {
-                NetworkingState::Connecting
+                ConnectionState::Connecting
             }
-            ClientState::Connected => NetworkingState::Connected,
-            _ => NetworkingState::Disconnected,
+            ClientState::Connected => ConnectionState::Connected,
+            _ => ConnectionState::Disconnected {
+                reason: Some(DisconnectReason::Netcode(self.client.state)),
+            },
         }
     }
 
