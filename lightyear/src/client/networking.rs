@@ -3,6 +3,7 @@ use std::ops::DerefMut;
 
 use anyhow::{anyhow, Context, Result};
 use async_channel::TryRecvError;
+use bevy::ecs::schedule::run_enter_schedule;
 use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
@@ -15,6 +16,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent};
 use crate::client::interpolation::Interpolated;
 use crate::client::io::ClientIoEvent;
+use crate::client::networking::utils::AppStateExt;
 use crate::client::prediction::Predicted;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{
@@ -44,7 +46,7 @@ impl Plugin for ClientNetworkingPlugin {
             // REFLECTION
             .register_type::<IoConfig>()
             // STATE
-            .init_state::<NetworkingState>()
+            .init_state_without_entering::<NetworkingState>()
             // RESOURCE
             .init_resource::<HostServerMetadata>()
             // SYSTEM SETS
@@ -99,6 +101,11 @@ impl Plugin for ClientNetworkingPlugin {
                     sync_update.in_set(SyncSet),
                 ),
             );
+
+        // // clear the state so we don't run an initial OnDisconnect schedule
+        // app.world
+        //     .resource_mut::<Next>>()
+        //     .clear();
 
         // STARTUP
         // TODO: update all systems that need these to only run when needed, so that we don't have to create
@@ -268,10 +275,8 @@ pub(crate) fn sync_update(
 /// Bevy [`State`] representing the networking state of the client.
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NetworkingState {
-    /// Starting state (to avoid running the OnDisconnect schedule when starting the app)
-    #[default]
-    None,
     /// The client is disconnected from the server. The receive/send packets systems do not run.
+    #[default]
     Disconnected,
     /// The client is trying to connect to the server
     Connecting,
@@ -491,5 +496,34 @@ impl ClientCommands for Commands<'_, '_> {
         self.insert_resource(NextState::<NetworkingState>(Some(
             NetworkingState::Disconnected,
         )));
+    }
+}
+
+mod utils {
+    use bevy::app::{App, StateTransition};
+    use bevy::prelude::{
+        apply_state_transition, FromWorld, NextState, State, StateTransitionEvent, States,
+    };
+
+    pub(super) trait AppStateExt {
+        // Helper function that runs `init_state::<S>` without entering the state
+        // This is useful for us as we don't want to run OnEnter<NetworkingState::Disconnected> when we start the app
+        fn init_state_without_entering<S: States + FromWorld>(&mut self) -> &mut Self;
+    }
+
+    impl AppStateExt for App {
+        fn init_state_without_entering<S: States + FromWorld>(&mut self) -> &mut Self {
+            if !self.world.contains_resource::<State<S>>() {
+                self.init_resource::<State<S>>()
+                    .init_resource::<NextState<S>>()
+                    .add_event::<StateTransitionEvent<S>>()
+                    .add_systems(StateTransition, apply_state_transition::<S>);
+            }
+
+            // The OnEnter, OnExit, and OnTransition schedules are lazily initialized
+            // (i.e. when the first system is added to them), and World::try_run_schedule is used to fail
+            // gracefully if they aren't present.
+            self
+        }
     }
 }
