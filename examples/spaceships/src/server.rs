@@ -73,7 +73,7 @@ fn init(mut commands: Commands) {
         }),
     );
     // the balls are server-authoritative
-    const NUM_BALLS: usize = 6;
+    const NUM_BALLS: usize = 0;
     for i in 0..NUM_BALLS {
         let angle: f32 = i as f32 * (TAU / NUM_BALLS as f32);
         let pos = Vec2::new(125.0 * angle.cos(), 125.0 * angle.sin());
