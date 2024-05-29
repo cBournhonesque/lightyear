@@ -102,11 +102,6 @@ impl Plugin for ClientNetworkingPlugin {
                 ),
             );
 
-        // // clear the state so we don't run an initial OnDisconnect schedule
-        // app.world
-        //     .resource_mut::<Next>>()
-        //     .clear();
-
         // STARTUP
         // TODO: update all systems that need these to only run when needed, so that we don't have to create
         //  a ConnectionManager or a NetConfig at startup
