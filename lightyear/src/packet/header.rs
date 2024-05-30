@@ -7,7 +7,7 @@ use bitcode::{Decode, Encode};
 
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
-use crate::packet::stats_manager::PacketStatsManager;
+use crate::packet::stats_manager::packet::PacketStatsManager;
 use crate::prelude::TimeManager;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;

@@ -11,6 +11,7 @@ use tracing::{instrument, Level};
 
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 use crate::prelude::{ChannelKind, ChannelRegistry, Tick};
+use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 
 #[derive(Debug)]
@@ -92,18 +93,20 @@ impl PriorityManager {
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn priority_filter(
         &mut self,
-        data: Vec<(NetId, (VecDeque<SingleData>, VecDeque<FragmentData>))>,
+        data: Vec<(ChannelId, (VecDeque<SingleData>, VecDeque<FragmentData>))>,
         channel_registry: &ChannelRegistry,
         tick: Tick,
     ) -> (
-        BTreeMap<NetId, (VecDeque<SingleData>, VecDeque<FragmentData>)>,
+        BTreeMap<ChannelId, (VecDeque<SingleData>, VecDeque<FragmentData>)>,
         u32,
     ) {
         // if the bandwidth quota is disabled, just pass all messages through
         // As an optimization: no need to send the tick of the message, it is the same as the header tick
         if !self.config.enabled {
-            let mut data_to_send: BTreeMap<NetId, (VecDeque<SingleData>, VecDeque<FragmentData>)> =
-                BTreeMap::new();
+            let mut data_to_send: BTreeMap<
+                ChannelId,
+                (VecDeque<SingleData>, VecDeque<FragmentData>),
+            > = BTreeMap::new();
             for (net_id, (single, fragment)) in data {
                 data_to_send.insert(net_id, (single, fragment));
             }
@@ -164,7 +167,7 @@ impl PriorityManager {
         );
 
         // select the top messages with the rate limiter
-        let mut data_to_send: BTreeMap<NetId, (VecDeque<SingleData>, VecDeque<FragmentData>)> =
+        let mut data_to_send: BTreeMap<ChannelId, (VecDeque<SingleData>, VecDeque<FragmentData>)> =
             BTreeMap::new();
         let mut bytes_used = 0;
         while let Some(buffered_message) = all_messages.pop() {

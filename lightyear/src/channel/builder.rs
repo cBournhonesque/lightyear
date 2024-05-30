@@ -18,6 +18,8 @@ use crate::channel::senders::tick_unreliable::TickUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
 use crate::channel::senders::ChannelSender;
+#[cfg(feature = "trace")]
+use crate::channel::stats::send::ChannelSendStats;
 use crate::prelude::ChannelKind;
 
 /// A ChannelContainer is a struct that implements the [`Channel`] trait
@@ -25,6 +27,10 @@ pub struct ChannelContainer {
     pub setting: ChannelSettings,
     pub(crate) receiver: ChannelReceiver,
     pub(crate) sender: ChannelSender,
+    // we will put this behind the trace feature for now, as this is pretty niche
+    // and might be performance heavy
+    #[cfg(feature = "trace")]
+    pub(crate) sender_stats: ChannelSendStats,
 }
 
 /// A `Channel` is an abstraction for a way to send messages over the network
@@ -111,6 +117,8 @@ impl ChannelContainer {
             setting: settings_clone,
             receiver,
             sender,
+            #[cfg(feature = "trace")]
+            sender_stats: ChannelSendStats::default(),
         }
     }
 }

@@ -22,6 +22,8 @@ use lightyear_benches::protocol::*;
 use std::time::Instant;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use lightyear::channel::builder::EntityActionsChannel;
+use lightyear::server::connection::ConnectionManager;
 
 criterion_group!(
     replication_benches,
@@ -33,8 +35,8 @@ criterion_group!(
 );
 criterion_main!(replication_benches);
 
-const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
-// const NUM_ENTITIES: &[usize] = &[1000];
+// const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
+const NUM_ENTITIES: &[usize] = &[1000];
 
 /// Replicating N entity spawn from server to channel, with a local io
 fn send_float_insert_one_client(criterion: &mut Criterion) {
@@ -60,6 +62,14 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                         // buffer and send replication messages
                         stepper.server_update();
                         elapsed += instant.elapsed();
+                        // dbg!(stepper
+                        //     .server_app
+                        //     .world
+                        //     .resource::<ConnectionManager>()
+                        //     .connection(ClientId::Netcode(0))
+                        //     .unwrap()
+                        //     .message_manager
+                        //     .channel_send_stats::<EntityActionsChannel>());
 
                         stepper.client_update();
                         assert_eq!(

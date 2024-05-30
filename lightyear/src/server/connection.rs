@@ -209,13 +209,13 @@ impl ConnectionManager {
         }
     }
 
-    pub(crate) fn connection(&self, client_id: ClientId) -> Result<&Connection> {
+    pub fn connection(&self, client_id: ClientId) -> Result<&Connection> {
         self.connections
             .get(&client_id)
             .context("client id not found")
     }
 
-    pub(crate) fn connection_mut(&mut self, client_id: ClientId) -> Result<&mut Connection> {
+    pub fn connection_mut(&mut self, client_id: ClientId) -> Result<&mut Connection> {
         self.connections
             .get_mut(&client_id)
             .context("client id not found")
@@ -380,7 +380,7 @@ pub struct Connection {
     /// We create one entity per connected client, so that users
     /// can store metadata about the client using the ECS
     entity: Entity,
-    pub(crate) message_manager: MessageManager,
+    pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
     pub(crate) events: ConnectionEvents,
