@@ -15,10 +15,13 @@ use bitcode::word_buffer::WordBuffer;
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
+#[cfg(feature = "trace")]
+use crate::channel::stats::send::ChannelSendStats;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
 use crate::packet::packet::{Packet, PacketId, MTU_PAYLOAD_BYTES};
 use crate::packet::packet_manager::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
+use crate::prelude::Channel;
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
@@ -188,6 +191,30 @@ impl MessageManager {
             current_tick,
         );
 
+        #[cfg(feature = "trace")]
+        {
+            for (channel_id, (single_data, fragment_data)) in &data_to_send {
+                let channel_stats = &mut self
+                    .channels
+                    .get_mut(
+                        self.channel_registry
+                            .get_kind_from_net_id(*channel_id)
+                            .context("channel not found")?,
+                    )
+                    .context("Channel not found")?
+                    .sender_stats;
+
+                // NOTE: we don't know the actual exact amount of bytes sent (because we don't take into account the ids, etc.),
+                // but we could during build_packet?
+                channel_stats.add_bytes_sent(
+                    single_data.iter().fold(0, |acc, d| acc + d.bytes.len())
+                        + fragment_data.iter().fold(0, |acc, d| acc + d.bytes.len()),
+                );
+                channel_stats.add_fragment_message_sent(fragment_data.len());
+                channel_stats.add_single_message_sent(single_data.len());
+            }
+        }
+
         let packets = self.packet_manager.build_packets(data_to_send);
 
         let mut bytes = Vec::new();
@@ -328,6 +355,14 @@ impl MessageManager {
             }
         }
         map
+    }
+
+    /// Get the ChannelSendStats of a given channel
+    #[cfg(feature = "trace")]
+    pub fn channel_send_stats<C: Channel>(&self) -> Option<&ChannelSendStats> {
+        self.channels
+            .get(&ChannelKind::of::<C>())
+            .map(|channel| &channel.sender_stats)
     }
 }
 
