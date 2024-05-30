@@ -2,7 +2,7 @@
 //! Uses crossbeam channels to mock the network
 use bevy::core::TaskPoolThreadAssignmentPolicy;
 use bevy::ecs::system::RunSystemOnce;
-use bevy::log::error;
+use bevy::log::{error, Level, LogPlugin};
 use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -26,6 +26,22 @@ use lightyear::transport::LOCAL_SOCKET;
 use crate::protocol::*;
 
 pub trait Step {
+    /// Advance the time on the server and client by a given duration
+
+    fn advance_time(&mut self, duration: Duration);
+
+    /// Update the server and then the client(s)
+    fn update(&mut self) {
+        self.server_update();
+        self.client_update();
+    }
+
+    /// Update the server
+    fn server_update(&mut self);
+
+    /// Update the client(s)
+    fn client_update(&mut self);
+
     /// Advance both apps by one frame duration
     fn frame_step(&mut self);
 
@@ -100,20 +116,21 @@ impl LocalBevyStepper {
 
             // Setup client
             let mut client_app = App::new();
-            client_app.add_plugins(
-                MinimalPlugins
-                    .set(TaskPoolPlugin {
-                        task_pool_options: TaskPoolOptions {
-                            compute: TaskPoolThreadAssignmentPolicy {
-                                min_threads: available_parallelism(),
-                                max_threads: std::usize::MAX,
-                                percent: 1.0,
-                            },
-                            ..default()
-                        },
-                    })
-                    .build(),
-            );
+            client_app.add_plugins((
+                MinimalPlugins,
+                // LogPlugin::default(),
+                // .set(TaskPoolPlugin {
+                //     task_pool_options: TaskPoolOptions {
+                //         compute: TaskPoolThreadAssignmentPolicy {
+                //             min_threads: available_parallelism(),
+                //             max_threads: std::usize::MAX,
+                //             percent: 1.0,
+                //         },
+                //         ..default()
+                //     },
+                // })
+                // .build(),
+            ));
             let auth = Authentication::Manual {
                 server_addr,
                 protocol_id,
@@ -148,20 +165,21 @@ impl LocalBevyStepper {
         });
 
         let mut server_app = App::new();
-        server_app.add_plugins(
-            MinimalPlugins
-                .set(TaskPoolPlugin {
-                    task_pool_options: TaskPoolOptions {
-                        compute: TaskPoolThreadAssignmentPolicy {
-                            min_threads: available_parallelism(),
-                            max_threads: std::usize::MAX,
-                            percent: 1.0,
-                        },
-                        ..default()
-                    },
-                })
-                .build(),
-        );
+        server_app.add_plugins((
+            MinimalPlugins,
+            // LogPlugin::default(),
+            // .set(TaskPoolPlugin {
+            //     task_pool_options: TaskPoolOptions {
+            //         compute: TaskPoolThreadAssignmentPolicy {
+            //             min_threads: available_parallelism(),
+            //             max_threads: std::usize::MAX,
+            //             percent: 1.0,
+            //         },
+            //         ..default()
+            //     },
+            // })
+            // .build(),
+        ));
         let config = ServerConfig {
             shared: shared_config.clone(),
             net: vec![server::NetConfig::Netcode {
@@ -251,26 +269,32 @@ impl LocalBevyStepper {
 }
 
 impl Step for LocalBevyStepper {
-    /// Advance the world by one frame duration
-    fn frame_step(&mut self) {
-        self.current_time += self.frame_duration;
+    fn advance_time(&mut self, duration: Duration) {
+        self.current_time += duration;
         self.server_app
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        self.server_app.update();
         for client_app in self.client_apps.values_mut() {
             client_app.insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+        }
+    }
+
+    fn server_update(&mut self) {
+        self.server_app.update();
+    }
+
+    fn client_update(&mut self) {
+        for client_app in self.client_apps.values_mut() {
             client_app.update();
         }
     }
 
+    fn frame_step(&mut self) {
+        self.advance_time(self.frame_duration);
+        self.update();
+    }
+
     fn tick_step(&mut self) {
-        self.current_time += self.tick_duration;
-        self.server_app
-            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        self.server_app.update();
-        for client_app in self.client_apps.values_mut() {
-            client_app.insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-            client_app.update();
-        }
+        self.advance_time(self.tick_duration);
+        self.update();
     }
 }
