@@ -13,7 +13,6 @@ use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::spawn_bullet;
 use crate::shared::ApplyInputsQuery;
 use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 
@@ -147,7 +146,7 @@ pub(crate) fn handle_connections(
                 replicate,
                 PhysicsBundle::player_ship(),
                 // Rate of fire: 2 bullets per second
-                Weapon::new((FIXED_TIMESTEP_HZ / 2.0) as u16),
+                Weapon::new((FIXED_TIMESTEP_HZ / 5.0) as u16),
                 // We don't want to replicate the ActionState to the original client, since they are updating it with
                 // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
                 // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!

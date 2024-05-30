@@ -9,7 +9,6 @@ use lightyear::shared::replication::components::Controlled;
 
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::spawn_bullet;
 use crate::shared::ApplyInputsQuery;
 use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 

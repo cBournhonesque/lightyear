@@ -102,7 +102,7 @@ impl PhysicsBundle {
     pub(crate) fn bullet() -> Self {
         Self {
             collider: Collider::circle(BULLET_SIZE),
-            collider_density: ColliderDensity(0.05),
+            collider_density: ColliderDensity(5.0),
             rigid_body: RigidBody::Dynamic,
             external_force: ExternalForce::default(),
         }
@@ -155,15 +155,24 @@ pub struct BulletMarker;
 pub(crate) struct Weapon {
     pub(crate) last_fire_tick: Tick,
     pub(crate) cooldown: u16,
+    pub(crate) bullet_speed: f32,
 }
 
 impl Weapon {
     pub(crate) fn new(cooldown: u16) -> Self {
         Self {
             last_fire_tick: Tick(0),
+            bullet_speed: 500.0,
             cooldown,
         }
     }
+}
+
+// despawns `lifetime` ticks after `origin_tick`
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub(crate) struct Lifetime {
+    pub(crate) origin_tick: Tick,
+    pub(crate) lifetime: i16,
 }
 
 // Channels
@@ -224,22 +233,23 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
+        app.register_component::<Lifetime>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
         // just replicate Weapon once - depending on applying PlayerActions to update the cooldown
         // and firing for now?
         app.register_component::<Weapon>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
+        // correction_fn used to smear rollback errors just for the rendering part in postudpate
         app.register_component::<Position>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
-            .add_interpolation_fn(position::lerp)
             .add_correction_fn(position::lerp);
 
         app.register_component::<Rotation>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
-            .add_interpolation_fn(rotation::lerp)
             .add_correction_fn(rotation::lerp);
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!

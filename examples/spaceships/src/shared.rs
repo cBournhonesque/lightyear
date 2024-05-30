@@ -70,6 +70,8 @@ impl Plugin for SharedPlugin {
         app.add_systems(FixedPostUpdate, after_physics_log);
         app.add_systems(Last, last_log);
 
+        app.add_systems(FixedUpdate, lifetime_despawner.in_set(FixedSet::Main));
+
         // registry types for reflection
         app.register_type::<PlayerId>();
     }
@@ -167,7 +169,9 @@ pub fn shared_player_firing(
     tick_manager: Res<TickManager>,
     identity: NetworkIdentity,
 ) {
-    for (pos, rot, vel, color, action, mut weapon, is_local) in q.iter_mut() {
+    for (player_position, player_rotation, player_velocity, color, action, mut weapon, is_local) in
+        q.iter_mut()
+    {
         if !action.pressed(&PlayerActions::Fire) {
             continue;
         }
@@ -182,7 +186,32 @@ pub fn shared_player_firing(
         }
         weapon.last_fire_tick = tick_manager.tick();
 
-        let bullet_entity = spawn_bullet(&mut commands, pos, rot, vel, color.0);
+        // bullet will despawn after a given number of frames
+        let lifetime = Lifetime {
+            origin_tick: tick_manager.tick(),
+            lifetime: 64 * 3,
+        };
+
+        // bullet spawns just in front of the nose of the ship, in the direction the ship is facing,
+        // and inherits the speed of the ship.
+        let bullet_spawn_offset = Vec2::Y * (SHIP_LENGTH / 2.0 + 1.0);
+
+        let bullet_origin = player_position.0 + player_rotation.rotate(bullet_spawn_offset);
+        let bullet_linvel =
+            player_rotation.rotate(Vec2::Y * weapon.bullet_speed) + player_velocity.0;
+
+        let bullet_entity = commands
+            .spawn((
+                BulletMarker,
+                Position(bullet_origin),
+                LinearVelocity(bullet_linvel),
+                PhysicsBundle::bullet(),
+                ColorComponent(color.0),
+                PreSpawnedPlayerObject::default(),
+                lifetime,
+            ))
+            .id();
+
         if identity.is_server() {
             let replicate = server::Replicate {
                 sync: server::SyncTarget {
@@ -199,31 +228,27 @@ pub fn shared_player_firing(
     }
 }
 
-// On clients, we need to add PreSpawnedPlayerObject
-// On server, we need to add Replicate
-pub fn spawn_bullet(
-    commands: &mut Commands,
-    player_position: &Position,
-    player_rotation: &Rotation,
-    player_velocity: &LinearVelocity,
-    color: Color,
-) -> Entity {
-    let bullet_spawn_offset = Vec2::Y * (SHIP_LENGTH / 2.0 + 1.0);
-    let bullet_speed = 500.0;
-
-    let bullet_origin = player_position.0 + player_rotation.rotate(bullet_spawn_offset);
-    let bullet_linvel = player_rotation.rotate(Vec2::Y * bullet_speed) + player_velocity.0;
-
-    commands
-        .spawn((
-            BulletMarker,
-            Position(bullet_origin),
-            LinearVelocity(bullet_linvel),
-            PhysicsBundle::bullet(),
-            ColorComponent(color),
-            PreSpawnedPlayerObject::default(),
-        ))
-        .id()
+// we want clients to predict the despawn due to TTL expiry, so this system runs on both client and server.
+// servers despawn without replicating that fact.
+pub(crate) fn lifetime_despawner(
+    q: Query<(Entity, &Lifetime)>,
+    mut commands: Commands,
+    tick_manager: Res<TickManager>,
+    identity: NetworkIdentity,
+) {
+    for (e, ttl) in q.iter() {
+        if (tick_manager.tick() - ttl.origin_tick) > ttl.lifetime {
+            // if ttl.origin_tick.wrapping_add(ttl.lifetime) > *tick_manager.tick() {
+            if identity.is_server() {
+                info!("Despawning {e:?} without replication");
+                // commands.entity(e).despawn_without_replication(); // CRASH ?
+                commands.entity(e).remove::<server::Replicate>().despawn();
+            } else {
+                info!("Despawning {e:?}");
+                commands.entity(e).despawn_recursive();
+            }
+        }
+    }
 }
 
 pub(crate) fn after_physics_log(

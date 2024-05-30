@@ -1,3 +1,6 @@
+use std::f32::consts::PI;
+use std::f32::consts::TAU;
+
 /// Renders entities using gizmos to draw outlines
 use crate::protocol::*;
 use crate::shared::*;
@@ -9,6 +12,9 @@ use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
 use lightyear::prelude::client::*;
+use lightyear::shared::tick_manager;
+use lightyear::shared::tick_manager::Tick;
+use lightyear::shared::tick_manager::TickManager;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 use lightyear::{
     client::{
@@ -116,6 +122,7 @@ fn draw_predicted_entities(
     mut gizmos: Gizmos,
     predicted: Query<
         (
+            Entity,
             &Position,
             &Rotation,
             &ColorComponent,
@@ -125,8 +132,9 @@ fn draw_predicted_entities(
         ),
         Or<(With<PreSpawnedPlayerObject>, With<Predicted>)>,
     >,
+    tick_manager: Res<TickManager>,
 ) {
-    for (position, rotation, color, collider, prespawned, opt_action) in &predicted {
+    for (e, position, rotation, color, collider, prespawned, opt_action) in &predicted {
         // render prespawned translucent until acknowledged by the server
         // (at which point the PreSpawnedPlayerObject component is removed)
         let col = if prespawned {
@@ -134,6 +142,7 @@ fn draw_predicted_entities(
         } else {
             color.0
         };
+
         render_shape(collider.shape(), position, rotation, &mut gizmos, col);
         // render engine exhaust for players holding down thrust.
         if let Some(action) = opt_action {
