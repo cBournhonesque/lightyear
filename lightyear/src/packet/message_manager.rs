@@ -6,6 +6,8 @@ use bevy::reflect::Reflect;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::{error, info, trace};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 use bitcode::buffer::BufferTrait;
 use bitcode::word_buffer::WordBuffer;
@@ -70,6 +72,7 @@ impl MessageManager {
     }
 
     /// Update bookkeeping
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn update(
         &mut self,
         time_manager: &TimeManager,
@@ -132,6 +135,7 @@ impl MessageManager {
     //  was buffered, the user can just include the tick in the message itself.
     /// Buffer a message to be sent on this connection
     /// Returns the message id associated with the message, if there is one
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn buffer_send_with_priority(
         &mut self,
         message: RawData,
@@ -149,6 +153,7 @@ impl MessageManager {
     // TODO: maybe pass TickManager instead of Tick? Find a more elegant way to pass extra data that might not be used?
     //  (ticks are not purely necessary without client prediction)
     //  maybe be generic over a Context ?
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn send_packets(&mut self, current_tick: Tick) -> anyhow::Result<Vec<Payload>> {
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
@@ -244,6 +249,7 @@ impl MessageManager {
     /// Process packet received over the network as raw bytes
     /// Update the acks, and put the messages from the packets in internal buffers
     /// Returns the tick of the packet
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn recv_packet(&mut self, packet: Packet) -> anyhow::Result<Tick> {
         // Step 1. Parse the packet
         let tick = packet.header().tick;
@@ -306,6 +312,7 @@ impl MessageManager {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  let be conservative and just return the messages right now. We could switch to an iterator
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {

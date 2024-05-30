@@ -8,6 +8,8 @@ use bevy::prelude::{DespawnRecursiveExt, Entity, World};
 use bevy::reflect::Reflect;
 use bevy::utils::HashSet;
 use tracing::{debug, error, info, trace, trace_span, warn};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
@@ -54,6 +56,7 @@ impl ReplicationReceiver {
     }
 
     /// Recv a new replication message and buffer it
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn recv_message(&mut self, message: ReplicationMessage, remote_tick: Tick) {
         trace!(?message, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(message.group_id).or_default();
@@ -120,6 +123,7 @@ impl ReplicationReceiver {
     ///
     ///
     /// Updates the `latest_tick` for this group
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn read_messages(
         &mut self,
         current_tick: Tick,
@@ -202,6 +206,7 @@ impl ReplicationReceiver {
     /// Apply any replication messages to the world, and emit an event
     /// I think we don't need to emit a tick with the event anymore, because
     /// we can access the tick via the replication manager
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_world(
         &mut self,
@@ -214,7 +219,6 @@ impl ReplicationReceiver {
         group_id: ReplicationGroupId,
         events: &mut ConnectionEvents,
     ) {
-        let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
             ReplicationMessageData::Actions(m) => {
                 debug!(?tick, ?m, "Received replication actions");
@@ -466,6 +470,7 @@ impl GroupChannel {
     /// This assumes that the sender sends all message ids sequentially.
     ///
     /// If had received updates that were waiting on a given action, we also return them
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     fn read_action(&mut self, current_tick: Tick) -> Option<(Tick, EntityActionMessage)> {
         // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
         let message = self
@@ -489,6 +494,7 @@ impl GroupChannel {
         Some(message)
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     fn read_buffered_updates(&mut self) -> Vec<(Tick, EntityUpdatesMessage)> {
         // if we haven't applied any actions (latest_tick is None) we cannot apply any updates
         let Some(latest_tick) = self.latest_tick else {
@@ -525,6 +531,7 @@ impl GroupChannel {
         res
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     fn read_messages(&mut self, current_tick: Tick) -> Option<Vec<(Tick, ReplicationMessageData)>> {
         let mut res = Vec::new();
 

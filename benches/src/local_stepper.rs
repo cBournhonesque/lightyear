@@ -118,18 +118,8 @@ impl LocalBevyStepper {
             let mut client_app = App::new();
             client_app.add_plugins((
                 MinimalPlugins,
-                // LogPlugin::default(),
-                // .set(TaskPoolPlugin {
-                //     task_pool_options: TaskPoolOptions {
-                //         compute: TaskPoolThreadAssignmentPolicy {
-                //             min_threads: available_parallelism(),
-                //             max_threads: std::usize::MAX,
-                //             percent: 1.0,
-                //         },
-                //         ..default()
-                //     },
-                // })
-                // .build(),
+                #[cfg(feature = "lightyear/trace")]
+                LogPlugin::default(),
             ));
             let auth = Authentication::Manual {
                 server_addr,
@@ -167,18 +157,8 @@ impl LocalBevyStepper {
         let mut server_app = App::new();
         server_app.add_plugins((
             MinimalPlugins,
-            // LogPlugin::default(),
-            // .set(TaskPoolPlugin {
-            //     task_pool_options: TaskPoolOptions {
-            //         compute: TaskPoolThreadAssignmentPolicy {
-            //             min_threads: available_parallelism(),
-            //             max_threads: std::usize::MAX,
-            //             percent: 1.0,
-            //         },
-            //         ..default()
-            //     },
-            // })
-            // .build(),
+            #[cfg(feature = "lightyear/trace")]
+            LogPlugin::default(),
         ));
         let config = ServerConfig {
             shared: shared_config.clone(),

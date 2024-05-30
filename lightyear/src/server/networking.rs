@@ -247,13 +247,13 @@ pub(crate) fn send(
         });
 
     // SEND_PACKETS: send buffered packets to io
-    let span = trace_span!("send_packets").entered();
+    let span = info_span!("send_packets").entered();
     connection_manager
         .connections
         .iter_mut()
         .try_for_each(|(client_id, connection)| {
             let client_span =
-                trace_span!("send_packets_to_client", client_id = ?client_id).entered();
+                info_span!("send_packets_to_client", client_id = ?client_id).entered();
             let netserver_idx = *netservers
                 .client_server_map
                 .get(client_id)

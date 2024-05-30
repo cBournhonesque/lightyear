@@ -1,4 +1,7 @@
+//! Module to take a buffer of messages to send and build packets
 use std::collections::{BTreeMap, VecDeque};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 use bitcode::encoding::Gamma;
 
@@ -59,6 +62,7 @@ impl PacketBuilder {
     }
 
     /// Encode a packet into raw bytes
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn encode_packet(&mut self, packet: &Packet) -> anyhow::Result<Payload> {
         // TODO: check that we haven't allocated!
         // self.clear_write_buffer();
@@ -289,6 +293,7 @@ impl PacketBuilder {
     //         .collect::<_>()
     // }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn build_packets(
         &mut self,
         // TODO: change into IntoIterator? the order matters though!

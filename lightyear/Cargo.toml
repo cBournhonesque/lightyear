@@ -13,6 +13,7 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
 [features]
+trace = []
 metrics = [
   "dep:metrics",
   "metrics-util",

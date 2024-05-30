@@ -8,7 +8,9 @@ use bevy::utils::{HashMap, HashSet};
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
 use serde::Serialize;
-use tracing::{debug, error, info, trace, trace_span, warn};
+use tracing::{debug, error, info, info_span, trace, trace_span, warn};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
 use bitcode::encoding::Fixed;
@@ -302,17 +304,19 @@ impl ConnectionManager {
     /// Buffer all the replication messages to send.
     /// Keep track of the bevy Change Tick: when a message is acked, we know that we only have to send
     /// the updates since that Change Tick
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn buffer_replication_messages(
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
     ) -> Result<()> {
-        let _span = trace_span!("buffer_replication_messages").entered();
+        let _span = info_span!("buffer_replication_messages").entered();
         self.connections
             .values_mut()
             .try_for_each(move |c| c.buffer_replication_messages(tick, bevy_tick))
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn receive(
         &mut self,
         world: &mut World,

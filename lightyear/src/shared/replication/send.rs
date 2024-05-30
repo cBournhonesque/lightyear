@@ -15,6 +15,8 @@ use bevy::utils::{hashbrown, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use hashbrown::hash_map::Entry;
 use tracing::{debug, error, info, trace, warn};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 use crate::packet::message::MessageId;
 use crate::prelude::{ComponentRegistry, ShouldBePredicted, Tick};
@@ -117,6 +119,7 @@ impl ReplicationSender {
 
     /// Keep track of the message_id/bevy_tick/tick where a replication-update message has been sent
     /// for a given group
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn buffer_replication_update_message(
         &mut self,
         group_id: ReplicationGroupId,
@@ -199,6 +202,7 @@ impl ReplicationSender {
     /// Then we accumulate the priority for all replication groups.
     ///
     /// This should be call after the Send SystemSet.
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn recv_send_notification(&mut self) {
         if !self.bandwidth_cap_enabled {
             return;
@@ -243,6 +247,7 @@ impl ReplicationSender {
 
     // TODO: call this in a system after receive?
     /// We call this after the Receive SystemSet; to update the bevy_tick at which we received entity updates for each group
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn recv_update_acks(
         &mut self,
         component_registry: &ComponentRegistry,
@@ -323,6 +328,7 @@ impl ReplicationSender {
 
     /// Host has spawned an entity, and we want to replicate this to remote
     /// Returns true if we should send a message
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
         self.pending_actions
             .entry(group_id)
@@ -334,6 +340,7 @@ impl ReplicationSender {
 
     /// Host wants to start replicating an entity, but instead of spawning a new entity, it wants to reuse an existing entity
     /// on the remote. This can be useful for transferring ownership of an entity from one player to another.
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_spawn_reuse(
         &mut self,
         local_entity: Entity,
@@ -348,6 +355,7 @@ impl ReplicationSender {
             .spawn = SpawnAction::Reuse(remote_entity.to_bits());
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
         self.pending_actions
             .entry(group_id)
@@ -360,6 +368,7 @@ impl ReplicationSender {
     // we want to send all component inserts that happen together for the same entity in a single message
     // (because otherwise the inserts might be received at different packets/ticks by the remote, and
     // the remote might expect the components insert to be received at the same time)
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_component_insert(
         &mut self,
         entity: Entity,
@@ -376,6 +385,7 @@ impl ReplicationSender {
             .push(component);
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_component_remove(
         &mut self,
         entity: Entity,
@@ -392,6 +402,7 @@ impl ReplicationSender {
             .insert(kind);
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_component_update(
         &mut self,
         entity: Entity,
@@ -407,6 +418,7 @@ impl ReplicationSender {
     }
 
     /// Create a component update.
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_delta_component_update(
         &mut self,
@@ -456,6 +468,7 @@ impl ReplicationSender {
     }
 
     /// Finalize the replication messages
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn finalize(
         &mut self,
         tick: Tick,
