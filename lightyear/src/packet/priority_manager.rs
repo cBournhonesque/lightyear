@@ -6,6 +6,8 @@ use crossbeam_channel::{Receiver, Sender};
 use governor::{DefaultDirectRateLimiter, Quota};
 use nonzero_ext::*;
 use tracing::{debug, error, trace};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 use crate::prelude::{ChannelKind, ChannelRegistry, Tick};
@@ -87,6 +89,7 @@ impl PriorityManager {
     /// Filter the messages by priority and bandwidth quota
     /// Returns the list of messages that we can send, along with the amount of bytes we used
     /// in the rate limiter.
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn priority_filter(
         &mut self,
         data: Vec<(NetId, (VecDeque<SingleData>, VecDeque<FragmentData>))>,

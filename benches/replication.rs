@@ -34,6 +34,7 @@ criterion_group!(
 criterion_main!(replication_benches);
 
 const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
+// const NUM_ENTITIES: &[usize] = &[1000];
 
 /// Replicating N entity spawn from server to channel, with a local io
 fn send_float_insert_one_client(criterion: &mut Criterion) {
