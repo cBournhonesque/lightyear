@@ -13,7 +13,6 @@ pub(crate) mod fragment_ack_receiver;
 pub(crate) mod fragment_sender;
 pub(crate) mod reliable;
 pub(crate) mod sequenced_unreliable;
-pub(crate) mod tick_unreliable;
 pub(crate) mod unordered_unreliable;
 pub(crate) mod unordered_unreliable_with_acks;
 
@@ -71,5 +70,4 @@ pub enum ChannelSender {
     UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableSender),
     SequencedUnreliable(sequenced_unreliable::SequencedUnreliableSender),
     Reliable(reliable::ReliableSender),
-    TickUnreliable(tick_unreliable::TickUnreliableSender),
 }

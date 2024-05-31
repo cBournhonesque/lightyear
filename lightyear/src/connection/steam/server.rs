@@ -4,7 +4,7 @@ use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, NetServer,
 };
-use crate::packet::packet::Packet;
+use crate::packet::packet_manager::Payload;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::io::Io;
@@ -80,7 +80,7 @@ pub struct Server {
     config: SteamConfig,
     listen_socket: Option<ListenSocket<ClientManager>>,
     connections: HashMap<ClientId, NetConnection<ClientManager>>,
-    packet_queue: VecDeque<(Packet, ClientId)>,
+    packet_queue: VecDeque<(Payload, ClientId)>,
     buffer_pool: BufferPool,
     new_connections: Vec<ClientId>,
     new_disconnections: Vec<ClientId>,
@@ -273,12 +273,14 @@ impl NetServer for Server {
                 .receive_messages(MAX_PACKET_SIZE)
                 .context("Failed to receive messages")?
             {
-                // get a buffer from the pool to avoid new allocations
-                let mut reader = self.buffer_pool.start_read(message.data());
-                let packet = Packet::decode(&mut reader).context("could not decode packet")?;
-                // return the buffer to the pool
-                self.buffer_pool.attach(reader);
-                self.packet_queue.push_back((packet, *client_id));
+                // // get a buffer from the pool to avoid new allocations
+                // let mut reader = self.buffer_pool.start_read(message.data());
+                // let packet = Packet::decode(&mut reader).context("could not decode packet")?;
+                // // return the buffer to the pool
+                // self.buffer_pool.attach(reader);
+                let mut buf = vec![0u8; message.data().len()];
+                buf.copy_from_slice(message.data());
+                self.packet_queue.push_back((buf, *client_id));
             }
             // TODO: is this necessary since I disabled nagle?
             connection
@@ -290,7 +292,7 @@ impl NetServer for Server {
         Ok(())
     }
 
-    fn recv(&mut self) -> Option<(Packet, ClientId)> {
+    fn recv(&mut self) -> Option<(Payload, ClientId)> {
         self.packet_queue.pop_front()
     }
 

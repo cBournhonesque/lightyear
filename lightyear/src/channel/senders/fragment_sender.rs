@@ -36,7 +36,7 @@ impl FragmentSender {
             // TODO: ideally we don't clone here but we take ownership of the output of writer
             .map(|(fragment_index, chunk)| FragmentData {
                 message_id: fragment_message_id,
-                tick,
+                // tick,
                 fragment_id: fragment_index as u8,
                 num_fragments: num_fragments as u8,
                 bytes: fragment_bytes.slice_ref(chunk),
@@ -69,7 +69,7 @@ mod tests {
             fragments.first().unwrap(),
             &FragmentData {
                 message_id,
-                tick: None,
+                // tick: None,
                 fragment_id: 0,
                 num_fragments: expected_num_fragments as u8,
                 bytes: bytes.slice(0..FRAGMENT_SIZE),
@@ -80,7 +80,7 @@ mod tests {
             fragments.get(1).unwrap(),
             &FragmentData {
                 message_id,
-                tick: None,
+                // tick: None,
                 fragment_id: 1,
                 num_fragments: expected_num_fragments as u8,
                 bytes: bytes.slice(FRAGMENT_SIZE..2 * FRAGMENT_SIZE),
@@ -91,7 +91,7 @@ mod tests {
             fragments.get(2).unwrap(),
             &FragmentData {
                 message_id,
-                tick: None,
+                // tick: None,
                 fragment_id: 2,
                 num_fragments: expected_num_fragments as u8,
                 bytes: bytes.slice(2 * FRAGMENT_SIZE..),

@@ -1,7 +1,7 @@
 use crate::client::io::Io;
 use crate::client::networking::NetworkingState;
 use crate::connection::client::{ConnectionState, NetClient};
-use crate::packet::packet::Packet;
+use crate::packet::packet_manager::Payload;
 use crate::prelude::ClientId;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::Result;
@@ -45,7 +45,7 @@ impl NetClient for Client {
         Ok(())
     }
 
-    fn recv(&mut self) -> Option<Packet> {
+    fn recv(&mut self) -> Option<Payload> {
         None
     }
 

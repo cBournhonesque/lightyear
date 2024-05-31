@@ -51,7 +51,7 @@ impl FragmentReceiver {
             self.fragment_messages.remove(&fragment.message_id);
             // TODO: code smell
             //  we don't need the priority on the receiver side, just set 1.0 for now
-            let mut data = SingleData::new(Some(fragment.message_id), payload, 1.0);
+            let data = SingleData::new(Some(fragment.message_id), payload, 1.0);
             return Ok(Some(data));
         }
 

@@ -3,7 +3,6 @@
 use std::io::Seek;
 
 pub mod bitcode;
-pub(crate) mod octets;
 pub mod reader;
 pub(crate) mod varint;
 pub mod writer;

@@ -106,11 +106,6 @@ impl ChannelRegistry {
             direction: ChannelDirection::Bidirectional,
             priority: 1.0,
         });
-        registry.add_channel::<TickBufferChannel>(ChannelSettings {
-            mode: ChannelMode::TickBuffered,
-            direction: ChannelDirection::ClientToServer,
-            priority: 1.0,
-        });
         registry
     }
 

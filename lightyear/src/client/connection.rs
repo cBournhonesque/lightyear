@@ -462,7 +462,7 @@ impl ConnectionManager {
 
     pub(crate) fn recv_packet(
         &mut self,
-        packet: Packet,
+        packet: Payload,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
     ) -> Result<()> {

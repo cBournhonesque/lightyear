@@ -9,9 +9,9 @@ use bitcode::encoding::Gamma;
 
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
-use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, MessageContainer, MessageId, SingleData};
 use crate::packet::packet::{
-    FragmentedPacket, MyPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES,
+    FragmentedPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES,
 };
 use crate::packet::packet_type::PacketType;
 use crate::prelude::Tick;
@@ -128,12 +128,12 @@ impl PacketBuilder {
         self.cursor.capacity() >= size + self.prewritten_size + self.cursor.len()
     }
 
-    pub fn finish_packet(&mut self) -> MyPacket {
+    pub fn finish_packet(&mut self) -> Packet {
         self.cursor.shrink_to_fit();
         // TODO: should we use bytes so this clone is cheap?
         let payload = self.cursor.clone();
         self.clear_cursor();
-        MyPacket {
+        Packet {
             payload,
             message_acks: std::mem::take(&mut self.acks),
         }
@@ -143,8 +143,8 @@ impl PacketBuilder {
         &mut self,
         current_tick: Tick,
         data: BTreeMap<ChannelId, (VecDeque<SingleData>, VecDeque<FragmentData>)>,
-    ) -> Result<Vec<MyPacket>, SerializationError> {
-        let mut packets: Vec<MyPacket> = vec![];
+    ) -> Result<Vec<Packet>, SerializationError> {
+        let mut packets: Vec<Packet> = vec![];
         let write_single_messages = |cursor: &mut Vec<u8>,
                                      messages: &VecDeque<SingleData>,
                                      start: &mut usize,
@@ -154,22 +154,22 @@ impl PacketBuilder {
             channel_id.to_bytes(cursor)?;
             // write the number of messages for the current channel
             let num_messages = *end - *start;
-            cursor.write_u8(num_messages as u8).unwrap();
-            // write the messages
-            for i in *start..*end {
-                messages[i].to_bytes(cursor).unwrap();
-            }
-            self.acks.push((
-                channel_id,
-                messages[*start..*end]
-                    .iter()
-                    .map(|message| MessageAck {
-                        message_id: message.message_id,
+            if num_messages > 0 {
+                cursor.write_u8(num_messages as u8).unwrap();
+                // write the messages
+                let mut message_acks = vec![];
+                for i in *start..*end {
+                    messages[i].to_bytes(cursor).unwrap();
+                    message_acks.push(MessageAck {
+                        // TODO: REVISIT THIS
+                        message_id: messages[i].id.unwrap_or(MessageId(0)),
                         fragment_id: None,
-                    })
-                    .collect(),
-            ));
-            *start = *end;
+                    });
+                }
+                self.acks.push((channel_id, message_acks));
+                *start = *end;
+            }
+
             Ok(())
         };
 

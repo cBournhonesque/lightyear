@@ -9,6 +9,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::client::io::Io;
 use crate::connection::client::{ConnectionState, DisconnectReason, IoConfig, NetClient};
 use crate::connection::id;
+use crate::packet::packet_manager::Payload;
 use crate::prelude::client::NetworkingState;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
@@ -194,7 +195,7 @@ pub struct NetcodeClient<Ctx = ()> {
     replay_protection: ReplayProtection,
     should_disconnect: bool,
     should_disconnect_state: ClientState,
-    packet_queue: VecDeque<crate::packet::packet::Packet>,
+    packet_queue: VecDeque<Payload>,
     buffer_pool: BufferPool,
     cfg: ClientConfig<Ctx>,
 }
@@ -405,21 +406,26 @@ impl<Ctx> NetcodeClient<Ctx> {
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
                 trace!("client received payload packet from server");
-                // TODO: we decode the data immediately so we don't need to keep the buffer around!
-                //  we could just
-                // instead of allocating a new buffer, fetch one from the pool
-                trace!("read from netcode client pre");
-                let mut reader = self.buffer_pool.start_read(pkt.buf);
-                let packet = crate::packet::packet::Packet::decode(&mut reader)
-                    .map_err(|_| super::packet::Error::InvalidPayload)?;
-                trace!(
-                    "read from netcode client post; pool len: {}",
-                    self.buffer_pool.0.len()
-                );
-                // return the buffer to the pool
-                self.buffer_pool.attach(reader);
+                // // TODO: we decode the data immediately so we don't need to keep the buffer around!
+                // //  we could just
+                // // instead of allocating a new buffer, fetch one from the pool
+                // trace!("read from netcode client pre");
+                // let mut reader = self.buffer_pool.start_read(pkt.buf);
+                // let packet = crate::packet::packet::Packet::decode(&mut reader)
+                //     .map_err(|_| super::packet::Error::InvalidPayload)?;
+                // trace!(
+                //     "read from netcode client post; pool len: {}",
+                //     self.buffer_pool.0.len()
+                // );
+                // // return the buffer to the pool
+                // self.buffer_pool.attach(reader);
+
+                // TODO: COPY THE PAYLOAD INTO A BUFFER FROM THE POOL!
+                let mut buf = vec![0u8; pkt.buf.len()];
+                buf.copy_from_slice(pkt.buf);
+
                 // TODO: control the size/memory of the packet queue?
-                self.packet_queue.push_back(packet);
+                self.packet_queue.push_back(buf);
             }
             (Packet::Disconnect(_), ClientState::Connected) => {
                 debug!("client received disconnect packet from server");
@@ -590,7 +596,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     ///     thread::sleep(tick_rate);
     /// }
     /// ```
-    pub fn recv(&mut self) -> Option<crate::packet::packet::Packet> {
+    pub fn recv(&mut self) -> Option<Payload> {
         self.packet_queue.pop_front()
     }
 
@@ -702,7 +708,7 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
             .context("could not update client")
     }
 
-    fn recv(&mut self) -> Option<crate::packet::packet::Packet> {
+    fn recv(&mut self) -> Option<Payload> {
         self.client.recv()
     }
 

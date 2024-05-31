@@ -698,7 +698,7 @@ impl Connection {
 
     pub fn recv_packet(
         &mut self,
-        packet: Packet,
+        packet: Payload,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
         delta_manager: &mut DeltaManager,

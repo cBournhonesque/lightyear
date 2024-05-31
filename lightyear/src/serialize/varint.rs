@@ -1,5 +1,5 @@
 use crate::serialize::SerializationError;
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::Seek;
 
 /// Returns how many bytes it would take to encode `v` as a variable-length
@@ -35,27 +35,24 @@ pub trait VarIntWriteExt: WriteBytesExt {
     /// Write a variable length integer to the writer, in network byte order
     fn write_varint(&mut self, value: u64) -> Result<(), SerializationError> {
         let len = varint_len(value);
-        let buf = match len {
+        match len {
             1 => self.write_u8(value as u8)?,
             2 => {
-                let buf = self.write_u16(value as u16)?;
-                buf[0] |= 0x40;
-                buf
+                let val = (value as u16) | 0x4000;
+                self.write_u16::<NetworkEndian>(val)?;
             }
             4 => {
-                let buf = self.write_u32(value as u32)?;
-                buf[0] |= 0x80;
-                buf
+                let val = (value as u32) | 0x8000_0000;
+                self.write_u32::<NetworkEndian>(val)?;
             }
             8 => {
-                let buf = self.write_u64(value)?;
-                buf[0] |= 0xc0;
-                buf
+                let val = value | 0xc0_0000_0000_0000;
+                self.write_u64::<NetworkEndian>(val)?;
             }
             _ => return Err(std::io::Error::other("value is too large for varint").into()),
         };
 
-        Ok(buf)
+        Ok(())
     }
 }
 
@@ -71,11 +68,11 @@ pub trait VarIntReadExt: ReadBytesExt + Seek {
         let out = match len {
             1 => u64::from(first),
 
-            2 => u64::from(self.read_u16()? & 0x3fff),
+            2 => u64::from(self.read_u16::<NetworkEndian>()? & 0x3fff),
 
-            4 => u64::from(self.read_u32()? & 0x3fffffff),
+            4 => u64::from(self.read_u32::<NetworkEndian>()? & 0x3fffffff),
 
-            8 => self.read_u64()? & 0x3fffffffffffffff,
+            8 => self.read_u64::<NetworkEndian>()? & 0x3fffffffffffffff,
 
             _ => return Err(std::io::Error::other("value is too large for varint").into()),
         };

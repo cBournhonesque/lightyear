@@ -17,8 +17,6 @@ pub(crate) mod sequenced_reliable;
 /// Receive messages in an Sequenced Unreliable manner
 pub(crate) mod sequenced_unreliable;
 
-pub(crate) mod tick_unreliable;
-
 /// Receive messages in an Unordered Reliable manner
 pub(crate) mod unordered_reliable;
 
@@ -46,5 +44,4 @@ pub enum ChannelReceiver {
     OrderedReliable(ordered_reliable::OrderedReliableReceiver),
     SequencedReliable(sequenced_reliable::SequencedReliableReceiver),
     UnorderedReliable(unordered_reliable::UnorderedReliableReceiver),
-    TickUnreliable(tick_unreliable::TickUnreliableReceiver),
 }

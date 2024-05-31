@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::io::Seek;
 
 use bevy::ecs::entity::MapEntities;
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{BufMut, Bytes};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -88,25 +88,27 @@ pub struct SingleData {
     // TODO: MessageId is from 1 to 65535, so that we can use 0 to represent None?
     pub id: Option<MessageId>,
     pub bytes: Bytes,
+    // // tick at which the message was sent (useful on the receiving side, be)
+    // // on the sending size, the tick is set in the PacketHeader
+    // pub tick: Tick,
     // we do not encode the priority in the packet
-    #[serde(skip)]
     pub priority: f32,
 }
 
 impl ToBytes for SingleData {
     // TODO: how to avoid the option taking 1 byte?
     fn len(&self) -> usize {
-        octets::varint_len(self.bytes.len() as u64) + self.bytes.len() + self.id.map_or(1, |_| 3)
+        varint_len(self.bytes.len() as u64) + self.bytes.len() + self.id.map_or(1, |_| 3)
     }
 
     fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
         if let Some(id) = self.id {
             buffer.write_u8(1)?;
-            buffer.write_u16(id.0)?;
+            buffer.write_u16::<NetworkEndian>(id.0)?;
         } else {
             buffer.write_u8(1)?;
         }
-        buffer.write_u16(self.id.map_or(0, |id| id.0))?;
+        buffer.write_u16::<NetworkEndian>(self.id.map_or(0, |id| id.0))?;
         buffer.write_varint(self.bytes.len() as u64)?;
         buffer.write(self.bytes.as_ref())?;
         Ok(())
@@ -117,7 +119,7 @@ impl ToBytes for SingleData {
         Self: Sized,
     {
         let id = if buffer.read_u8()? == 1 {
-            Some(MessageId(buffer.read_u16()?))
+            Some(MessageId(buffer.read_u16::<NetworkEndian>()?))
         } else {
             None
         };
@@ -160,7 +162,7 @@ impl ToBytes for FragmentData {
     }
 
     fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        buffer.write_u16(self.message_id.0)?;
+        buffer.write_u16::<NetworkEndian>(self.message_id.0)?;
         buffer.write_u8(self.fragment_id)?;
         buffer.write_u8(self.num_fragments)?;
         buffer.write_varint(self.bytes.len() as u64)?;
@@ -172,7 +174,7 @@ impl ToBytes for FragmentData {
     where
         Self: Sized,
     {
-        let message_id = MessageId(buffer.read_u16()?);
+        let message_id = MessageId(buffer.read_u16::<NetworkEndian>()?);
         let fragment_id = buffer.read_u8()?;
         let num_fragments = buffer.read_u8()?;
         let mut bytes = vec![0; buffer.read_varint()? as usize];

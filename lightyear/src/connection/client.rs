@@ -16,6 +16,7 @@ use crate::connection::netcode::ConnectToken;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{client::SteamConfig, steamworks_client::SteamworksClient};
 use crate::packet::packet::Packet;
+use crate::packet::packet_manager::Payload;
 
 use crate::prelude::client::ClientTransport;
 use crate::prelude::{generate_key, Key, LinkConditionerConfig};
@@ -46,7 +47,7 @@ pub trait NetClient: Send + Sync {
     fn try_update(&mut self, delta_ms: f64) -> Result<()>;
 
     /// Receive a packet from the server
-    fn recv(&mut self) -> Option<Packet>;
+    fn recv(&mut self) -> Option<Payload>;
 
     /// Send a packet to the server
     fn send(&mut self, buf: &[u8]) -> Result<()>;
@@ -199,7 +200,7 @@ impl NetClient for ClientConnection {
         self.client.try_update(delta_ms)
     }
 
-    fn recv(&mut self) -> Option<Packet> {
+    fn recv(&mut self) -> Option<Payload> {
         self.client.recv()
     }
 

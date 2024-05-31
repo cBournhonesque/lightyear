@@ -272,108 +272,22 @@ impl PacketData {
     }
 }
 
-pub struct MyPacket {
+pub struct Packet {
     pub payload: Payload,
     /// Content of the packet so we can map from channel id to message ids
     pub message_acks: Vec<(ChannelId, Vec<MessageAck>)>,
 }
 
-impl MyPacket {
+impl Packet {
     pub(crate) fn num_messages(&self) -> usize {
         self.message_acks
             .iter()
             .map(|(_, messages)| messages.len())
             .sum()
     }
-}
 
-#[derive(Debug)]
-pub struct Packet {
-    pub(crate) header: PacketHeader,
-    pub(crate) data: PacketData,
-}
-
-impl Packet {
     pub(crate) fn is_empty(&self) -> bool {
-        match &self.data {
-            PacketData::Single(single_packet) => single_packet.data.is_empty(),
-            PacketData::Fragmented(fragmented_packet) => fragmented_packet.packet.data.is_empty(),
-        }
-    }
-
-    /// Encode a packet into the write buffer
-    pub fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
-        // use encode to force Fixed encoding
-        // should still use gamma for packet type
-        // TODO: add test
-        writer.encode(&self.header, Fixed)?;
-        match &self.data {
-            PacketData::Single(single_packet) => single_packet.encode(writer),
-            PacketData::Fragmented(fragmented_packet) => fragmented_packet.encode(writer),
-        }
-    }
-
-    /// Decode a packet from the read buffer. The read buffer will only contain the bytes for a single packet
-    pub fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Packet> {
-        let header = reader.decode::<PacketHeader>(Fixed)?;
-        let packet_type = header.get_packet_type();
-        match packet_type {
-            PacketType::Data => {
-                let single_packet = SinglePacket::decode(reader)?;
-                Ok(Self {
-                    header,
-                    data: PacketData::Single(single_packet),
-                })
-            }
-            PacketType::DataFragment => {
-                let fragmented_packet = FragmentedPacket::decode(reader)?;
-                Ok(Self {
-                    header,
-                    data: PacketData::Fragmented(fragmented_packet),
-                })
-            } // _ => Err(anyhow::anyhow!("Packet type not supported")),
-        }
-    }
-
-    // #[cfg(test)]
-    pub(crate) fn header(&self) -> &PacketHeader {
-        &self.header
-    }
-
-    pub fn add_channel(&mut self, channel: NetId) {
-        match &mut self.data {
-            PacketData::Single(single_packet) => {
-                single_packet.add_channel(channel);
-            }
-            PacketData::Fragmented(fragmented_packet) => {
-                fragmented_packet.packet.add_channel(channel);
-            }
-        }
-    }
-
-    pub fn add_message(&mut self, channel: NetId, message: SingleData) {
-        match &mut self.data {
-            PacketData::Single(single_packet) => single_packet.add_message(channel, message),
-            PacketData::Fragmented(fragmented_packet) => {
-                fragmented_packet.packet.add_message(channel, message);
-            }
-        }
-    }
-
-    /// Number of messages currently written in the packet
-    #[cfg(test)]
-    pub fn num_messages(&self) -> usize {
-        match &self.data {
-            PacketData::Single(single_packet) => single_packet.num_messages(),
-            PacketData::Fragmented(fragmented_packet) => fragmented_packet.packet.num_messages(),
-        }
-    }
-
-    pub(crate) fn message_acks(&self) -> HashMap<ChannelId, Vec<MessageAck>> {
-        match &self.data {
-            PacketData::Single(single_packet) => single_packet.message_acks(),
-            PacketData::Fragmented(fragmented_packet) => fragmented_packet.message_acks(),
-        }
+        self.message_acks.is_empty()
     }
 }
 
@@ -493,7 +407,6 @@ mod tests {
         let bytes = Bytes::from(vec![0; 10]);
         let fragment = FragmentData {
             message_id: MessageId(0),
-            tick: None,
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),
@@ -532,7 +445,6 @@ mod tests {
         let bytes = Bytes::from(vec![0; 10]);
         let fragment = FragmentData {
             message_id: MessageId(0),
-            tick: None,
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),

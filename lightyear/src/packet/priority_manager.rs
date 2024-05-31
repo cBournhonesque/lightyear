@@ -125,7 +125,7 @@ impl PriorityManager {
                 trace!(?channel_priority, num_single=?single.len(), "channel priority");
                 single
                     .into_iter()
-                    .map(move |mut single| {
+                    .map(move |single| {
                         // TODO: REVISIT THIS
                         // // TODO: this only needs to be done for the messages that are not sent!
                         // //  (and for messages that are not replication messages?)
@@ -142,7 +142,7 @@ impl PriorityManager {
                             message_container: MessageContainer::Single(single),
                         }
                     })
-                    .chain(fragment.into_iter().map(move |mut fragment| {
+                    .chain(fragment.into_iter().map(move |fragment| {
                         // TODO: CHECK THIS???
                         // if fragment.tick.is_none() {
                         //     fragment.tick = Some(tick);
