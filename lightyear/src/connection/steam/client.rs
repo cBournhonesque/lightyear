@@ -1,7 +1,7 @@
 use crate::client::networking::NetworkingState;
 use crate::connection::client::{ConnectionState, DisconnectReason, NetClient};
 use crate::connection::id::ClientId;
-use crate::packet::packet_manager::Payload;
+use crate::packet::packet_builder::Payload;
 use crate::prelude::client::Io;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;

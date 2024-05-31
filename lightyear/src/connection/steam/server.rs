@@ -4,7 +4,7 @@ use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, NetServer,
 };
-use crate::packet::packet_manager::Payload;
+use crate::packet::packet_builder::Payload;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::io::Io;

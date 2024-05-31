@@ -13,9 +13,7 @@ pub type RawData = Vec<u8>;
 pub enum SerializationError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    InvalidNumSlices,
-    EmptySlice,
-    InvalidAckRange,
+    #[error("Invalid packet type")]
     InvalidPacketType,
 }
 

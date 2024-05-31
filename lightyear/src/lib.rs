@@ -179,7 +179,6 @@ pub mod prelude {
     pub use lightyear_macros::Channel;
     pub use serde::{Deserialize, Serialize};
 
-    pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         DefaultUnorderedUnreliableChannel, InputChannel, ReliableSettings,

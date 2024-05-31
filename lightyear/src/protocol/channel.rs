@@ -12,7 +12,6 @@ use crate::channel::builder::{
 };
 use crate::prelude::{
     ChannelDirection, ChannelMode, DefaultUnorderedUnreliableChannel, Message, ReliableSettings,
-    TickBufferChannel,
 };
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 

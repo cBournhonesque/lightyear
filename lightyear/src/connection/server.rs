@@ -12,7 +12,7 @@ use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{server::SteamConfig, steamworks_client::SteamworksClient};
 use crate::packet::packet::Packet;
-use crate::packet::packet_manager::Payload;
+use crate::packet::packet_builder::Payload;
 use crate::prelude::client::ClientTransport;
 use crate::prelude::server::ServerTransport;
 use crate::prelude::LinkConditionerConfig;

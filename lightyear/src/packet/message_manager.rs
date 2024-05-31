@@ -19,9 +19,11 @@ use crate::channel::senders::ChannelSend;
 #[cfg(feature = "trace")]
 use crate::channel::stats::send::ChannelSendStats;
 use crate::packet::header::PacketHeader;
-use crate::packet::message::{FragmentData, MessageAck, MessageContainer, MessageId, SingleData};
+use crate::packet::message::{
+    FragmentData, MessageAck, MessageId, ReceiveMessage, SendMessage, SingleData,
+};
 use crate::packet::packet::{Packet, PacketId, MTU_PAYLOAD_BYTES};
-use crate::packet::packet_manager::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
 use crate::packet::packet_type::PacketType;
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::prelude::Channel;
@@ -53,7 +55,7 @@ pub struct MessageManager {
     // TODO: can use Vec<ChannelKind, Vec<MessageId>> to be more efficient?
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
-    packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
+    packet_to_message_ack_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
     nack_senders: Vec<Sender<MessageId>>,
 }
 
@@ -94,21 +96,19 @@ impl MessageManager {
         // notify that some messages have been lost
         for lost_packet in lost_packets {
             if let Some(message_map) = self.packet_to_message_ack_map.remove(&lost_packet) {
-                for (channel_kind, message_acks) in message_map {
+                for (channel_kind, message_ack) in message_map {
                     let channel = self
                         .channels
                         .get_mut(&channel_kind)
                         .expect("Channel not found");
                     // TODO: batch the messages?
-                    for message_ack in message_acks {
-                        trace!(
-                            ?lost_packet,
-                            ?channel_kind,
-                            "message lost: {:?}",
-                            message_ack.message_id
-                        );
-                        channel.sender.send_nacks(message_ack.message_id);
-                    }
+                    trace!(
+                        ?lost_packet,
+                        ?channel_kind,
+                        "message lost: {:?}",
+                        message_ack.message_id
+                    );
+                    channel.sender.send_nacks(message_ack.message_id);
                 }
             }
         }
@@ -165,7 +165,7 @@ impl MessageManager {
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
-        let mut data_to_send: Vec<(NetId, (VecDeque<SingleData>, VecDeque<FragmentData>))> = vec![];
+        let mut data_to_send: Vec<(NetId, (VecDeque<SendMessage>, VecDeque<SendMessage>))> = vec![];
         let mut has_data_to_send = false;
         for (channel_kind, channel) in self.channels.iter_mut() {
             let channel_id = self
@@ -226,17 +226,14 @@ impl MessageManager {
         let mut bytes = Vec::new();
         for mut packet in packets {
             trace!(num_messages = ?packet.num_messages(), "sending packet");
-            let packet_id = packet.header().packet_id;
-
             // TODO: should we update this to include fragment info as well?
             // Step 2. Update the packet_to_message_id_map (only for channels that care about acks)
-            packet
-                .message_acks
-                .iter()
+            std::mem::take(&mut packet.message_acks)
+                .into_iter()
                 .try_for_each(|(channel_id, message_ack)| {
                     let channel_kind = self
                         .channel_registry
-                        .get_kind_from_net_id(*channel_id)
+                        .get_kind_from_net_id(channel_id)
                         .context("cannot find channel kind")?;
                     let channel = self
                         .channels
@@ -244,11 +241,9 @@ impl MessageManager {
                         .context("Channel not found")?;
                     if channel.setting.mode.is_watching_acks() {
                         self.packet_to_message_ack_map
-                            .entry(packet_id)
+                            .entry(packet.packet_id)
                             .or_default()
-                            .entry(*channel_kind)
-                            .or_default()
-                            .extend_from_slice(message_ack);
+                            .push((*channel_kind, message_ack));
                     }
                     Ok::<(), anyhow::Error>(())
                 })?;
@@ -277,7 +272,7 @@ impl MessageManager {
     /// Update the acks, and put the messages from the packets in internal buffers
     /// Returns the tick of the packet
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn recv_packet(&mut self, mut packet: Payload) -> anyhow::Result<Tick> {
+    pub fn recv_packet(&mut self, packet: Payload) -> anyhow::Result<Tick> {
         let mut cursor = Cursor::new(&packet);
 
         // Step 1. Parse the packet
@@ -301,14 +296,12 @@ impl MessageManager {
         // Step 3. Update the list of messages that have been acked
         for acked_packet in acked_packets {
             if let Some(message_map) = self.packet_to_message_ack_map.remove(&acked_packet) {
-                for (channel_kind, message_acks) in message_map {
+                for (channel_kind, message_ack) in message_map {
                     let channel = self
                         .channels
                         .get_mut(&channel_kind)
                         .context("Channel not found")?;
-                    for message_ack in message_acks {
-                        channel.sender.receive_ack(&message_ack);
-                    }
+                    channel.sender.receive_ack(&message_ack);
                 }
             }
         }
@@ -321,11 +314,12 @@ impl MessageManager {
             let channel_id = ChannelId::from_bytes(&mut cursor).context("could not serialize")?;
             let fragment_data =
                 FragmentData::from_bytes(&mut cursor).context("could not serialize")?;
-            // TODO: DO WE NEED TO SET TICK?
-            // message.set_tick(tick);
             self.get_channel_mut(channel_id)?
                 .receiver
-                .buffer_recv(MessageContainer::Fragment(fragment_data))?;
+                .buffer_recv(ReceiveMessage {
+                    data: fragment_data.into(),
+                    remote_sent_tick: tick,
+                })?;
         }
         // read single message data
         while cursor.has_remaining() {
@@ -334,11 +328,12 @@ impl MessageManager {
             for i in 0..num_messages {
                 let single_data =
                     SingleData::from_bytes(&mut cursor).context("could not serialize")?;
-                // TODO: DO WE NEED TO SET TICK?
-                // message.set_tick(tick);
                 self.get_channel_mut(channel_id)?
                     .receiver
-                    .buffer_recv(MessageContainer::Single(single_data))?;
+                    .buffer_recv(ReceiveMessage {
+                        data: single_data.into(),
+                        remote_sent_tick: tick,
+                    })?;
             }
         }
         // trace!(
@@ -351,18 +346,27 @@ impl MessageManager {
     }
 
     /// Read all the messages in the internal buffers that are ready to be processed
-    // TODO: this is where naia converts the messages to events and pushes them to an event queue
-    //  let be conservative and just return the messages right now. We could switch to an iterator
+    ///
+    /// Returns a map of channel kind to a list of messages, along with the sender tick
+    /// at which the message was sent.
+    ///
+    /// CAREFUL: this doesn't mean that the message was buffered at that tick?
+    /// (because of prioritization, or because of sender channel buffering)
+    /// If that information is needed, you need to include it in the message itself.
+    ///
+    /// EDIT: Actually, prioritization discards messages that are not sent, so maybe it is guaranteed that the tick
+    /// is the remote send tick.
+    // TODO: avoid allocating this temporary map!
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let mut messages = vec![];
-            while let Some(single_data) = channel.receiver.read_message() {
-                trace!(?channel_kind, "reading message: {:?}", single_data);
+            while let Some((tick, bytes)) = channel.receiver.read_message() {
+                trace!(?channel_kind, "reading message: {:?}", bytes);
                 // SAFETY: when we receive the message, we set the tick of the message to the header tick
                 // so every message has a tick
-                messages.push((single_data.tick.unwrap(), single_data.bytes));
+                messages.push((tick, bytes));
             }
             if !messages.is_empty() {
                 map.insert(*channel_kind, messages);
@@ -451,13 +455,13 @@ mod tests {
             client_message_manager.packet_to_message_ack_map,
             HashMap::from([(
                 PacketId(0),
-                HashMap::from([(
+                vec![(
                     channel_kind_2,
-                    vec![MessageAck {
+                    MessageAck {
                         message_id: MessageId(0),
                         fragment_id: None,
-                    }]
-                )])
+                    }
+                )]
             )])
         );
 
@@ -534,23 +538,23 @@ mod tests {
             HashMap::from([
                 (
                     PacketId(2),
-                    HashMap::from([(
+                    vec![(
                         channel_kind_2,
-                        vec![MessageAck {
+                        MessageAck {
                             message_id: MessageId(0),
                             fragment_id: Some(0),
-                        },]
-                    )])
+                        }
+                    )]
                 ),
                 (
                     PacketId(3),
-                    HashMap::from([(
+                    vec![(
                         channel_kind_2,
-                        vec![MessageAck {
+                        MessageAck {
                             message_id: MessageId(0),
                             fragment_id: Some(1),
-                        }]
-                    )])
+                        }
+                    )]
                 ),
             ])
         );
@@ -629,13 +633,13 @@ mod tests {
             client_message_manager.packet_to_message_ack_map,
             HashMap::from([(
                 PacketId(0),
-                HashMap::from([(
+                vec![(
                     Channel2::kind(),
-                    vec![MessageAck {
+                    MessageAck {
                         message_id,
                         fragment_id: None,
-                    }]
-                )])
+                    }
+                )]
             )])
         );
 

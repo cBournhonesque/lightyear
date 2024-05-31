@@ -1,3 +1,5 @@
+//! Module that defines the [`Message`] trait along with some internal wrappers around messages
+//! that we send and receive
 use std::fmt::Debug;
 use std::io::Seek;
 
@@ -17,12 +19,6 @@ use crate::serialize::writer::WriteBuffer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
-
-// strategies to avoid copying:
-// - have a net_id for each message or component
-//   be able to take a reference to a M and serialize it into bytes (so we can cheaply clone)
-//   in the serialized message, include the net_id (for decoding)
-//   no bit padding
 
 // Internal id that we assign to each message sent over the network
 wrapping_id!(MessageId);
@@ -54,24 +50,62 @@ pub(crate) struct MessageAck {
 ///
 /// In the message container, we already store the serialized representation of the message.
 /// The main reason is so that we can avoid copies, by directly serializing references into raw bits
-// TODO: we could just store Bytes in MessageContainer to serialize very early
-//  important thing is to re-use the Writer to allocate only once?
-//  pros: we might not require messages/components to be clone anymore if we serialize them very early!
-//  also we know the size of the message early, which is useful for fragmentation
+#[derive(Debug, PartialEq)]
+pub struct SendMessage {
+    pub(crate) data: MessageData,
+    pub(crate) priority: f32,
+}
 
 #[derive(Debug, PartialEq)]
-pub enum MessageContainer {
+pub struct ReceiveMessage {
+    pub(crate) data: MessageData,
+    // keep track on the receiver side of the sender tick when the message was actually sent
+    pub(crate) remote_sent_tick: Tick,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum MessageData {
     Single(SingleData),
     Fragment(FragmentData),
 }
 
-impl From<FragmentData> for MessageContainer {
+impl MessageData {
+    pub fn message_id(&self) -> Option<MessageId> {
+        match self {
+            MessageData::Single(data) => data.id,
+            MessageData::Fragment(data) => Some(data.message_id),
+        }
+    }
+
+    pub fn set_id(&mut self, id: MessageId) {
+        match self {
+            MessageData::Single(data) => data.id = Some(id),
+            MessageData::Fragment(data) => data.message_id = id,
+        };
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            MessageData::Single(data) => data.len(),
+            MessageData::Fragment(data) => data.len(),
+        }
+    }
+
+    pub fn bytes(&self) -> Bytes {
+        match self {
+            MessageData::Single(data) => data.bytes.clone(),
+            MessageData::Fragment(data) => data.bytes.clone(),
+        }
+    }
+}
+
+impl From<FragmentData> for MessageData {
     fn from(value: FragmentData) -> Self {
         Self::Fragment(value)
     }
 }
 
-impl From<SingleData> for MessageContainer {
+impl From<SingleData> for MessageData {
     fn from(value: SingleData) -> Self {
         Self::Single(value)
     }
@@ -88,11 +122,6 @@ pub struct SingleData {
     // TODO: MessageId is from 1 to 65535, so that we can use 0 to represent None?
     pub id: Option<MessageId>,
     pub bytes: Bytes,
-    // // tick at which the message was sent (useful on the receiving side, be)
-    // // on the sending size, the tick is set in the PacketHeader
-    // pub tick: Tick,
-    // we do not encode the priority in the packet
-    pub priority: f32,
 }
 
 impl ToBytes for SingleData {
@@ -129,18 +158,13 @@ impl ToBytes for SingleData {
         Ok(Self {
             id,
             bytes: Bytes::from(bytes),
-            priority: 1.0,
         })
     }
 }
 
 impl SingleData {
-    pub fn new(id: Option<MessageId>, bytes: Bytes, priority: f32) -> Self {
-        Self {
-            id,
-            bytes,
-            priority,
-        }
+    pub fn new(id: Option<MessageId>, bytes: Bytes) -> Self {
+        Self { id, bytes }
     }
 }
 
@@ -152,8 +176,6 @@ pub struct FragmentData {
     pub num_fragments: FragmentIndex,
     /// Bytes data associated with the message that is too big
     pub bytes: Bytes,
-    #[serde(skip)]
-    pub priority: f32,
 }
 
 impl ToBytes for FragmentData {
@@ -184,7 +206,6 @@ impl ToBytes for FragmentData {
             fragment_id,
             num_fragments,
             bytes: Bytes::from(bytes),
-            priority: 1.0,
         })
     }
 }
@@ -192,30 +213,6 @@ impl ToBytes for FragmentData {
 impl FragmentData {
     pub(crate) fn is_last_fragment(&self) -> bool {
         self.fragment_id == self.num_fragments - 1
-    }
-}
-
-impl MessageContainer {
-    pub(crate) fn message_id(&self) -> Option<MessageId> {
-        match &self {
-            MessageContainer::Single(data) => data.id,
-            MessageContainer::Fragment(data) => Some(data.message_id),
-        }
-    }
-
-    pub fn set_id(&mut self, id: MessageId) {
-        match self {
-            MessageContainer::Single(data) => data.id = Some(id),
-            MessageContainer::Fragment(data) => data.message_id = id,
-        };
-    }
-
-    /// Get access to the underlying bytes (clone is a cheap operation for `Bytes`)
-    pub fn bytes(&self) -> Bytes {
-        match self {
-            MessageContainer::Single(data) => data.bytes.clone(),
-            MessageContainer::Fragment(data) => data.bytes.clone(),
-        }
     }
 }
 
@@ -227,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_serde_single_data() {
-        let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into(), 1.0);
+        let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into());
         let mut writer = BitcodeWriter::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();
         // dbg!(a);
@@ -254,7 +251,6 @@ mod tests {
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),
-            priority: 1.0,
         };
         let mut writer = BitcodeWriter::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();

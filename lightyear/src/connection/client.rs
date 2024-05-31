@@ -16,7 +16,7 @@ use crate::connection::netcode::ConnectToken;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{client::SteamConfig, steamworks_client::SteamworksClient};
 use crate::packet::packet::Packet;
-use crate::packet::packet_manager::Payload;
+use crate::packet::packet_builder::Payload;
 
 use crate::prelude::client::ClientTransport;
 use crate::prelude::{generate_key, Key, LinkConditionerConfig};

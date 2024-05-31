@@ -9,7 +9,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::client::io::Io;
 use crate::connection::client::{ConnectionState, DisconnectReason, IoConfig, NetClient};
 use crate::connection::id;
-use crate::packet::packet_manager::Payload;
+use crate::packet::packet_builder::Payload;
 use crate::prelude::client::NetworkingState;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
