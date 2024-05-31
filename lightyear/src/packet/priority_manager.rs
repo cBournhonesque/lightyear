@@ -143,9 +143,10 @@ impl PriorityManager {
                         }
                     })
                     .chain(fragment.into_iter().map(move |mut fragment| {
-                        if fragment.tick.is_none() {
-                            fragment.tick = Some(tick);
-                        }
+                        // TODO: CHECK THIS???
+                        // if fragment.tick.is_none() {
+                        //     fragment.tick = Some(tick);
+                        // }
                         BufferedMessage {
                             priority: fragment.priority * channel_priority,
                             channel_net_id: net_id,
