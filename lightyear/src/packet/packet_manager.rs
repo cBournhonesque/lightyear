@@ -1,4 +1,5 @@
 //! Module to take a buffer of messages to send and build packets
+use byteorder::WriteBytesExt;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{Cursor, Write};
 #[cfg(feature = "trace")]
@@ -18,9 +19,9 @@ use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::octets::{SerializationError, ToBytes};
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
+use crate::serialize::{SerializationError, ToBytes};
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.
 // pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
@@ -34,8 +35,7 @@ pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
     // Pre-allocated buffer to encode/decode without allocation.
     // TODO: should this be associated with Packet?
-    cursor: octets::OctetsMut<'_>,
-    buffer: Vec<u8>,
+    cursor: Vec<u8>,
     acks: Vec<(ChannelId, Vec<MessageAck>)>,
     prewritten_size: usize,
     mid_packet: bool,
@@ -45,8 +45,7 @@ impl PacketBuilder {
     pub fn new(nack_rtt_multiple: f32) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(nack_rtt_multiple),
-            buffer: Vec::with_capacity(PACKET_BUFFER_CAPACITY),
-            cursor: octets::OctetsMut::with_slice(self..as_mut()),
+            cursor: Vec::with_capacity(PACKET_BUFFER_CAPACITY),
             acks: Vec::new(),
             // we start with 1 extra byte for the final ChannelId = 0 that marks the end of the packet
             prewritten_size: 1,
@@ -57,7 +56,7 @@ impl PacketBuilder {
 
     /// Reset the buffers used to encode packets
     pub fn clear_cursor(&mut self) {
-        self.cursor = octets::OctetsMut::with_slice(Vec::with_capacity(MTU_PAYLOAD_BYTES).as_mut());
+        self.cursor = Vec::with_capacity(MTU_PAYLOAD_BYTES);
         self.prewritten_size = 1;
         self.mid_packet = false;
     }
@@ -124,19 +123,15 @@ impl PacketBuilder {
         // }
     }
 
-    pub fn message_num_bits(&mut self, message: &MessageContainer) -> anyhow::Result<usize> {
-        let mut write_buffer = BitcodeWriter::with_capacity(2 * PACKET_BUFFER_CAPACITY);
-        let prev_num_bits = write_buffer.num_bits_written();
-        message.encode(&mut write_buffer)?;
-        Ok(write_buffer.num_bits_written() - prev_num_bits)
-    }
-
+    /// Check that we can still fit some data in the buffer
     pub fn can_fit(&mut self, size: usize) -> bool {
-        self.cursor.cap() >= size + self.prewritten_size
+        self.cursor.capacity() >= size + self.prewritten_size + self.cursor.len()
     }
 
     pub fn finish_packet(&mut self) -> MyPacket {
-        let payload = self.cursor.to_vec();
+        self.cursor.shrink_to_fit();
+        // TODO: should we use bytes so this clone is cheap?
+        let payload = self.cursor.clone();
         self.clear_cursor();
         MyPacket {
             payload,
@@ -150,7 +145,7 @@ impl PacketBuilder {
         data: BTreeMap<ChannelId, (VecDeque<SingleData>, VecDeque<FragmentData>)>,
     ) -> Result<Vec<MyPacket>, SerializationError> {
         let mut packets: Vec<MyPacket> = vec![];
-        let write_single_messages = |cursor: &mut octets::OctetsMut,
+        let write_single_messages = |cursor: &mut Vec<u8>,
                                      messages: &VecDeque<SingleData>,
                                      start: &mut usize,
                                      end: &mut usize,
@@ -159,7 +154,7 @@ impl PacketBuilder {
             channel_id.to_bytes(cursor)?;
             // write the number of messages for the current channel
             let num_messages = *end - *start;
-            cursor.put_u8(num_messages as u8).unwrap();
+            cursor.write_u8(num_messages as u8).unwrap();
             // write the messages
             for i in *start..*end {
                 messages[i].to_bytes(cursor).unwrap();
@@ -263,7 +258,7 @@ impl PacketBuilder {
             'packet: loop {
                 // Can we write the channel id + num messages? If not, start a new packet (and write the channel id)
                 if !self.mid_packet && !self.can_fit(channel_id.len() + 1) {
-                    self.build_new_single_packet()?;
+                    self.build_new_single_packet(current_tick)?;
                 }
 
                 // add messages to packet for the given channel

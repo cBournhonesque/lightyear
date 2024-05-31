@@ -1,6 +1,7 @@
 use bevy::utils::HashMap;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
+use std::io::Seek;
 use tracing::trace;
 
 // use bitcode::{Decode, Encode};
@@ -33,30 +34,34 @@ pub(crate) struct PacketHeader {
     pub(crate) tick: Tick,
 }
 
-impl crate::serialize::octets::ToBytes for PacketHeader {
+impl crate::serialize::ToBytes for PacketHeader {
+    fn len(&self) -> usize {
+        11
+    }
+
     fn to_bytes(
         &self,
-        octets: &mut octets::OctetsMut,
-    ) -> Result<usize, crate::serialize::octets::SerializationError> {
-        octets.put_u8(self.packet_type as u8)?;
-        octets.put_u16(self.packet_id.0)?;
-        octets.put_u16(self.last_ack_packet_id.0)?;
-        octets.put_u32(self.ack_bitfield)?;
-        octets.put_u16(self.tick.0)?;
+        octets: &mut impl byteorder::WriteBytesExt,
+    ) -> Result<usize, crate::serialize::SerializationError> {
+        octets.write_u8(self.packet_type as u8)?;
+        octets.write_u16(self.packet_id.0)?;
+        octets.write_u16(self.last_ack_packet_id.0)?;
+        octets.write_u32(self.ack_bitfield)?;
+        octets.write_u16(self.tick.0)?;
         Ok(11)
     }
 
     fn from_bytes(
-        octets: &mut octets::Octets,
-    ) -> Result<Self, crate::serialize::octets::SerializationError>
+        octets: &mut impl byteorder::ReadBytesExt,
+    ) -> Result<Self, crate::serialize::SerializationError>
     where
         Self: Sized,
     {
-        let packet_type = octets.get_u8()?;
-        let packet_id = octets.get_u16()?;
-        let last_ack_packet_id = octets.get_u16()?;
-        let ack_bitfield = octets.get_u32()?;
-        let tick = octets.get_u16()?;
+        let packet_type = octets.read_u8()?;
+        let packet_id = octets.read_u16()?;
+        let last_ack_packet_id = octets.read_u16()?;
+        let ack_bitfield = octets.read_u32()?;
+        let tick = octets.read_u16()?;
         Ok(Self {
             packet_type: PacketType::try_from(packet_type)?,
             packet_id: PacketId(packet_id),
@@ -348,11 +353,13 @@ impl ReceiveBuffer {
 #[cfg(test)]
 mod tests {
     use bitcode::encoding::Fixed;
+    use std::io::Cursor;
 
     use crate::serialize::bitcode::reader::BitcodeReader;
     use crate::serialize::bitcode::writer::BitcodeWriter;
     use crate::serialize::reader::ReadBuffer;
     use crate::serialize::writer::WriteBuffer;
+    use crate::serialize::ToBytes;
 
     use super::*;
 
@@ -407,6 +414,26 @@ mod tests {
         assert_eq!(recv_buffer.get_bitfield(), 1 << (32 - 1));
     }
 
+    // #[test]
+    // fn test_bitcode_serde_header() -> anyhow::Result<()> {
+    //     let header = PacketHeader {
+    //         packet_type: PacketType::Data,
+    //         packet_id: PacketId(27),
+    //         last_ack_packet_id: PacketId(13),
+    //         ack_bitfield: 3,
+    //         tick: Tick(0),
+    //     };
+    //     let mut writer = BitcodeWriter::with_capacity(50);
+    //     writer.encode(&header, Fixed)?;
+    //     let data = writer.finish_write();
+    //
+    //     let mut reader = BitcodeReader::start_read(data);
+    //     let read_header = reader.decode::<PacketHeader>(Fixed)?;
+    //
+    //     assert_eq!(header, read_header);
+    //     Ok(())
+    // }
+
     #[test]
     fn test_serde_header() -> anyhow::Result<()> {
         let header = PacketHeader {
@@ -416,13 +443,12 @@ mod tests {
             ack_bitfield: 3,
             tick: Tick(0),
         };
-        let mut writer = BitcodeWriter::with_capacity(50);
-        writer.encode(&header, Fixed)?;
-        let data = writer.finish_write();
+        let mut writer = Vec::new();
+        header.to_bytes(&mut writer)?;
+        assert_eq!(writer.len(), header.len());
 
-        let mut reader = BitcodeReader::start_read(data);
-        let read_header = reader.decode::<PacketHeader>(Fixed)?;
-
+        let mut reader = Cursor::new(writer);
+        let read_header = PacketHeader::from_bytes(&mut reader)?;
         assert_eq!(header, read_header);
         Ok(())
     }

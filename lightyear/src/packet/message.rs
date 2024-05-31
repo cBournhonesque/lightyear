@@ -1,8 +1,9 @@
 use std::fmt::Debug;
+use std::io::Seek;
 
 use bevy::ecs::entity::MapEntities;
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::{BufMut, Bytes};
-use octets::OctetsMut;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -10,9 +11,10 @@ use bitcode::encoding::{Fixed, Gamma};
 
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::{BitSerializable, EventContext};
-use crate::serialize::octets::{SerializationError, ToBytes};
 use crate::serialize::reader::ReadBuffer;
+use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::writer::WriteBuffer;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
 
@@ -97,33 +99,34 @@ impl ToBytes for SingleData {
         octets::varint_len(self.bytes.len() as u64) + self.bytes.len() + self.id.map_or(1, |_| 3)
     }
 
-    fn to_bytes(&self, octets: &mut OctetsMut) -> Result<(), SerializationError> {
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
         if let Some(id) = self.id {
-            octets.put_u8(1)?;
-            octets.put_u16(id.0)?;
+            buffer.write_u8(1)?;
+            buffer.write_u16(id.0)?;
         } else {
-            octets.put_u8(1)?;
+            buffer.write_u8(1)?;
         }
-        octets.put_u16(self.id.map_or(0, |id| id.0))?;
-        octets.put_varint(self.bytes.len() as u64)?;
-        octets.put_bytes(self.bytes.as_ref())?;
+        buffer.write_u16(self.id.map_or(0, |id| id.0))?;
+        buffer.write_varint(self.bytes.len() as u64)?;
+        buffer.write(self.bytes.as_ref())?;
         Ok(())
     }
 
-    fn from_bytes(octets: &mut octets::Octets) -> Result<Self, SerializationError>
+    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
-        let id = if octets.get_u8()? == 1 {
-            Some(MessageId(octets.get_u16()?))
+        let id = if buffer.read_u8()? == 1 {
+            Some(MessageId(buffer.read_u16()?))
         } else {
             None
         };
-        let len = octets.get_varint()? as usize;
-        let bytes = Bytes::from(octets.get_bytes(len)?);
+        let len = buffer.read_varint()? as usize;
+        let mut bytes = vec![0; len];
+        buffer.read_exact(&mut bytes)?;
         Ok(Self {
             id,
-            bytes,
+            bytes: Bytes::from(bytes),
             priority: 1.0,
         })
     }
@@ -136,64 +139,6 @@ impl SingleData {
             bytes,
             priority,
         }
-    }
-
-    /// Number of bytes required to serialize this message
-    pub fn len(&self) -> usize {
-        self.bytes.len() + self.id.map_or(1, |_| 2)
-    }
-
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
-        let num_bits_before = writer.num_bits_written();
-        writer.encode(&self.id, Fixed)?;
-        // Maybe we should just newtype Bytes so we could implement encode for it separately?
-
-        // we encode Bytes by writing the length first
-        // writer.encode(&(self.bytes.len() )?;
-        // writer.encode(&self.bytes.to_vec(), Fixed)?;
-        writer.encode(self.bytes.as_ref(), Fixed)?;
-        // writer.serialize(self.bytes.as_ref())?;
-        let num_bits_written = writer.num_bits_written() - num_bits_before;
-        Ok(num_bits_written)
-    }
-
-    // TODO: are we doing an extra copy here?
-    pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
-        let id = reader.decode::<Option<MessageId>>(Fixed)?;
-        let tick = reader.decode::<Option<Tick>>(Fixed)?;
-
-        // the encoding wrote the length as usize with gamma encoding
-        // let num_bytes = reader.decode::<usize>(Gamma)?;
-        // let num_bytes_non_zero = std::num::NonZeroUsize::new(num_bytes)
-        //     .ok_or_else(|| anyhow::anyhow!("num_bytes is 0"))?;
-        // let read_bytes = reader.read_bytes(num_bytes_non_zero)?;
-        // let bytes = BytesMut::from(read_bytes).freeze();
-
-        // let read_bytes =
-        // TODO: ANNOYING; AVOID ALLOCATING HERE
-        //  - we already do a copy from the network io into the ReadBuffer
-        //  - then we do an allocation here to read the Bytes into SingleData
-        //  - (we do a copy when composing the fragment from bytes)
-        //  - we do an extra copy when allocating a new ReadBuffer from the SingleData Bytes
-
-        // TODO: use ReadBuffer/WriteBuffer only when decoding/encoding messages the first time/final time!
-        //  once we have the Bytes object, manually do memcpy, aligns the final bytes manually!
-        //  (encode header, channel ids, message ids, etc. myself)
-        //  maybe use BitVec to construct the final objects?
-
-        // TODO: DO A FLOW OF THE DATA/COPIES/CLONES DURING ENCODE/DECODE TO DECIDE
-        //  HOW THE LIFETIMES FLOW!
-        // let read_bytes = <Vec<u8> as ReadBuffer>::decode(reader, Fixed)?;
-        let read_bytes = reader.decode::<Vec<u8>>(Fixed)?;
-
-        //
-        // let bytes = reader.decode::<&[u8]>()?;
-        Ok(Self {
-            id,
-            bytes: Bytes::from(read_bytes),
-            priority: 1.0,
-            // bytes: Bytes::copy_from_slice(read_bytes),
-        })
     }
 }
 
@@ -211,31 +156,32 @@ pub struct FragmentData {
 
 impl ToBytes for FragmentData {
     fn len(&self) -> usize {
-        4 + self.bytes.len() + octets::varint_len(self.bytes.len() as u64)
+        4 + self.bytes.len() + varint_len(self.bytes.len() as u64)
     }
 
-    fn to_bytes(&self, octets: &mut OctetsMut) -> Result<(), SerializationError> {
-        octets.put_u16(self.message_id.0)?;
-        octets.put_u8(self.fragment_id)?;
-        octets.put_u8(self.num_fragments)?;
-        octets.put_varint(self.bytes.len() as u64)?;
-        octets.put_bytes(self.bytes.as_ref())?;
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_u16(self.message_id.0)?;
+        buffer.write_u8(self.fragment_id)?;
+        buffer.write_u8(self.num_fragments)?;
+        buffer.write_varint(self.bytes.len() as u64)?;
+        buffer.write(self.bytes.as_ref())?;
         Ok(())
     }
 
-    fn from_bytes(octets: &mut octets::Octets) -> Result<Self, SerializationError>
+    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
-        let message_id = MessageId(octets.get_u16()?);
-        let fragment_id = octets.get_u8()?;
-        let num_fragments = octets.get_u8()?;
-        let bytes = Bytes::from(octets.get_bytes(octets.cap())?);
+        let message_id = MessageId(buffer.read_u16()?);
+        let fragment_id = buffer.read_u8()?;
+        let num_fragments = buffer.read_u8()?;
+        let mut bytes = vec![0; buffer.read_varint()? as usize];
+        buffer.read_exact(&mut bytes)?;
         Ok(Self {
             message_id,
             fragment_id,
             num_fragments,
-            bytes,
+            bytes: Bytes::from(bytes),
             priority: 1.0,
         })
     }
