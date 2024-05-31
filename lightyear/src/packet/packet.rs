@@ -7,6 +7,7 @@ use bitcode::encoding::{Fixed, Gamma};
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
+use crate::packet::packet_manager::Payload;
 use crate::packet::packet_type::PacketType;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
@@ -43,7 +44,7 @@ pub(crate) const FRAGMENT_SIZE: usize = MTU_PAYLOAD_BYTES - 12;
 /// Contains multiple small messages
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SinglePacket {
-    pub(crate) data: BTreeMap<NetId, Vec<SingleData>>,
+    pub(crate) data: BTreeMap<ChannelId, Vec<SingleData>>,
     // num_bits: usize,
 }
 
@@ -57,7 +58,7 @@ impl SinglePacket {
         }
     }
 
-    pub fn add_channel(&mut self, channel: NetId) {
+    pub fn add_channel(&mut self, channel: ChannelId) {
         self.data.entry(channel).or_default();
         // match self.data.entry(channel) {
         //     Entry::Vacant(_) => {}
@@ -73,15 +74,15 @@ impl SinglePacket {
         // }
     }
 
-    pub fn add_message(&mut self, channel: NetId, message: SingleData) {
+    pub fn add_message(&mut self, channel: ChannelId, message: SingleData) {
         self.data.entry(channel).or_default().push(message);
     }
 
     /// Return the list of message ids in the packet
-    pub fn message_acks(&self) -> HashMap<NetId, Vec<MessageAck>> {
+    pub fn message_acks(&self) -> HashMap<ChannelId, Vec<MessageAck>> {
         self.data
             .iter()
-            .map(|(&net_id, messages)| {
+            .map(|(&channel_id, messages)| {
                 let message_acks: Vec<MessageAck> = messages
                     .iter()
                     .filter(|message| message.id.is_some())
@@ -90,7 +91,7 @@ impl SinglePacket {
                         fragment_id: None,
                     })
                     .collect();
-                (net_id, message_acks)
+                (channel_id, message_acks)
             })
             .collect()
     }
@@ -268,6 +269,21 @@ impl PacketData {
             }
         }
         res
+    }
+}
+
+pub struct MyPacket {
+    pub payload: Payload,
+    /// Content of the packet so we can map from channel id to message ids
+    pub message_acks: Vec<(ChannelId, Vec<MessageAck>)>,
+}
+
+impl MyPacket {
+    pub(crate) fn num_messages(&self) -> usize {
+        self.message_acks
+            .iter()
+            .map(|(_, messages)| messages.len())
+            .sum()
     }
 }
 

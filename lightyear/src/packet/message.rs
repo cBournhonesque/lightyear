@@ -1,14 +1,16 @@
 use std::fmt::Debug;
 
 use bevy::ecs::entity::MapEntities;
-use bytes::Bytes;
+use bytes::{BufMut, Bytes};
+use octets::OctetsMut;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use bitcode::encoding::{Fixed, Gamma};
 
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::{BitSerializable, EventContext};
+use crate::serialize::octets::{SerializationError, ToBytes};
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::shared::tick_manager::Tick;
@@ -73,7 +75,7 @@ impl From<SingleData> for MessageContainer {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// This structure contains the bytes for a single 'logical' message
 ///
 /// We store the bytes instead of the message directly.
@@ -81,35 +83,69 @@ impl From<SingleData> for MessageContainer {
 /// The message/component does not need to implement Clone anymore!
 /// Also we know the size of the message early, which is useful for fragmentation.
 pub struct SingleData {
+    // TODO: MessageId is from 1 to 65535, so that we can use 0 to represent None?
     pub id: Option<MessageId>,
-    // TODO: for now, we include the tick into every single data because it's easier
-    //  for optimizing size later, we want the tick channels to use a different SingleData type that contains tick
-    //  basically each channel should have either SingleData or TickData as associated type ?
-    // NOTE: This is only used for tick buffered receiver, so that the message is read at the same exact tick it was sent
-    /// This tick is used to track the tick of the sender when they intended to send the message.
-    /// (before priority, it was guaranteed that this tick would be same as the packet send tick, but now it's not,
-    /// because you could intend to send a message on tick 7 (i.e. containing your local world update at tick 7),
-    /// but the message only gets sent on tick 10 because of priority buffering).
-    pub tick: Option<Tick>,
     pub bytes: Bytes,
     // we do not encode the priority in the packet
+    #[serde(skip)]
     pub priority: f32,
+}
+
+impl ToBytes for SingleData {
+    // TODO: how to avoid the option taking 1 byte?
+    fn len(&self) -> usize {
+        octets::varint_len(self.bytes.len() as u64) + self.bytes.len() + self.id.map_or(1, |_| 3)
+    }
+
+    fn to_bytes(&self, octets: &mut OctetsMut) -> Result<(), SerializationError> {
+        if let Some(id) = self.id {
+            octets.put_u8(1)?;
+            octets.put_u16(id.0)?;
+        } else {
+            octets.put_u8(1)?;
+        }
+        octets.put_u16(self.id.map_or(0, |id| id.0))?;
+        octets.put_varint(self.bytes.len() as u64)?;
+        octets.put_bytes(self.bytes.as_ref())?;
+        Ok(())
+    }
+
+    fn from_bytes(octets: &mut octets::Octets) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let id = if octets.get_u8()? == 1 {
+            Some(MessageId(octets.get_u16()?))
+        } else {
+            None
+        };
+        let len = octets.get_varint()? as usize;
+        let bytes = Bytes::from(octets.get_bytes(len)?);
+        Ok(Self {
+            id,
+            bytes,
+            priority: 1.0,
+        })
+    }
 }
 
 impl SingleData {
     pub fn new(id: Option<MessageId>, bytes: Bytes, priority: f32) -> Self {
         Self {
             id,
-            tick: None,
             bytes,
             priority,
         }
     }
 
+    /// Number of bytes required to serialize this message
+    pub fn len(&self) -> usize {
+        self.bytes.len() + self.id.map_or(1, |_| 2)
+    }
+
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.id, Fixed)?;
-        writer.encode(&self.tick, Fixed)?;
         // Maybe we should just newtype Bytes so we could implement encode for it separately?
 
         // we encode Bytes by writing the length first
@@ -154,7 +190,6 @@ impl SingleData {
         // let bytes = reader.decode::<&[u8]>()?;
         Ok(Self {
             id,
-            tick,
             bytes: Bytes::from(read_bytes),
             priority: 1.0,
             // bytes: Bytes::copy_from_slice(read_bytes),
@@ -162,81 +197,51 @@ impl SingleData {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FragmentData {
     // we always need a message_id for fragment messages, for re-assembly
     pub message_id: MessageId,
-    /// This tick is used to track the tick of the sender when they intended to send the message.
-    /// (before priority, it was guaranteed that this tick would be same as the packet send tick, but now it's not,
-    /// because you could intend to send a message on tick 7 (i.e. containing your local world update at tick 7),
-    /// but the message only gets sent on tick 10 because of priority buffering).
-    pub tick: Option<Tick>,
     pub fragment_id: FragmentIndex,
     pub num_fragments: FragmentIndex,
     /// Bytes data associated with the message that is too big
     pub bytes: Bytes,
+    #[serde(skip)]
     pub priority: f32,
 }
 
-impl FragmentData {
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
-        let num_bits_before = writer.num_bits_written();
-        writer.encode(&self.message_id, Fixed)?;
-        writer.encode(&self.tick, Fixed)?;
-        writer.encode(&self.fragment_id, Gamma)?;
-        writer.encode(&self.num_fragments, Gamma)?;
-        // TODO: be able to just concat the bytes to the buffer?
-        if self.is_last_fragment() {
-            // writing the slice includes writing the length of the slice
-            writer.encode(self.bytes.as_ref(), Fixed)?;
-            // writer.serialize(&self.bytes.to_vec());
-            // writer.serialize(&self.fragment_message_bytes.as_ref());
-        } else {
-            let bytes_array: [u8; FRAGMENT_SIZE] = self.bytes.as_ref().try_into().unwrap();
-            // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
-            writer.encode(&bytes_array, Fixed)?;
-        }
-        let num_bits_written = writer.num_bits_written() - num_bits_before;
-        Ok(num_bits_written)
+impl ToBytes for FragmentData {
+    fn len(&self) -> usize {
+        4 + self.bytes.len() + octets::varint_len(self.bytes.len() as u64)
     }
 
-    pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn to_bytes(&self, octets: &mut OctetsMut) -> Result<(), SerializationError> {
+        octets.put_u16(self.message_id.0)?;
+        octets.put_u8(self.fragment_id)?;
+        octets.put_u8(self.num_fragments)?;
+        octets.put_varint(self.bytes.len() as u64)?;
+        octets.put_bytes(self.bytes.as_ref())?;
+        Ok(())
+    }
+
+    fn from_bytes(octets: &mut octets::Octets) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
-        let message_id = reader.decode::<MessageId>(Fixed)?;
-        let tick = reader.decode::<Option<Tick>>(Fixed)?;
-        let fragment_id = reader.decode::<FragmentIndex>(Gamma)?;
-        let num_fragments = reader.decode::<FragmentIndex>(Gamma)?;
-        let bytes = if fragment_id == num_fragments - 1 {
-            // let num_bytes = reader.decode::<usize>(Gamma)?;
-            // let num_bytes_non_zero = std::num::NonZeroUsize::new(num_bytes)
-            //     .ok_or_else(|| anyhow::anyhow!("num_bytes is 0"))?;
-            // let read_bytes = reader.read_bytes(num_bytes_non_zero)?;
-            // reader.
-            // let read_bytes = reader.decode::<&[u8]>()?;
-            // TODO: avoid the extra copy
-            //  - maybe have the encoding of bytes be
-            let read_bytes = reader.decode::<Vec<u8>>(Fixed)?;
-            Bytes::from(read_bytes)
-        } else {
-            // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
-            let read_bytes = reader.decode::<[u8; FRAGMENT_SIZE]>(Fixed)?;
-            // TODO: avoid the extra copy
-            let bytes_vec: Vec<u8> = read_bytes.to_vec();
-            Bytes::from(bytes_vec)
-        };
+        let message_id = MessageId(octets.get_u16()?);
+        let fragment_id = octets.get_u8()?;
+        let num_fragments = octets.get_u8()?;
+        let bytes = Bytes::from(octets.get_bytes(octets.cap())?);
         Ok(Self {
             message_id,
-            tick,
             fragment_id,
             num_fragments,
             bytes,
-            // we can assign a random priority on the reader side
             priority: 1.0,
         })
     }
+}
 
+impl FragmentData {
     pub(crate) fn is_last_fragment(&self) -> bool {
         self.fragment_id == self.num_fragments - 1
     }
@@ -250,40 +255,10 @@ impl MessageContainer {
         }
     }
 
-    /// Serialize the message into a bytes buffer
-    /// Returns the number of bits written
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
-        match &self {
-            MessageContainer::Single(data) => data.encode(writer),
-            MessageContainer::Fragment(data) => data.encode(writer),
-        }
-    }
-
     pub fn set_id(&mut self, id: MessageId) {
         match self {
             MessageContainer::Single(data) => data.id = Some(id),
             MessageContainer::Fragment(data) => data.message_id = id,
-        };
-    }
-
-    /// Set the tick of the remote when this message was sent
-    ///
-    /// Note that in some cases the tick can be already set (for example for tick-buffered channel,
-    /// for reliable channels, or for priority-related buffering, since the tick set in the packet header might not
-    /// correspond to the tick when the message was initially set)
-    /// In those cases we don't override the tick
-    pub fn set_tick(&mut self, tick: Tick) {
-        match self {
-            MessageContainer::Single(data) => {
-                if data.tick.is_none() {
-                    data.tick = Some(tick);
-                }
-            }
-            MessageContainer::Fragment(data) => {
-                if data.tick.is_none() {
-                    data.tick = Some(tick);
-                }
-            }
         };
     }
 
@@ -328,7 +303,6 @@ mod tests {
         let bytes = Bytes::from(vec![0; 10]);
         let data = FragmentData {
             message_id: MessageId(0),
-            tick: None,
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),

@@ -1,3 +1,5 @@
+use crate::serialize::octets::{SerializationError, ToBytes};
+use octets::{Octets, OctetsMut};
 use std::any::TypeId;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -5,6 +7,24 @@ use std::hash::Hash;
 /// Id used to serialize IDs over the network efficiently
 // TODO: have different types of net-id (ChannelId, ComponentId, MessageId), and make type-mapper generic over that
 pub(crate) type NetId = u16;
+
+impl ToBytes for NetId {
+    fn len(&self) -> usize {
+        octets::varint_len(*self as u64)
+    }
+
+    fn to_bytes(&self, octets: &mut OctetsMut) -> Result<(), SerializationError> {
+        octets.put_varint(*self as u64)?;
+        Ok(())
+    }
+
+    fn from_bytes(octets: &mut Octets) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(octets.get_varint()? as NetId)
+    }
+}
 
 // TODO: read https://willcrichton.net/rust-api-type-patterns/registries.html more in detail
 

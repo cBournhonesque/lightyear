@@ -126,15 +126,16 @@ impl PriorityManager {
                 single
                     .into_iter()
                     .map(move |mut single| {
-                        // TODO: this only needs to be done for the messages that are not sent!
-                        //  (and for messages that are not replication messages?)
-                        // set the initial send tick of the message
-                        // we do this because the receiver needs to know at which tick the message was intended to be sent
-                        // (for example which tick the EntityAction corresponds to), not the tick of the packet header
-                        // when the message was actually sent, which could be later because of bandwidth quota
-                        if single.tick.is_none() {
-                            single.tick = Some(tick);
-                        }
+                        // TODO: REVISIT THIS
+                        // // TODO: this only needs to be done for the messages that are not sent!
+                        // //  (and for messages that are not replication messages?)
+                        // // set the initial send tick of the message
+                        // // we do this because the receiver needs to know at which tick the message was intended to be sent
+                        // // (for example which tick the EntityAction corresponds to), not the tick of the packet header
+                        // // when the message was actually sent, which could be later because of bandwidth quota
+                        // if single.tick.is_none() {
+                        //     single.tick = Some(tick);
+                        // }
                         BufferedMessage {
                             priority: single.priority * channel_priority,
                             channel_net_id: net_id,

@@ -52,8 +52,6 @@ impl FragmentReceiver {
             // TODO: code smell
             //  we don't need the priority on the receiver side, just set 1.0 for now
             let mut data = SingleData::new(Some(fragment.message_id), payload, 1.0);
-            // TODO: verify that all fragments had the same tick
-            data.tick = fragment.tick;
             return Ok(Some(data));
         }
 
@@ -138,7 +136,6 @@ mod tests {
             receiver.receive_fragment(fragments[1].clone(), None)?,
             Some(SingleData {
                 id: Some(MessageId(0)),
-                tick: None,
                 bytes: message_bytes.clone(),
                 priority: 1.0
             })

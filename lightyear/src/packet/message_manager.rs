@@ -215,26 +215,19 @@ impl MessageManager {
             }
         }
 
-        let packets = self.packet_manager.build_packets(data_to_send);
+        let packets = self
+            .packet_manager
+            .build_packets(current_tick, data_to_send)?;
 
         let mut bytes = Vec::new();
         for mut packet in packets {
-            trace!(num_messages = ?packet.data.num_messages(), "sending packet");
+            trace!(num_messages = ?packet.num_messages(), "sending packet");
             let packet_id = packet.header().packet_id;
 
-            // set the current tick
-            packet.header.tick = current_tick;
-
-            // Step 2. Get the packets to send over the network
-            let payload = self.packet_manager.encode_packet(&packet)?;
-            bytes.push(payload);
-            // io.send(payload, &self.remote_addr)?;
-
-            // TODO: update this to be cleaner
             // TODO: should we update this to include fragment info as well?
-            // Step 3. Update the packet_to_message_id_map (only for channels that care about acks)
+            // Step 2. Update the packet_to_message_id_map (only for channels that care about acks)
             packet
-                .message_acks()
+                .message_acks
                 .iter()
                 .try_for_each(|(channel_id, message_ack)| {
                     let channel_kind = self
@@ -255,6 +248,9 @@ impl MessageManager {
                     }
                     Ok::<(), anyhow::Error>(())
                 })?;
+
+            // Step 3. Get the packets to send over the network
+            bytes.push(packet.payload);
         }
 
         // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)

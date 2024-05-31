@@ -3,7 +3,9 @@ use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use bitcode::{Decode, Encode};
+// use bitcode::{Decode, Encode};
+
+use bincode::{Decode, Encode};
 
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
@@ -29,6 +31,40 @@ pub(crate) struct PacketHeader {
     ack_bitfield: u32,
     /// Current tick
     pub(crate) tick: Tick,
+}
+
+impl crate::serialize::octets::ToBytes for PacketHeader {
+    fn to_bytes(
+        &self,
+        octets: &mut octets::OctetsMut,
+    ) -> Result<usize, crate::serialize::octets::SerializationError> {
+        octets.put_u8(self.packet_type as u8)?;
+        octets.put_u16(self.packet_id.0)?;
+        octets.put_u16(self.last_ack_packet_id.0)?;
+        octets.put_u32(self.ack_bitfield)?;
+        octets.put_u16(self.tick.0)?;
+        Ok(11)
+    }
+
+    fn from_bytes(
+        octets: &mut octets::Octets,
+    ) -> Result<Self, crate::serialize::octets::SerializationError>
+    where
+        Self: Sized,
+    {
+        let packet_type = octets.get_u8()?;
+        let packet_id = octets.get_u16()?;
+        let last_ack_packet_id = octets.get_u16()?;
+        let ack_bitfield = octets.get_u32()?;
+        let tick = octets.get_u16()?;
+        Ok(Self {
+            packet_type: PacketType::try_from(packet_type)?,
+            packet_id: PacketId(packet_id),
+            last_ack_packet_id: PacketId(last_ack_packet_id),
+            ack_bitfield,
+            tick: Tick(tick),
+        })
+    }
 }
 
 impl PacketHeader {
