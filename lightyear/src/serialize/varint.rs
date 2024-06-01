@@ -99,7 +99,7 @@ mod tests {
         // TEST WITH 1
         let mut writer = vec![];
 
-        let val = 1 as u64;
+        let val = 1;
         writer.write_varint(val).unwrap();
         assert_eq!(writer.len(), 1);
 
@@ -110,7 +110,7 @@ mod tests {
         // TEST WITH 63
         let mut writer = vec![];
 
-        let val = 63 as u64;
+        let val = 63;
         writer.write_varint(val).unwrap();
         assert_eq!(writer.len(), 1);
 
@@ -123,7 +123,7 @@ mod tests {
     fn test_varint_len_2() {
         let mut writer = vec![];
 
-        let val = 64 as u64;
+        let val = 64;
         writer.write_varint(val).unwrap();
         assert_eq!(writer.len(), 2);
 
@@ -136,7 +136,7 @@ mod tests {
     fn test_varint_len_4() {
         let mut writer = vec![];
 
-        let val = 16384 as u64;
+        let val = 16384;
         writer.write_varint(val).unwrap();
         assert_eq!(writer.len(), 4);
 

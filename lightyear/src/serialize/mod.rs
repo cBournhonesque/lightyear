@@ -19,6 +19,7 @@ pub enum SerializationError {
     SubstractionOverflow,
 }
 
+#[allow(clippy::len_without_is_empty)]
 pub trait ToBytes {
     fn len(&self) -> usize;
     fn to_bytes<T: byteorder::WriteBytesExt>(

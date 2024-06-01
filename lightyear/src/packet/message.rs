@@ -69,6 +69,7 @@ pub enum MessageData {
     Fragment(FragmentData),
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl MessageData {
     pub fn message_id(&self) -> Option<MessageId> {
         match self {
@@ -138,7 +139,7 @@ impl ToBytes for SingleData {
             buffer.write_u8(0)?;
         }
         buffer.write_varint(self.bytes.len() as u64)?;
-        buffer.write(self.bytes.as_ref())?;
+        buffer.write_all(self.bytes.as_ref())?;
         Ok(())
     }
 
@@ -187,7 +188,7 @@ impl ToBytes for FragmentData {
         buffer.write_u8(self.fragment_id)?;
         buffer.write_u8(self.num_fragments)?;
         buffer.write_varint(self.bytes.len() as u64)?;
-        buffer.write(self.bytes.as_ref())?;
+        buffer.write_all(self.bytes.as_ref())?;
         Ok(())
     }
 
