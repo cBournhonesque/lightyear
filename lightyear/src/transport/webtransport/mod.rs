@@ -22,7 +22,7 @@ mod tests {
 
     #[cfg(not(target_family = "wasm"))]
     #[tokio::test]
-    async fn test_webtransport_native() -> anyhow::Result<()> {
+    async fn test_webtransport_native() {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::INFO)
@@ -45,25 +45,24 @@ mod tests {
         // sleep a little to give time to the message to arrive in the socket
         tokio::time::sleep(Duration::from_millis(20)).await;
 
-        let Some((recv_msg, address)) = server_recv.recv()? else {
+        let Ok(Some((recv_msg, address))) = server_recv.recv() else {
             panic!("server expected to receive a packet from client");
         };
         assert_eq!(address, client_addr);
         assert_eq!(recv_msg, msg);
 
         // server to client
-        server_send.send(msg, &client_addr)?;
+        server_send.send(msg, &client_addr).unwrap();
 
         // sleep a little to give time to the message to arrive in the socket
         tokio::time::sleep(Duration::from_millis(20)).await;
 
-        let Some((recv_msg, address)) = client_recv.recv()? else {
+        let Ok(Some((recv_msg, address))) = client_recv.recv() else {
             panic!("client expected to receive a packet from server");
         };
         assert_eq!(address, server_addr);
         assert_eq!(recv_msg, msg);
         dbg!(recv_msg);
-        Ok(())
     }
 }
 
@@ -74,7 +73,7 @@ pub mod wasm_test {
 
     #[wasm_bindgen_test]
     #[tokio::test]
-    async fn test_webtransport_wasm() -> anyhow::Result<()> {
+    async fn test_webtransport_wasm() {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::INFO)
@@ -97,24 +96,23 @@ pub mod wasm_test {
         // sleep a little to give time to the message to arrive in the socket
         tokio::time::sleep(Duration::from_millis(20)).await;
 
-        let Some((recv_msg, address)) = server_recv.recv()? else {
+        let Ok(Some((recv_msg, address))) = server_recv.recv() else {
             panic!("server expected to receive a packet from client");
         };
         assert_eq!(address, client_addr);
         assert_eq!(recv_msg, msg);
 
         // server to client
-        server_send.send(msg, &client_addr)?;
+        server_send.send(msg, &client_addr).unwrap();
 
         // sleep a little to give time to the message to arrive in the socket
         tokio::time::sleep(Duration::from_millis(20)).await;
 
-        let Some((recv_msg, address)) = client_recv.recv()? else {
+        let Ok(Some((recv_msg, address))) = client_recv.recv() else {
             panic!("client expected to receive a packet from server");
         };
         assert_eq!(address, server_addr);
         assert_eq!(recv_msg, msg);
         dbg!(recv_msg);
-        ok(())
     }
 }
