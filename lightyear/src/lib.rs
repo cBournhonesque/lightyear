@@ -167,6 +167,8 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 // only enables the `doc_cfg` feature when
 // the `docsrs` configuration attribute is defined
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// #![cfg_attr(feature = "arena", feature(allocator_api2))]
+#![cfg_attr(feature = "arena", feature(allocator_api))]
 
 // re-exports
 #[doc(hidden)]

@@ -1,5 +1,4 @@
 //! Handles spawning entities that are predicted
-
 use std::any::{Any, TypeId};
 use std::hash::{BuildHasher, Hash, Hasher};
 

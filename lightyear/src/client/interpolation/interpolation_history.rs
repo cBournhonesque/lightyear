@@ -1,8 +1,6 @@
 use std::ops::Deref;
 
-use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
-};
+use bevy::prelude::*;
 use tracing::{debug, trace};
 
 use crate::client::components::Confirmed;

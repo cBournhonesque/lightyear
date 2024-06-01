@@ -30,6 +30,8 @@ use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarg
 
 pub mod components;
 
+#[cfg(feature = "arena")]
+pub(crate) mod arena;
 pub mod delta;
 pub mod entity_map;
 pub(crate) mod hierarchy;

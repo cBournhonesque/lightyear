@@ -67,6 +67,7 @@ pub(crate) mod send {
     use crate::server::events::EntitySpawnEvent;
     use crate::server::replication::send::SyncTarget;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
+    use crate::shared::replication::arena::{ArenaManager, ARENA_ALLOCATOR};
     use crate::shared::replication::components::{
         Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
         ShouldBeInterpolated,
@@ -89,6 +90,8 @@ pub(crate) mod send {
             app
                 // REFLECTION
                 .register_type::<Replicate>()
+                // RESOURCE
+                .init_resource::<ArenaManager>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
@@ -127,6 +130,13 @@ pub(crate) mod send {
                         add_replicated_component_host_server.run_if(is_host_server),
                     ),
                 );
+            app.add_systems(
+                PostUpdate,
+                (
+                    allocate_arena.in_set(InternalReplicationSet::<ClientMarker>::BeforeBuffer),
+                    reset_arena.in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
+                ),
+            );
         }
     }
 
@@ -494,6 +504,19 @@ pub(crate) mod send {
                     .in_set(InternalReplicationSet::<ClientMarker>::BufferComponentUpdates),
             ),
         );
+    }
+
+    fn allocate_arena(
+        arena_manager: ResMut<ArenaManager>,
+        mut connection_manager: ResMut<ConnectionManager>,
+    ) {
+        // use the new arena to allocate the replication messages
+        let allocator = unsafe { &ARENA_ALLOCATOR };
+        connection_manager.replication_sender.prepare(allocator);
+    }
+
+    fn reset_arena(arena_manager: ResMut<ArenaManager>) {
+        unsafe { ARENA_ALLOCATOR.reset() };
     }
 
     #[cfg(test)]

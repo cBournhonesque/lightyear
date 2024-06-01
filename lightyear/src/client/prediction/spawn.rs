@@ -1,5 +1,5 @@
 //! Logic to handle spawning Predicted entities
-use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut, With, Without};
+use bevy::prelude::*;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::client::components::Confirmed;

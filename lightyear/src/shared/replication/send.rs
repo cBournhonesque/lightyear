@@ -2,6 +2,7 @@
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::iter::Extend;
+use std::ops::Deref;
 use std::ptr::NonNull;
 
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
@@ -11,6 +12,9 @@ use bevy::prelude::{Component, Entity, Reflect};
 use bevy::ptr::{OwningPtr, Ptr, PtrMut};
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{hashbrown, HashMap, HashSet};
+use blink_alloc::LocalBlinkAlloc;
+#[cfg(feature = "arena")]
+use blink_alloc::SyncBlinkAlloc;
 use crossbeam_channel::Receiver;
 use hashbrown::hash_map::Entry;
 use tracing::{debug, error, info, trace, warn};
@@ -24,6 +28,7 @@ use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::protocol::registry::NetId;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::RawData;
+use crate::shared::replication::arena::ARENA_ALLOCATOR;
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::{DeltaManager, Diffable};
 use crate::utils::ready_buffer::ReadyBuffer;
@@ -33,6 +38,8 @@ use super::{
 };
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+
+type ArenaEntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash, &'static SyncBlinkAlloc>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
@@ -62,8 +69,10 @@ pub(crate) struct ReplicationSender {
     pub(crate) updates_message_id_to_group_id: HashMap<MessageId, UpdateMessageMetadata>,
     /// Messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
-    pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
-    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<RawData>>>,
+    pub pending_actions:
+        ArenaEntityHashMap<ReplicationGroupId, ArenaEntityHashMap<Entity, EntityActions>>,
+    pub pending_updates:
+        ArenaEntityHashMap<ReplicationGroupId, ArenaEntityHashMap<Entity, Vec<RawData>>>,
     // Set of unique components for each entity, to avoid sending multiple updates/inserts for the same component
     // pub pending_unique_components:
     //     EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, HashSet<ComponentNetId>>>,
@@ -105,8 +114,12 @@ impl ReplicationSender {
             updates_ack_receiver,
             updates_nack_receiver,
             updates_message_id_to_group_id: Default::default(),
-            pending_actions: EntityHashMap::default(),
-            pending_updates: EntityHashMap::default(),
+            pending_actions: ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                &ARENA_ALLOCATOR
+            }),
+            pending_updates: ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                &ARENA_ALLOCATOR
+            }),
             // pending_unique_components: EntityHashMap::default(),
             group_channels: Default::default(),
             send_updates_since_last_ack,
@@ -331,7 +344,9 @@ impl ReplicationSender {
     pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                &ARENA_ALLOCATOR
+            }))
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Spawn;
@@ -348,7 +363,9 @@ impl ReplicationSender {
     ) {
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                &ARENA_ALLOCATOR
+            }))
             .entry(local_entity)
             .or_default()
             .spawn = SpawnAction::Reuse(remote_entity.to_bits());
@@ -358,7 +375,9 @@ impl ReplicationSender {
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                &ARENA_ALLOCATOR
+            }))
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Despawn;
@@ -377,7 +396,9 @@ impl ReplicationSender {
     ) {
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                &ARENA_ALLOCATOR
+            }))
             .entry(entity)
             .or_default()
             .insert
@@ -394,7 +415,9 @@ impl ReplicationSender {
         // TODO: is the pending_unique_components even necessary? how could we even happen multiple inserts/updates for the same component?
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                &ARENA_ALLOCATOR
+            }))
             .entry(entity)
             .or_default()
             .remove
@@ -410,7 +433,9 @@ impl ReplicationSender {
     ) {
         self.pending_updates
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                &ARENA_ALLOCATOR
+            }))
             .entry(entity)
             .or_default()
             .push(raw_data);
@@ -460,7 +485,9 @@ impl ReplicationSender {
         trace!(?kind, "Inserting pending update!");
         self.pending_updates
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                &ARENA_ALLOCATOR
+            }))
             .entry(entity)
             .or_default()
             .push(raw_data);
@@ -537,6 +564,11 @@ impl ReplicationSender {
 
         // TODO: also return for each message a list of the components that have delta-compression data?
         messages
+    }
+
+    pub(crate) fn prepare(&mut self, allocator: &'static SyncBlinkAlloc) {
+        self.pending_actions = ArenaEntityHashMap::with_hasher_in(EntityHash, allocator);
+        self.pending_updates = ArenaEntityHashMap::with_hasher_in(EntityHash, allocator);
     }
 }
 

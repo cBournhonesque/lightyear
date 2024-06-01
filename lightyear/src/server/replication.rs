@@ -57,6 +57,7 @@ pub(crate) mod send {
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
+    use crate::shared::replication::arena::{ArenaManager, ARENA_ALLOCATOR};
     use crate::shared::replication::components::{
         Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
         ShouldBeInterpolated,
@@ -65,7 +66,9 @@ pub(crate) mod send {
     use crate::shared::replication::{systems, ReplicationSend};
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
-    use bevy::ptr::Ptr;
+    use bevy::ptr::{Ptr, UnsafeCellDeref};
+    use blink_alloc::SyncBlinkAlloc;
+    use std::ops::Deref;
 
     #[derive(Default)]
     pub struct ServerReplicationSendPlugin {
@@ -79,6 +82,8 @@ pub(crate) mod send {
             app
                 // REFLECTION
                 .register_type::<Replicate>()
+                // RESOURCE
+                .init_resource::<ArenaManager>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
@@ -132,6 +137,14 @@ pub(crate) mod send {
                 add_prediction_interpolation_components
                     .after(InternalMainSet::<ServerMarker>::Send)
                     .run_if(is_host_server),
+            );
+
+            app.add_systems(
+                PostUpdate,
+                (
+                    allocate_arena.in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
+                    reset_arena.in_set(InternalReplicationSet::<ServerMarker>::AfterBuffer),
+                ),
             );
         }
     }
@@ -226,6 +239,24 @@ pub(crate) mod send {
         /// How should the hierarchy of the entity (parents/children) be replicated?
         pub hierarchy: ReplicateHierarchy,
         pub marker: Replicating,
+    }
+
+    fn allocate_arena(
+        arena_manager: ResMut<ArenaManager>,
+        mut connection_manager: ResMut<ConnectionManager>,
+    ) {
+        // use the new arena to allocate the replication messages
+        connection_manager
+            .connections
+            .values_mut()
+            .for_each(|connection| {
+                let allocator = unsafe { &ARENA_ALLOCATOR };
+                connection.replication_sender.prepare(allocator);
+            })
+    }
+
+    fn reset_arena(arena_manager: ResMut<ArenaManager>) {
+        unsafe { ARENA_ALLOCATOR.reset() };
     }
 
     /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities

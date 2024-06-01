@@ -5,10 +5,7 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use bevy::app::FixedMain;
 use bevy::ecs::entity::EntityHashSet;
 use bevy::ecs::reflect::ReflectResource;
-use bevy::prelude::{
-    Commands, DespawnRecursiveExt, DetectChanges, Entity, Query, Ref, Res, ResMut, Resource, With,
-    Without, World,
-};
+use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use parking_lot::RwLock;
 use tracing::{debug, error, trace, trace_span};
