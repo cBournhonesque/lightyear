@@ -21,7 +21,7 @@ use crate::connection::id::ClientId;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
-use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{Payload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::server::{DisconnectEvent, RoomId, RoomManager};
 use crate::prelude::{
     Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ReplicationGroup,
@@ -698,7 +698,7 @@ impl Connection {
 
     pub fn recv_packet(
         &mut self,
-        packet: Packet,
+        packet: Payload,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
         delta_manager: &mut DeltaManager,

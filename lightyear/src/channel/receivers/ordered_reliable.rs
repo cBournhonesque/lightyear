@@ -1,10 +1,12 @@
 use std::collections::{btree_map, BTreeMap};
 
 use anyhow::anyhow;
+use bytes::Bytes;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{MessageContainer, MessageId, SingleData};
+use crate::packet::message::{MessageData, MessageId, ReceiveMessage, SingleData};
+use crate::prelude::Tick;
 pub use crate::shared::tick_manager::TickManager;
 pub use crate::shared::time_manager::TimeManager;
 
@@ -16,7 +18,7 @@ pub struct OrderedReliableReceiver {
     pending_recv_message_id: MessageId,
     // TODO: optimize via ring buffer?
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, SingleData>,
+    recv_message_buffer: BTreeMap<MessageId, (Tick, Bytes)>,
     fragment_receiver: FragmentReceiver,
 }
 
@@ -34,8 +36,9 @@ impl ChannelReceive for OrderedReliableReceiver {
     fn update(&mut self, _: &TimeManager, _: &TickManager) {}
 
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: ReceiveMessage) -> anyhow::Result<()> {
         let message_id = message
+            .data
             .message_id()
             .ok_or_else(|| anyhow!("message id not found"))?;
 
@@ -46,15 +49,17 @@ impl ChannelReceive for OrderedReliableReceiver {
 
         // add the message to the buffer
         if let btree_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
-            match message {
-                MessageContainer::Single(data) => {
-                    entry.insert(data);
+            match message.data {
+                MessageData::Single(single) => {
+                    entry.insert((message.remote_sent_tick, single.bytes));
                 }
-                MessageContainer::Fragment(data) => {
-                    if let Some(single_data) =
-                        self.fragment_receiver.receive_fragment(data, None)?
-                    {
-                        entry.insert(single_data);
+                MessageData::Fragment(fragment) => {
+                    if let Some(res) = self.fragment_receiver.receive_fragment(
+                        fragment,
+                        message.remote_sent_tick,
+                        None,
+                    )? {
+                        entry.insert(res);
                     }
                 }
             }
@@ -66,7 +71,7 @@ impl ChannelReceive for OrderedReliableReceiver {
     /// Since we are receiving messages in order, we don't return from the buffer
     /// until we have received the message we are waiting for (the next expected MessageId)
     /// This assumes that the sender sends all message ids sequentially.
-    fn read_message(&mut self) -> Option<SingleData> {
+    fn read_message(&mut self) -> Option<(Tick, Bytes)> {
         // Check if we have received the message we are waiting for
         let message = self
             .recv_message_buffer
@@ -85,23 +90,30 @@ mod tests {
 
     use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
     use crate::channel::receivers::ChannelReceive;
-    use crate::packet::message::{MessageId, SingleData};
+    use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
+    use crate::prelude::Tick;
 
     #[test]
     fn test_ordered_reliable_receiver_internals() -> anyhow::Result<()> {
         let mut receiver = OrderedReliableReceiver::new();
 
-        let mut single1 = SingleData::new(None, Bytes::from("hello"), 1.0);
-        let mut single2 = SingleData::new(None, Bytes::from("world"), 1.0);
+        let mut single1 = SingleData::new(None, Bytes::from("hello"));
+        let mut single2 = SingleData::new(None, Bytes::from("world"));
 
         // receive an old message: it doesn't get added to the buffer because the next one we expect is 0
         single2.id = Some(MessageId(60000));
-        receiver.buffer_recv(single2.clone().into())?;
+        receiver.buffer_recv(ReceiveMessage {
+            data: single2.clone().into(),
+            remote_sent_tick: Tick(1),
+        })?;
         assert_eq!(receiver.recv_message_buffer.len(), 0);
 
         // receive message in the wrong order
         single2.id = Some(MessageId(1));
-        receiver.buffer_recv(single2.clone().into())?;
+        receiver.buffer_recv(ReceiveMessage {
+            data: single2.clone().into(),
+            remote_sent_tick: Tick(2),
+        })?;
 
         // the message has been buffered, but we are not processing it yet
         // until we have received message 0
@@ -112,13 +124,22 @@ mod tests {
 
         // receive message 0
         single1.id = Some(MessageId(0));
-        receiver.buffer_recv(single1.clone().into())?;
+        receiver.buffer_recv(ReceiveMessage {
+            data: single1.clone().into(),
+            remote_sent_tick: Tick(3),
+        })?;
         assert_eq!(receiver.recv_message_buffer.len(), 2);
 
         // now we can read the messages in order
-        assert_eq!(receiver.read_message(), Some(single1.clone()));
+        assert_eq!(
+            receiver.read_message(),
+            Some((Tick(3), single1.bytes.clone()))
+        );
         assert_eq!(receiver.pending_recv_message_id, MessageId(1));
-        assert_eq!(receiver.read_message(), Some(single2.clone()));
+        assert_eq!(
+            receiver.read_message(),
+            Some((Tick(2), single2.bytes.clone()))
+        );
         Ok(())
     }
 }

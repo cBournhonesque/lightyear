@@ -1,20 +1,33 @@
+use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
+use crate::serialize::{SerializationError, ToBytes};
+use bevy::utils::HashMap;
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::any::TypeId;
-use std::collections::HashMap;
 use std::hash::Hash;
+use std::io::Seek;
 
-/// Id used to serialize IDs over the network efficiently
-// TODO: have different types of net-id (ChannelId, ComponentId, MessageId), and make type-mapper generic over that
+/// ID used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;
 
-// TODO: read https://willcrichton.net/rust-api-type-patterns/registries.html more in detail
+impl ToBytes for NetId {
+    fn len(&self) -> usize {
+        varint_len(*self as u64)
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_varint(*self as u64)?;
+        Ok(())
+    }
+
+    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(buffer.read_varint()? as NetId)
+    }
+}
 
 pub trait TypeKind: From<TypeId> + Copy + PartialEq + Eq + Hash {}
-
-// Type used to serialize the data over the network
-// pub trait NetId: copy + PartialEq + Eq + Hash {}
-
-// needs trait_alias feature
-// type TypeKind = From<TypeId> + Copy + PartialEq + Eq + Hash {};
 
 /// Struct to map a type to an id that can be serialized over the network
 #[derive(Clone, Debug, PartialEq)]

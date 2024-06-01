@@ -21,7 +21,6 @@ impl FragmentSender {
         fragment_message_id: MessageId,
         tick: Option<Tick>,
         fragment_bytes: Bytes,
-        priority: f32,
     ) -> Vec<FragmentData> {
         if fragment_bytes.len() <= FRAGMENT_SIZE {
             panic!(
@@ -36,11 +35,10 @@ impl FragmentSender {
             // TODO: ideally we don't clone here but we take ownership of the output of writer
             .map(|(fragment_index, chunk)| FragmentData {
                 message_id: fragment_message_id,
-                tick,
+                // tick,
                 fragment_id: fragment_index as u8,
                 num_fragments: num_fragments as u8,
                 bytes: fragment_bytes.slice_ref(chunk),
-                priority,
             })
             .collect::<_>()
     }
@@ -48,6 +46,7 @@ impl FragmentSender {
 
 #[cfg(test)]
 mod tests {
+    use crate::packet::message::SendMessage;
     use bytes::Bytes;
 
     use crate::packet::packet::FRAGMENT_SIZE;
@@ -62,40 +61,35 @@ mod tests {
 
         let sender = FragmentSender::new();
 
-        let fragments = sender.build_fragments(message_id, None, bytes.clone(), 1.0);
+        let fragments = sender.build_fragments(message_id, None, bytes.clone());
         let expected_num_fragments = 3;
         assert_eq!(fragments.len(), expected_num_fragments);
         assert_eq!(
             fragments.first().unwrap(),
             &FragmentData {
                 message_id,
-                tick: None,
                 fragment_id: 0,
                 num_fragments: expected_num_fragments as u8,
                 bytes: bytes.slice(0..FRAGMENT_SIZE),
-                priority: 1.0,
             }
         );
         assert_eq!(
             fragments.get(1).unwrap(),
             &FragmentData {
                 message_id,
-                tick: None,
                 fragment_id: 1,
                 num_fragments: expected_num_fragments as u8,
                 bytes: bytes.slice(FRAGMENT_SIZE..2 * FRAGMENT_SIZE),
-                priority: 1.0,
             }
         );
         assert_eq!(
             fragments.get(2).unwrap(),
             &FragmentData {
                 message_id,
-                tick: None,
+                // tick: None,
                 fragment_id: 2,
                 num_fragments: expected_num_fragments as u8,
                 bytes: bytes.slice(2 * FRAGMENT_SIZE..),
-                priority: 1.0,
             }
         );
     }

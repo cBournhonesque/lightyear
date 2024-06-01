@@ -6,7 +6,9 @@ use crossbeam_channel::{Receiver, Sender};
 use crate::channel::senders::fragment_ack_receiver::FragmentAckReceiver;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
+use crate::packet::message::{
+    FragmentData, MessageAck, MessageData, MessageId, SendMessage, SingleData,
+};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::{TimeManager, WrappedTime};
@@ -18,9 +20,9 @@ const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 /// Which can let us track if a message was acked
 pub struct UnorderedUnreliableWithAcksSender {
     /// list of single messages that we want to fit into packets and send
-    single_messages_to_send: VecDeque<SingleData>,
+    single_messages_to_send: VecDeque<SendMessage>,
     /// list of fragmented messages that we want to fit into packets and send
-    fragmented_messages_to_send: VecDeque<FragmentData>,
+    fragmented_messages_to_send: VecDeque<SendMessage>,
     /// Message id to use for the next message to be sent
     next_send_message_id: MessageId,
     /// Used to split a message into fragments if the message is too big
@@ -66,22 +68,28 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
         if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message, priority);
+                .build_fragments(message_id, None, message);
             self.fragment_ack_receiver
                 .add_new_fragment_to_wait_for(message_id, fragments.len());
             for fragment in fragments {
-                self.fragmented_messages_to_send.push_back(fragment);
+                self.fragmented_messages_to_send.push_back(SendMessage {
+                    data: MessageData::Fragment(fragment),
+                    priority,
+                });
             }
         } else {
-            let single_data = SingleData::new(Some(message_id), message, priority);
-            self.single_messages_to_send.push_back(single_data);
+            let single_data = SingleData::new(Some(message_id), message);
+            self.single_messages_to_send.push_back(SendMessage {
+                data: MessageData::Single(single_data),
+                priority,
+            });
         }
         self.next_send_message_id += 1;
         Some(message_id)
     }
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets to be sent
-    fn send_packet(&mut self) -> (VecDeque<SingleData>, VecDeque<FragmentData>) {
+    fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
         (
             std::mem::take(&mut self.single_messages_to_send),
             std::mem::take(&mut self.fragmented_messages_to_send),

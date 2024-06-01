@@ -9,7 +9,7 @@ use tracing::{info, trace};
 use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, SingleData};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::{TimeManager, WrappedTime};
@@ -48,9 +48,9 @@ pub struct ReliableSender {
     next_send_message_id: MessageId,
 
     /// list of single messages that we want to fit into packets and send
-    single_messages_to_send: VecDeque<SingleData>,
+    single_messages_to_send: VecDeque<SendMessage>,
     /// list of fragmented messages that we want to fit into packets and send
-    fragmented_messages_to_send: VecDeque<FragmentData>,
+    fragmented_messages_to_send: VecDeque<SendMessage>,
 
     /// Set of message ids that we want to send (to prevent sending the same message twice)
     /// (includes the [`FragmentIndex`](crate::packet::message::FragmentIndex) for fragments)
@@ -107,7 +107,7 @@ impl ChannelSend for ReliableSender {
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message, priority);
+                .build_fragments(message_id, None, message);
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()
@@ -140,7 +140,7 @@ impl ChannelSend for ReliableSender {
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
     /// The messages to be sent need to have been collected prior to this point.
-    fn send_packet(&mut self) -> (VecDeque<SingleData>, VecDeque<FragmentData>) {
+    fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
         // right now, we send everything; so we can reset
         self.message_ids_to_send.clear();
 
@@ -205,12 +205,11 @@ impl ChannelSend for ReliableSender {
                             fragment_id: None,
                         };
                         if !self.message_ids_to_send.contains(&message_info) {
-                            let message = SingleData::new(
-                                Some(*message_id),
-                                bytes.clone(),
-                                unacked_message_with_priority.accumulated_priority,
-                            );
-                            self.single_messages_to_send.push_back(message);
+                            let message = SingleData::new(Some(*message_id), bytes.clone());
+                            self.single_messages_to_send.push_back(SendMessage {
+                                data: message.into(),
+                                priority: unacked_message_with_priority.accumulated_priority,
+                            });
                             self.message_ids_to_send.insert(message_info);
                             *last_sent = Some(self.current_time);
                         }
@@ -229,7 +228,10 @@ impl ChannelSend for ReliableSender {
                             };
                             if !self.message_ids_to_send.contains(&message_info) {
                                 let message = f.data.clone();
-                                self.fragmented_messages_to_send.push_back(message);
+                                self.fragmented_messages_to_send.push_back(SendMessage {
+                                    data: message.into(),
+                                    priority: unacked_message_with_priority.accumulated_priority,
+                                });
                                 self.message_ids_to_send.insert(message_info);
                                 f.last_sent = Some(self.current_time);
                             }
@@ -339,7 +341,10 @@ mod tests {
         assert_eq!(sender.single_messages_to_send.len(), 1);
         assert_eq!(
             sender.single_messages_to_send.front().unwrap(),
-            &SingleData::new(Some(MessageId(0)), message1.clone(), 1.0)
+            &SendMessage {
+                data: SingleData::new(Some(MessageId(0)), message1.clone()).into(),
+                priority: 1.0
+            }
         );
 
         // Ack the first message

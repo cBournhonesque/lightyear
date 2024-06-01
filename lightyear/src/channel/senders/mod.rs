@@ -4,7 +4,7 @@ use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use enum_dispatch::enum_dispatch;
 
-use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
+use crate::packet::message::{MessageAck, MessageId, SendMessage};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -13,7 +13,6 @@ pub(crate) mod fragment_ack_receiver;
 pub(crate) mod fragment_sender;
 pub(crate) mod reliable;
 pub(crate) mod sequenced_unreliable;
-pub(crate) mod tick_unreliable;
 pub(crate) mod unordered_unreliable;
 pub(crate) mod unordered_unreliable_with_acks;
 
@@ -40,7 +39,7 @@ pub trait ChannelSend {
 
     /// Reads from the buffer of messages to send to prepare a list of Packets
     /// that can be sent over the network for this channel
-    fn send_packet(&mut self) -> (VecDeque<SingleData>, VecDeque<FragmentData>);
+    fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>);
 
     /// Collect the list of messages that need to be sent
     /// Either because they have never been sent, or because they need to be resent (for reliability)
@@ -71,5 +70,4 @@ pub enum ChannelSender {
     UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableSender),
     SequencedUnreliable(sequenced_unreliable::SequencedUnreliableSender),
     Reliable(reliable::ReliableSender),
-    TickUnreliable(tick_unreliable::TickUnreliableSender),
 }

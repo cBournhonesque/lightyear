@@ -173,14 +173,14 @@ pub(crate) fn receive(world: &mut World) {
                                             // enable split borrows on connection manager
                                             let connection_manager = &mut *connection_manager;
                                             for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
-                                                while let Some((packet, client_id)) = netserver.recv() {
+                                                while let Some((payload, client_id)) = netserver.recv() {
                                                     // Note: the client_id might not be present in the connection_manager if we receive
                                                     // packets from a client
                                                     // TODO: use connection to apply on BOTH message manager and replication manager
                                                     if let Some(connection) = connection_manager
                                                         .connections.get_mut(&client_id) {
                                                         let component_registry = world.resource::<ComponentRegistry>();
-                                                        connection.recv_packet(packet, tick_manager.as_ref(), component_registry, &mut connection_manager.delta_manager).expect("could not receive packet");
+                                                        connection.recv_packet(payload, tick_manager.as_ref(), component_registry, &mut connection_manager.delta_manager).expect("could not receive packet");
                                                     } else {
                                                         // it's still possible to receive some packets from a client that just disconnected.
                                                         // (multiple packets arrived at the same time from that client)

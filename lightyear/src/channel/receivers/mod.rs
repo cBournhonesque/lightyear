@@ -1,7 +1,9 @@
+use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
 
-use crate::packet::message::MessageContainer;
+use crate::packet::message::ReceiveMessage;
 use crate::packet::message::SingleData;
+use crate::prelude::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
@@ -17,8 +19,6 @@ pub(crate) mod sequenced_reliable;
 /// Receive messages in an Sequenced Unreliable manner
 pub(crate) mod sequenced_unreliable;
 
-pub(crate) mod tick_unreliable;
-
 /// Receive messages in an Unordered Reliable manner
 pub(crate) mod unordered_reliable;
 
@@ -32,10 +32,10 @@ pub trait ChannelReceive {
     fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager);
 
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()>;
+    fn buffer_recv(&mut self, message: ReceiveMessage) -> anyhow::Result<()>;
 
     /// Reads a message from the internal buffer to get its content
-    fn read_message(&mut self) -> Option<SingleData>;
+    fn read_message(&mut self) -> Option<(Tick, Bytes)>;
 }
 
 /// This enum contains the various types of receivers available
@@ -46,5 +46,4 @@ pub enum ChannelReceiver {
     OrderedReliable(ordered_reliable::OrderedReliableReceiver),
     SequencedReliable(sequenced_reliable::SequencedReliableReceiver),
     UnorderedReliable(unordered_reliable::UnorderedReliableReceiver),
-    TickUnreliable(tick_unreliable::TickUnreliableReceiver),
 }

@@ -1,20 +1,21 @@
 use bevy::utils::HashMap;
+use byteorder::NetworkEndian;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
+use std::io::Seek;
 use tracing::trace;
-
-use bitcode::{Decode, Encode};
 
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::packet::PacketStatsManager;
 use crate::prelude::TimeManager;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::time_manager::WrappedTime;
 
 /// Header included at the start of all packets
-#[derive(Encode, Decode, Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PacketHeader {
     // TODO: this seems useless besides Data vs DataFragment
     /// Type of the packet sent
@@ -29,6 +30,44 @@ pub(crate) struct PacketHeader {
     ack_bitfield: u32,
     /// Current tick
     pub(crate) tick: Tick,
+}
+
+impl ToBytes for PacketHeader {
+    fn len(&self) -> usize {
+        11
+    }
+
+    fn to_bytes<T: byteorder::WriteBytesExt>(
+        &self,
+        buffer: &mut T,
+    ) -> Result<(), SerializationError> {
+        buffer.write_u8(self.packet_type as u8)?;
+        buffer.write_u16::<NetworkEndian>(self.packet_id.0)?;
+        buffer.write_u16::<NetworkEndian>(self.last_ack_packet_id.0)?;
+        buffer.write_u32::<NetworkEndian>(self.ack_bitfield)?;
+        buffer.write_u16::<NetworkEndian>(self.tick.0)?;
+        Ok(())
+    }
+
+    fn from_bytes<T: byteorder::ReadBytesExt + Seek>(
+        buffer: &mut T,
+    ) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let packet_type = buffer.read_u8()?;
+        let packet_id = buffer.read_u16::<NetworkEndian>()?;
+        let last_ack_packet_id = buffer.read_u16::<NetworkEndian>()?;
+        let ack_bitfield = buffer.read_u32::<NetworkEndian>()?;
+        let tick = buffer.read_u16::<NetworkEndian>()?;
+        Ok(Self {
+            packet_type: PacketType::try_from(packet_type)?,
+            packet_id: PacketId(packet_id),
+            last_ack_packet_id: PacketId(last_ack_packet_id),
+            ack_bitfield,
+            tick: Tick(tick),
+        })
+    }
 }
 
 impl PacketHeader {
@@ -312,11 +351,13 @@ impl ReceiveBuffer {
 #[cfg(test)]
 mod tests {
     use bitcode::encoding::Fixed;
+    use std::io::Cursor;
 
     use crate::serialize::bitcode::reader::BitcodeReader;
     use crate::serialize::bitcode::writer::BitcodeWriter;
     use crate::serialize::reader::ReadBuffer;
     use crate::serialize::writer::WriteBuffer;
+    use crate::serialize::ToBytes;
 
     use super::*;
 
@@ -378,15 +419,14 @@ mod tests {
             packet_id: PacketId(27),
             last_ack_packet_id: PacketId(13),
             ack_bitfield: 3,
-            tick: Tick(0),
+            tick: Tick(6),
         };
-        let mut writer = BitcodeWriter::with_capacity(50);
-        writer.encode(&header, Fixed)?;
-        let data = writer.finish_write();
+        let mut writer = Vec::new();
+        header.to_bytes(&mut writer)?;
+        assert_eq!(writer.len(), header.len());
 
-        let mut reader = BitcodeReader::start_read(data);
-        let read_header = reader.decode::<PacketHeader>(Fixed)?;
-
+        let mut reader = Cursor::new(writer);
+        let read_header = PacketHeader::from_bytes(&mut reader)?;
         assert_eq!(header, read_header);
         Ok(())
     }

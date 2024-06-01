@@ -1,3 +1,4 @@
+use bevy::utils::HashMap;
 use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroU32;
 
@@ -9,7 +10,7 @@ use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
+use crate::packet::message::{FragmentData, MessageData, MessageId, SendMessage, SingleData};
 use crate::prelude::{ChannelKind, ChannelRegistry, Tick};
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
@@ -18,7 +19,7 @@ use crate::protocol::registry::NetId;
 pub struct BufferedMessage {
     priority: f32,
     channel_net_id: NetId,
-    message_container: MessageContainer,
+    data: MessageData,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +63,9 @@ pub(crate) struct PriorityManager {
     pub(crate) config: PriorityConfig,
     // TODO: can I do without this limiter?
     pub(crate) limiter: DefaultDirectRateLimiter,
+    // // Internal buffer of data that we want to send
+    // // Reuse allocation across frames
+    // data_to_send: BTreeMap<ChannelId, (VecDeque<SendMessage>, VecDeque<SendMessage>)>,
     // Messages that could not be sent because of the bandwidth quota
     // buffered_data: Vec<BufferedMessage>,
     /// List of senders to notify when a replication update message is actually sent (included in packet)
@@ -73,6 +77,7 @@ impl PriorityManager {
         Self {
             config: config.clone(),
             limiter: DefaultDirectRateLimiter::direct(config.bandwidth_quota),
+            // data_to_send: BTreeMap::new(),
             // buffered_data: Vec::new(),
             replication_update_senders: Vec::new(),
         }
@@ -93,24 +98,46 @@ impl PriorityManager {
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn priority_filter(
         &mut self,
-        data: Vec<(ChannelId, (VecDeque<SingleData>, VecDeque<FragmentData>))>,
+        data: Vec<(ChannelId, (VecDeque<SendMessage>, VecDeque<SendMessage>))>,
         channel_registry: &ChannelRegistry,
         tick: Tick,
     ) -> (
-        BTreeMap<ChannelId, (VecDeque<SingleData>, VecDeque<FragmentData>)>,
+        Vec<(ChannelId, VecDeque<SingleData>)>,
+        Vec<(ChannelId, VecDeque<FragmentData>)>,
         u32,
     ) {
         // if the bandwidth quota is disabled, just pass all messages through
         // As an optimization: no need to send the tick of the message, it is the same as the header tick
         if !self.config.enabled {
-            let mut data_to_send: BTreeMap<
-                ChannelId,
-                (VecDeque<SingleData>, VecDeque<FragmentData>),
-            > = BTreeMap::new();
+            let mut single_data = vec![];
+            let mut fragment_data = vec![];
             for (net_id, (single, fragment)) in data {
-                data_to_send.insert(net_id, (single, fragment));
+                single_data.push((
+                    net_id,
+                    single
+                        .into_iter()
+                        .map(|message| {
+                            let MessageData::Single(single) = message.data else {
+                                unreachable!()
+                            };
+                            single
+                        })
+                        .collect(),
+                ));
+                fragment_data.push((
+                    net_id,
+                    fragment
+                        .into_iter()
+                        .map(|message| {
+                            let MessageData::Fragment(fragment) = message.data else {
+                                unreachable!()
+                            };
+                            fragment
+                        })
+                        .collect(),
+                ));
             }
-            return (data_to_send, 0);
+            return (single_data, fragment_data, 0);
         }
 
         // compute the priority of each new message
@@ -125,41 +152,24 @@ impl PriorityManager {
                 trace!(?channel_priority, num_single=?single.len(), "channel priority");
                 single
                     .into_iter()
-                    .map(move |mut single| {
-                        // TODO: this only needs to be done for the messages that are not sent!
-                        //  (and for messages that are not replication messages?)
-                        // set the initial send tick of the message
-                        // we do this because the receiver needs to know at which tick the message was intended to be sent
-                        // (for example which tick the EntityAction corresponds to), not the tick of the packet header
-                        // when the message was actually sent, which could be later because of bandwidth quota
-                        if single.tick.is_none() {
-                            single.tick = Some(tick);
-                        }
-                        BufferedMessage {
-                            priority: single.priority * channel_priority,
-                            channel_net_id: net_id,
-                            message_container: MessageContainer::Single(single),
-                        }
+                    .map(move |single| BufferedMessage {
+                        priority: single.priority * channel_priority,
+                        channel_net_id: net_id,
+                        data: single.data,
                     })
-                    .chain(fragment.into_iter().map(move |mut fragment| {
-                        if fragment.tick.is_none() {
-                            fragment.tick = Some(tick);
-                        }
+                    .chain(fragment.into_iter().map(move |fragment| {
+                        // TODO (IMPORTANT): we should split fragments AFTER priority filtering
+                        //  because if we don't send one fragment, it's over..
                         BufferedMessage {
                             priority: fragment.priority * channel_priority,
                             channel_net_id: net_id,
-                            message_container: MessageContainer::Fragment(fragment),
+                            data: fragment.data,
                         }
                     }))
             })
             .collect::<Vec<_>>();
-        // // NOTE: maybe we cannot do this, because for some channels we need to know
-        // //  if the message was actually sent or not? (reliable channels)
-        // // add all new messages to the list of messages that could not be sent
-        // self.buffered_data.extend(all_messages);
 
         // sort from highest priority to lower
-        // self.buffered_data
         all_messages.sort_by(|a, b| a.priority.partial_cmp(&b.priority).unwrap());
         trace!(
             "all messages to send, sorted by priority: {:?}",
@@ -167,14 +177,14 @@ impl PriorityManager {
         );
 
         // select the top messages with the rate limiter
-        let mut data_to_send: BTreeMap<ChannelId, (VecDeque<SingleData>, VecDeque<FragmentData>)> =
-            BTreeMap::new();
+        let mut single_data: HashMap<ChannelId, VecDeque<SingleData>> = HashMap::new();
+        let mut fragment_data: HashMap<ChannelId, VecDeque<FragmentData>> = HashMap::new();
         let mut bytes_used = 0;
         while let Some(buffered_message) = all_messages.pop() {
             trace!(channel=?buffered_message.channel_net_id, "Sending message with priority {:?}", buffered_message.priority);
             // we don't use the exact size of the message, but the size of the bytes
             // we will adjust for this later
-            let message_bytes = buffered_message.message_container.bytes().len() as u32;
+            let message_bytes = buffered_message.data.len() as u32;
             let nonzero_message_bytes = NonZeroU32::try_from(message_bytes).unwrap();
             let Ok(result) = self.limiter.check_n(nonzero_message_bytes) else {
                 error!("the bandwidth does not have enough capacity for a message of this size!");
@@ -188,15 +198,10 @@ impl PriorityManager {
             // keep track of the bytes we added to the rate limiter
             bytes_used += message_bytes;
 
-            // the message is allowed, add it to the list of messages to send
-            let channel_data = data_to_send
-                .entry(buffered_message.channel_net_id)
-                .or_insert((VecDeque::new(), VecDeque::new()));
-
             // notify the replication sender that the message was actually sent
             if channel_registry.is_replication_channel(buffered_message.channel_net_id) {
                 // SAFETY: we are guaranteed in this situation to have a message id (because we use the unreliable with acks sender)
-                let message_id = buffered_message.message_container.message_id().unwrap();
+                let message_id = buffered_message.data.message_id().unwrap();
                 for sender in self.replication_update_senders.iter() {
                     trace!(
                         ?message_id,
@@ -207,12 +212,20 @@ impl PriorityManager {
                     });
                 }
             }
-            match buffered_message.message_container {
-                MessageContainer::Single(single) => {
-                    channel_data.0.push_back(single);
+
+            // the message is allowed, add it to the list of messages to send
+            match buffered_message.data {
+                MessageData::Single(single) => {
+                    single_data
+                        .entry(buffered_message.channel_net_id)
+                        .or_default()
+                        .push_back(single);
                 }
-                MessageContainer::Fragment(fragment) => {
-                    channel_data.1.push_back(fragment);
+                MessageData::Fragment(fragment) => {
+                    fragment_data
+                        .entry(buffered_message.channel_net_id)
+                        .or_default()
+                        .push_back(fragment);
                 }
             }
         }
@@ -224,16 +237,18 @@ impl PriorityManager {
         //   - PROBLEM: we could have the entity action not get sent (bandwidth), and then the priority still drops because the entity update
         //     was sent right after...
         // - reliable entity actions:
-        let num_messages_sent = data_to_send
-            .values()
-            .map(|(single, fragment)| single.len() + fragment.len())
-            .sum::<usize>();
+        let num_messages_sent = single_data.values().map(|data| data.len()).sum::<usize>()
+            + fragment_data.values().map(|data| data.len()).sum::<usize>();
         debug!(
             bytes_sent = ?bytes_used,
             ?num_messages_sent,
             num_messages_discarded = ?all_messages.len(),
             "priority filter done.");
 
-        (data_to_send, bytes_used)
+        (
+            single_data.into_iter().collect(),
+            fragment_data.into_iter().collect(),
+            bytes_used,
+        )
     }
 }
