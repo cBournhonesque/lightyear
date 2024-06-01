@@ -137,6 +137,15 @@ impl SharedIoConfig<ServerTransport> {
                 let decompressor = ZstdDecompressor::new();
                 receiver = Box::new(decompressor.wrap(receiver));
             }
+            #[cfg(feature = "lz4")]
+            CompressionConfig::Lz4 => {
+                let compressor =
+                    crate::transport::middleware::compression::lz4::Compressor::default();
+                sender = Box::new(compressor.wrap(sender));
+                let decompressor =
+                    crate::transport::middleware::compression::lz4::Decompressor::default();
+                receiver = Box::new(decompressor.wrap(receiver));
+            }
         }
         Ok(BaseIo {
             local_addr,

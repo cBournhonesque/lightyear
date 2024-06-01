@@ -15,29 +15,32 @@ exclude = ["/tests"]
 [features]
 trace = []
 metrics = [
-  "dep:metrics",
-  "metrics-util",
-  "metrics-tracing-context",
-  "metrics-exporter-prometheus",
+    "dep:metrics",
+    "metrics-util",
+    "metrics-tracing-context",
+    "metrics-exporter-prometheus",
 ]
 mock_time = ["dep:mock_instant"]
 webtransport = [
-  "dep:wtransport",
-  "dep:xwt-core",
-  "dep:xwt-web-sys",
-  "dep:web-sys",
-  "dep:ring",
-  "dep:wasm-bindgen-futures",
+    "dep:wtransport",
+    "dep:xwt-core",
+    "dep:xwt-web-sys",
+    "dep:web-sys",
+    "dep:ring",
+    "dep:wasm-bindgen-futures",
 ]
 leafwing = ["dep:leafwing-input-manager"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
 websocket = [
-  "dep:tokio-tungstenite",
-  "dep:futures-util",
-  "dep:web-sys",
-  "dep:wasm-bindgen",
+    "dep:tokio-tungstenite",
+    "dep:futures-util",
+    "dep:web-sys",
+    "dep:wasm-bindgen",
 ]
 steam = ["dep:steamworks"]
+
+# compression
+lz4 = ["dep:lz4_flex"]
 zstd = ["dep:zstd"]
 
 [dependencies]
@@ -72,7 +75,7 @@ bevy_xpbd_2d = { version = "0.4", optional = true, default-features = false }
 # serialization
 bincode = { version = "2.0.0-rc.3", features = ["serde"] }
 bitcode = { version = "0.5.1", package = "bitcode_lightyear_patch", path = "../vendor/bitcode", features = [
-  "serde",
+    "serde",
 ] }
 bytes = { version = "1.5", features = ["serde"] }
 self_cell = "1.0"
@@ -89,8 +92,8 @@ lightyear_macros = { version = "0.15.1", path = "../macros" }
 tracing = "0.1.40"
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.17", features = [
-  "registry",
-  "env-filter",
+    "registry",
+    "env-filter",
 ] }
 
 # server
@@ -101,14 +104,16 @@ metrics = { version = "0.22", optional = true }
 metrics-util = { version = "0.15", optional = true }
 metrics-tracing-context = { version = "0.15", optional = true }
 metrics-exporter-prometheus = { version = "0.13.0", optional = true, default-features = false, features = [
-  "http-listener",
+    "http-listener",
 ] }
 
 # bevy
 bevy = { version = "0.13", default-features = false, features = [
-  "multi-threaded",
+    "multi-threaded",
 ] }
 
+# compression
+lz4_flex = { version = "0.11", optional = true, default-features = false, features = ["std"] }
 
 # WebSocket
 futures-util = { version = "0.3.30", optional = true }
@@ -116,8 +121,8 @@ futures-util = { version = "0.3.30", optional = true }
 # transport
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.36", features = [
-  "sync",
-  "macros",
+    "sync",
+    "macros",
 ], default-features = false }
 futures = "0.3.30"
 async-compat = "0.2.3"
@@ -129,13 +134,13 @@ async-channel = "2.2.0"
 steamworks = { version = "0.11", optional = true }
 # webtransport
 wtransport = { version = "=0.1.13", optional = true, features = [
-  "self-signed",
-  "dangerous-configuration",
+    "self-signed",
+    "dangerous-configuration",
 ] }
 # websocket
 tokio-tungstenite = { version = "0.21.0", optional = true, features = [
-  "connect",
-  "handshake",
+    "connect",
+    "handshake",
 ] }
 # compression
 zstd = { version = "0.13.1", optional = true }
@@ -144,26 +149,26 @@ zstd = { version = "0.13.1", optional = true }
 console_error_panic_hook = { version = "0.1.7" }
 ring = { version = "0.17.8", optional = true, default-features = false }
 web-sys = { version = "0.3", optional = true, features = [
-  "Document",
-  "WebTransport",
-  "WebTransportHash",
-  "WebTransportOptions",
-  "WebTransportBidirectionalStream",
-  "WebTransportSendStream",
-  "WebTransportReceiveStream",
-  "ReadableStreamDefaultReader",
-  "WritableStreamDefaultWriter",
-  "WebTransportDatagramDuplexStream",
-  "WebSocket",
-  "CloseEvent",
-  "ErrorEvent",
-  "MessageEvent",
-  "BinaryType",
+    "Document",
+    "WebTransport",
+    "WebTransportHash",
+    "WebTransportOptions",
+    "WebTransportBidirectionalStream",
+    "WebTransportSendStream",
+    "WebTransportReceiveStream",
+    "ReadableStreamDefaultReader",
+    "WritableStreamDefaultWriter",
+    "WebTransportDatagramDuplexStream",
+    "WebSocket",
+    "CloseEvent",
+    "ErrorEvent",
+    "MessageEvent",
+    "BinaryType",
 ] }
 bevy_web_keepalive = "0.3"
 futures-lite = { version = "2.1.0", optional = true }
 getrandom = { version = "0.2.11", features = [
-  "js", # feature 'js' is required for wasm
+    "js", # feature 'js' is required for wasm
 ] }
 xwt-core = { version = "0.4", optional = true }
 xwt-web-sys = { version = "0.11", optional = true }
@@ -186,14 +191,14 @@ approx = "0.5.1"
 # we cannot use all-features = true, because we need to provide additional features for bevy_xpbd_2d
 # when building the docs
 features = [
-  "metrics",
-  "webtransport",
-  "leafwing",
-  "xpbd_2d",
-  "websocket",
-  "steam",
-  "zstd",
-  "bevy_xpbd_2d/2d",
-  "bevy_xpbd_2d/f32",
+    "metrics",
+    "webtransport",
+    "leafwing",
+    "xpbd_2d",
+    "websocket",
+    "steam",
+    "zstd",
+    "bevy_xpbd_2d/2d",
+    "bevy_xpbd_2d/f32",
 ]
 rustdoc-args = ["--cfg", "docsrs"]
