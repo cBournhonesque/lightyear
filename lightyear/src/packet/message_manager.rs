@@ -412,6 +412,7 @@ mod tests {
     use std::collections::HashMap;
 
     use bevy::prelude::default;
+    use bevy::utils::HashSet;
 
     use crate::packet::message::MessageId;
     use crate::packet::packet::FRAGMENT_SIZE;
@@ -539,31 +540,31 @@ mod tests {
         client_message_manager.buffer_send(message.clone(), channel_kind_2)?;
         let payloads = client_message_manager.send_packets(Tick(0))?;
         assert_eq!(payloads.len(), 4);
-        assert_eq!(
-            client_message_manager.packet_to_message_ack_map,
-            HashMap::from([
-                (
-                    PacketId(2),
-                    vec![(
-                        channel_kind_2,
-                        MessageAck {
-                            message_id: MessageId(0),
-                            fragment_id: Some(0),
-                        }
-                    )]
-                ),
-                (
-                    PacketId(3),
-                    vec![(
-                        channel_kind_2,
-                        MessageAck {
-                            message_id: MessageId(0),
-                            fragment_id: Some(1),
-                        }
-                    )]
-                ),
-            ])
-        );
+        // the order of the packets is not guaranteed
+        let packets_with_acks = client_message_manager
+            .packet_to_message_ack_map
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        let acks: Vec<_> = client_message_manager
+            .packet_to_message_ack_map
+            .clone()
+            .into_values()
+            .collect();
+        assert!(acks.contains(&vec![(
+            channel_kind_2,
+            MessageAck {
+                message_id: MessageId(0),
+                fragment_id: Some(0),
+            }
+        )]));
+        assert!(acks.contains(&vec![(
+            channel_kind_2,
+            MessageAck {
+                message_id: MessageId(0),
+                fragment_id: Some(1),
+            }
+        )]));
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
@@ -591,16 +592,13 @@ mod tests {
                 .next_packet_id(),
             PacketId(4)
         );
-        assert!(client_message_manager
-            .packet_manager
-            .header_manager
-            .sent_packets_not_acked()
-            .contains_key(&PacketId(0)));
-        assert!(client_message_manager
-            .packet_manager
-            .header_manager
-            .sent_packets_not_acked()
-            .contains_key(&PacketId(1)));
+        for packet in packets_with_acks {
+            assert!(client_message_manager
+                .packet_manager
+                .header_manager
+                .sent_packets_not_acked()
+                .contains_key(&packet));
+        }
 
         // Server sends back a message
         server_message_manager.buffer_send(vec![1], channel_kind_1)?;
