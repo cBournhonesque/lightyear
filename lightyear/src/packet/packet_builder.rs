@@ -16,6 +16,7 @@ use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;
+use crate::serialize::varint::varint_len;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::{SerializationError, ToBytes};
 
@@ -180,6 +181,15 @@ impl PacketBuilder {
                     loop {
                         // no more messages to send in this channel, try to fill with messages from the next channels
                         if message_end_idx == single_messages.len() {
+                            Self::write_single_messages(
+                                &mut packet,
+                                &single_messages,
+                                &mut message_start_idx,
+                                &mut message_end_idx,
+                                channel_id,
+                            )?;
+                            // keep track that we are writing a packet
+                            self.current_packet = Some(packet);
                             continue 'outer;
                         }
 
@@ -188,8 +198,8 @@ impl PacketBuilder {
 
                         // TODO: rename to can add message?
                         if packet.can_fit(single_messages[message_end_idx].len()) {
-                            message_end_idx += 1;
                             packet.prewritten_size += single_messages[message_end_idx].len();
+                            message_end_idx += 1;
                         } else {
                             // can't add any more messages (since we sorted messages from smallest to largest)
                             // finish packet and start a new one
@@ -231,8 +241,8 @@ impl PacketBuilder {
                             //  use a free list of Option<SingleData> to keep track of which messages have been added?
 
                             if packet.can_fit(single_messages[message_end_idx].len()) {
-                                message_end_idx += 1;
                                 packet.prewritten_size += single_messages[message_end_idx].len();
+                                message_end_idx += 1;
                             } else {
                                 // can't add any more messages (since we sorted messages from smallest to largest)
                                 // finish packet and start a new one from the next fragment
@@ -265,7 +275,11 @@ impl PacketBuilder {
                     self.build_new_single_packet(current_tick, channel_id)?;
                 }
                 let mut packet = self.current_packet.take().unwrap();
-
+                // TODO: this is confusing
+                // need to call this to add prewritten_size for this channel...
+                if !packet.can_fit_channel(channel_id) {
+                    unreachable!();
+                }
                 // add messages to packet for the given channel
                 // we won't add the messages directly, we will just get the indices of the messages we need to write
                 // (because we need to know the total count of messages first so that we can write it right after the
@@ -282,6 +296,8 @@ impl PacketBuilder {
                             &mut message_end_idx,
                             channel_id,
                         )?;
+                        // keep track that we are writing a packet
+                        self.current_packet = Some(packet);
                         // go to next channel
                         continue 'outer;
                     }
@@ -289,8 +305,8 @@ impl PacketBuilder {
                     // TODO: bin packing, add the biggest message that could fit
                     //  use a free list of Option<SingleData> to keep track of which messages have been added?
                     if packet.can_fit(single_messages[message_end_idx].len()) {
-                        message_end_idx += 1;
                         packet.prewritten_size += single_messages[message_end_idx].len();
+                        message_end_idx += 1;
                     } else {
                         // can't add any more messages (since we sorted messages from smallest to largest)
                         // write messages, finish packet and start a new one
@@ -324,6 +340,10 @@ impl PacketBuilder {
         channel_id: ChannelId,
     ) -> Result<(), SerializationError> {
         channel_id.to_bytes(&mut packet.payload)?;
+        packet.prewritten_size = packet
+            .prewritten_size
+            .checked_sub(varint_len(channel_id as u64) + 1)
+            .ok_or(SerializationError::SubstractionOverflow)?;
         let num_messages = *end - *start;
         if num_messages > 0 {
             // write the number of messages for the current channel
@@ -331,14 +351,20 @@ impl PacketBuilder {
             // write the messages
             for i in *start..*end {
                 messages[i].to_bytes(&mut packet.payload).unwrap();
-                packet.message_acks.push((
-                    channel_id,
-                    MessageAck {
-                        // TODO: REVISIT THIS, HOW TO DO THIS WHEN NO MESSAGE_ID?
-                        message_id: messages[i].id.unwrap_or(MessageId(0)),
-                        fragment_id: None,
-                    },
-                ));
+                packet.prewritten_size = packet
+                    .prewritten_size
+                    .checked_sub(messages[i].len())
+                    .ok_or(SerializationError::SubstractionOverflow)?;
+                // only send a MessageAck when the message has an id (otherwise we don't expect an ack)
+                if let Some(id) = messages[i].id {
+                    packet.message_acks.push((
+                        channel_id,
+                        MessageAck {
+                            message_id: id,
+                            fragment_id: None,
+                        },
+                    ));
+                }
             }
             *start = *end;
         }
@@ -428,205 +454,217 @@ impl PacketBuilder {
     //     packets
     // }
 }
-//
-// #[cfg(test)]
-// mod tests {
-//     use std::collections::{BTreeMap, VecDeque};
-//
-//     use bevy::prelude::{default, TypePath};
-//     use bytes::Bytes;
-//
-//     use lightyear_macros::ChannelInternal;
-//
-//     use crate::channel::senders::fragment_sender::FragmentSender;
-//     use crate::packet::message::MessageId;
-//     use crate::prelude::*;
-//
-//     use super::*;
-//
-//     #[derive(ChannelInternal, TypePath)]
-//     struct Channel1;
-//
-//     #[derive(ChannelInternal, TypePath)]
-//     struct Channel2;
-//
-//     #[derive(ChannelInternal, TypePath)]
-//     struct Channel3;
-//
-//     fn get_channel_registry() -> ChannelRegistry {
-//         let settings = ChannelSettings {
-//             mode: ChannelMode::UnorderedUnreliable,
-//             ..default()
-//         };
-//         let mut c = ChannelRegistry::default();
-//         c.add_channel::<Channel1>(settings.clone());
-//         c.add_channel::<Channel2>(settings.clone());
-//         c.add_channel::<Channel3>(settings.clone());
-//         c
-//     }
-//
-//     #[test]
-//     fn test_write_small_message() -> anyhow::Result<()> {
-//         let channel_registry = get_channel_registry();
-//         let mut manager = PacketBuilder::new(1.5);
-//         let channel_kind = ChannelKind::of::<Channel1>();
-//         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
-//
-//         let small_message = Bytes::from("hello");
-//         let mut packet = manager.build_new_single_packet();
-//         assert!(manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
-//
-//         assert!(manager.can_add_bits(small_message.len() * (u8::BITS as usize)),);
-//         packet.add_message(
-//             *channel_id,
-//             SingleData::new(None, small_message.clone(), 1.0),
-//         );
-//         assert_eq!(packet.num_messages(), 1);
-//
-//         assert!(manager.can_add_bits(small_message.len() * (u8::BITS as usize)),);
-//         packet.add_message(
-//             *channel_id,
-//             SingleData::new(None, small_message.clone(), 1.0),
-//         );
-//         assert_eq!(packet.num_messages(), 2);
-//         Ok(())
-//     }
-//
-//     #[test]
-//     fn test_write_big_message() -> anyhow::Result<()> {
-//         let channel_registry = get_channel_registry();
-//         let mut manager = PacketBuilder::new(1.5);
-//         let channel_kind = ChannelKind::of::<Channel1>();
-//         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
-//
-//         let big_message = Bytes::from(vec![1u8; 2 * MTU_PAYLOAD_BYTES]);
-//         let mut packet = manager.build_new_single_packet();
-//         assert!(manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
-//
-//         // the big message is too big to fit in the packet
-//         assert!(!manager.can_add_bits(big_message.len() * (u8::BITS as usize)),);
-//         Ok(())
-//     }
-//
-//     #[test]
-//     fn test_pack_big_message() {
-//         let channel_registry = get_channel_registry();
-//         let mut manager = PacketBuilder::new(1.5);
-//         let channel_kind1 = ChannelKind::of::<Channel1>();
-//         let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
-//         let channel_kind2 = ChannelKind::of::<Channel2>();
-//         let channel_id2 = channel_registry.get_net_from_kind(&channel_kind2).unwrap();
-//         let channel_kind3 = ChannelKind::of::<Channel3>();
-//         let channel_id3 = channel_registry.get_net_from_kind(&channel_kind3).unwrap();
-//
-//         let num_big_bytes = (2.5 * MTU_PAYLOAD_BYTES as f32) as usize;
-//         let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
-//         let fragmenter = FragmentSender::new();
-//         let fragments = fragmenter.build_fragments(MessageId(0), None, big_bytes.clone(), 1.0);
-//
-//         let small_bytes = Bytes::from(vec![0u8; 10]);
-//         let small_message = SingleData::new(None, small_bytes.clone(), 1.0);
-//
-//         let mut data = BTreeMap::new();
-//         data.insert(
-//             *channel_id1,
-//             (VecDeque::from(vec![small_message.clone()]), VecDeque::new()),
-//         );
-//         data.insert(
-//             *channel_id2,
-//             (
-//                 VecDeque::from(vec![small_message.clone()]),
-//                 fragments.clone().into(),
-//             ),
-//         );
-//         data.insert(
-//             *channel_id3,
-//             (VecDeque::from(vec![small_message.clone()]), VecDeque::new()),
-//         );
-//         let mut packets = manager.build_packets(data);
-//         // we start building the packet for channel 1, we add one small message
-//         // we add one more small message to the packet from channel1, then we push fragments 1 and 2 for channel 2
-//         // we start working on fragment 3 for channel 2, and push the packet from channel 1 (with 2 messages)
-//         // then we push the small message from channel 3 into fragment 3
-//         assert_eq!(packets.len(), 4);
-//         let contents3 = packets.pop().unwrap().data.contents();
-//         assert_eq!(contents3.len(), 2);
-//         assert_eq!(
-//             contents3.get(channel_id2).unwrap(),
-//             &vec![fragments[2].clone().into()]
-//         );
-//         assert_eq!(
-//             contents3.get(channel_id3).unwrap(),
-//             &vec![small_message.clone().into()]
-//         );
-//         let contents2 = packets.pop().unwrap().data.contents();
-//         assert_eq!(contents2.len(), 2);
-//         assert_eq!(
-//             contents2.get(channel_id1).unwrap(),
-//             &vec![small_message.clone().into()]
-//         );
-//         assert_eq!(
-//             contents2.get(channel_id2).unwrap(),
-//             &vec![small_message.clone().into()]
-//         );
-//         let contents1 = packets.pop().unwrap().data.contents();
-//         assert_eq!(contents1.len(), 1);
-//         assert_eq!(
-//             contents1.get(channel_id2).unwrap(),
-//             &vec![fragments[1].clone().into()]
-//         );
-//         let contents0 = packets.pop().unwrap().data.contents();
-//         assert_eq!(contents0.len(), 1);
-//         assert_eq!(
-//             contents0.get(channel_id2).unwrap(),
-//             &vec![fragments[0].clone().into()]
-//         );
-//     }
-//
-//     #[test]
-//     fn test_cannot_write_channel() -> anyhow::Result<()> {
-//         let channel_registry = get_channel_registry();
-//         let mut manager = PacketBuilder::new(1.5);
-//         let channel_kind = ChannelKind::of::<Channel1>();
-//         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
-//         let mut packet = manager.build_new_single_packet();
-//
-//         // the channel_id takes only one bit to write (we use gamma encoding)
-//         // only 1 bit can be written
-//         manager.try_write_buffer.set_reserved_bits(1);
-//         // cannot write channel because of the continuation bit
-//         assert!(!manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
-//
-//         manager.clear_try_write_buffer();
-//         manager.try_write_buffer.set_reserved_bits(2);
-//         assert!(manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
-//         Ok(())
-//     }
-//
-//     // #[test]
-//     // fn test_write_pack_messages_in_multiple_packets() -> anyhow::Result<()> {
-//     //     let channel_registry = get_channel_registry();
-//     //     let mut manager = PacketManager::new(channel_registry.kind_map());
-//     //     let channel_kind = ChannelKind::of::<Channel1>();
-//     //     let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
-//     //
-//     //     let mut message0 = Bytes::from(vec![false; MTU_PAYLOAD_BYTES - 100]);
-//     //     message0.set_id(MessageId(0));
-//     //     let mut message1 = Bytes::from(vec![true; MTU_PAYLOAD_BYTES - 100]);
-//     //     message1.set_id(MessageId(1));
-//     //
-//     //     let mut packet = manager.build_new_packet();
-//     //     assert_eq!(manager.can_add_channel(channel_kind)?, true);
-//     //
-//     //     // 8..16 take 7 bits with gamma encoding
-//     //     let messages: VecDeque<_> = vec![message0, message1].into();
-//     //     let (remaining_messages, sent_message_ids) = manager.pack_messages_within_channel(messages);
-//     //
-//     //     let packets = manager.flush_packets();
-//     //     assert_eq!(packets.len(), 2);
-//     //     assert_eq!(remaining_messages.is_empty(), true);
-//     //     assert_eq!(sent_message_ids, vec![MessageId(0), MessageId(1)]);
-//     //
-//     //     Ok(())
-//     // }
-// }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, VecDeque};
+
+    use bevy::prelude::{default, TypePath};
+    use bytes::Bytes;
+
+    use lightyear_macros::ChannelInternal;
+
+    use crate::channel::senders::fragment_sender::FragmentSender;
+    use crate::packet::message::MessageId;
+    use crate::prelude::*;
+
+    use super::*;
+
+    #[derive(ChannelInternal, TypePath)]
+    struct Channel1;
+
+    #[derive(ChannelInternal, TypePath)]
+    struct Channel2;
+
+    #[derive(ChannelInternal, TypePath)]
+    struct Channel3;
+
+    fn get_channel_registry() -> ChannelRegistry {
+        let settings = ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            ..default()
+        };
+        let mut c = ChannelRegistry::default();
+        c.add_channel::<Channel1>(settings.clone());
+        c.add_channel::<Channel2>(settings.clone());
+        c.add_channel::<Channel3>(settings.clone());
+        c
+    }
+
+    /// A bunch of small messages that all fit in the same packet
+    #[test]
+    fn test_pack_small_messages() -> anyhow::Result<()> {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketBuilder::new(1.5);
+        let channel_kind1 = ChannelKind::of::<Channel1>();
+        let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
+        let channel_kind2 = ChannelKind::of::<Channel2>();
+        let channel_id2 = channel_registry.get_net_from_kind(&channel_kind2).unwrap();
+        let channel_kind3 = ChannelKind::of::<Channel3>();
+        let channel_id3 = channel_registry.get_net_from_kind(&channel_kind3).unwrap();
+
+        let small_bytes = Bytes::from(vec![0u8; 10]);
+        let small_message = SingleData::new(None, small_bytes.clone());
+
+        let mut data = BTreeMap::new();
+        data.insert(
+            *channel_id1,
+            (VecDeque::from(vec![small_message.clone()]), VecDeque::new()),
+        );
+        data.insert(
+            *channel_id2,
+            (
+                VecDeque::from(vec![small_message.clone(), small_message.clone()]),
+                VecDeque::new(),
+            ),
+        );
+        data.insert(
+            *channel_id3,
+            (VecDeque::from(vec![small_message.clone()]), VecDeque::new()),
+        );
+        let mut packets = manager.build_packets(Tick(0), data)?;
+        // we start building the packet for channel 1, we add one small message
+        // we add one more small message to the packet from channel1, then we push fragments 1 and 2 for channel 2
+        // we start working on fragment 3 for channel 2, and push the packet from channel 1 (with 2 messages)
+        // then we push the small message from channel 3 into fragment 3
+        assert_eq!(packets.len(), 1);
+        let mut packet = packets.pop().unwrap();
+        assert_eq!(packet.message_acks, vec![]);
+        let contents = packet.parse_packet_payload()?;
+        assert_eq!(
+            contents.get(channel_id1).unwrap(),
+            &vec![small_bytes.clone()]
+        );
+        assert_eq!(
+            contents.get(channel_id2).unwrap(),
+            &vec![small_bytes.clone(), small_bytes.clone()]
+        );
+        assert_eq!(
+            contents.get(channel_id3).unwrap(),
+            &vec![small_bytes.clone()]
+        );
+        Ok(())
+    }
+
+    // #[test]
+    // fn test_pack_big_message() {
+    //     let channel_registry = get_channel_registry();
+    //     let mut manager = PacketBuilder::new(1.5);
+    //     let channel_kind1 = ChannelKind::of::<Channel1>();
+    //     let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
+    //     let channel_kind2 = ChannelKind::of::<Channel2>();
+    //     let channel_id2 = channel_registry.get_net_from_kind(&channel_kind2).unwrap();
+    //     let channel_kind3 = ChannelKind::of::<Channel3>();
+    //     let channel_id3 = channel_registry.get_net_from_kind(&channel_kind3).unwrap();
+    //
+    //     let num_big_bytes = (2.5 * MTU_PAYLOAD_BYTES as f32) as usize;
+    //     let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
+    //     let fragmenter = FragmentSender::new();
+    //     let fragments = fragmenter.build_fragments(MessageId(0), None, big_bytes.clone());
+    //
+    //     let small_bytes = Bytes::from(vec![0u8; 10]);
+    //     let small_message = SingleData::new(None, small_bytes.clone());
+    //
+    //     let mut data = BTreeMap::new();
+    //     data.insert(
+    //         *channel_id1,
+    //         (VecDeque::from(vec![small_message.clone()]), VecDeque::new()),
+    //     );
+    //     data.insert(
+    //         *channel_id2,
+    //         (
+    //             VecDeque::from(vec![small_message.clone()]),
+    //             fragments.clone().into(),
+    //         ),
+    //     );
+    //     data.insert(
+    //         *channel_id3,
+    //         (VecDeque::from(vec![small_message.clone()]), VecDeque::new()),
+    //     );
+    //     let mut packets = manager.build_packets(data);
+    //     // we start building the packet for channel 1, we add one small message
+    //     // we add one more small message to the packet from channel1, then we push fragments 1 and 2 for channel 2
+    //     // we start working on fragment 3 for channel 2, and push the packet from channel 1 (with 2 messages)
+    //     // then we push the small message from channel 3 into fragment 3
+    //     assert_eq!(packets.len(), 4);
+    //     let contents3 = packets.pop().unwrap().data.contents();
+    //     assert_eq!(contents3.len(), 2);
+    //     assert_eq!(
+    //         contents3.get(channel_id2).unwrap(),
+    //         &vec![fragments[2].clone().into()]
+    //     );
+    //     assert_eq!(
+    //         contents3.get(channel_id3).unwrap(),
+    //         &vec![small_message.clone().into()]
+    //     );
+    //     let contents2 = packets.pop().unwrap().data.contents();
+    //     assert_eq!(contents2.len(), 2);
+    //     assert_eq!(
+    //         contents2.get(channel_id1).unwrap(),
+    //         &vec![small_message.clone().into()]
+    //     );
+    //     assert_eq!(
+    //         contents2.get(channel_id2).unwrap(),
+    //         &vec![small_message.clone().into()]
+    //     );
+    //     let contents1 = packets.pop().unwrap().data.contents();
+    //     assert_eq!(contents1.len(), 1);
+    //     assert_eq!(
+    //         contents1.get(channel_id2).unwrap(),
+    //         &vec![fragments[1].clone().into()]
+    //     );
+    //     let contents0 = packets.pop().unwrap().data.contents();
+    //     assert_eq!(contents0.len(), 1);
+    //     assert_eq!(
+    //         contents0.get(channel_id2).unwrap(),
+    //         &vec![fragments[0].clone().into()]
+    //     );
+    // }
+
+    // #[test]
+    // fn test_cannot_write_channel() -> anyhow::Result<()> {
+    //     let channel_registry = get_channel_registry();
+    //     let mut manager = PacketBuilder::new(1.5);
+    //     let channel_kind = ChannelKind::of::<Channel1>();
+    //     let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+    //     let mut packet = manager.build_new_single_packet();
+    //
+    //     // the channel_id takes only one bit to write (we use gamma encoding)
+    //     // only 1 bit can be written
+    //     manager.try_write_buffer.set_reserved_bits(1);
+    //     // cannot write channel because of the continuation bit
+    //     assert!(!manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
+    //
+    //     manager.clear_try_write_buffer();
+    //     manager.try_write_buffer.set_reserved_bits(2);
+    //     assert!(manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
+    //     Ok(())
+    // }
+
+    // #[test]
+    // fn test_write_pack_messages_in_multiple_packets() -> anyhow::Result<()> {
+    //     let channel_registry = get_channel_registry();
+    //     let mut manager = PacketManager::new(channel_registry.kind_map());
+    //     let channel_kind = ChannelKind::of::<Channel1>();
+    //     let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+    //
+    //     let mut message0 = Bytes::from(vec![false; MTU_PAYLOAD_BYTES - 100]);
+    //     message0.set_id(MessageId(0));
+    //     let mut message1 = Bytes::from(vec![true; MTU_PAYLOAD_BYTES - 100]);
+    //     message1.set_id(MessageId(1));
+    //
+    //     let mut packet = manager.build_new_packet();
+    //     assert_eq!(manager.can_add_channel(channel_kind)?, true);
+    //
+    //     // 8..16 take 7 bits with gamma encoding
+    //     let messages: VecDeque<_> = vec![message0, message1].into();
+    //     let (remaining_messages, sent_message_ids) = manager.pack_messages_within_channel(messages);
+    //
+    //     let packets = manager.flush_packets();
+    //     assert_eq!(packets.len(), 2);
+    //     assert_eq!(remaining_messages.is_empty(), true);
+    //     assert_eq!(sent_message_ids, vec![MessageId(0), MessageId(1)]);
+    //
+    //     Ok(())
+    // }
+}

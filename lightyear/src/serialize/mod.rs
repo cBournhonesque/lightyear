@@ -15,6 +15,8 @@ pub enum SerializationError {
     Io(#[from] std::io::Error),
     #[error("Invalid packet type")]
     InvalidPacketType,
+    #[error("Substraction overflow")]
+    SubstractionOverflow,
 }
 
 pub trait ToBytes {

@@ -1,4 +1,7 @@
+use anyhow::Context;
+use bytes::{Buf, Bytes};
 use std::collections::{BTreeMap, HashMap};
+use std::io::Cursor;
 
 use serde::Serialize;
 
@@ -6,13 +9,14 @@ use bitcode::encoding::{Fixed, Gamma};
 
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeader;
-use crate::packet::message::{FragmentData, MessageAck, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
 use crate::packet::packet_builder::Payload;
 use crate::packet::packet_type::PacketType;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
+use crate::serialize::varint::VarIntReadExt;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::ToBytes;
 use crate::utils::wrapping_id::wrapping_id;
@@ -36,13 +40,13 @@ pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 10;
 pub(crate) const FRAGMENT_SIZE: usize = MTU_PAYLOAD_BYTES - 12;
 
 /// Data structure that will help us write the packet
-pub struct Packet {
-    pub payload: Payload,
+pub(crate) struct Packet {
+    pub(crate) payload: Payload,
     /// Content of the packet so we can map from channel id to message ids
-    pub message_acks: Vec<(ChannelId, MessageAck)>,
-    pub packet_id: PacketId,
+    pub(crate) message_acks: Vec<(ChannelId, MessageAck)>,
+    pub(crate) packet_id: PacketId,
     // How many bytes we know we are going to have to write in the packet, but haven't written yet
-    pub prewritten_size: usize,
+    pub(crate) prewritten_size: usize,
 }
 
 impl Packet {
@@ -70,6 +74,36 @@ impl Packet {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.message_acks.is_empty()
+    }
+
+    /// For tests, parse the packet so that we can inspect the contents
+    #[cfg(test)]
+    pub(crate) fn parse_packet_payload(
+        &mut self,
+    ) -> anyhow::Result<HashMap<ChannelId, Vec<Bytes>>> {
+        let mut cursor = Cursor::new(&mut self.payload);
+        let mut res: HashMap<ChannelId, Vec<Bytes>> = HashMap::new();
+        let header = PacketHeader::from_bytes(&mut cursor).context("could not serialize")?;
+
+        if header.get_packet_type() == PacketType::DataFragment {
+            // read the fragment data
+            let channel_id = ChannelId::from_bytes(&mut cursor).context("could not serialize")?;
+            let fragment_data =
+                FragmentData::from_bytes(&mut cursor).context("could not serialize")?;
+            res.entry(channel_id).or_default().push(fragment_data.bytes);
+        }
+        // read single message data
+        // TODO: avoid infinite loop here!
+        while cursor.has_remaining() {
+            let channel_id = ChannelId::from_bytes(&mut cursor).context("could not serialize")?;
+            let num_messages = cursor.read_varint()?;
+            for i in 0..num_messages {
+                let single_data =
+                    SingleData::from_bytes(&mut cursor).context("could not serialize")?;
+                res.entry(channel_id).or_default().push(single_data.bytes);
+            }
+        }
+        Ok(res)
     }
 }
 

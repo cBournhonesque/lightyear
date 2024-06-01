@@ -153,7 +153,7 @@ impl ChannelRegistry {
         self.kind_map.kind(channel_id)
     }
 
-    pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&NetId> {
+    pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&ChannelId> {
         self.kind_map.net_id(kind)
     }
 

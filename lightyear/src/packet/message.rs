@@ -111,7 +111,7 @@ impl From<SingleData> for MessageData {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 /// This structure contains the bytes for a single 'logical' message
 ///
 /// We store the bytes instead of the message directly.
@@ -137,7 +137,6 @@ impl ToBytes for SingleData {
         } else {
             buffer.write_u8(1)?;
         }
-        buffer.write_u16::<NetworkEndian>(self.id.map_or(0, |id| id.0))?;
         buffer.write_varint(self.bytes.len() as u64)?;
         buffer.write(self.bytes.as_ref())?;
         Ok(())
@@ -168,7 +167,7 @@ impl SingleData {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FragmentData {
     // we always need a message_id for fragment messages, for re-assembly
     pub message_id: MessageId,
@@ -219,32 +218,23 @@ impl FragmentData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialize::bitcode::reader::BitcodeReader;
-    use crate::serialize::bitcode::writer::BitcodeWriter;
+    use std::io::Cursor;
 
     #[test]
-    fn test_serde_single_data() {
+    fn test_to_bytes_single_data() {
         let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into());
-        let mut writer = BitcodeWriter::with_capacity(10);
-        let _a = data.encode(&mut writer).unwrap();
-        // dbg!(a);
-        let bytes = writer.finish_write();
+        let mut writer = vec![];
+        data.to_bytes(&mut writer).unwrap();
 
-        let mut reader = BitcodeReader::start_read(bytes);
-        let decoded = SingleData::decode(&mut reader).unwrap();
+        assert_eq!(writer.len(), data.len());
 
-        // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));
-        dbg!(&bytes);
-        // dbg!(&writer.num_bits_written());
-        // dbg!(&decoded.id);
-        // dbg!(&decoded.bytes.as_ref());
+        let mut reader = Cursor::new(writer);
+        let decoded = SingleData::from_bytes(&mut reader).unwrap();
         assert_eq!(decoded, data);
-        dbg!(&writer.num_bits_written());
-        // assert_eq!(writer.num_bits_written(), 5 * u8::BITS as usize);
     }
 
     #[test]
-    fn test_serde_fragment_data() {
+    fn test_to_bytes_fragment_data() {
         let bytes = Bytes::from(vec![0; 10]);
         let data = FragmentData {
             message_id: MessageId(0),
@@ -252,21 +242,13 @@ mod tests {
             num_fragments: 3,
             bytes: bytes.clone(),
         };
-        let mut writer = BitcodeWriter::with_capacity(10);
-        let _a = data.encode(&mut writer).unwrap();
-        // dbg!(a);
-        let bytes = writer.finish_write();
+        let mut writer = vec![];
+        data.to_bytes(&mut writer).unwrap();
 
-        let mut reader = BitcodeReader::start_read(bytes);
-        let decoded = FragmentData::decode(&mut reader).unwrap();
+        assert_eq!(writer.len(), data.len());
 
-        // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));
-        dbg!(&bytes);
-        // dbg!(&writer.num_bits_written());
-        // dbg!(&decoded.id);
-        // dbg!(&decoded.bytes.as_ref());
+        let mut reader = Cursor::new(writer);
+        let decoded = FragmentData::from_bytes(&mut reader).unwrap();
         assert_eq!(decoded, data);
-        dbg!(&writer.num_bits_written());
-        // assert_eq!(writer.num_bits_written(), 5 * u8::BITS as usize);
     }
 }

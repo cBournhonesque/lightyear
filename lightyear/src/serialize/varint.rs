@@ -63,16 +63,23 @@ pub trait VarIntReadExt: ReadBytesExt + Seek {
     /// the current offset and advances the buffer.
     fn read_varint(&mut self) -> Result<u64, SerializationError> {
         let first = self.read_u8()?;
-        self.seek(std::io::SeekFrom::Current(-1))?;
+
         let len = varint_parse_len(first);
         let out = match len {
             1 => u64::from(first),
-
-            2 => u64::from(self.read_u16::<NetworkEndian>()? & 0x3fff),
-
-            4 => u64::from(self.read_u32::<NetworkEndian>()? & 0x3fffffff),
-
-            8 => self.read_u64::<NetworkEndian>()? & 0x3fffffffffffffff,
+            2 => {
+                // go back 1 byte because we read the first byte above
+                self.seek(std::io::SeekFrom::Current(-1))?;
+                u64::from(self.read_u16::<NetworkEndian>()? & 0x3fff)
+            }
+            4 => {
+                self.seek(std::io::SeekFrom::Current(-1))?;
+                u64::from(self.read_u32::<NetworkEndian>()? & 0x3fffffff)
+            }
+            8 => {
+                self.seek(std::io::SeekFrom::Current(-1))?;
+                self.read_u64::<NetworkEndian>()? & 0x3fffffffffffffff
+            }
 
             _ => return Err(std::io::Error::other("value is too large for varint").into()),
         };
@@ -88,16 +95,40 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
-    fn test_varint() {
-        let mut writer = Cursor::new(vec![]);
+    fn test_varint_len_1() {
+        let mut writer = vec![];
 
         let val = 63 as u64;
         writer.write_varint(val).unwrap();
-        assert_eq!(writer.position(), 1);
+        assert_eq!(writer.len(), 1);
 
-        let mut reader = writer;
-        reader.set_position(0);
+        let mut reader = Cursor::new(writer);
+        let read_val = reader.read_varint().unwrap();
+        assert_eq!(val, read_val);
+    }
 
+    #[test]
+    fn test_varint_len_2() {
+        let mut writer = vec![];
+
+        let val = 64 as u64;
+        writer.write_varint(val).unwrap();
+        assert_eq!(writer.len(), 2);
+
+        let mut reader = Cursor::new(writer);
+        let read_val = reader.read_varint().unwrap();
+        assert_eq!(val, read_val);
+    }
+
+    #[test]
+    fn test_varint_len_4() {
+        let mut writer = vec![];
+
+        let val = 16384 as u64;
+        writer.write_varint(val).unwrap();
+        assert_eq!(writer.len(), 4);
+
+        let mut reader = Cursor::new(writer);
         let read_val = reader.read_varint().unwrap();
         assert_eq!(val, read_val);
     }

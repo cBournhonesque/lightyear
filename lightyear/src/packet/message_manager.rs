@@ -295,8 +295,8 @@ impl MessageManager {
 
         // Step 3. Update the list of messages that have been acked
         for acked_packet in acked_packets {
-            if let Some(message_map) = self.packet_to_message_ack_map.remove(&acked_packet) {
-                for (channel_kind, message_ack) in message_map {
+            if let Some(message_acks) = self.packet_to_message_ack_map.remove(&acked_packet) {
+                for (channel_kind, message_ack) in message_acks {
                     let channel = self
                         .channels
                         .get_mut(&channel_kind)
