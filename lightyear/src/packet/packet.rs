@@ -40,6 +40,7 @@ pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 10;
 pub(crate) const FRAGMENT_SIZE: usize = MTU_PAYLOAD_BYTES - 12;
 
 /// Data structure that will help us write the packet
+#[derive(Debug)]
 pub(crate) struct Packet {
     pub(crate) payload: Payload,
     /// Content of the packet so we can map from channel id to message ids

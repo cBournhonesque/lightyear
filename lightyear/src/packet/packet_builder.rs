@@ -178,49 +178,52 @@ impl PacketBuilder {
                     packets.push(self.finish_packet());
                 } else {
                     let mut packet = self.current_packet.take().unwrap();
-                    // if we don't even have space for a new channel, return the packet immediately
-                    if !packet.can_fit_channel(channel_id) {
-                        packets.push(self.finish_packet());
-                    } else {
-                        // it's a smaller fragment, fill it with small messages
-                        'out: while single_data_idx < single_data.len() {
-                            let single_messages = &mut single_data[single_data_idx].1;
-                            // number of messages for this channel that we will write
-                            // (we wait until we know the full number, because we want to write that)
-                            let mut num_messages = 0;
-                            // fill with messages from the current channel
-                            loop {
-                                // no more messages to send in this channel, try to fill with messages from the next channels
-                                if single_messages.is_empty() {
-                                    Self::write_single_messages(
-                                        &mut packet,
-                                        single_messages,
-                                        &mut num_messages,
-                                        channel_id,
-                                    )?;
-                                    single_data_idx += 1;
-                                    break;
-                                }
+                    // it's a smaller fragment, fill it with small messages
+                    'out: while single_data_idx < single_data.len() {
+                        // if we don't even have space for a new channel, return the packet immediately
+                        if !packet.can_fit_channel(channel_id) {
+                            packets.push(self.finish_packet());
+                            break;
+                        }
 
-                                if packet.can_fit(single_messages[num_messages].len()) {
-                                    packet.prewritten_size += single_messages[num_messages].len();
-                                    num_messages += 1;
-                                } else {
-                                    // can't add any more messages (since we sorted messages from smallest to largest)
-                                    // finish packet and go back to trying to write fragment messages
-                                    Self::write_single_messages(
-                                        &mut packet,
-                                        single_messages,
-                                        &mut num_messages,
-                                        channel_id,
-                                    )?;
-                                    packets.push(self.finish_packet());
-                                    break 'out;
-                                }
+                        let (channel_id, single_messages) = &mut single_data[single_data_idx];
+                        // number of messages for this channel that we will write
+                        // (we wait until we know the full number, because we want to write that)
+                        let mut num_messages = 0;
+                        // fill with messages from the current channel
+                        loop {
+                            // no more messages to send in this channel, try to fill with messages from the next channels
+                            if num_messages == single_messages.len() {
+                                Self::write_single_messages(
+                                    &mut packet,
+                                    single_messages,
+                                    &mut num_messages,
+                                    *channel_id,
+                                )?;
+                                single_data_idx += 1;
+                                break;
+                            }
+
+                            if packet.can_fit(single_messages[num_messages].len()) {
+                                packet.prewritten_size += single_messages[num_messages].len();
+                                num_messages += 1;
+                            } else {
+                                // can't add any more messages (since we sorted messages from smallest to largest)
+                                // finish packet and go back to trying to write fragment messages
+                                Self::write_single_messages(
+                                    &mut packet,
+                                    single_messages,
+                                    &mut num_messages,
+                                    *channel_id,
+                                )?;
+                                packets.push(self.finish_packet());
+                                break 'out;
                             }
                         }
-                        // no more single messages to send, finish the fragment packet
                     }
+                    // no more single messages to send, finish the fragment packet
+                    self.current_packet = Some(packet);
+                    packets.push(self.finish_packet());
                 }
             }
         }
@@ -229,26 +232,32 @@ impl PacketBuilder {
 
         // all fragment messages have been written, now write small messages
         'out: while single_data_idx < single_data.len() {
+            let (channel_id, single_messages) = &mut single_data[single_data_idx];
             // start a new packet if we aren't already writing one
             if self.current_packet.is_none() {
                 self.build_new_single_packet(current_tick)?;
             }
-            let mut packet = self.current_packet.take().unwrap();
 
-            let (channel_id, single_messages) = &mut single_data[single_data_idx];
+            let mut packet = self.current_packet.take().unwrap();
+            // we need to call this to preassign the channel_id
+            if !packet.can_fit_channel(*channel_id) {
+                unreachable!();
+            }
             // number of messages for this channel that we will write
             // (we wait until we know the full number, because we want to write that)
             let mut num_messages = 0;
             // fill with messages from the current channel
             loop {
                 // no more messages to send in this channel, try to fill with messages from the next channels
-                if single_messages.is_empty() {
+                if num_messages == single_messages.len() {
                     Self::write_single_messages(
                         &mut packet,
                         single_messages,
                         &mut num_messages,
                         *channel_id,
                     )?;
+                    // we make sure we keep writing the current packet
+                    self.current_packet = Some(packet);
                     single_data_idx += 1;
                     break;
                 }
@@ -463,10 +472,6 @@ mod tests {
         ];
         let fragment_data = vec![];
         let mut packets = manager.build_packets(Tick(0), single_data, fragment_data)?;
-        // we start building the packet for channel 1, we add one small message
-        // we add one more small message to the packet from channel1, then we push fragments 1 and 2 for channel 2
-        // we start working on fragment 3 for channel 2, and push the packet from channel 1 (with 2 messages)
-        // then we push the small message from channel 3 into fragment 3
         assert_eq!(packets.len(), 1);
         let mut packet = packets.pop().unwrap();
         assert_eq!(packet.message_acks, vec![]);
@@ -487,10 +492,10 @@ mod tests {
     }
 
     /// Channel 1: small_message
-    /// Channel 2: 2 small messages, big message,
+    /// Channel 2: 2 small messages, 1 big fragment, 1 small fragment
     /// Channel 3: small message
     ///
-    /// We should get 1 packet with all the small messages, and 2 packets for the big message
+    /// We should get 2 packets: 1 with the 1st big fragment, and 1 packet with the small fragment and all the small messages
     #[test]
     fn test_pack_big_messages() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
@@ -520,27 +525,10 @@ mod tests {
         ];
         let fragment_data = vec![(*channel_id2, fragments.clone().into())];
         let packets = manager.build_packets(Tick(0), single_data, fragment_data)?;
-        assert_eq!(packets.len(), 3);
+        assert_eq!(packets.len(), 2);
 
         let mut packets_queue: VecDeque<_> = packets.into();
         // 1st packet
-        let mut packet = packets_queue.pop_front().unwrap();
-        assert_eq!(packet.message_acks, vec![]);
-        let contents = packet.parse_packet_payload()?;
-        assert_eq!(
-            contents.get(channel_id1).unwrap(),
-            &vec![small_bytes.clone()]
-        );
-        assert_eq!(
-            contents.get(channel_id2).unwrap(),
-            &vec![small_bytes.clone(), small_bytes.clone()]
-        );
-        assert_eq!(
-            contents.get(channel_id3).unwrap(),
-            &vec![small_bytes.clone()]
-        );
-
-        // 2nd packet
         let mut packet = packets_queue.pop_front().unwrap();
         assert_eq!(
             packet.message_acks,
@@ -558,7 +546,7 @@ mod tests {
             &vec![fragments[0].bytes.clone()]
         );
 
-        // 3rd packet
+        // 2nd packet
         let mut packet = packets_queue.pop_front().unwrap();
         assert_eq!(
             packet.message_acks,
@@ -572,131 +560,23 @@ mod tests {
         );
         let contents = packet.parse_packet_payload()?;
         assert_eq!(
+            contents.get(channel_id1).unwrap(),
+            &vec![small_bytes.clone()]
+        );
+        assert_eq!(
             contents.get(channel_id2).unwrap(),
-            &vec![fragments[1].bytes.clone()]
+            &vec![
+                fragments[1].bytes.clone(),
+                small_bytes.clone(),
+                small_bytes.clone()
+            ]
+        );
+        assert_eq!(
+            contents.get(channel_id3).unwrap(),
+            &vec![small_bytes.clone()]
         );
         Ok(())
     }
 
-    // #[test]
-    // fn test_pack_big_message() {
-    //     let channel_registry = get_channel_registry();
-    //     let mut manager = PacketBuilder::new(1.5);
-    //     let channel_kind1 = ChannelKind::of::<Channel1>();
-    //     let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
-    //     let channel_kind2 = ChannelKind::of::<Channel2>();
-    //     let channel_id2 = channel_registry.get_net_from_kind(&channel_kind2).unwrap();
-    //     let channel_kind3 = ChannelKind::of::<Channel3>();
-    //     let channel_id3 = channel_registry.get_net_from_kind(&channel_kind3).unwrap();
-    //
-    //     let num_big_bytes = (2.5 * MTU_PAYLOAD_BYTES as f32) as usize;
-    //     let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
-    //     let fragmenter = FragmentSender::new();
-    //     let fragments = fragmenter.build_fragments(MessageId(0), None, big_bytes.clone());
-    //
-    //     let small_bytes = Bytes::from(vec![0u8; 10]);
-    //     let small_message = SingleData::new(None, small_bytes.clone());
-    //
-    //     let mut data = BTreeMap::new();
-    //     data.insert(
-    //         *channel_id1,
-    //         (VecDeque::from(vec![small_message.clone()]), VecDeque::new()),
-    //     );
-    //     data.insert(
-    //         *channel_id2,
-    //         (
-    //             VecDeque::from(vec![small_message.clone()]),
-    //             fragments.clone().into(),
-    //         ),
-    //     );
-    //     data.insert(
-    //         *channel_id3,
-    //         (VecDeque::from(vec![small_message.clone()]), VecDeque::new()),
-    //     );
-    //     let mut packets = manager.build_packets(data);
-    //     // we start building the packet for channel 1, we add one small message
-    //     // we add one more small message to the packet from channel1, then we push fragments 1 and 2 for channel 2
-    //     // we start working on fragment 3 for channel 2, and push the packet from channel 1 (with 2 messages)
-    //     // then we push the small message from channel 3 into fragment 3
-    //     assert_eq!(packets.len(), 4);
-    //     let contents3 = packets.pop().unwrap().data.contents();
-    //     assert_eq!(contents3.len(), 2);
-    //     assert_eq!(
-    //         contents3.get(channel_id2).unwrap(),
-    //         &vec![fragments[2].clone().into()]
-    //     );
-    //     assert_eq!(
-    //         contents3.get(channel_id3).unwrap(),
-    //         &vec![small_message.clone().into()]
-    //     );
-    //     let contents2 = packets.pop().unwrap().data.contents();
-    //     assert_eq!(contents2.len(), 2);
-    //     assert_eq!(
-    //         contents2.get(channel_id1).unwrap(),
-    //         &vec![small_message.clone().into()]
-    //     );
-    //     assert_eq!(
-    //         contents2.get(channel_id2).unwrap(),
-    //         &vec![small_message.clone().into()]
-    //     );
-    //     let contents1 = packets.pop().unwrap().data.contents();
-    //     assert_eq!(contents1.len(), 1);
-    //     assert_eq!(
-    //         contents1.get(channel_id2).unwrap(),
-    //         &vec![fragments[1].clone().into()]
-    //     );
-    //     let contents0 = packets.pop().unwrap().data.contents();
-    //     assert_eq!(contents0.len(), 1);
-    //     assert_eq!(
-    //         contents0.get(channel_id2).unwrap(),
-    //         &vec![fragments[0].clone().into()]
-    //     );
-    // }
-
-    // #[test]
-    // fn test_cannot_write_channel() -> anyhow::Result<()> {
-    //     let channel_registry = get_channel_registry();
-    //     let mut manager = PacketBuilder::new(1.5);
-    //     let channel_kind = ChannelKind::of::<Channel1>();
-    //     let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
-    //     let mut packet = manager.build_new_single_packet();
-    //
-    //     // the channel_id takes only one bit to write (we use gamma encoding)
-    //     // only 1 bit can be written
-    //     manager.try_write_buffer.set_reserved_bits(1);
-    //     // cannot write channel because of the continuation bit
-    //     assert!(!manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
-    //
-    //     manager.clear_try_write_buffer();
-    //     manager.try_write_buffer.set_reserved_bits(2);
-    //     assert!(manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
-    //     Ok(())
-    // }
-
-    // #[test]
-    // fn test_write_pack_messages_in_multiple_packets() -> anyhow::Result<()> {
-    //     let channel_registry = get_channel_registry();
-    //     let mut manager = PacketManager::new(channel_registry.kind_map());
-    //     let channel_kind = ChannelKind::of::<Channel1>();
-    //     let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
-    //
-    //     let mut message0 = Bytes::from(vec![false; MTU_PAYLOAD_BYTES - 100]);
-    //     message0.set_id(MessageId(0));
-    //     let mut message1 = Bytes::from(vec![true; MTU_PAYLOAD_BYTES - 100]);
-    //     message1.set_id(MessageId(1));
-    //
-    //     let mut packet = manager.build_new_packet();
-    //     assert_eq!(manager.can_add_channel(channel_kind)?, true);
-    //
-    //     // 8..16 take 7 bits with gamma encoding
-    //     let messages: VecDeque<_> = vec![message0, message1].into();
-    //     let (remaining_messages, sent_message_ids) = manager.pack_messages_within_channel(messages);
-    //
-    //     let packets = manager.flush_packets();
-    //     assert_eq!(packets.len(), 2);
-    //     assert_eq!(remaining_messages.is_empty(), true);
-    //     assert_eq!(sent_message_ids, vec![MessageId(0), MessageId(1)]);
-    //
-    //     Ok(())
-    // }
+    // TODO: ADD MORE TESTS
 }
