@@ -62,14 +62,14 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                         // buffer and send replication messages
                         stepper.server_update();
                         elapsed += instant.elapsed();
-                        // dbg!(stepper
-                        //     .server_app
-                        //     .world
-                        //     .resource::<ConnectionManager>()
-                        //     .connection(ClientId::Netcode(0))
-                        //     .unwrap()
-                        //     .message_manager
-                        //     .channel_send_stats::<EntityActionsChannel>());
+                        dbg!(stepper
+                            .server_app
+                            .world
+                            .resource::<ConnectionManager>()
+                            .connection(ClientId::Netcode(0))
+                            .unwrap()
+                            .message_manager
+                            .channel_send_stats::<EntityActionsChannel>());
 
                         stepper.client_update();
                         assert_eq!(

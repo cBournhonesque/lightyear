@@ -15,6 +15,7 @@ use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
 use crate::transport::io::IoState;
 use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
+use crate::utils::pool::Pool;
 
 use super::{
     bytes::Bytes,
@@ -196,7 +197,7 @@ pub struct NetcodeClient<Ctx = ()> {
     should_disconnect: bool,
     should_disconnect_state: ClientState,
     packet_queue: VecDeque<Payload>,
-    buffer_pool: BufferPool,
+    buffer_pool: Pool<Vec<u8>>,
     cfg: ClientConfig<Ctx>,
 }
 
@@ -231,7 +232,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             should_disconnect: false,
             should_disconnect_state: ClientState::Disconnected,
             packet_queue: VecDeque::new(),
-            buffer_pool: BufferPool::default(),
+            buffer_pool: Pool::new(10, || vec![0u8; MAX_PKT_BUF_SIZE]),
             cfg,
         })
     }
@@ -420,7 +421,9 @@ impl<Ctx> NetcodeClient<Ctx> {
                 // // return the buffer to the pool
                 // self.buffer_pool.attach(reader);
 
-                // TODO: COPY THE PAYLOAD INTO A BUFFER FROM THE POOL!
+                // let buf = self.buffer_pool.pull(|| vec![0u8; pkt.buf.len()]);
+                // TODO: COPY THE PAYLOAD INTO A BUFFER FROM THE POOL! and we allocate buffers to the pool
+                //  outside of the hotpath? we could have a static pool of buffers?
                 let mut buf = vec![0u8; pkt.buf.len()];
                 buf.copy_from_slice(pkt.buf);
 

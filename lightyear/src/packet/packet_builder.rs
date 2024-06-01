@@ -19,6 +19,7 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::varint::varint_len;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::{SerializationError, ToBytes};
+use crate::utils::pool::Reusable;
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.
 // pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
@@ -182,7 +183,6 @@ impl PacketBuilder {
                     'out: while single_data_idx < single_data.len() {
                         // if we don't even have space for a new channel, return the packet immediately
                         if !packet.can_fit_channel(channel_id) {
-                            packets.push(self.finish_packet());
                             break;
                         }
 
@@ -216,7 +216,6 @@ impl PacketBuilder {
                                     &mut num_messages,
                                     *channel_id,
                                 )?;
-                                packets.push(self.finish_packet());
                                 break 'out;
                             }
                         }
@@ -274,6 +273,7 @@ impl PacketBuilder {
                         &mut num_messages,
                         *channel_id,
                     )?;
+                    self.current_packet = Some(packet);
                     packets.push(self.finish_packet());
                     continue 'out;
                 }
@@ -488,6 +488,70 @@ mod tests {
             contents.get(channel_id3).unwrap(),
             &vec![small_bytes.clone()]
         );
+        Ok(())
+    }
+
+    /// A bunch of small messages that all fit in the same packet
+    #[test]
+    fn test_pack_many_small_messages() -> anyhow::Result<()> {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketBuilder::new(1.5);
+        let channel_kind1 = ChannelKind::of::<Channel1>();
+        let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
+        let channel_kind2 = ChannelKind::of::<Channel2>();
+        let channel_id2 = channel_registry.get_net_from_kind(&channel_kind2).unwrap();
+        let channel_kind3 = ChannelKind::of::<Channel3>();
+        let channel_id3 = channel_registry.get_net_from_kind(&channel_kind3).unwrap();
+
+        let small_bytes = Bytes::from(vec![7u8; 10]);
+        let small_message = SingleData::new(None, small_bytes.clone());
+
+        let single_data = vec![
+            (
+                *channel_id1,
+                VecDeque::from(vec![small_message.clone(); 200]),
+            ),
+            (
+                *channel_id2,
+                VecDeque::from(vec![small_message.clone(); 200]),
+            ),
+            (
+                *channel_id3,
+                VecDeque::from(vec![small_message.clone(); 200]),
+            ),
+        ];
+        let fragment_data = vec![];
+        let packets = manager.build_packets(Tick(0), single_data, fragment_data)?;
+        assert_eq!(packets.len(), 7);
+        Ok(())
+    }
+
+    /// A bunch of small messages that fit in multiple packets
+    #[test]
+    fn test_pack_single_data_multiple_packets() -> anyhow::Result<()> {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketBuilder::new(1.5);
+        let channel_kind1 = ChannelKind::of::<Channel1>();
+        let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
+        let channel_kind2 = ChannelKind::of::<Channel2>();
+        let channel_id2 = channel_registry.get_net_from_kind(&channel_kind2).unwrap();
+        let channel_kind3 = ChannelKind::of::<Channel3>();
+        let channel_id3 = channel_registry.get_net_from_kind(&channel_kind3).unwrap();
+
+        let small_bytes = Bytes::from(vec![7u8; 500]);
+        let small_message = SingleData::new(None, small_bytes.clone());
+
+        let single_data = vec![
+            (*channel_id1, VecDeque::from(vec![small_message.clone()])),
+            (
+                *channel_id2,
+                VecDeque::from(vec![small_message.clone(), small_message.clone()]),
+            ),
+            (*channel_id3, VecDeque::from(vec![small_message.clone()])),
+        ];
+        let fragment_data = vec![];
+        let packets = manager.build_packets(Tick(0), single_data, fragment_data)?;
+        assert_eq!(packets.len(), 2);
         Ok(())
     }
 
