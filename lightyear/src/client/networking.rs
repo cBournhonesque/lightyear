@@ -44,6 +44,7 @@ impl Plugin for ClientNetworkingPlugin {
     fn build(&self, app: &mut App) {
         app
             // REFLECTION
+            .register_type::<HostServerMetadata>()
             .register_type::<IoConfig>()
             // STATE
             .init_state_without_entering::<NetworkingState>()
@@ -322,7 +323,8 @@ fn listen_io_state(
 }
 
 /// Holds metadata necessary when running in HostServer mode
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 struct HostServerMetadata {
     /// entity for the client running as host-server
     client_entity: Option<Entity>,

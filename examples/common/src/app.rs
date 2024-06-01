@@ -281,23 +281,21 @@ impl Apps {
     }
 
     /// Start running the apps.
-    pub fn run(&mut self) {
+    pub fn run(self) {
         match self {
-            Apps::Client { app, .. } => app.run(),
-            Apps::Server { app, .. } => app.run(),
+            Apps::Client { mut app, .. } => app.run(),
+            Apps::Server { mut app, .. } => app.run(),
             Apps::ClientAndServer {
-                client_app,
-                server_app,
+                mut client_app,
+                mut server_app,
                 ..
             } => {
-                std::thread::scope(|scope| {
-                    scope.spawn(move || {
-                        server_app.run();
-                    });
+                std::thread::spawn(move || {
+                    server_app.run();
                 });
                 client_app.run();
             }
-            Apps::HostServer { app, .. } => {
+            Apps::HostServer { mut app, .. } => {
                 app.run();
             }
         }

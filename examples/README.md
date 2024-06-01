@@ -37,7 +37,7 @@ Each example runs in a similar way.
 There are different 'modes' of operation:
 
 - as a dedicated server with `cargo run -- server`
-- as a listen server with `cargo run -- listen-server`. This will launch 2 independent bevy apps (client and server) in
+- as a listen server with `cargo run -- client-and-server`. This will launch 2 independent bevy apps (client and server) in
   separate threads.
   They will communicate via channels (so with almost 0 latency)
 - as a listen server with `cargo run -- host-server`. This will launch a single bevy app, where the server will also act

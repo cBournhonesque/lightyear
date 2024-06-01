@@ -50,7 +50,8 @@ impl PredictionDiagnosticsPlugin {
 }
 
 /// Client metrics resource. Flushed to Diagnostics system periodically.
-#[derive(Default, Resource, Debug)]
+#[derive(Default, Resource, Debug, Reflect)]
+#[reflect(Resource)]
 pub struct PredictionMetrics {
     /// Incremented once per rollback
     pub rollbacks: u32,
@@ -62,6 +63,9 @@ impl Plugin for PredictionDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
         let should_run =
             on_timer(self.flush_interval).and_then(not(is_host_server.or_else(is_disconnected)));
+
+        app.register_type::<PredictionMetrics>();
+
         app.init_resource::<PredictionMetrics>();
         app.add_systems(PostUpdate, Self::flush_measurements.run_if(should_run));
         app.register_diagnostic(
