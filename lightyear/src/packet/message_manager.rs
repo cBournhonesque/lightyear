@@ -189,15 +189,15 @@ impl MessageManager {
 
         // priority manager: get the list of messages we can send according to the rate limiter
         //  (the other messages are stored in an internal buffer)
-        let (data_to_send, num_bytes_added_to_limiter) = self.priority_manager.priority_filter(
-            data_to_send,
-            &self.channel_registry,
-            current_tick,
-        );
+        let (single_data, fragment_data, num_bytes_added_to_limiter) = self
+            .priority_manager
+            .priority_filter(data_to_send, &self.channel_registry, current_tick);
 
         #[cfg(feature = "trace")]
         {
-            for (channel_id, (single_data, fragment_data)) in &data_to_send {
+            // NOTE: we don't know the actual exact amount of bytes sent (because we don't take into account the ids, etc.),
+            // but we could during build_packet?
+            for (channel_id, data) in &single_data {
                 let channel_stats = &mut self
                     .channels
                     .get_mut(
@@ -207,21 +207,27 @@ impl MessageManager {
                     )
                     .context("Channel not found")?
                     .sender_stats;
-
-                // NOTE: we don't know the actual exact amount of bytes sent (because we don't take into account the ids, etc.),
-                // but we could during build_packet?
-                channel_stats.add_bytes_sent(
-                    single_data.iter().fold(0, |acc, d| acc + d.bytes.len())
-                        + fragment_data.iter().fold(0, |acc, d| acc + d.bytes.len()),
-                );
-                channel_stats.add_fragment_message_sent(fragment_data.len());
-                channel_stats.add_single_message_sent(single_data.len());
+                channel_stats.add_bytes_sent(data.iter().fold(0, |acc, d| acc + d.bytes.len()));
+                channel_stats.add_single_message_sent(data.len());
+            }
+            for (channel_id, data) in &fragment_data {
+                let channel_stats = &mut self
+                    .channels
+                    .get_mut(
+                        self.channel_registry
+                            .get_kind_from_net_id(*channel_id)
+                            .context("channel not found")?,
+                    )
+                    .context("Channel not found")?
+                    .sender_stats;
+                channel_stats.add_bytes_sent(data.iter().fold(0, |acc, d| acc + d.bytes.len()));
+                channel_stats.add_fragment_message_sent(data.len());
             }
         }
 
-        let packets = self
-            .packet_manager
-            .build_packets(current_tick, data_to_send)?;
+        let packets =
+            self.packet_manager
+                .build_packets(current_tick, single_data, fragment_data)?;
 
         let mut bytes = Vec::new();
         for mut packet in packets {
