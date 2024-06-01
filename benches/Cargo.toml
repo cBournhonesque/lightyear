@@ -16,7 +16,6 @@ license = "MIT OR Apache-2.0"
 lightyear = { path = "../lightyear" }
 criterion = { version = "0.3", features = ["html_reports"] }
 crossbeam-channel = "0.5.10"
-anyhow = { version = "1.0.75", features = [] }
 bevy = { version = "0.13", features = ["bevy_core_pipeline"] }
 derive_more = { version = "0.99", features = ["add", "mul"] }
 divan = "0.1.14"

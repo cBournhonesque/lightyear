@@ -375,7 +375,8 @@ mod serialize {
                 .serialize_fns_map
                 .get(&kind)
                 .ok_or(ComponentError::MissingSerializationFns)?;
-            Ok(erased_fns.map_entities(component, entity_map))
+            erased_fns.map_entities(component, entity_map);
+            Ok(())
         }
     }
 }

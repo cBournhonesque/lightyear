@@ -263,9 +263,7 @@ pub(crate) fn send(
                 .get_mut(netserver_idx)
                 .ok_or(ServerError::ServerConnectionNotFound)?;
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
-                netserver
-                    .send(packet_byte.as_slice(), *client_id)
-                    .map_err(|_| ServerError::NetworkConnectionError)?;
+                netserver.send(packet_byte.as_slice(), *client_id)?;
             }
             Ok(())
         })

@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 use enum_dispatch::enum_dispatch;
@@ -54,29 +53,29 @@ impl ConnectionRequestHandler for DefaultConnectionRequestHandler {
 pub trait NetServer: Send + Sync {
     /// Start the server
     /// (i.e. start listening for client connections)
-    fn start(&mut self) -> Result<()>;
+    fn start(&mut self) -> Result<(), ConnectionError>;
 
     /// Stop the server
     /// (i.e. stop listening for client connections and stop all networking)
-    fn stop(&mut self) -> Result<()>;
+    fn stop(&mut self) -> Result<(), ConnectionError>;
 
     // TODO: should we also have an API for accepting a client? i.e. we receive a connection request
     //  and we decide whether to accept it or not
     /// Disconnect a specific client
     /// Is also responsible for adding the client to the list of new disconnections.
-    fn disconnect(&mut self, client_id: ClientId) -> Result<()>;
+    fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError>;
 
     /// Return the list of connected clients
     fn connected_client_ids(&self) -> Vec<ClientId>;
 
     /// Update the connection states + internal bookkeeping (keep-alives, etc.)
-    fn try_update(&mut self, delta_ms: f64) -> Result<()>;
+    fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError>;
 
     /// Receive a packet from one of the connected clients
     fn recv(&mut self) -> Option<(Payload, ClientId)>;
 
     /// Send a packet to one of the connected clients
-    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<()>;
+    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<(), ConnectionError>;
 
     fn new_connections(&self) -> Vec<ClientId>;
 
@@ -198,7 +197,7 @@ impl ServerConnections {
     }
 
     /// Start listening for client connections on all internal servers
-    pub fn start(&mut self) -> Result<()> {
+    pub fn start(&mut self) -> Result<(), ConnectionError> {
         for server in &mut self.servers {
             server.start()?;
         }
@@ -207,7 +206,7 @@ impl ServerConnections {
     }
 
     /// Stop listening for client connections on all internal servers
-    pub fn stop(&mut self) -> Result<()> {
+    pub fn stop(&mut self) -> Result<(), ConnectionError> {
         for server in &mut self.servers {
             server.stop()?;
         }
@@ -216,11 +215,9 @@ impl ServerConnections {
     }
 
     /// Disconnect a specific client
-    pub fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+    pub fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError> {
         self.client_server_map.get(&client_id).map_or(
-            Err(anyhow!(
-                "Could not find the server instance associated with client: {client_id:?}"
-            )),
+            Err(ConnectionError::ConnectionNotFound),
             |&server_idx| {
                 self.servers[server_idx].disconnect(client_id)?;
                 // NOTE: we don't remove the client from the map here because it is done
@@ -235,4 +232,28 @@ impl ServerConnections {
     pub(crate) fn is_listening(&self) -> bool {
         self.is_listening
     }
+}
+
+/// Errors related to the server connection
+#[derive(thiserror::Error, Debug)]
+pub enum ConnectionError {
+    #[error("io is not initialized")]
+    IoNotInitialized,
+    #[error("connection not found")]
+    ConnectionNotFound,
+    #[error("the connection type for this client is invalid")]
+    InvalidConnectionType,
+    #[error(transparent)]
+    Transport(#[from] crate::transport::error::Error),
+    #[error("netcode error: {0}")]
+    Netcode(#[from] super::netcode::error::Error),
+    #[error(transparent)]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    SteamInvalidHandle(#[from] steamworks::networking_sockets::InvalidHandle),
+    #[error(transparent)]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    SteamInitError(#[from] steamworks::SteamAPIInitError),
+    #[error(transparent)]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    SteamError(#[from] steamworks::SteamError),
 }
