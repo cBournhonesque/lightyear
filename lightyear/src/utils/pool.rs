@@ -69,6 +69,7 @@
 use std::iter::FromIterator;
 use std::mem::{forget, ManuallyDrop};
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 
@@ -118,6 +119,29 @@ impl<T> Pool<T> {
     pub fn pull<F: Fn() -> T>(&self, fallback: F) -> Reusable<T> {
         self.try_pull()
             .unwrap_or_else(|| Reusable::new(self, fallback()))
+    }
+
+    /// Like try_pull, but returns an owned reusable wrapper.
+    ///
+    /// `try_pull_owned()` is about 10% slower than `try_pull()`, but it may be
+    /// necessary in some cases where you cannot satisfy a `'lifetime` borrow
+    /// check on the pool.
+    #[inline]
+    pub fn try_pull_owned(self: &Arc<Self>) -> Option<ReusableOwned<T>> {
+        self.objects
+            .lock()
+            .pop()
+            .map(|data| ReusableOwned::new(self.clone(), data))
+    }
+
+    /// Like pull, but returns an owned reusable wrapper.
+    ///
+    /// `pull_owned()` is about 10% slower than `pull()`, but it may be necessary in
+    /// some cases where you cannot satisfy a `'lifetime` borrow check on the pool.
+    #[inline]
+    pub fn pull_owned<F: Fn() -> T>(self: &Arc<Self>, fallback: F) -> ReusableOwned<T> {
+        self.try_pull_owned()
+            .unwrap_or_else(|| ReusableOwned::new(self.clone(), fallback()))
     }
 
     #[inline]
@@ -180,6 +204,59 @@ impl<'a, T> Drop for Reusable<'a, T> {
     #[inline]
     fn drop(&mut self) {
         unsafe { self.pool.attach(self.take()) }
+    }
+}
+
+pub struct ReusableOwned<T> {
+    pool: ManuallyDrop<Arc<Pool<T>>>,
+    data: ManuallyDrop<T>,
+}
+
+impl<T> ReusableOwned<T> {
+    #[inline]
+    pub fn new(pool: Arc<Pool<T>>, t: T) -> Self {
+        Self {
+            pool: ManuallyDrop::new(pool),
+            data: ManuallyDrop::new(t),
+        }
+    }
+
+    #[inline]
+    pub fn detach(mut self) -> (Arc<Pool<T>>, T) {
+        let ret = unsafe { self.take() };
+        forget(self);
+        ret
+    }
+
+    unsafe fn take(&mut self) -> (Arc<Pool<T>>, T) {
+        (
+            ManuallyDrop::take(&mut self.pool),
+            ManuallyDrop::take(&mut self.data),
+        )
+    }
+}
+
+impl<T> Deref for ReusableOwned<T> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<T> DerefMut for ReusableOwned<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+impl<T> Drop for ReusableOwned<T> {
+    #[inline]
+    fn drop(&mut self) {
+        let (pool, data) = unsafe { self.take() };
+        pool.attach(data);
     }
 }
 

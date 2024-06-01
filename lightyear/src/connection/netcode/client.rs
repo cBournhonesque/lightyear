@@ -1,5 +1,6 @@
 use bevy::utils::Duration;
 use std::net::{IpAddr, Ipv4Addr};
+use std::sync::Arc;
 use std::{collections::VecDeque, net::SocketAddr};
 
 use bevy::prelude::Resource;
@@ -10,7 +11,7 @@ use crate::connection::client::{
     ConnectionError, ConnectionState, DisconnectReason, IoConfig, NetClient,
 };
 use crate::connection::id;
-use crate::packet::packet_builder::Payload;
+use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::prelude::client::NetworkingState;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
@@ -197,8 +198,8 @@ pub struct NetcodeClient<Ctx = ()> {
     replay_protection: ReplayProtection,
     should_disconnect: bool,
     should_disconnect_state: ClientState,
-    packet_queue: VecDeque<Payload>,
-    buffer_pool: Pool<Vec<u8>>,
+    packet_queue: VecDeque<RecvPayload>,
+    buffer_pool: Arc<Pool<Vec<u8>>>,
     cfg: ClientConfig<Ctx>,
 }
 
@@ -233,7 +234,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             should_disconnect: false,
             should_disconnect_state: ClientState::Disconnected,
             packet_queue: VecDeque::new(),
-            buffer_pool: Pool::new(10, || vec![0u8; MAX_PKT_BUF_SIZE]),
+            buffer_pool: Arc::new(Pool::new(10, || vec![0u8; MAX_PKT_BUF_SIZE])),
             cfg,
         })
     }
@@ -407,26 +408,11 @@ impl<Ctx> NetcodeClient<Ctx> {
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
                 trace!("client received payload packet from server");
-                // // TODO: we decode the data immediately so we don't need to keep the buffer around!
-                // //  we could just
-                // // instead of allocating a new buffer, fetch one from the pool
-                // trace!("read from netcode client pre");
-                // let mut reader = self.buffer_pool.start_read(pkt.buf);
-                // let packet = crate::packet::packet::Packet::decode(&mut reader)
-                //     .map_err(|_| super::packet::Error::InvalidPayload)?;
-                // trace!(
-                //     "read from netcode client post; pool len: {}",
-                //     self.buffer_pool.0.len()
-                // );
-                // // return the buffer to the pool
-                // self.buffer_pool.attach(reader);
-
-                // let buf = self.buffer_pool.pull(|| vec![0u8; pkt.buf.len()]);
-                // TODO: COPY THE PAYLOAD INTO A BUFFER FROM THE POOL! and we allocate buffers to the pool
-                //  outside of the hotpath? we could have a static pool of buffers?
-                let mut buf = vec![0u8; pkt.buf.len()];
+                // TODO: we decode the data immediately so we don't need to keep the buffer around!
+                let mut buf = self.buffer_pool.pull_owned(|| vec![0u8; pkt.buf.len()]);
+                buf.clear();
+                buf.resize(pkt.buf.len(), 0);
                 buf.copy_from_slice(pkt.buf);
-
                 // TODO: control the size/memory of the packet queue?
                 self.packet_queue.push_back(buf);
             }
@@ -599,7 +585,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     ///     thread::sleep(tick_rate);
     /// }
     /// ```
-    pub fn recv(&mut self) -> Option<Payload> {
+    pub fn recv(&mut self) -> Option<RecvPayload> {
         self.packet_queue.pop_front()
     }
 
@@ -711,7 +697,7 @@ pub(crate) mod connection {
             Ok(())
         }
 
-        fn recv(&mut self) -> Option<Payload> {
+        fn recv(&mut self) -> Option<RecvPayload> {
             self.client.recv()
         }
 

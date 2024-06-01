@@ -20,7 +20,7 @@ use crate::connection::id::ClientId;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
-use crate::packet::packet_builder::{Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{Payload, RecvPayload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::server::{DisconnectEvent, RoomId, RoomManager};
 use crate::prelude::{
     Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ReplicationGroup,
@@ -703,13 +703,13 @@ impl Connection {
 
     pub fn recv_packet(
         &mut self,
-        packet: Payload,
+        packet: RecvPayload,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
         delta_manager: &mut DeltaManager,
     ) -> Result<(), ServerError> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
-        let tick = self.message_manager.recv_packet(packet)?;
+        let tick = self.message_manager.recv_packet(&packet)?;
         // notify the replication sender that some sent messages were received
         self.replication_sender
             .recv_update_acks(component_registry, delta_manager);

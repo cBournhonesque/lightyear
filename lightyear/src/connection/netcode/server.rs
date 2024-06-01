@@ -14,13 +14,14 @@ use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer,
 };
-use crate::packet::packet_builder::Payload;
+use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
 use crate::transport::io::BaseIo;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::utils::pool::Pool;
 
 use super::{
     bytes::Bytes,
@@ -129,10 +130,7 @@ struct ConnectionCache {
     replay_protection: HashMap<ClientId, ReplayProtection>,
 
     // packet queue for all clients
-    packet_queue: VecDeque<(Payload, ClientId)>,
-
-    // pool of buffers to re-use for decoding packets
-    buffer_pool: BufferPool,
+    packet_queue: VecDeque<(RecvPayload, ClientId)>,
 
     // corresponds to the server time
     time: f64,
@@ -145,7 +143,7 @@ impl ConnectionCache {
             client_id_map: HashMap::with_capacity(MAX_CLIENTS),
             replay_protection: HashMap::with_capacity(MAX_CLIENTS),
             packet_queue: VecDeque::with_capacity(MAX_CLIENTS * 2),
-            buffer_pool: BufferPool::default(),
+
             time: server_time,
         }
     }
@@ -391,6 +389,8 @@ pub struct NetcodeServer<Ctx = ()> {
     protocol_id: u64,
     conn_cache: ConnectionCache,
     token_entries: TokenEntries,
+    // pool of buffers to re-use for decoding packets
+    buffer_pool: Arc<Pool<Vec<u8>>>,
     cfg: ServerConfig<Ctx>,
 }
 
@@ -409,6 +409,7 @@ impl NetcodeServer {
             challenge_key: crypto::generate_key(),
             conn_cache: ConnectionCache::new(0.0),
             token_entries: TokenEntries::new(),
+            buffer_pool: Arc::new(Pool::new(10, || vec![0; MAX_PKT_BUF_SIZE])),
             cfg: ServerConfig::default(),
         };
         // info!("server started on {}", server.io.local_addr());
@@ -443,6 +444,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             challenge_key: crypto::generate_key(),
             conn_cache: ConnectionCache::new(0.0),
             token_entries: TokenEntries::new(),
+            buffer_pool: Arc::new(Pool::new(10, || vec![0; MAX_PKT_BUF_SIZE])),
             cfg,
         };
         // info!("server started on {}", server.addr());
@@ -501,15 +503,10 @@ impl<Ctx> NetcodeServer<Ctx> {
             Packet::Payload(packet) => {
                 self.touch_client(client_id)?;
                 if let Some(idx) = client_id {
-                    // // use a buffer from the pool to avoid re-allocating
-                    // let mut reader = self.conn_cache.buffer_pool.start_read(packet.buf);
-                    // let packet = crate::packet::packet::Packet::decode(&mut reader)
-                    //     .map_err(|_| super::packet::Error::InvalidPayload)?;
-                    // return the buffer to the pool
-                    // self.conn_cache.buffer_pool.attach(reader);
-
-                    // TODO: use a pool of buffers to avoid re-allocation
-                    let mut buf = vec![0u8; packet.buf.len()];
+                    // fetch a buffer from the pool
+                    let mut buf = self.buffer_pool.pull_owned(|| vec![0u8; packet.buf.len()]);
+                    buf.clear();
+                    buf.resize(packet.buf.len(), 0);
                     buf.copy_from_slice(packet.buf);
                     self.conn_cache.packet_queue.push_back((buf, idx));
                 }
@@ -873,7 +870,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     ///    }
     ///    # break;
     /// }
-    pub fn recv(&mut self) -> Option<(Payload, ClientId)> {
+    pub fn recv(&mut self) -> Option<(RecvPayload, ClientId)> {
         self.conn_cache.packet_queue.pop_front()
     }
     /// Sends a packet to a client.
@@ -1110,7 +1107,7 @@ pub(crate) mod connection {
             Ok(())
         }
 
-        fn recv(&mut self) -> Option<(Payload, id::ClientId)> {
+        fn recv(&mut self) -> Option<(RecvPayload, id::ClientId)> {
             self.server
                 .recv()
                 .map(|(packet, id)| (packet, id::ClientId::Netcode(id)))

@@ -20,7 +20,7 @@ use crate::client::sync::SyncConfig;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
-use crate::packet::packet_builder::{Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{Payload, RecvPayload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationGroup, TargetEntity};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
@@ -460,12 +460,12 @@ impl ConnectionManager {
 
     pub(crate) fn recv_packet(
         &mut self,
-        packet: Payload,
+        packet: RecvPayload,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
     ) -> Result<(), ClientError> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
-        let tick = self.message_manager.recv_packet(packet)?;
+        let tick = self.message_manager.recv_packet(&packet)?;
         debug!("Received server packet with tick: {:?}", tick);
         if self
             .sync_manager
