@@ -197,7 +197,7 @@ mod tests {
     pub struct MyChannel;
 
     #[test]
-    fn test_channel_registry() -> anyhow::Result<()> {
+    fn test_channel_registry() {
         let mut registry = ChannelRegistry::default();
 
         let settings = ChannelSettings {
@@ -213,6 +213,5 @@ mod tests {
             channel_container.setting.mode,
             ChannelMode::UnorderedUnreliable
         );
-        Ok(())
     }
 }

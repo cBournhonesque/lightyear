@@ -2,12 +2,13 @@ use bevy::utils::Duration;
 use std::net::{IpAddr, Ipv4Addr};
 use std::{collections::VecDeque, net::SocketAddr};
 
-use anyhow::Context;
 use bevy::prelude::Resource;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::client::io::Io;
-use crate::connection::client::{ConnectionState, DisconnectReason, IoConfig, NetClient};
+use crate::connection::client::{
+    ConnectionError, ConnectionState, DisconnectReason, IoConfig, NetClient,
+};
 use crate::connection::id;
 use crate::packet::packet_builder::Payload;
 use crate::prelude::client::NetworkingState;
@@ -363,8 +364,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             &self.token.client_to_server_key,
             self.token.protocol_id,
         )?;
-        io.send(&buf[..size], &self.server_addr())
-            .map_err(Error::from)?;
+        io.send(&buf[..size], &self.server_addr())?;
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -514,7 +514,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
         // number of seconds since unix epoch
         let now = utils::now();
-        while let Some((buf, addr)) = io.recv().map_err(Error::from)? {
+        while let Some((buf, addr)) = io.recv()? {
             self.recv_packet(buf, now, addr)?;
         }
         Ok(())
@@ -657,82 +657,84 @@ impl<Ctx> NetcodeClient<Ctx> {
     }
 }
 
-/// Client that can establish a connection to the Server
-#[derive(Resource)]
-pub struct Client<Ctx> {
-    pub client: NetcodeClient<Ctx>,
-    pub io_config: IoConfig,
-    pub io: Option<Io>,
-}
+pub(crate) mod connection {
+    use super::*;
+    use core::result::Result;
 
-impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
-    fn connect(&mut self) -> anyhow::Result<()> {
-        let io_config = self.io_config.clone();
-        let io = io_config.connect().context("could not connect io")?;
-        self.io = Some(io);
-        self.client.connect();
-        Ok(())
+    /// Client that can establish a connection to the Server
+    #[derive(Resource)]
+    pub struct Client<Ctx> {
+        pub client: NetcodeClient<Ctx>,
+        pub io_config: IoConfig,
+        pub io: Option<Io>,
     }
 
-    fn disconnect(&mut self) -> anyhow::Result<()> {
-        if let Some(io) = self.io.as_mut() {
-            self.client
-                .disconnect(io)
-                .context("Error when disconnecting from server")?;
-            // close and drop the io
-            io.close().context("Could not close the io")?;
-            std::mem::take(&mut self.io);
-        } else {
-            self.client.reset(ClientState::Disconnected);
+    impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
+        fn connect(&mut self) -> Result<(), ConnectionError> {
+            let io_config = self.io_config.clone();
+            let io = io_config.connect()?;
+            self.io = Some(io);
+            self.client.connect();
+            Ok(())
         }
-        Ok(())
-    }
 
-    fn state(&self) -> ConnectionState {
-        match self.client.state() {
-            ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse => {
-                ConnectionState::Connecting
+        fn disconnect(&mut self) -> Result<(), ConnectionError> {
+            if let Some(io) = self.io.as_mut() {
+                // TODO: add context to errors?
+                self.client.disconnect(io)?;
+                // close and drop the io
+                io.close()?;
+                std::mem::take(&mut self.io);
+            } else {
+                self.client.reset(ClientState::Disconnected);
             }
-            ClientState::Connected => ConnectionState::Connected,
-            _ => ConnectionState::Disconnected {
-                reason: Some(DisconnectReason::Netcode(self.client.state)),
-            },
+            Ok(())
         }
-    }
 
-    fn try_update(&mut self, delta_ms: f64) -> anyhow::Result<()> {
-        let io = self
-            .io
-            .as_mut()
-            .context("io is not initialized, did you call connect?")?;
-        self.client
-            .try_update(delta_ms, io)
-            .inspect_err(|e| error!("error updating netcode client: {:?}", e))
-            .context("could not update client")
-    }
+        fn state(&self) -> ConnectionState {
+            match self.client.state() {
+                ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse => {
+                    ConnectionState::Connecting
+                }
+                ClientState::Connected => ConnectionState::Connected,
+                _ => ConnectionState::Disconnected {
+                    reason: Some(DisconnectReason::Netcode(self.client.state)),
+                },
+            }
+        }
 
-    fn recv(&mut self) -> Option<Payload> {
-        self.client.recv()
-    }
+        fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
+            let io = self.io.as_mut().ok_or(ConnectionError::IoNotInitialized)?;
+            self.client
+                .try_update(delta_ms, io)
+                .inspect_err(|e| error!("error updating netcode client: {:?}", e))?;
+            Ok(())
+        }
 
-    fn send(&mut self, buf: &[u8]) -> anyhow::Result<()> {
-        let io = self.io.as_mut().context("io is not initialized")?;
-        self.client.send(buf, io).context("could not send")
-    }
+        fn recv(&mut self) -> Option<Payload> {
+            self.client.recv()
+        }
 
-    fn id(&self) -> id::ClientId {
-        id::ClientId::Netcode(self.client.id())
-    }
+        fn send(&mut self, buf: &[u8]) -> Result<(), ConnectionError> {
+            let io = self.io.as_mut().ok_or(ConnectionError::IoNotInitialized)?;
+            self.client.send(buf, io)?;
+            Ok(())
+        }
 
-    fn local_addr(&self) -> SocketAddr {
-        self.io.as_ref().map_or(LOCAL_SOCKET, |io| io.local_addr())
-    }
+        fn id(&self) -> id::ClientId {
+            id::ClientId::Netcode(self.client.id())
+        }
 
-    fn io(&self) -> Option<&Io> {
-        self.io.as_ref()
-    }
+        fn local_addr(&self) -> SocketAddr {
+            self.io.as_ref().map_or(LOCAL_SOCKET, |io| io.local_addr())
+        }
 
-    fn io_mut(&mut self) -> Option<&mut Io> {
-        self.io.as_mut()
+        fn io(&self) -> Option<&Io> {
+            self.io.as_ref()
+        }
+
+        fn io_mut(&mut self) -> Option<&mut Io> {
+            self.io.as_mut()
+        }
     }
 }

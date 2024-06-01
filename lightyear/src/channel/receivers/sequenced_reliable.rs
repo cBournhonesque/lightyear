@@ -1,7 +1,8 @@
 use std::collections::{btree_map, BTreeMap};
 
-use anyhow::anyhow;
 use bytes::Bytes;
+
+use super::error::{ChannelReceiveError, Result};
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
@@ -36,11 +37,11 @@ impl ChannelReceive for SequencedReliableReceiver {
     fn update(&mut self, _: &TimeManager, _: &TickManager) {}
 
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: ReceiveMessage) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<()> {
         let message_id = message
             .data
             .message_id()
-            .ok_or_else(|| anyhow!("message id not found"))?;
+            .ok_or(ChannelReceiveError::MissingMessageId)?;
 
         // if the message is too old, ignore it
         if message_id < self.most_recent_message_id {
@@ -63,7 +64,7 @@ impl ChannelReceive for SequencedReliableReceiver {
                         fragment,
                         message.remote_sent_tick,
                         None,
-                    )? {
+                    ) {
                         entry.insert(res);
                     }
                 }
@@ -94,7 +95,7 @@ mod tests {
     // TODO: check that the fragment receiver correctly removes items from the buffer, so they dont accumulate!
 
     #[test]
-    fn test_ordered_reliable_receiver_internals() -> anyhow::Result<()> {
+    fn test_ordered_reliable_receiver_internals() -> Result<()> {
         let mut receiver = SequencedReliableReceiver::new();
 
         let mut single1 = SingleData::new(None, Bytes::from("hello"));

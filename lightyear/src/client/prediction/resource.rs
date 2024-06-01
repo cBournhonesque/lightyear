@@ -5,6 +5,7 @@ use bevy::prelude::{Entity, Resource};
 use std::cell::UnsafeCell;
 
 use crate::prelude::{ComponentRegistry, Tick};
+use crate::protocol::component::ComponentError;
 use crate::shared::replication::entity_map::PredictedEntityMap;
 use crate::utils::ready_buffer::ReadyBuffer;
 
@@ -49,11 +50,11 @@ impl PredictionManager {
         &self,
         component: &mut C,
         component_registry: &ComponentRegistry,
-    ) {
+    ) -> Result<(), ComponentError> {
         // SAFETY: `EntityMap` isn't mutated during `map_entities`
         unsafe {
             let entity_map = &mut *self.predicted_entity_map.get();
-            component_registry.map_entities::<C>(component, &mut entity_map.confirmed_to_predicted);
+            component_registry.map_entities::<C>(component, &mut entity_map.confirmed_to_predicted)
         }
     }
 }

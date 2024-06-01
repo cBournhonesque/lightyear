@@ -1,7 +1,8 @@
 use std::collections::{btree_map, BTreeMap, HashSet};
 
-use anyhow::anyhow;
 use bytes::Bytes;
+
+use super::error::ChannelReceiveError;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
@@ -40,11 +41,11 @@ impl ChannelReceive for UnorderedReliableReceiver {
     fn update(&mut self, _: &TimeManager, _: &TickManager) {}
 
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: ReceiveMessage) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<(), ChannelReceiveError> {
         let message_id = message
             .data
             .message_id()
-            .ok_or_else(|| anyhow!("message id not found"))?;
+            .ok_or(ChannelReceiveError::MissingMessageId)?;
 
         // we have already received the message if it's older than the oldest pending message
         // (since we are reliable, we should have received all messages prior to that one)
@@ -67,7 +68,7 @@ impl ChannelReceive for UnorderedReliableReceiver {
                         fragment,
                         message.remote_sent_tick,
                         None,
-                    )? {
+                    ) {
                         // receive the message if we haven't received it already
                         if !self.received_message_ids.contains(&message_id) {
                             self.received_message_ids.insert(message_id);
@@ -108,11 +109,12 @@ mod tests {
 
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::SingleData;
+    use crate::prelude::PacketError;
 
     use super::*;
 
     #[test]
-    fn test_unordered_reliable_receiver_internals() -> anyhow::Result<()> {
+    fn test_unordered_reliable_receiver_internals() -> Result<(), ChannelReceiveError> {
         let mut receiver = UnorderedReliableReceiver::new();
 
         let mut single1 = SingleData::new(None, Bytes::from("hello"));

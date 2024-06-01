@@ -2,14 +2,13 @@ use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::{
-    ConnectionRequestHandler, DefaultConnectionRequestHandler, NetServer,
+    ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, NetServer,
 };
 use crate::packet::packet_builder::Payload;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::io::Io;
 use crate::transport::LOCAL_SOCKET;
-use anyhow::{anyhow, Context, Result};
 use bevy::utils::HashMap;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -92,7 +91,7 @@ impl Server {
         steamworks_client: Arc<RwLock<SteamworksClient>>,
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
-    ) -> Result<Self> {
+    ) -> Result<Self, ConnectionError> {
         let server = match &config.socket_config {
             SocketConfig::Ip {
                 server_ip,
@@ -106,8 +105,7 @@ impl Server {
                     ServerMode::NoAuthentication,
                     // config.mode.clone(),
                     &config.version.clone(),
-                )
-                .context("could not initialize steam server")?;
+                )?;
                 Some(server)
             }
             SocketConfig::P2P { .. } => None,
@@ -128,7 +126,7 @@ impl Server {
 }
 
 impl NetServer for Server {
-    fn start(&mut self) -> Result<()> {
+    fn start(&mut self) -> Result<(), ConnectionError> {
         // TODO: using the NetworkingConfigEntry options seems to cause an issue. See: https://github.com/Noxime/steamworks-rs/issues/169
         // let options = get_networking_options(&self.conditioner);
 
@@ -145,8 +143,7 @@ impl NetServer for Server {
                         .expect("could not get steamworks client")
                         .get_client()
                         .networking_sockets()
-                        .create_listen_socket_ip(server_addr, vec![])
-                        .context("could not create server listen socket")?,
+                        .create_listen_socket_ip(server_addr, vec![])?,
                 );
                 info!("Steam socket started on {:?}", server_addr);
             }
@@ -157,8 +154,7 @@ impl NetServer for Server {
                         .expect("could not get steamworks client")
                         .get_client()
                         .networking_sockets()
-                        .create_listen_socket_p2p(virtual_port, vec![])
-                        .context("could not create server listen socket")?,
+                        .create_listen_socket_p2p(virtual_port, vec![])?,
                 );
                 info!(
                     "Steam P2P socket started on virtual port: {:?}",
@@ -169,7 +165,7 @@ impl NetServer for Server {
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<()> {
+    fn stop(&mut self) -> Result<(), ConnectionError> {
         self.listen_socket = None;
         for (client_id, connection) in self.connections.drain() {
             let _ = connection.close(NetConnectionEnd::AppGeneric, None, true);
@@ -179,7 +175,7 @@ impl NetServer for Server {
         Ok(())
     }
 
-    fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+    fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError> {
         match client_id {
             ClientId::Steam(id) => {
                 if let Some(connection) = self.connections.remove(&client_id) {
@@ -188,7 +184,7 @@ impl NetServer for Server {
                 }
                 Ok(())
             }
-            _ => Err(anyhow!("the client id must be of type Steam")),
+            _ => Err(ConnectionError::InvalidConnectionType),
         }
     }
 
@@ -196,7 +192,7 @@ impl NetServer for Server {
         self.connections.keys().cloned().collect()
     }
 
-    fn try_update(&mut self, delta_ms: f64) -> Result<()> {
+    fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
         self.steamworks_client
             .write()
             .expect("could not get steamworks client")
@@ -269,10 +265,7 @@ impl NetServer for Server {
         // buffer incoming packets
         for (client_id, connection) in self.connections.iter_mut() {
             // TODO: avoid allocating messages into a separate buffer, instead provide our own buffer?
-            for message in connection
-                .receive_messages(MAX_PACKET_SIZE)
-                .context("Failed to receive messages")?
-            {
+            for message in connection.receive_messages(MAX_PACKET_SIZE)? {
                 // // get a buffer from the pool to avoid new allocations
                 // let mut reader = self.buffer_pool.start_read(message.data());
                 // let packet = Packet::decode(&mut reader).context("could not decode packet")?;
@@ -283,9 +276,7 @@ impl NetServer for Server {
                 self.packet_queue.push_back((buf, *client_id));
             }
             // TODO: is this necessary since I disabled nagle?
-            connection
-                .flush_messages()
-                .context("Failed to flush messages")?;
+            connection.flush_messages()?
         }
 
         // send any keep-alives or connection-related packets
@@ -296,14 +287,12 @@ impl NetServer for Server {
         self.packet_queue.pop_front()
     }
 
-    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<()> {
+    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<(), ConnectionError> {
         let Some(connection) = self.connections.get_mut(&client_id) else {
-            return Err(SteamError::NoConnection.into());
+            return Err(ConnectionError::ConnectionNotFound);
         };
         // TODO: compare this with self.listen_socket.send_messages()
-        connection
-            .send_message(buf, SendFlags::UNRELIABLE_NO_NAGLE)
-            .context("Failed to send message")?;
+        connection.send_message(buf, SendFlags::UNRELIABLE_NO_NAGLE)?;
         Ok(())
     }
 

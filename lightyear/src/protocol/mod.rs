@@ -10,8 +10,6 @@ You can also define additional behaviour for each component (such as how to run 
 
 */
 
-use anyhow::Context;
-
 use bevy::prelude::{App, Resource};
 use bevy::reflect::TypePath;
 use bitcode::encoding::Fixed;
@@ -40,9 +38,9 @@ pub(crate) mod serialize;
 
 /// Something that can be serialized bit by bit
 pub trait BitSerializable {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()>;
+    fn encode(&self, writer: &mut impl WriteBuffer) -> bitcode::Result<()>;
 
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> bitcode::Result<Self>
     where
         Self: Sized;
 }
@@ -52,11 +50,11 @@ impl<T> BitSerializable for T
 where
     T: Serialize + DeserializeOwned,
 {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut impl WriteBuffer) -> bitcode::Result<()> {
         writer.serialize(self)
     }
 
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> bitcode::Result<Self>
     where
         Self: Sized,
     {

@@ -27,5 +27,6 @@ pub(crate) mod message;
 pub(crate) mod networking;
 pub mod replication;
 
+pub mod error;
 #[cfg(target_family = "wasm")]
 mod web;

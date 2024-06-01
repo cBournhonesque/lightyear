@@ -8,7 +8,6 @@ use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::io::IoState;
 use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
-use anyhow::Context;
 use async_channel::Receiver;
 
 use super::error::Result;
@@ -137,7 +136,6 @@ mod tests {
 
     use crate::client::io::transport::ClientTransportBuilder;
     use crate::server::io::transport::ServerTransportBuilder;
-    use anyhow::Context;
     use bevy::utils::Duration;
 
     use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
@@ -146,51 +144,50 @@ mod tests {
     use crate::transport::{PacketReceiver, PacketSender, Transport};
 
     #[test]
-    fn test_udp_socket() -> Result<(), anyhow::Error> {
+    fn test_udp_socket() {
         // let the OS assign a port
-        let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
+        let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let (client_socket, _, _, _) = UdpSocketBuilder { local_addr }
             .connect()
-            .context("could not connect to socket")?;
+            .expect("could not connect to socket");
         let client_addr = client_socket.local_addr();
         let (mut client_sender, _) = client_socket.split();
 
         let (server_socket, _, _, _) = UdpSocketBuilder { local_addr }
             .start()
-            .context("could not connect to socket")?;
+            .expect("could not connect to socket");
         let server_addr = server_socket.local_addr();
         let (_, mut server_receiver) = server_socket.split();
 
         let msg = b"hello world";
-        client_sender.send(msg, &server_addr)?;
+        client_sender.send(msg, &server_addr).unwrap();
 
         // sleep a little to give time to the message to arrive in the socket
         std::thread::sleep(Duration::from_millis(10));
 
-        let Some((recv_msg, address)) = server_receiver.recv()? else {
+        let Some((recv_msg, address)) = server_receiver.recv().unwrap() else {
             panic!("expected to receive a packet");
         };
         assert_eq!(address, client_addr);
         assert_eq!(recv_msg, msg);
-        Ok(())
     }
 
     #[test]
-    fn test_udp_socket_with_conditioner() -> Result<(), anyhow::Error> {
+    fn test_udp_socket_with_conditioner() {
         use mock_instant::MockClock;
 
         // let the OS assign a port
-        let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
+        let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
 
         let (client_socket, _, _, _) = UdpSocketBuilder { local_addr }
             .connect()
-            .context("could not connect to socket")?;
+            .expect("could not connect to socket");
         let client_addr = client_socket.local_addr();
         let (mut client_sender, _) = client_socket.split();
 
         let (server_socket, _, _, _) = UdpSocketBuilder { local_addr }
             .start()
-            .context("could not connect to socket")?;
+            .expect("could not connect to socket");
         let server_addr = server_socket.local_addr();
         let (_, server_receiver) = server_socket.split();
 
@@ -202,7 +199,7 @@ mod tests {
         .wrap(server_receiver);
 
         let msg = b"hello world";
-        client_sender.send(msg, &server_addr)?;
+        client_sender.send(msg, &server_addr).unwrap();
 
         // TODO: why do we only this here and not in the previous test?
         // sleep a little to give time to the message to arrive in the socket
@@ -210,24 +207,22 @@ mod tests {
 
         // we don't receive the packet yet because the mock clock is still at 0s
         // so we add the packet to the time queue
-        let None = conditioned_server_receiver.recv()? else {
+        let None = conditioned_server_receiver.recv().unwrap() else {
             panic!("no packets should have arrived yet");
         };
 
         // advance a small amount, but not enough to receive the packet in the queue
         MockClock::advance(Duration::from_millis(50));
-        let None = conditioned_server_receiver.recv()? else {
+        let None = conditioned_server_receiver.recv().unwrap() else {
             panic!("no packets should have arrived yet");
         };
 
         MockClock::advance(Duration::from_secs(1));
         // now the packet should be available (read from the time queue)
-        let Some((recv_msg, address)) = conditioned_server_receiver.recv()? else {
+        let Ok(Some((recv_msg, address))) = conditioned_server_receiver.recv() else {
             panic!("expected to receive a packet");
         };
         assert_eq!(address, client_addr);
         assert_eq!(recv_msg, msg);
-
-        Ok(())
     }
 }

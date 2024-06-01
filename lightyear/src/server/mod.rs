@@ -7,6 +7,8 @@ pub mod config;
 
 pub mod connection;
 
+pub mod error;
+
 pub mod events;
 
 pub mod input;

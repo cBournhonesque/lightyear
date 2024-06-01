@@ -1,23 +1,22 @@
 use crate::client::networking::NetworkingState;
-use crate::connection::client::{ConnectionState, DisconnectReason, NetClient};
+use crate::connection::client::{ConnectionError, ConnectionState, DisconnectReason, NetClient};
 use crate::connection::id::ClientId;
 use crate::packet::packet_builder::Payload;
 use crate::prelude::client::Io;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
-use anyhow::{anyhow, Context, Result};
 use bevy::reflect::Reflect;
 use bevy::tasks::IoTaskPool;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, OnceLock, RwLock};
-use steamworks::networking_sockets::{NetConnection, NetworkingSockets};
+use steamworks::networking_sockets::{InvalidHandle, NetConnection, NetworkingSockets};
 use steamworks::networking_types::{
     NetConnectionEnd, NetConnectionInfo, NetworkingConfigEntry, NetworkingConfigValue,
     NetworkingConnectionState, NetworkingIdentity, SendFlags,
 };
-use steamworks::{ClientManager, SingleClient, SteamId};
+use steamworks::{ClientManager, SingleClient, SteamError, SteamId};
 use tracing::{info, warn};
 
 use super::get_networking_options;
@@ -72,18 +71,18 @@ impl Client {
         steamworks_client: Arc<RwLock<SteamworksClient>>,
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
-    ) -> Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             steamworks_client,
             config,
             connection: None,
             packet_queue: VecDeque::new(),
             buffer_pool: BufferPool::default(),
             conditioner,
-        })
+        }
     }
 
-    fn connection_info(&self) -> Option<Result<NetConnectionInfo>> {
+    fn connection_info(&self) -> Option<Result<NetConnectionInfo, ConnectionError>> {
         self.connection.as_ref().map(|connection| {
             self.steamworks_client
                 .read()
@@ -91,20 +90,21 @@ impl Client {
                 .get_client()
                 .networking_sockets()
                 .get_connection_info(connection)
-                .map_err(|err| anyhow!("could not get connection info"))
+                .map_err(|err| ConnectionError::SteamInvalidHandle(InvalidHandle))
         })
     }
 
-    fn connection_state(&self) -> Result<NetworkingConnectionState> {
+    fn connection_state(&self) -> Result<NetworkingConnectionState, ConnectionError> {
         self.connection_info()
-            .unwrap_or(Err(anyhow!("no connection")))
-            .map_or(Ok(NetworkingConnectionState::None), |info| info.state())
-            .context("could not get connection state")
+            .unwrap_or(SteamError::NoConnection.into())
+            .map_or(Ok(NetworkingConnectionState::None), |info| {
+                info.state().into()
+            })
     }
 }
 
 impl NetClient for Client {
-    fn connect(&mut self) -> Result<()> {
+    fn connect(&mut self) -> Result<(), ConnectionError> {
         // TODO: using the NetworkingConfigEntry options seems to cause an issue. See: https://github.com/Noxime/steamworks-rs/issues/169
         // let options = get_networking_options(&self.conditioner);
 
@@ -116,8 +116,7 @@ impl NetClient for Client {
                         .expect("could not get steamworks client")
                         .get_client()
                         .networking_sockets()
-                        .connect_by_ip_address(server_addr, vec![])
-                        .context("failed to create ip connection")?,
+                        .connect_by_ip_address(server_addr, vec![])?,
                 );
                 info!(
                     "Opened steam connection to server at address: {}",
@@ -138,15 +137,14 @@ impl NetClient for Client {
                             NetworkingIdentity::new_steam_id(SteamId::from_raw(steam_id)),
                             virtual_port,
                             vec![],
-                        )
-                        .context("failed to create p2p connection")?,
+                        )?,
                 );
             }
         }
         Ok(())
     }
 
-    fn disconnect(&mut self) -> Result<()> {
+    fn disconnect(&mut self) -> Result<(), ConnectionError> {
         if let Some(connection) = std::mem::take(&mut self.connection) {
             connection.close(NetConnectionEnd::AppGeneric, None, false);
         }
@@ -173,7 +171,7 @@ impl NetClient for Client {
         }
     }
 
-    fn try_update(&mut self, delta_ms: f64) -> Result<()> {
+    fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
         self.steamworks_client
             .write()
             .expect("could not get steamworks single client")
@@ -183,21 +181,18 @@ impl NetClient for Client {
         // TODO: should I maintain an internal state for the connection? or just rely on `connection_state()` ?
         // update connection state
         return match self.connection_state()? {
-            NetworkingConnectionState::None => Err(anyhow!("no connection")),
+            NetworkingConnectionState::None => Err(SteamError::NoConnection.into()),
             NetworkingConnectionState::Connecting | NetworkingConnectionState::FindingRoute => {
                 Ok(())
             }
             NetworkingConnectionState::ClosedByPeer
             | NetworkingConnectionState::ProblemDetectedLocally => {
-                Err(anyhow!("connection closed"))
+                Err(SteamError::IOFailure.into())
             }
             NetworkingConnectionState::Connected => {
                 // receive packet
                 let connection = self.connection.as_mut().unwrap();
-                for message in connection
-                    .receive_messages(MAX_MESSAGE_BATCH_SIZE)
-                    .context("failed to receive messages")?
-                {
+                for message in connection.receive_messages(MAX_MESSAGE_BATCH_SIZE)? {
                     // // get a buffer from the pool to avoid new allocations
                     // let mut reader = self.buffer_pool.start_read(message.data());
                     // let packet = Packet::decode(&mut reader).context("could not decode packet")?;
@@ -216,12 +211,11 @@ impl NetClient for Client {
         self.packet_queue.pop_front()
     }
 
-    fn send(&mut self, buf: &[u8]) -> Result<()> {
+    fn send(&mut self, buf: &[u8]) -> Result<(), ConnectionError> {
         self.connection
             .as_ref()
-            .ok_or(anyhow!("client not connected"))?
-            .send_message(buf, SendFlags::UNRELIABLE_NO_NAGLE)
-            .context("could not send message")?;
+            .ok_or(ConnectionError::NotConnected)?
+            .send_message(buf, SendFlags::UNRELIABLE_NO_NAGLE)?;
         Ok(())
     }
 

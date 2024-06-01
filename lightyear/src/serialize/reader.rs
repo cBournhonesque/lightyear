@@ -1,9 +1,9 @@
 use std::num::NonZeroUsize;
 
-use anyhow::Result;
 use bitcode::encoding::Encoding;
 use bitcode::word::Word;
 use bitcode::Decode;
+use bitcode::Result;
 use serde::de::DeserializeOwned;
 
 pub trait ReadBuffer {

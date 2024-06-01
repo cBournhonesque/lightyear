@@ -132,7 +132,8 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                             commands.get_entity(predicted_entity).unwrap();
                         // map any entities from confirmed to predicted
                         let mut new_component = confirmed_component.deref().clone();
-                        manager.map_entities(&mut new_component, component_registry.as_ref());
+                        let _ =
+                            manager.map_entities(&mut new_component, component_registry.as_ref());
                         match component_registry.prediction_mode::<C>() {
                             ComponentSyncMode::Full => {
                                 // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
@@ -271,7 +272,7 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
                     );
                     // map any entities from confirmed to predicted
                     let mut component = confirmed_component.deref().clone();
-                    manager.map_entities(&mut component, component_registry.as_ref());
+                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
                     *predicted_component = component;
                 }
             }

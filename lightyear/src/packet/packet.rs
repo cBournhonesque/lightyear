@@ -1,5 +1,4 @@
 /// Defines the [`Packet`] struct
-use anyhow::Context;
 use bytes::{Buf, Bytes};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
@@ -14,6 +13,7 @@ use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleDat
 use crate::packet::packet;
 use crate::packet::packet_builder::Payload;
 use crate::packet::packet_type::PacketType;
+use crate::prelude::PacketError;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
@@ -83,26 +83,24 @@ impl Packet {
     #[cfg(test)]
     pub(crate) fn parse_packet_payload(
         &mut self,
-    ) -> anyhow::Result<HashMap<ChannelId, Vec<Bytes>>> {
+    ) -> Result<HashMap<ChannelId, Vec<Bytes>>, PacketError> {
         let mut cursor = Cursor::new(&mut self.payload);
         let mut res: HashMap<ChannelId, Vec<Bytes>> = HashMap::new();
-        let header = PacketHeader::from_bytes(&mut cursor).context("could not serialize")?;
+        let header = PacketHeader::from_bytes(&mut cursor)?;
 
         if header.get_packet_type() == PacketType::DataFragment {
             // read the fragment data
-            let channel_id = ChannelId::from_bytes(&mut cursor).context("could not serialize")?;
-            let fragment_data =
-                FragmentData::from_bytes(&mut cursor).context("could not serialize")?;
+            let channel_id = ChannelId::from_bytes(&mut cursor)?;
+            let fragment_data = FragmentData::from_bytes(&mut cursor)?;
             res.entry(channel_id).or_default().push(fragment_data.bytes);
         }
         // read single message data
         // TODO: avoid infinite loop here!
         while cursor.has_remaining() {
-            let channel_id = ChannelId::from_bytes(&mut cursor).context("could not serialize")?;
+            let channel_id = ChannelId::from_bytes(&mut cursor)?;
             let num_messages = cursor.read_varint()?;
             for i in 0..num_messages {
-                let single_data =
-                    SingleData::from_bytes(&mut cursor).context("could not serialize")?;
+                let single_data = SingleData::from_bytes(&mut cursor)?;
                 res.entry(channel_id).or_default().push(single_data.bytes);
             }
         }

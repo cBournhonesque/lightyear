@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serde_header() -> anyhow::Result<()> {
+    fn test_serde_header() -> Result<(), SerializationError> {
         let header = PacketHeader {
             packet_type: PacketType::Data,
             packet_id: PacketId(27),

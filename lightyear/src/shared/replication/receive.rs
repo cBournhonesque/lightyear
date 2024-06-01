@@ -2,7 +2,6 @@
 use std::collections::BTreeMap;
 use std::iter::Extend;
 
-use anyhow::Context;
 use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
 use bevy::reflect::Reflect;
@@ -302,7 +301,7 @@ impl ReplicationReceiver {
                     }
 
                     // safety: we know by this point that the entity exists
-                    let Ok(mut local_entity_mut) =
+                    let Some(mut local_entity_mut) =
                         self.remote_entity_map.get_by_remote(world, entity)
                     else {
                         error!("cannot find entity");
@@ -381,7 +380,7 @@ impl ReplicationReceiver {
                 for (entity, components) in m.updates.into_iter() {
                     debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
                     // update the entity only if it exists
-                    if let Ok(mut local_entity_mut) =
+                    if let Some(mut local_entity_mut) =
                         self.remote_entity_map.get_by_remote(world, entity)
                     {
                         for component in components {
@@ -417,7 +416,7 @@ impl ReplicationReceiver {
             .iter()
             .flatten()
             .for_each(|remote_entity| {
-                if let Ok(mut local_entity_mut) =
+                if let Some(mut local_entity_mut) =
                     self.remote_entity_map.get_by_remote(world, *remote_entity)
                 {
                     trace!(?tick, "updating confirmed tick for entity");

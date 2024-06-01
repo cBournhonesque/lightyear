@@ -450,7 +450,7 @@ mod tests {
 
     /// A bunch of small messages that all fit in the same packet
     #[test]
-    fn test_pack_small_messages() -> anyhow::Result<()> {
+    fn test_pack_small_messages() -> Result<(), PacketError> {
         let channel_registry = get_channel_registry();
         let mut manager = PacketBuilder::new(1.5);
         let channel_kind1 = ChannelKind::of::<Channel1>();
@@ -494,7 +494,7 @@ mod tests {
 
     /// A bunch of small messages that all fit in the same packet
     #[test]
-    fn test_pack_many_small_messages() -> anyhow::Result<()> {
+    fn test_pack_many_small_messages() -> Result<(), PacketError> {
         let channel_registry = get_channel_registry();
         let mut manager = PacketBuilder::new(1.5);
         let channel_kind1 = ChannelKind::of::<Channel1>();
@@ -529,7 +529,7 @@ mod tests {
 
     /// A bunch of small messages that fit in multiple packets
     #[test]
-    fn test_pack_single_data_multiple_packets() -> anyhow::Result<()> {
+    fn test_pack_single_data_multiple_packets() -> Result<(), PacketError> {
         let channel_registry = get_channel_registry();
         let mut manager = PacketBuilder::new(1.5);
         let channel_kind1 = ChannelKind::of::<Channel1>();
@@ -562,7 +562,7 @@ mod tests {
     ///
     /// We should get 2 packets: 1 with the 1st big fragment, and 1 packet with the small fragment and all the small messages
     #[test]
-    fn test_pack_big_messages() -> anyhow::Result<()> {
+    fn test_pack_big_messages() -> Result<(), PacketError> {
         let channel_registry = get_channel_registry();
         let mut manager = PacketBuilder::new(1.5);
         let channel_kind1 = ChannelKind::of::<Channel1>();

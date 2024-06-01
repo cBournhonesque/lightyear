@@ -1,4 +1,3 @@
-use anyhow::Context;
 use bitcode::buffer::BufferTrait;
 use bitcode::encoding::{Encoding, Fixed};
 use bitcode::word_buffer::{WordBuffer, WordWriter};
@@ -34,19 +33,17 @@ impl WriteBuffer for BitcodeWriter {
     // }
 
     // TODO: define actual error types so users can distinguish between the two
-    fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()> {
+    fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> bitcode::Result<()> {
         let with_gamma = OnlyGammaEncode::<T>(t);
-        with_gamma
-            .encode(Fixed, &mut self.writer)
-            .context("error serializing")
-        // if self.overflowed() {
-        //     bail!("buffer overflowed")
-        // }
+        with_gamma.encode(Fixed, &mut self.writer)
     }
 
-    fn encode<T: Encode + ?Sized>(&mut self, t: &T, encoding: impl Encoding) -> anyhow::Result<()> {
+    fn encode<T: Encode + ?Sized>(
+        &mut self,
+        t: &T,
+        encoding: impl Encoding,
+    ) -> bitcode::Result<()> {
         t.encode(encoding, &mut self.writer)
-            .context("error encoding")
     }
 
     fn with_capacity(capacity: usize) -> Self {
@@ -92,12 +89,13 @@ impl WriteBuffer for BitcodeWriter {
 mod tests {
     use crate::serialize::bitcode::reader::BitcodeReader;
     use crate::serialize::reader::ReadBuffer;
+    use crate::serialize::SerializationError;
     use bitcode::{Decode, Encode};
 
     #[derive(Encode, Decode)]
     struct A;
     #[test]
-    fn test_write_zst() -> anyhow::Result<()> {
+    fn test_write_zst() -> bitcode::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
 
@@ -112,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_bits() -> anyhow::Result<()> {
+    fn test_write_bits() -> bitcode::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
 
@@ -144,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_multiple_objects() -> anyhow::Result<()> {
+    fn test_write_multiple_objects() -> bitcode::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
         use serde::Serialize;

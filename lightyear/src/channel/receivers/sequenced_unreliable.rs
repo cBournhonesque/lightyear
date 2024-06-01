@@ -1,7 +1,8 @@
 use std::collections::VecDeque;
 
-use anyhow::anyhow;
 use bytes::Bytes;
+
+use super::error::{ChannelReceiveError, Result};
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
@@ -43,11 +44,11 @@ impl ChannelReceive for SequencedUnreliableReceiver {
     }
 
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: ReceiveMessage) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<()> {
         let message_id = message
             .data
             .message_id()
-            .ok_or_else(|| anyhow!("message id not found"))?;
+            .ok_or(ChannelReceiveError::MissingMessageId)?;
 
         // if the message is too old, ignore it
         if message_id < self.most_recent_message_id {
@@ -69,7 +70,7 @@ impl ChannelReceive for SequencedUnreliableReceiver {
                     fragment,
                     message.remote_sent_tick,
                     Some(self.current_time),
-                )? {
+                ) {
                     self.recv_message_buffer.push_back(res);
                 }
             }
@@ -89,10 +90,10 @@ mod tests {
     use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
-    use crate::prelude::Tick;
+    use crate::prelude::{PacketError, Tick};
 
     #[test]
-    fn test_sequenced_unreliable_receiver_internals() -> anyhow::Result<()> {
+    fn test_sequenced_unreliable_receiver_internals() -> Result<(), PacketError> {
         let mut receiver = SequencedUnreliableReceiver::new();
 
         let mut single1 = SingleData::new(None, Bytes::from("hello"));

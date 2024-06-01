@@ -33,8 +33,8 @@ pub struct SerializeFns<M> {
     pub deserialize: DeserializeFn<M>,
 }
 
-type ErasedSerializeFn = unsafe fn(message: Ptr, writer: &mut BitcodeWriter) -> anyhow::Result<()>;
-type DeserializeFn<M> = fn(reader: &mut BitcodeReader) -> anyhow::Result<M>;
+type ErasedSerializeFn = unsafe fn(message: Ptr, writer: &mut BitcodeWriter) -> bitcode::Result<()>;
+type DeserializeFn<M> = fn(reader: &mut BitcodeReader) -> bitcode::Result<M>;
 
 pub(crate) type ErasedMapEntitiesFn = unsafe fn(message: PtrMut, entity_map: &mut EntityMap);
 
@@ -42,7 +42,7 @@ pub(crate) type ErasedMapEntitiesFn = unsafe fn(message: PtrMut, entity_map: &mu
 unsafe fn erased_serialize<M: Message>(
     message: Ptr,
     writer: &mut BitcodeWriter,
-) -> anyhow::Result<()> {
+) -> bitcode::Result<()> {
     let data = message.deref::<M>();
     M::encode(data, writer)
 }
@@ -97,7 +97,7 @@ impl ErasedSerializeFns {
         &self,
         message: &M,
         writer: &mut BitcodeWriter,
-    ) -> anyhow::Result<()> {
+    ) -> bitcode::Result<()> {
         let ptr = Ptr::from(message);
         (self.serialize)(ptr, writer)
     }
@@ -109,7 +109,7 @@ impl ErasedSerializeFns {
         &self,
         reader: &mut BitcodeReader,
         entity_map: &mut EntityMap,
-    ) -> anyhow::Result<M> {
+    ) -> bitcode::Result<M> {
         let fns = unsafe { self.typed::<M>() };
         let mut message = (fns.deserialize)(reader)?;
         if let Some(map_entities) = self.map_entities {

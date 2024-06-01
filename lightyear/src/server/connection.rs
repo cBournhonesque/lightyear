@@ -1,5 +1,4 @@
 //! Specify how a Server sends/receives messages with a Client
-use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
@@ -28,8 +27,10 @@ use crate::prelude::{
     ShouldBePredicted, TargetEntity,
 };
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
-use crate::protocol::message::{MessageRegistry, MessageType};
+use crate::protocol::component::{
+    ComponentError, ComponentKind, ComponentNetId, ComponentRegistry,
+};
+use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::bitcode::reader::BufferPool;
@@ -38,9 +39,11 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::server::config::{PacketConfig, ReplicationConfig};
+use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
 use crate::server::message::ServerMessage;
 use crate::server::replication::send::ReplicateCache;
+use crate::server::visibility::error::VisibilityError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
@@ -111,7 +114,7 @@ impl ConnectionManager {
     }
 
     /// Return the [`Entity`] associated with the given [`ClientId`]
-    pub fn client_entity(&self, client_id: ClientId) -> Result<Entity> {
+    pub fn client_entity(&self, client_id: ClientId) -> Result<Entity, ServerError> {
         self.connection(client_id).map(|c| c.entity)
     }
 
@@ -125,7 +128,7 @@ impl ConnectionManager {
         &mut self,
         message: &M,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
     }
 
@@ -135,8 +138,10 @@ impl ConnectionManager {
         message: &M,
         room_id: RoomId,
         room_manager: &RoomManager,
-    ) -> Result<()> {
-        let room = room_manager.get_room(room_id).context("room not found")?;
+    ) -> Result<(), ServerError> {
+        let room = room_manager
+            .get_room(room_id)
+            .ok_or::<ServerError>(VisibilityError::RoomIdNotFound(room_id).into())?;
         let target = NetworkTarget::Only(room.clients.iter().copied().collect());
         self.send_message_to_target::<C, M>(message, target)
     }
@@ -146,7 +151,7 @@ impl ConnectionManager {
         &mut self,
         client_id: ClientId,
         message: &M,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
     }
 
@@ -156,7 +161,7 @@ impl ConnectionManager {
         replication_group_id: ReplicationGroupId,
         client_id: ClientId,
         priority: f32,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         debug!(
             ?client_id,
             ?replication_group_id,
@@ -209,16 +214,16 @@ impl ConnectionManager {
         }
     }
 
-    pub fn connection(&self, client_id: ClientId) -> Result<&Connection> {
+    pub fn connection(&self, client_id: ClientId) -> Result<&Connection, ServerError> {
         self.connections
             .get(&client_id)
-            .context("client id not found")
+            .ok_or(ServerError::ClientIdNotFound(client_id))
     }
 
-    pub fn connection_mut(&mut self, client_id: ClientId) -> Result<&mut Connection> {
+    pub fn connection_mut(&mut self, client_id: ClientId) -> Result<&mut Connection, ServerError> {
         self.connections
             .get_mut(&client_id)
-            .context("client id not found")
+            .ok_or(ServerError::ClientIdNotFound(client_id))
     }
 
     pub(crate) fn update(
@@ -279,7 +284,7 @@ impl ConnectionManager {
         message: RawData,
         channel: ChannelKind,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         self.connections
             .iter_mut()
             .filter(|(id, _)| target.targets(id))
@@ -293,11 +298,8 @@ impl ConnectionManager {
         message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
-    ) -> Result<()> {
-        let message_bytes = self
-            .message_registry
-            .serialize(message, &mut self.writer)
-            .context("could not serialize message")?;
+    ) -> Result<(), ServerError> {
+        let message_bytes = self.message_registry.serialize(message, &mut self.writer)?;
         self.buffer_message(message_bytes, channel_kind, target)
     }
 
@@ -309,7 +311,7 @@ impl ConnectionManager {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         let _span = info_span!("buffer_replication_messages").entered();
         self.connections
             .values_mut()
@@ -322,7 +324,7 @@ impl ConnectionManager {
         world: &mut World,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         let mut messages_to_rebroadcast = vec![];
         // TODO: do this in parallel
         self.connections
@@ -362,10 +364,10 @@ impl ConnectionManager {
         component_registry: &ComponentRegistry,
         data: &C,
         bevy_tick: BevyTick,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         let net_id = component_registry
             .get_net_id::<C>()
-            .context(format!("{} is not registered", std::any::type_name::<C>()))?;
+            .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
         let raw_data = component_registry.serialize(data, &mut self.writer)?;
         self.connection_mut(client_id)?
             .replication_sender
@@ -465,15 +467,18 @@ impl Connection {
         self.ping_manager.update(time_manager);
     }
 
-    pub(crate) fn buffer_message(&mut self, message: Vec<u8>, channel: ChannelKind) -> Result<()> {
+    pub(crate) fn buffer_message(
+        &mut self,
+        message: Vec<u8>,
+        channel: ChannelKind,
+    ) -> Result<(), ServerError> {
         // TODO: i know channel names never change so i should be able to get them as static
         // TODO: just have a channel registry enum as well?
         let channel_name = self
             .message_manager
             .channel_registry
             .name(&channel)
-            .unwrap_or("unknown")
-            .to_string();
+            .ok_or::<ServerError>(MessageError::NotRegistered.into())?;
         let message = ServerMessage::Message(message);
         self.writer.start_write();
         message.encode(&mut self.writer)?;
@@ -489,7 +494,7 @@ impl Connection {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         self.replication_sender
             .finalize(tick, bevy_tick)
             .into_iter()
@@ -499,8 +504,7 @@ impl Connection {
                     .message_manager
                     .channel_registry
                     .name(&channel)
-                    .unwrap_or("unknown")
-                    .to_string();
+                    .ok_or::<ServerError>(MessageError::NotRegistered.into())?;
                 let message = ClientMessage::Replication(ReplicationMessage {
                     group_id,
                     data: message_data,
@@ -524,7 +528,7 @@ impl Connection {
             })
     }
 
-    fn send_ping(&mut self, ping: Ping) -> Result<()> {
+    fn send_ping(&mut self, ping: Ping) -> Result<(), ServerError> {
         trace!("Sending ping {:?}", ping);
         self.writer.start_write();
         ServerMessage::Ping(ping).encode(&mut self.writer)?;
@@ -534,7 +538,7 @@ impl Connection {
         Ok(())
     }
 
-    fn send_pong(&mut self, pong: Pong) -> Result<()> {
+    fn send_pong(&mut self, pong: Pong) -> Result<(), ServerError> {
         trace!("Sending pong {:?}", pong);
         self.writer.start_write();
         ServerMessage::Pong(pong).encode(&mut self.writer)?;
@@ -549,7 +553,7 @@ impl Connection {
         &mut self,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> Result<Vec<Payload>> {
+    ) -> Result<Vec<Payload>, ServerError> {
         // update the ping manager with the actual send time
         // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
         //   - can give infinity priority to this channel?
@@ -573,14 +577,14 @@ impl Connection {
                     // update the send time of the pong
                     pong.pong_sent_time = time_manager.current_time();
                     self.send_pong(pong)?;
-                    Ok::<(), anyhow::Error>(())
+                    Ok::<(), ServerError>(())
                 })?;
         }
-        let payloads = self.message_manager.send_packets(tick_manager.tick());
+        let payloads = self.message_manager.send_packets(tick_manager.tick())?;
 
         // update the replication sender about which messages were actually sent, and accumulate priority
         self.replication_sender.recv_send_notification();
-        payloads
+        Ok(payloads)
     }
 
     pub fn receive(
@@ -703,7 +707,7 @@ impl Connection {
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
         delta_manager: &mut DeltaManager,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(packet)?;
         // notify the replication sender that some sent messages were received
@@ -720,7 +724,7 @@ impl ConnectionManager {
         entity: Entity,
         group: &ReplicationGroup,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         let group_id = group.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // trace!(
@@ -742,7 +746,7 @@ impl ConnectionManager {
         kind: ComponentNetId,
         group: &ReplicationGroup,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         let group_id = group.group_id(Some(entity));
         debug!(?entity, ?kind, "Sending RemoveComponent");
         self.apply_replication(target).try_for_each(|client_id| {
@@ -775,7 +779,7 @@ impl ConnectionManager {
         delta_compression: bool,
         tick: Tick,
         bevy_tick: BevyTick,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         // TODO: first check that the target is not empty!
         let group_id = group.group_id(Some(entity));
 
@@ -862,7 +866,7 @@ impl ConnectionManager {
         system_current_tick: BevyTick,
         tick: Tick,
         delta_compression: bool,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         trace!(
             ?kind,
             ?entity,
@@ -880,7 +884,7 @@ impl ConnectionManager {
         let mut num_targets = 0;
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            let replication_sender = &mut self.connections.get_mut(&client_id).context("cannot find connection")?.replication_sender;
+            let replication_sender = &mut self.connections.get_mut(&client_id).ok_or(ServerError::ClientIdNotFound(client_id))?.replication_sender;
             let send_tick = replication_sender
                 .group_channels
                 .entry(group_id)
@@ -917,7 +921,7 @@ impl ConnectionManager {
                     replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick);
                 }
             }
-            Ok::<(), anyhow::Error>(())
+            Ok::<(), ServerError>(())
         })?;
 
         if delta_compression && num_targets > 0 {
@@ -942,11 +946,12 @@ impl ConnectionManager {
 }
 
 impl MessageSend for ConnectionManager {
+    type Error = ServerError;
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
         message: &M,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         self.send_message_to_target::<C, M>(message, target)
     }
 
@@ -955,7 +960,7 @@ impl MessageSend for ConnectionManager {
         message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         self.erased_send_message_to_target(message, channel_kind, target)
     }
 }
@@ -980,6 +985,7 @@ impl ReplicationReceive for ConnectionManager {
 }
 
 impl ReplicationSend for ConnectionManager {
+    type Error = ServerError;
     type ReplicateCache = EntityHashMap<Entity, ReplicateCache>;
 
     fn writer(&mut self) -> &mut BitcodeWriter {
@@ -995,7 +1001,11 @@ impl ReplicationSend for ConnectionManager {
     }
 
     /// Buffer the replication messages
-    fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()> {
+    fn buffer_replication_messages(
+        &mut self,
+        tick: Tick,
+        bevy_tick: BevyTick,
+    ) -> Result<(), ServerError> {
         self.buffer_replication_messages(tick, bevy_tick)
     }
 

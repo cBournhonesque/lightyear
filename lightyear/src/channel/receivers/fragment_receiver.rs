@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
 use bytes::Bytes;
 use tracing::trace;
 
@@ -42,7 +41,7 @@ impl FragmentReceiver {
         fragment: FragmentData,
         remote_sent_tick: Tick,
         current_time: Option<WrappedTime>,
-    ) -> Result<Option<(Tick, Bytes)>> {
+    ) -> Option<(Tick, Bytes)> {
         let fragment_message = self
             .fragment_messages
             .entry(fragment.message_id)
@@ -55,12 +54,12 @@ impl FragmentReceiver {
             fragment.fragment_id as usize,
             fragment.bytes.as_ref(),
             current_time,
-        )? {
+        ) {
             self.fragment_messages.remove(&fragment.message_id);
-            return Ok(Some(payload));
+            return Some(payload);
         }
 
-        Ok(None)
+        None
     }
 }
 
@@ -94,10 +93,11 @@ impl FragmentConstructor {
         fragment_index: usize,
         bytes: &[u8],
         received_time: Option<WrappedTime>,
-    ) -> Result<Option<(Tick, Bytes)>> {
+    ) -> Option<(Tick, Bytes)> {
         self.last_received = received_time;
 
         let is_last_fragment = fragment_index == self.num_fragments - 1;
+
         // TODO: check sizes?
 
         if !self.received[fragment_index] {
@@ -117,10 +117,10 @@ impl FragmentConstructor {
         if self.num_received_fragments == self.num_fragments {
             trace!("Received all fragments!");
             let payload = std::mem::take(&mut self.bytes);
-            return Ok(Some((self.tick, payload.into())));
+            return Some((self.tick, payload.into()));
         }
 
-        Ok(None)
+        None
     }
 }
 
@@ -131,7 +131,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_receiver() -> Result<()> {
+    fn test_receiver() {
         let mut receiver = FragmentReceiver::new();
         let num_bytes = (FRAGMENT_SIZE as f32 * 1.5) as usize;
         let message_bytes = Bytes::from(vec![1u8; num_bytes]);
@@ -139,13 +139,12 @@ mod tests {
             FragmentSender::new().build_fragments(MessageId(0), None, message_bytes.clone());
 
         assert_eq!(
-            receiver.receive_fragment(fragments[0].clone(), Tick(0), None)?,
+            receiver.receive_fragment(fragments[0].clone(), Tick(0), None),
             None
         );
         assert_eq!(
-            receiver.receive_fragment(fragments[1].clone(), Tick(1), None)?,
+            receiver.receive_fragment(fragments[1].clone(), Tick(1), None),
             Some((Tick(0), message_bytes.clone()))
         );
-        Ok(())
     }
 }

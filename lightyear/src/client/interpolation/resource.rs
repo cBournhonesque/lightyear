@@ -1,6 +1,7 @@
 //! Defines bevy resources needed for Interpolation
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::ComponentRegistry;
+use crate::protocol::component::ComponentError;
 use bevy::ecs::reflect::ReflectResource;
 use bevy::prelude::Resource;
 use bevy::reflect::Reflect;
@@ -36,12 +37,12 @@ impl InterpolationManager {
         &self,
         component: &mut C,
         component_registry: &ComponentRegistry,
-    ) {
+    ) -> Result<(), ComponentError> {
         // SAFETY: `EntityMap` isn't mutated during `map_entities`
         unsafe {
             let entity_map = &mut *self.interpolated_entity_map.get();
             component_registry
-                .map_entities::<C>(component, &mut entity_map.confirmed_to_interpolated);
+                .map_entities::<C>(component, &mut entity_map.confirmed_to_interpolated)
         }
     }
 }
