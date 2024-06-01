@@ -96,6 +96,18 @@ mod tests {
 
     #[test]
     fn test_varint_len_1() {
+        // TEST WITH 1
+        let mut writer = vec![];
+
+        let val = 1 as u64;
+        writer.write_varint(val).unwrap();
+        assert_eq!(writer.len(), 1);
+
+        let mut reader = Cursor::new(writer);
+        let read_val = reader.read_varint().unwrap();
+        assert_eq!(val, read_val);
+
+        // TEST WITH 63
         let mut writer = vec![];
 
         let val = 63 as u64;

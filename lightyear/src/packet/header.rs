@@ -412,26 +412,6 @@ mod tests {
         assert_eq!(recv_buffer.get_bitfield(), 1 << (32 - 1));
     }
 
-    // #[test]
-    // fn test_bitcode_serde_header() -> anyhow::Result<()> {
-    //     let header = PacketHeader {
-    //         packet_type: PacketType::Data,
-    //         packet_id: PacketId(27),
-    //         last_ack_packet_id: PacketId(13),
-    //         ack_bitfield: 3,
-    //         tick: Tick(0),
-    //     };
-    //     let mut writer = BitcodeWriter::with_capacity(50);
-    //     writer.encode(&header, Fixed)?;
-    //     let data = writer.finish_write();
-    //
-    //     let mut reader = BitcodeReader::start_read(data);
-    //     let read_header = reader.decode::<PacketHeader>(Fixed)?;
-    //
-    //     assert_eq!(header, read_header);
-    //     Ok(())
-    // }
-
     #[test]
     fn test_serde_header() -> anyhow::Result<()> {
         let header = PacketHeader {
@@ -439,7 +419,7 @@ mod tests {
             packet_id: PacketId(27),
             last_ack_packet_id: PacketId(13),
             ack_bitfield: 3,
-            tick: Tick(0),
+            tick: Tick(6),
         };
         let mut writer = Vec::new();
         header.to_bytes(&mut writer)?;

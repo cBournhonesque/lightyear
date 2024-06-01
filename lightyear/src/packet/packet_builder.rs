@@ -65,7 +65,6 @@ impl PacketBuilder {
     pub(crate) fn build_new_single_packet(
         &mut self,
         current_tick: Tick,
-        channel_id: ChannelId,
     ) -> Result<(), SerializationError> {
         let mut cursor = self.get_new_buffer();
 
@@ -76,7 +75,6 @@ impl PacketBuilder {
         // set the tick at which the packet will be sent
         header.tick = current_tick;
         header.to_bytes(&mut cursor)?;
-        channel_id.to_bytes(&mut cursor)?;
         self.current_packet = Some(Packet {
             payload: cursor,
             message_acks: vec![],
@@ -272,7 +270,7 @@ impl PacketBuilder {
                         .as_mut()
                         .is_some_and(|p| !p.can_fit_channel(channel_id))
                 {
-                    self.build_new_single_packet(current_tick, channel_id)?;
+                    self.build_new_single_packet(current_tick)?;
                 }
                 let mut packet = self.current_packet.take().unwrap();
                 // TODO: this is confusing
@@ -503,7 +501,7 @@ mod tests {
         let channel_kind3 = ChannelKind::of::<Channel3>();
         let channel_id3 = channel_registry.get_net_from_kind(&channel_kind3).unwrap();
 
-        let small_bytes = Bytes::from(vec![0u8; 10]);
+        let small_bytes = Bytes::from(vec![7u8; 10]);
         let small_message = SingleData::new(None, small_bytes.clone());
 
         let mut data = BTreeMap::new();

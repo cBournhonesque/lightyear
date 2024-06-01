@@ -135,7 +135,7 @@ impl ToBytes for SingleData {
             buffer.write_u8(1)?;
             buffer.write_u16::<NetworkEndian>(id.0)?;
         } else {
-            buffer.write_u8(1)?;
+            buffer.write_u8(0)?;
         }
         buffer.write_varint(self.bytes.len() as u64)?;
         buffer.write(self.bytes.as_ref())?;
@@ -222,15 +222,28 @@ mod tests {
 
     #[test]
     fn test_to_bytes_single_data() {
-        let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into());
-        let mut writer = vec![];
-        data.to_bytes(&mut writer).unwrap();
+        {
+            let data = SingleData::new(None, vec![7u8; 10].into());
+            let mut writer = vec![];
+            data.to_bytes(&mut writer).unwrap();
 
-        assert_eq!(writer.len(), data.len());
+            assert_eq!(writer.len(), data.len());
 
-        let mut reader = Cursor::new(writer);
-        let decoded = SingleData::from_bytes(&mut reader).unwrap();
-        assert_eq!(decoded, data);
+            let mut reader = Cursor::new(writer);
+            let decoded = SingleData::from_bytes(&mut reader).unwrap();
+            assert_eq!(decoded, data);
+        }
+        {
+            let data = SingleData::new(Some(MessageId(1)), vec![7u8; 10].into());
+            let mut writer = vec![];
+            data.to_bytes(&mut writer).unwrap();
+
+            assert_eq!(writer.len(), data.len());
+
+            let mut reader = Cursor::new(writer);
+            let decoded = SingleData::from_bytes(&mut reader).unwrap();
+            assert_eq!(decoded, data);
+        }
     }
 
     #[test]
