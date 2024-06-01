@@ -19,13 +19,14 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::varint::varint_len;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::{SerializationError, ToBytes};
-use crate::utils::pool::Reusable;
+use crate::utils::pool::{Reusable, ReusableOwned};
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.
 // pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
 pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize);
 
 pub type Payload = Vec<u8>;
+pub type RecvPayload = ReusableOwned<Vec<u8>>;
 
 /// `PacketBuilder` handles the process of creating a packet (writing the header and packing the
 /// messages into packets)

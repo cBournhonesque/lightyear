@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
+use std::ops::Deref;
 
 use bevy::ptr::UnsafeCellDeref;
 use bevy::reflect::Reflect;
@@ -23,7 +24,7 @@ use crate::packet::message::{
     FragmentData, MessageAck, MessageId, ReceiveMessage, SendMessage, SingleData,
 };
 use crate::packet::packet::{Packet, PacketId, MTU_PAYLOAD_BYTES};
-use crate::packet::packet_builder::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{PacketBuilder, Payload, RecvPayload, PACKET_BUFFER_CAPACITY};
 use crate::packet::packet_type::PacketType;
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::prelude::Channel;
@@ -277,8 +278,8 @@ impl MessageManager {
     /// Update the acks, and put the messages from the packets in internal buffers
     /// Returns the tick of the packet
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn recv_packet(&mut self, packet: Payload) -> Result<Tick, PacketError> {
-        let mut cursor = Cursor::new(&packet);
+    pub fn recv_packet(&mut self, packet: &[u8]) -> Result<Tick, PacketError> {
+        let mut cursor = Cursor::new(packet);
 
         // Step 1. Parse the packet
         let header = PacketHeader::from_bytes(&mut cursor)?;
@@ -469,7 +470,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
-            server_message_manager.recv_packet(payload)?;
+            server_message_manager.recv_packet(&payload)?;
         }
         let mut data = server_message_manager.read_messages();
         assert_eq!(
@@ -505,7 +506,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for payload in payloads {
-            client_message_manager.recv_packet(payload)?;
+            client_message_manager.recv_packet(&payload)?;
         }
 
         // Check that reliability works correctly
@@ -559,7 +560,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
-            server_message_manager.recv_packet(payload)?;
+            server_message_manager.recv_packet(&payload)?;
         }
         let mut data = server_message_manager.read_messages();
         assert_eq!(
@@ -597,7 +598,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for payload in payloads {
-            client_message_manager.recv_packet(payload)?;
+            client_message_manager.recv_packet(&payload)?;
         }
 
         // Check that reliability works correctly
@@ -640,7 +641,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
-            server_message_manager.recv_packet(payload)?;
+            server_message_manager.recv_packet(&payload)?;
         }
 
         // Server sends back a message (to ack the message)
@@ -649,7 +650,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for payload in payloads {
-            client_message_manager.recv_packet(payload)?;
+            client_message_manager.recv_packet(&payload)?;
         }
 
         assert_eq!(update_acks_tracker.try_recv().unwrap(), message_id);

@@ -11,7 +11,7 @@ use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{server::SteamConfig, steamworks_client::SteamworksClient};
 use crate::packet::packet::Packet;
-use crate::packet::packet_builder::Payload;
+use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::prelude::client::ClientTransport;
 use crate::prelude::server::ServerTransport;
 use crate::prelude::LinkConditionerConfig;
@@ -72,7 +72,7 @@ pub trait NetServer: Send + Sync {
     fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError>;
 
     /// Receive a packet from one of the connected clients
-    fn recv(&mut self) -> Option<(Payload, ClientId)>;
+    fn recv(&mut self) -> Option<(RecvPayload, ClientId)>;
 
     /// Send a packet to one of the connected clients
     fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<(), ConnectionError>;
