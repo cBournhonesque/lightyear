@@ -484,6 +484,7 @@ impl Connection {
         Ok(())
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn buffer_replication_messages(
         &mut self,
         tick: Tick,

@@ -142,7 +142,6 @@ impl MessageManager {
     //  was buffered, the user can just include the tick in the message itself.
     /// Buffer a message to be sent on this connection
     /// Returns the message id associated with the message, if there is one
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn buffer_send_with_priority(
         &mut self,
         message: RawData,

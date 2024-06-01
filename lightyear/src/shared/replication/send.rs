@@ -328,7 +328,7 @@ impl ReplicationSender {
 
     /// Host has spawned an entity, and we want to replicate this to remote
     /// Returns true if we should send a message
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
+    // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
         self.pending_actions
             .entry(group_id)
@@ -340,7 +340,7 @@ impl ReplicationSender {
 
     /// Host wants to start replicating an entity, but instead of spawning a new entity, it wants to reuse an existing entity
     /// on the remote. This can be useful for transferring ownership of an entity from one player to another.
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
+    // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_spawn_reuse(
         &mut self,
         local_entity: Entity,
@@ -368,7 +368,7 @@ impl ReplicationSender {
     // we want to send all component inserts that happen together for the same entity in a single message
     // (because otherwise the inserts might be received at different packets/ticks by the remote, and
     // the remote might expect the components insert to be received at the same time)
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
+    // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_component_insert(
         &mut self,
         entity: Entity,

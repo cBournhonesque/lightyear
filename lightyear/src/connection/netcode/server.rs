@@ -7,6 +7,9 @@ use anyhow::{anyhow, Context};
 use bevy::prelude::Resource;
 use tracing::{debug, error, trace};
 
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
+
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::{
@@ -877,6 +880,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// Sends a packet to a client.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`].
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn send(&mut self, buf: &[u8], client_id: ClientId, io: &mut Io) -> Result<()> {
         if buf.len() > MAX_PACKET_SIZE {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
