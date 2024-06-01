@@ -22,6 +22,7 @@ use anyhow::{anyhow, Context};
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
+use futures_util::SinkExt;
 use tracing::{debug, error, trace, trace_span};
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
@@ -136,7 +137,7 @@ pub(crate) fn receive(world: &mut World) {
                                                 for client_id in netserver.new_connections().iter().copied() {
                                                     netservers.client_server_map.insert(client_id, server_idx);
                                                     // spawn an entity for the client
-                                                    let client_entity = world.spawn(ControlledEntities::default()).id();
+                                                    let client_entity = world.spawn((ControlledEntities::default(), Name::new("Client"))).id();
                                                     connection_manager.add(client_id, client_entity);
                                                 }
                                                 // handle disconnections

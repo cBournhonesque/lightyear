@@ -6,7 +6,7 @@ pub(crate) mod transport;
 use crate::transport::error::{Error, Result};
 use crate::transport::io::{BaseIo, IoState};
 use async_channel::{Receiver, Sender};
-use bevy::prelude::{Deref, DerefMut, Real, Res, Resource, Time};
+use bevy::prelude::{Deref, DerefMut, Real, Res, Time};
 use tokio::sync::mpsc;
 
 pub struct IoContext {

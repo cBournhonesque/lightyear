@@ -49,18 +49,18 @@ fn main() {
 
     // build the bevy app (this adds common plugins such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them
-    Apps::new(settings.clone(), cli)
-        // we do not modify the configurations of the plugins, so we can just build
-        // the `ClientPlugins` and `ServerPlugins` plugin groups
-        .add_lightyear_plugins()
+    let mut apps = Apps::new(settings.clone(), cli);
+    // we do not modify the configurations of the plugins, so we can just build
+    // the `ClientPlugins` and `ServerPlugins` plugin groups
+    apps.add_lightyear_plugins()
         // add our plugins
         .add_user_plugins(
             ExampleClientPlugin { settings },
             ExampleServerPlugin,
             SharedPlugin,
-        )
-        // run the app
-        .run();
+        );
+    // run the app
+    apps.run();
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -4,9 +4,8 @@ use async_channel::Receiver;
 use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, SocketAddr};
 
-use bevy::app::{App, Plugin};
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
-use bevy::prelude::{Deref, DerefMut, Real, Res, Resource, Time};
+use bevy::prelude::*;
 #[cfg(feature = "metrics")]
 use metrics;
 use tracing::info;
@@ -32,7 +31,7 @@ pub struct BaseIo<T: Send + Sync> {
 }
 
 // TODO: add stats/compression to middleware
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Reflect)]
 pub struct IoStats {
     pub bytes_sent: usize,
     pub bytes_received: usize,
@@ -156,7 +155,7 @@ impl Plugin for IoDiagnosticsPlugin {
 }
 
 /// Tracks the state of the Io
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Reflect)]
 pub(crate) enum IoState {
     Connecting,
     Connected,
