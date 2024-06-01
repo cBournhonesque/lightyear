@@ -126,6 +126,9 @@ pub(crate) fn replicate_players(
                     // we want the other clients to apply interpolation for the player
                     interpolation: NetworkTarget::AllExceptSingle(client_id),
                 },
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(client_id),
+                },
                 ..default()
             };
             e.insert((
@@ -157,6 +160,9 @@ pub(crate) fn replicate_cursors(
                     // we want the other clients to apply interpolation for the cursor
                     interpolation: NetworkTarget::AllExceptSingle(client_id),
                     ..default()
+                },
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(client_id),
                 },
                 ..default()
             });

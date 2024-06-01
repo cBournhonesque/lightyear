@@ -34,10 +34,9 @@ mod systems {
              client_id: ClientId,
              client_query: &mut Query<&mut ControlledEntities>,
              sender: &ConnectionManager| {
-                trace!(
+                info!(
                     "Adding entity {:?} to client {:?}'s controlled entities",
-                    entity,
-                    client_id
+                    entity, client_id
                 );
                 if let Ok(client_entity) = sender.client_entity(client_id) {
                     if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
@@ -78,12 +77,12 @@ mod systems {
         for event in events.read() {
             // despawn all the controlled entities for the disconnected client
             if let Ok(controlled_entities) = client_query.get(event.entity) {
-                debug!(
+                info!(
                     "Despawning all entities controlled by client {:?}",
                     event.client_id
                 );
                 for entity in controlled_entities.iter() {
-                    debug!(
+                    info!(
                         "Despawning entity {entity:?} controlled by client {:?}",
                         event.client_id
                     );
