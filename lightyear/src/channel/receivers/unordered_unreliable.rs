@@ -2,7 +2,7 @@ use bytes::Bytes;
 use std::collections::VecDeque;
 use tracing::info;
 
-use super::error::Result;
+use crate::channel::receivers::error::ChannelReceiveError;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, ReceiveMessage, SingleData};
@@ -35,7 +35,7 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
             .cleanup(self.current_time - DISCARD_AFTER);
     }
 
-    fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<()> {
+    fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<(), ChannelReceiveError> {
         match message.data {
             MessageData::Single(single) => self
                 .recv_message_buffer
@@ -63,13 +63,15 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
 mod tests {
     use bytes::Bytes;
 
+    use crate::channel::receivers::error::ChannelReceiveError;
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::{MessageId, SingleData};
+    use crate::prelude::PacketError;
 
     use super::*;
 
     #[test]
-    fn test_unordered_unreliable_receiver_internals() -> anyhow::Result<()> {
+    fn test_unordered_unreliable_receiver_internals() -> Result<(), ChannelReceiveError> {
         let mut receiver = UnorderedUnreliableReceiver::new();
 
         let mut single1 = SingleData::new(None, Bytes::from("hello"));

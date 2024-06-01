@@ -1,7 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
-use anyhow::{anyhow, Context};
 use bevy::ptr::UnsafeCellDeref;
 use bevy::reflect::Reflect;
 use bytes::{Buf, Bytes};
@@ -218,7 +217,7 @@ impl MessageManager {
                             .get_kind_from_net_id(*channel_id)
                             .ok_or(PacketError::ChannelNotFound)?,
                     )
-                    .context("Channel not found")?
+                    .ok_or(PacketError::ChannelNotFound)?
                     .sender_stats;
                 channel_stats.add_bytes_sent(data.iter().fold(0, |acc, d| acc + d.bytes.len()));
                 channel_stats.add_fragment_message_sent(data.len());
@@ -610,7 +609,7 @@ mod tests {
     }
 
     #[test]
-    fn test_notify_ack() -> anyhow::Result<()> {
+    fn test_notify_ack() -> Result<(), PacketError> {
         let (mut client_message_manager, mut server_message_manager) = setup();
 
         let update_acks_tracker = client_message_manager
@@ -653,7 +652,7 @@ mod tests {
             client_message_manager.recv_packet(payload)?;
         }
 
-        assert_eq!(update_acks_tracker.try_recv()?, message_id);
+        assert_eq!(update_acks_tracker.try_recv().unwrap(), message_id);
         Ok(())
     }
 }

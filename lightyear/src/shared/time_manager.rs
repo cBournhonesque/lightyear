@@ -189,8 +189,6 @@ impl TimeManager {
 }
 
 mod wrapped_time {
-    use anyhow::Context;
-
     use bitcode::encoding::{Encoding, Fixed};
     use bitcode::read::Read;
     use bitcode::write::Write;

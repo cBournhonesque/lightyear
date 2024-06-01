@@ -1,4 +1,3 @@
-use anyhow::Result;
 use bevy::utils::HashMap;
 use tracing::{error, trace};
 
@@ -118,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cleanup() -> Result<()> {
+    fn test_cleanup() {
         let mut receiver = FragmentAckReceiver::new();
 
         receiver.add_new_fragment_to_wait_for(MessageId(0), 2);
@@ -126,6 +125,5 @@ mod tests {
         assert!(!receiver.receive_fragment_ack(MessageId(0), 0, Some(WrappedTime::new(150))));
         receiver.cleanup(WrappedTime::new(170));
         assert!(receiver.fragment_messages.is_empty());
-        Ok(())
     }
 }

@@ -1,7 +1,6 @@
 //! Defines the plugin related to the client networking (sending and receiving packets).
 use std::ops::DerefMut;
 
-use anyhow::{anyhow, Context, Result};
 use async_channel::TryRecvError;
 use bevy::ecs::schedule::run_enter_schedule;
 use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};

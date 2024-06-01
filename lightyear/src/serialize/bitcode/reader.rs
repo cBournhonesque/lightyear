@@ -4,7 +4,6 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::packet::packet::MTU_PAYLOAD_BYTES;
-use anyhow::Context;
 use bevy::ptr::UnsafeCellDeref;
 use bitcode::buffer::BufferTrait;
 use bitcode::encoding::{Encoding, Fixed};

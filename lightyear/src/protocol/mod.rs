@@ -10,8 +10,6 @@ You can also define additional behaviour for each component (such as how to run 
 
 */
 
-use anyhow::Context;
-
 use bevy::prelude::{App, Resource};
 use bevy::reflect::TypePath;
 use bitcode::encoding::Fixed;

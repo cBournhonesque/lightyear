@@ -1,6 +1,5 @@
 use std::collections::{btree_map, BTreeMap};
 
-use anyhow::anyhow;
 use bytes::Bytes;
 
 use super::error::{ChannelReceiveError, Result};
@@ -92,10 +91,10 @@ mod tests {
     use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
-    use crate::prelude::Tick;
+    use crate::prelude::{PacketError, Tick};
 
     #[test]
-    fn test_ordered_reliable_receiver_internals() -> anyhow::Result<()> {
+    fn test_ordered_reliable_receiver_internals() -> Result<(), PacketError> {
         let mut receiver = OrderedReliableReceiver::new();
 
         let mut single1 = SingleData::new(None, Bytes::from("hello"));

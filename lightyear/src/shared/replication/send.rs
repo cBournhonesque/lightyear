@@ -5,7 +5,6 @@ use std::iter::Extend;
 use std::ptr::NonNull;
 
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
-use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity, Reflect};

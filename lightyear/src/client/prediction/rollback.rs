@@ -772,7 +772,7 @@ mod integration_tests {
     /// - rolling back before the remove should re-add it
     /// We are still able to rollback properly (the rollback adds the component to the predicted entity)
     #[test]
-    fn test_removed_predicted_component_rollback() -> anyhow::Result<()> {
+    fn test_removed_predicted_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();
         // insert component on confirmed
         stepper
@@ -825,7 +825,6 @@ mod integration_tests {
                 .0,
             -6.0
         );
-        Ok(())
     }
 
     /// Test that:
@@ -833,7 +832,7 @@ mod integration_tests {
     /// - we trigger a rollback, and the confirmed entity does not have the component
     /// - the rollback removes the component from the predicted entity
     #[test]
-    fn test_added_predicted_component_rollback() -> anyhow::Result<()> {
+    fn test_added_predicted_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();
 
         // add a new component to Predicted
@@ -855,14 +854,13 @@ mod integration_tests {
             .world
             .get::<Component1>(predicted)
             .is_none());
-        Ok(())
     }
 
     /// Test that:
     /// - a component gets removed from the Confirmed entity, triggering a rollback
     /// - during the rollback, the component gets removed from the Predicted entity
     #[test]
-    fn test_removed_confirmed_component_rollback() -> anyhow::Result<()> {
+    fn test_removed_confirmed_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();
 
         // insert component on confirmed
@@ -905,14 +903,13 @@ mod integration_tests {
             .world
             .get_mut::<Component1>(predicted)
             .is_none());
-        Ok(())
     }
 
     /// Test that:
     /// - a component gets added to the confirmed entity, triggering rollback
     /// - the predicted entity did not have the component, so the rollback adds it
     #[test]
-    fn test_added_confirmed_component_rollback() -> anyhow::Result<()> {
+    fn test_added_confirmed_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();
 
         // check that predicted does not have the component
@@ -940,6 +937,5 @@ mod integration_tests {
             .get_mut::<Component1>(predicted)
             .unwrap()
             .0 = 4.0;
-        Ok(())
     }
 }

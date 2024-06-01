@@ -11,6 +11,7 @@ use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
+use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, DisconnectEvent};
 use crate::server::io::ServerIoEvent;
 use crate::shared::replication::delta::DeltaManager;
@@ -18,7 +19,6 @@ use crate::shared::replication::ReplicationSend;
 use crate::shared::run_conditions::is_disconnected;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use crate::shared::time_manager::is_server_ready_to_send;
-use anyhow::{anyhow, Context};
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
@@ -257,19 +257,19 @@ pub(crate) fn send(
             let netserver_idx = *netservers
                 .client_server_map
                 .get(client_id)
-                .context("could not find server connection corresponding to client id")?;
+                .ok_or(ServerError::ServerConnectionNotFound)?;
             let netserver = netservers
                 .servers
                 .get_mut(netserver_idx)
-                .context("could not find server with the provided netserver idx")?;
+                .ok_or(ServerError::ServerConnectionNotFound)?;
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
                 netserver
                     .send(packet_byte.as_slice(), *client_id)
-                    .context(format!("could not send packet to client: {client_id:?}"))?;
+                    .map_err(|_| ServerError::NetworkConnectionError)?;
             }
             Ok(())
         })
-        .unwrap_or_else(|e: anyhow::Error| {
+        .unwrap_or_else(|e: ServerError| {
             error!("Error sending packets: {}", e);
         });
 

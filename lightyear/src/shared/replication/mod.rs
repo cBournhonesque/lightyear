@@ -2,7 +2,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::{Component, Entity, Resource};

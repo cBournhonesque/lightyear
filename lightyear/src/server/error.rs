@@ -6,6 +6,11 @@ pub type Result<T> = std::result::Result<T, ServerError>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ServerError {
+    // TODO: add a thiserror for network connections
+    #[error("network connection error")]
+    NetworkConnectionError,
+    #[error("could not find the server connection")]
+    ServerConnectionNotFound,
     #[error("client id {0:?} was not found")]
     ClientIdNotFound(ClientId),
     #[error(transparent)]

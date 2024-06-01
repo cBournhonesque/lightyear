@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 
-use anyhow::anyhow;
 use bytes::Bytes;
 
 use super::error::{ChannelReceiveError, Result};
@@ -91,10 +90,10 @@ mod tests {
     use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
-    use crate::prelude::Tick;
+    use crate::prelude::{PacketError, Tick};
 
     #[test]
-    fn test_sequenced_unreliable_receiver_internals() -> anyhow::Result<()> {
+    fn test_sequenced_unreliable_receiver_internals() -> Result<(), PacketError> {
         let mut receiver = SequencedUnreliableReceiver::new();
 
         let mut single1 = SingleData::new(None, Bytes::from("hello"));

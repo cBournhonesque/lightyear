@@ -189,6 +189,7 @@ pub mod prelude {
     #[cfg(feature = "leafwing")]
     pub use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
     pub use crate::inputs::native::UserAction;
+    pub use crate::packet::error::PacketError;
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
     pub use crate::protocol::component::{AppComponentExt, ComponentRegistry, Linear};
@@ -225,6 +226,7 @@ pub mod prelude {
         };
         pub use crate::client::config::{ClientConfig, NetcodeConfig, PacketConfig};
         pub use crate::client::connection::ConnectionManager;
+        pub use crate::client::error::ClientError;
         pub use crate::client::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
@@ -270,6 +272,7 @@ pub mod prelude {
         pub use crate::server::clients::ControlledEntities;
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
         pub use crate::server::connection::ConnectionManager;
+        pub use crate::server::error::ServerError;
         pub use crate::server::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,

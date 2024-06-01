@@ -2,7 +2,6 @@
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use anyhow::Context;
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
 use bevy::utils::HashMap;

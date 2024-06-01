@@ -1,4 +1,3 @@
-use anyhow::Context;
 use bitcode::buffer::BufferTrait;
 use bitcode::encoding::{Encoding, Fixed};
 use bitcode::word_buffer::{WordBuffer, WordWriter};
@@ -90,12 +89,13 @@ impl WriteBuffer for BitcodeWriter {
 mod tests {
     use crate::serialize::bitcode::reader::BitcodeReader;
     use crate::serialize::reader::ReadBuffer;
+    use crate::serialize::SerializationError;
     use bitcode::{Decode, Encode};
 
     #[derive(Encode, Decode)]
     struct A;
     #[test]
-    fn test_write_zst() -> anyhow::Result<()> {
+    fn test_write_zst() -> bitcode::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
 
@@ -110,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_bits() -> anyhow::Result<()> {
+    fn test_write_bits() -> bitcode::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
 
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_multiple_objects() -> anyhow::Result<()> {
+    fn test_write_multiple_objects() -> bitcode::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
         use serde::Serialize;

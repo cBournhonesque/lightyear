@@ -1,6 +1,5 @@
 use std::collections::{btree_map, BTreeMap};
 
-use anyhow::anyhow;
 use bytes::Bytes;
 
 use super::error::{ChannelReceiveError, Result};

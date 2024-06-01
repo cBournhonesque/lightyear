@@ -1,4 +1,3 @@
-use anyhow::Context;
 use bevy::app::PreUpdate;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
@@ -422,7 +421,6 @@ mod prediction {
             let kind = ComponentKind::of::<C>();
             self.prediction_map
                 .get(&kind)
-                .context("the component is not part of the protocol")
                 .map_or(ComponentSyncMode::None, |metadata| metadata.prediction_mode)
         }
 
@@ -430,7 +428,6 @@ mod prediction {
             let kind = ComponentKind::of::<C>();
             self.prediction_map
                 .get(&kind)
-                .context("the component is not part of the protocol")
                 .map_or(false, |metadata| metadata.correction.is_some())
         }
 
@@ -440,8 +437,7 @@ mod prediction {
             let prediction_metadata = self
                 .prediction_map
                 .get(&kind)
-                .context("the component is not part of the protocol")
-                .unwrap();
+                .expect("the component is not part of the protocol");
             let should_rollback_fn: ShouldRollbackFn<C> =
                 unsafe { std::mem::transmute(prediction_metadata.should_rollback) };
             should_rollback_fn(this, that)
@@ -452,8 +448,7 @@ mod prediction {
             let prediction_metadata = self
                 .prediction_map
                 .get(&kind)
-                .context("the component is not part of the protocol")
-                .unwrap();
+                .expect("the component is not part of the protocol");
             let correction_fn: LerpFn<C> =
                 unsafe { std::mem::transmute(prediction_metadata.correction.unwrap()) };
             correction_fn(predicted, corrected, t)
@@ -493,7 +488,6 @@ mod interpolation {
             let kind = ComponentKind::of::<C>();
             self.interpolation_map
                 .get(&kind)
-                .context("the component is not part of the protocol")
                 .map_or(ComponentSyncMode::None, |metadata| {
                     metadata.interpolation_mode
                 })
@@ -503,8 +497,7 @@ mod interpolation {
             let interpolation_metadata = self
                 .interpolation_map
                 .get(&kind)
-                .context("the component is not part of the protocol")
-                .unwrap();
+                .expect("the component is not part of the protocol");
             let interpolation_fn: LerpFn<C> =
                 unsafe { std::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
             interpolation_fn(start, end, t)
@@ -640,11 +633,11 @@ mod delta {
             &self,
             data: Ptr,
             kind: ComponentKind,
-        ) -> anyhow::Result<NonNull<u8>> {
+        ) -> Result<NonNull<u8>, ComponentError> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
-                .context("the component does not have delta fns registered")?;
+                .ok_or(ComponentError::MissingDeltaFns)?;
             Ok((delta_fns.clone)(data))
         }
 
@@ -653,11 +646,11 @@ mod delta {
             &self,
             data: NonNull<u8>,
             kind: ComponentKind,
-        ) -> anyhow::Result<()> {
+        ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
-                .context("the component does not have delta fns registered")?;
+                .ok_or(ComponentError::MissingDeltaFns)?;
             (delta_fns.drop)(data);
             Ok(())
         }

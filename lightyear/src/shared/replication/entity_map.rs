@@ -1,5 +1,4 @@
 //! Map between local and remote entities
-use anyhow::Context;
 use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
 use bevy::prelude::{Component, Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
@@ -68,10 +67,9 @@ impl RemoteEntityMap {
         &mut self,
         world: &'a mut World,
         remote_entity: Entity,
-    ) -> anyhow::Result<EntityWorldMut<'a>> {
+    ) -> Option<EntityWorldMut<'a>> {
         self.get_local(remote_entity)
             .and_then(|e| world.get_entity_mut(*e))
-            .context("Failed to get local entity")
     }
 
     /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
@@ -133,7 +131,7 @@ mod tests {
     // then a component gets removed from that entity on server,
     // that component should also removed on client as well.
     #[test]
-    fn test_replicated_entity_mapping() -> anyhow::Result<()> {
+    fn test_replicated_entity_mapping() {
         let mut stepper = BevyStepper::default();
 
         // Create an entity on server
@@ -193,6 +191,5 @@ mod tests {
                 .unwrap(),
             &Component4(client_entity)
         );
-        Ok(())
     }
 }

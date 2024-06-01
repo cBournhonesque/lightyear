@@ -55,6 +55,7 @@ pub(crate) mod send {
         TargetEntity, TickManager, VisibilityMode,
     };
     use crate::protocol::component::ComponentKind;
+    use crate::server::error::ServerError;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::components::{
         Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
@@ -466,7 +467,7 @@ pub(crate) mod send {
                 // also set the priority for the group when we spawn it
                 sender.connection_mut(client_id)?.replication_sender.update_base_priority(group_id, group.priority());
                 Ok(())
-            }).inspect_err(|e: &anyhow::Error| {
+            }).inspect_err(|e: &ServerError| {
                 error!("error sending entity spawn: {:?}", e);
             });
 
