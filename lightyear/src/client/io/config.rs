@@ -1,6 +1,7 @@
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportBuilderEnum};
 use crate::client::io::{Io, IoContext};
 use crate::prelude::CompressionConfig;
+use crate::transport;
 use crate::transport::config::SharedIoConfig;
 use crate::transport::dummy::DummyIo;
 use crate::transport::error::{Error, Result};
@@ -124,6 +125,15 @@ impl SharedIoConfig<ClientTransport> {
                 let compressor = ZstdCompressor::new(level);
                 sender = Box::new(compressor.wrap(sender));
                 let decompressor = ZstdDecompressor::new();
+                receiver = Box::new(decompressor.wrap(receiver));
+            }
+            #[cfg(feature = "lz4")]
+            CompressionConfig::Lz4 => {
+                let compressor =
+                    crate::transport::middleware::compression::lz4::Compressor::default();
+                sender = Box::new(compressor.wrap(sender));
+                let decompressor =
+                    crate::transport::middleware::compression::lz4::Decompressor::default();
                 receiver = Box::new(decompressor.wrap(receiver));
             }
         }

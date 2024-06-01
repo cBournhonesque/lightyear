@@ -79,7 +79,6 @@ fn run_if_enabled<A: LeafwingUserAction>(config: Res<ToggleActions<A>>) -> bool 
 }
 
 #[derive(Resource)]
-#[reflect(Resource)]
 pub struct ToggleActions<A> {
     /// When this is false, [`ActionState`]'s corresponding to `A` will ignore user inputs
     ///
@@ -101,7 +100,6 @@ impl<A> Default for ToggleActions<A> {
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Copy, Clone, Resource)]
-#[reflect(Resource)]
 pub struct LeafwingInputConfig<A> {
     // TODO: right now the input-delay causes the client timeline to be more in the past than it should be
     //  I'm not sure if we can have different input_delay_ticks per ActionType

@@ -16,6 +16,12 @@ pub enum Error {
     Channel(String),
     #[error("requested by user")]
     UserRequest,
+    #[cfg(feature = "lz4")]
+    #[error("lz4 compression error")]
+    CompressError(#[from] lz4_flex::block::CompressError),
+    #[cfg(feature = "lz4")]
+    #[error("lz4 decompression error")]
+    DecompressError(#[from] lz4_flex::block::DecompressError),
 }
 
 #[allow(unused_qualifications)]
