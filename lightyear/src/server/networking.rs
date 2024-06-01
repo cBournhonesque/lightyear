@@ -22,7 +22,6 @@ use anyhow::{anyhow, Context};
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
-use futures_util::SinkExt;
 use tracing::{debug, error, trace, trace_span};
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
