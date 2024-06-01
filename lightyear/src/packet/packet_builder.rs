@@ -151,6 +151,7 @@ impl PacketBuilder {
     /// - sort the single data messages from smallest to largest
     /// - write the fragment data first. Big fragments take the entire packet. Small fragments have
     ///   some room to spare for small messages
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn build_packets(
         &mut self,
         current_tick: Tick,
