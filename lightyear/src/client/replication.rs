@@ -156,7 +156,7 @@ pub(crate) mod send {
     #[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
     pub struct Replicate {
         /// Marker indicating that the entity should be replicated to the server.
-        /// The replication stops if this component is removed
+        /// If this component is removed, the entity will be despawned on the server.
         pub target: ReplicateToServer,
         /// The replication group defines how entities are grouped (sent as a single message) for replication.
         ///
@@ -168,6 +168,8 @@ pub(crate) mod send {
         /// How should the hierarchy of the entity (parents/children) be replicated?
         pub hierarchy: ReplicateHierarchy,
         /// Marker indicating that we should send replication updates for that entity
+        /// If this entity is removed, we pause replication for that entity.
+        /// (but the entity is not despawned on the server)
         pub replicating: Replicating,
     }
 
@@ -249,7 +251,7 @@ pub(crate) mod send {
     pub(crate) fn send_entity_spawn(
         query: Query<
             (Entity, &ReplicationGroup, Option<&TargetEntity>),
-            (With<Replicating>, Added<ReplicateToServer>),
+            (With<Replicating>, Changed<ReplicateToServer>),
         >,
         mut sender: ResMut<ConnectionManager>,
     ) {
@@ -353,7 +355,10 @@ pub(crate) mod send {
 
                 // send a component_insert for components that were newly added
                 // or if we start replicating the entity
-                if component.is_added() || target.is_added() {
+                // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
+                //  ReplicateToServer components to `changed` on connection so that we replicate existing entities to
+                //  the server
+                if component.is_added() || target.is_changed() {
                     trace!("component is added or replication_target is added");
                     insert = true;
                 } else {

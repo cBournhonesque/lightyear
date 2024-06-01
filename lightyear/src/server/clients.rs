@@ -37,7 +37,7 @@ mod systems {
                 trace!(
                     "Adding entity {:?} to client {:?}'s controlled entities",
                     entity,
-                    client_id
+                    client_id,
                 );
                 if let Ok(client_entity) = sender.client_entity(client_id) {
                     if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {

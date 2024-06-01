@@ -18,6 +18,7 @@ use crate::client::interpolation::Interpolated;
 use crate::client::io::ClientIoEvent;
 use crate::client::networking::utils::AppStateExt;
 use crate::client::prediction::Predicted;
+use crate::client::replication::send::ReplicateToServer;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{
     ClientConnection, ConnectionState, DisconnectReason, NetClient, NetConfig,
@@ -332,7 +333,16 @@ struct HostServerMetadata {
 
 /// System that runs when we enter the Connected state
 /// Updates the ConnectEvent events
-fn on_connect(mut connect_event_writer: EventWriter<ConnectEvent>, netcode: Res<ClientConnection>) {
+fn on_connect(
+    mut connect_event_writer: EventWriter<ConnectEvent>,
+    netcode: Res<ClientConnection>,
+    mut query: Query<&mut ReplicateToServer>,
+) {
+    // Set all the ReplicateToServer ticks to changed, so that we replicate existing entities to the server
+    for mut replicate in query.iter_mut() {
+        // TODO: ideally set is_added instead of simply changed
+        replicate.set_changed();
+    }
     debug!(
         "Running OnConnect schedule with client id: {:?}",
         netcode.id()
