@@ -2,6 +2,7 @@ use bytes::Bytes;
 use std::collections::VecDeque;
 use tracing::info;
 
+use super::error::Result;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, ReceiveMessage, SingleData};
@@ -34,7 +35,7 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
             .cleanup(self.current_time - DISCARD_AFTER);
     }
 
-    fn buffer_recv(&mut self, message: ReceiveMessage) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<()> {
         match message.data {
             MessageData::Single(single) => self
                 .recv_message_buffer
@@ -45,7 +46,7 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
                     fragment,
                     message.remote_sent_tick,
                     Some(self.current_time),
-                )? {
+                ) {
                     self.recv_message_buffer.push_back(data);
                 }
             }

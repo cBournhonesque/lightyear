@@ -40,9 +40,9 @@ pub(crate) mod serialize;
 
 /// Something that can be serialized bit by bit
 pub trait BitSerializable {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()>;
+    fn encode(&self, writer: &mut impl WriteBuffer) -> bitcode::Result<()>;
 
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> bitcode::Result<Self>
     where
         Self: Sized;
 }
@@ -52,11 +52,11 @@ impl<T> BitSerializable for T
 where
     T: Serialize + DeserializeOwned,
 {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut impl WriteBuffer) -> bitcode::Result<()> {
         writer.serialize(self)
     }
 
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> bitcode::Result<Self>
     where
         Self: Sized,
     {

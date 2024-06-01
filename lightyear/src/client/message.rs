@@ -85,14 +85,14 @@ pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
 }
 
 impl BitSerializable for ClientMessage {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
-        writer.encode(self, Fixed).context("could not encode")
+    fn encode(&self, writer: &mut impl WriteBuffer) -> bitcode::Result<()> {
+        writer.encode(self, Fixed)
     }
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut impl ReadBuffer) -> bitcode::Result<Self>
     where
         Self: Sized,
     {
-        reader.decode::<Self>(Fixed).context("could not decode")
+        reader.decode::<Self>(Fixed)
     }
 }
 

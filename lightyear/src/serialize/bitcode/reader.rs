@@ -118,25 +118,24 @@ impl ReadBuffer for BitcodeReader {
     //     // })
     // }
 
-    fn deserialize<T: DeserializeOwned>(&mut self) -> anyhow::Result<T> {
+    fn deserialize<T: DeserializeOwned>(&mut self) -> bitcode::Result<T> {
         self.with_dependent_mut(|_, reader| {
             let reader = reader
                 .0
                 .as_mut()
                 .map_or_else(|| panic!("no reader"), |(reader, _)| reader);
-            let with_gamma =
-                OnlyGammaDecode::<T>::decode(Fixed, reader).context("error deserializing")?;
+            let with_gamma = OnlyGammaDecode::<T>::decode(Fixed, reader)?;
             Ok(with_gamma.0)
         })
     }
 
-    fn decode<T: Decode>(&mut self, encoding: impl Encoding) -> anyhow::Result<T> {
+    fn decode<T: Decode>(&mut self, encoding: impl Encoding) -> bitcode::Result<T> {
         self.with_dependent_mut(|_, reader| {
             let reader = reader
                 .0
                 .as_mut()
                 .map_or_else(|| panic!("no reader"), |(reader, _)| reader);
-            T::decode(encoding, reader).context("error decoding")
+            T::decode(encoding, reader)
         })
     }
 
@@ -154,10 +153,12 @@ impl ReadBuffer for BitcodeReader {
         )
     }
 
-    fn finish_read(&mut self) -> anyhow::Result<()> {
+    fn finish_read(&mut self) -> bitcode::Result<()> {
         self.with_dependent_mut(|_, reader| {
-            let (reader, context) = std::mem::take(reader).0.context("no reader")?;
-            WordBuffer::finish_read(reader, context).context("error finishing read")
+            let Some((reader, context)) = std::mem::take(reader).0 else {
+                panic!("no reader");
+            };
+            WordBuffer::finish_read(reader, context)
         })
     }
 }

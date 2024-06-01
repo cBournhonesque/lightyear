@@ -38,6 +38,16 @@ use crate::server::message::add_client_to_server_message;
 use crate::shared::replication::entity_map::EntityMap;
 use crate::shared::replication::resources::DespawnResource;
 
+#[derive(thiserror::Error, Debug)]
+pub enum MessageError {
+    #[error("message is not registered in the protocol")]
+    NotRegistered,
+    #[error("missing serialization functions for message")]
+    MissingSerializationFns,
+    #[error(transparent)]
+    Bitcode(#[from] bitcode::Error),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MessageType {
     /// This is a message for a [`LeafwingUserAction`](crate::inputs::leafwing::LeafwingUserAction)
@@ -302,12 +312,12 @@ impl MessageRegistry {
         &self,
         message: &M,
         writer: &mut BitcodeWriter,
-    ) -> anyhow::Result<RawData> {
+    ) -> Result<RawData, MessageError> {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
             .serialize_fns_map
             .get(&kind)
-            .context("the message is not part of the protocol")?;
+            .ok_or(MessageError::MissingSerializationFns)?;
         let net_id = self.kind_map.net_id(&kind).unwrap();
         writer.start_write();
         writer.encode(net_id, Fixed)?;
@@ -322,15 +332,18 @@ impl MessageRegistry {
         &self,
         reader: &mut BitcodeReader,
         entity_map: &mut EntityMap,
-    ) -> anyhow::Result<M> {
+    ) -> Result<M, MessageError> {
         let net_id = reader.decode::<NetId>(Fixed)?;
-        let kind = self.kind_map.kind(net_id).context("unknown message kind")?;
+        let kind = self
+            .kind_map
+            .kind(net_id)
+            .ok_or(MessageError::NotRegistered)?;
         let erased_fns = self
             .serialize_fns_map
             .get(kind)
-            .context("the message is not part of the protocol")?;
+            .ok_or(MessageError::MissingSerializationFns)?;
         // SAFETY: the ErasedSerializeFns was created for the type M
-        unsafe { erased_fns.deserialize(reader, entity_map) }
+        unsafe { erased_fns.deserialize(reader, entity_map) }.map_err(Into::into)
     }
 }
 

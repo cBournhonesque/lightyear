@@ -143,6 +143,7 @@ pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
 ///
 /// The trait is made public because it is needed in the macros
 pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
+    type Error: std::error::Error;
     type ReplicateCache;
     fn writer(&mut self) -> &mut BitcodeWriter;
 
@@ -161,7 +162,11 @@ pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     /// Then those 2 component inserts might be stored in different packets, and arrive at different times because of jitter
     ///
     /// But the receiving systems might expect both components to be present at the same time.
-    fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
+    fn buffer_replication_messages(
+        &mut self,
+        tick: Tick,
+        bevy_tick: BevyTick,
+    ) -> Result<(), Self::Error>;
 
     /// Do some regular cleanup on the internals of replication
     /// - account for tick wrapping by resetting some internal ticks for each replication group

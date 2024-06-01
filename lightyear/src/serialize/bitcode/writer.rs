@@ -34,19 +34,17 @@ impl WriteBuffer for BitcodeWriter {
     // }
 
     // TODO: define actual error types so users can distinguish between the two
-    fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()> {
+    fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> bitcode::Result<()> {
         let with_gamma = OnlyGammaEncode::<T>(t);
-        with_gamma
-            .encode(Fixed, &mut self.writer)
-            .context("error serializing")
-        // if self.overflowed() {
-        //     bail!("buffer overflowed")
-        // }
+        with_gamma.encode(Fixed, &mut self.writer)
     }
 
-    fn encode<T: Encode + ?Sized>(&mut self, t: &T, encoding: impl Encoding) -> anyhow::Result<()> {
+    fn encode<T: Encode + ?Sized>(
+        &mut self,
+        t: &T,
+        encoding: impl Encoding,
+    ) -> bitcode::Result<()> {
         t.encode(encoding, &mut self.writer)
-            .context("error encoding")
     }
 
     fn with_capacity(capacity: usize) -> Self {

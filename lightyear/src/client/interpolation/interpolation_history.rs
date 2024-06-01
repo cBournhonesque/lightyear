@@ -103,10 +103,10 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                     let history = ConfirmedHistory::<C>::new();
                     // map any entities from confirmed to interpolated
                     let mut new_component = confirmed_component.deref().clone();
-                    manager.map_entities(&mut new_component, component_registry.as_ref());
+                    let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
                     match component_registry.interpolation_mode::<C>() {
                         ComponentSyncMode::Full => {
-                            trace!(?interpolated_entity, tick=?tick_manager.tick(),  "spawn interpolation history");
+                            trace!(?interpolated_entity, tick=?tick_manager.tick(), "spawn interpolation history");
                             interpolated_entity_mut.insert((
                                 // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
                                 //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
@@ -162,7 +162,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
 
                     // map any entities from confirmed to predicted
                     let mut component = confirmed_component.deref().clone();
-                    manager.map_entities(&mut component, component_registry.as_ref());
+                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
                     trace!(?kind, tick = ?tick, "adding confirmed update to history");
                     // update the history at the value that the entity currently is
                     history.buffer.push(tick, component);
@@ -188,7 +188,7 @@ pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
                     // for sync-components, we just match the confirmed component
                     // map any entities from confirmed to interpolated first
                     let mut component = confirmed_component.deref().clone();
-                    manager.map_entities(&mut component, component_registry.as_ref());
+                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
                     *interpolated_component = component;
                 }
             }

@@ -18,6 +18,7 @@ use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 #[cfg(feature = "trace")]
 use crate::channel::stats::send::ChannelSendStats;
+use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{
     FragmentData, MessageAck, MessageId, ReceiveMessage, SendMessage, SingleData,
@@ -126,7 +127,7 @@ impl MessageManager {
         &mut self,
         message: Vec<u8>,
         channel_kind: ChannelKind,
-    ) -> anyhow::Result<Option<MessageId>> {
+    ) -> Result<Option<MessageId>, PacketError> {
         self.buffer_send_with_priority(message, channel_kind, DEFAULT_MESSAGE_PRIORITY)
     }
 
@@ -147,11 +148,11 @@ impl MessageManager {
         message: RawData,
         channel_kind: ChannelKind,
         priority: f32,
-    ) -> anyhow::Result<Option<MessageId>> {
+    ) -> Result<Option<MessageId>, PacketError> {
         let channel = self
             .channels
             .get_mut(&channel_kind)
-            .context("Channel not found")?;
+            .ok_or(PacketError::ChannelNotFound)?;
         Ok(channel.sender.buffer_send(message.into(), priority))
     }
 
@@ -160,7 +161,7 @@ impl MessageManager {
     //  (ticks are not purely necessary without client prediction)
     //  maybe be generic over a Context ?
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn send_packets(&mut self, current_tick: Tick) -> anyhow::Result<Vec<Payload>> {
+    pub fn send_packets(&mut self, current_tick: Tick) -> Result<Vec<Payload>, PacketError> {
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
@@ -170,7 +171,7 @@ impl MessageManager {
             let channel_id = self
                 .channel_registry
                 .get_net_from_kind(channel_kind)
-                .context("cannot find channel id")?;
+                .ok_or(PacketError::ChannelNotFound)?;
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
                 let (single_data, fragment_data) = channel.sender.send_packet();
@@ -202,9 +203,9 @@ impl MessageManager {
                     .get_mut(
                         self.channel_registry
                             .get_kind_from_net_id(*channel_id)
-                            .context("channel not found")?,
+                            .ok_or(PacketError::ChannelNotFound)?,
                     )
-                    .context("Channel not found")?
+                    .ok_or(PacketError::ChannelNotFound)?
                     .sender_stats;
                 channel_stats.add_bytes_sent(data.iter().fold(0, |acc, d| acc + d.bytes.len()));
                 channel_stats.add_single_message_sent(data.len());
@@ -215,7 +216,7 @@ impl MessageManager {
                     .get_mut(
                         self.channel_registry
                             .get_kind_from_net_id(*channel_id)
-                            .context("channel not found")?,
+                            .ok_or(PacketError::ChannelNotFound)?,
                     )
                     .context("Channel not found")?
                     .sender_stats;
@@ -239,18 +240,18 @@ impl MessageManager {
                     let channel_kind = self
                         .channel_registry
                         .get_kind_from_net_id(channel_id)
-                        .context("cannot find channel kind")?;
+                        .ok_or(PacketError::ChannelNotFound)?;
                     let channel = self
                         .channels
                         .get(channel_kind)
-                        .context("Channel not found")?;
+                        .ok_or(PacketError::ChannelNotFound)?;
                     if channel.setting.mode.is_watching_acks() {
                         self.packet_to_message_ack_map
                             .entry(packet.packet_id)
                             .or_default()
                             .push((*channel_kind, message_ack));
                     }
-                    Ok::<(), anyhow::Error>(())
+                    Ok::<(), PacketError>(())
                 })?;
 
             // Step 3. Get the packets to send over the network
@@ -277,11 +278,11 @@ impl MessageManager {
     /// Update the acks, and put the messages from the packets in internal buffers
     /// Returns the tick of the packet
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn recv_packet(&mut self, packet: Payload) -> anyhow::Result<Tick> {
+    pub fn recv_packet(&mut self, packet: Payload) -> Result<Tick, PacketError> {
         let mut cursor = Cursor::new(&packet);
 
         // Step 1. Parse the packet
-        let header = PacketHeader::from_bytes(&mut cursor).context("could not serialize")?;
+        let header = PacketHeader::from_bytes(&mut cursor)?;
         let tick = header.tick;
         trace!(?packet, "Received packet");
 
@@ -305,7 +306,7 @@ impl MessageManager {
                     let channel = self
                         .channels
                         .get_mut(&channel_kind)
-                        .context("Channel not found")?;
+                        .ok_or(PacketError::ChannelNotFound)?;
                     channel.sender.receive_ack(&message_ack);
                 }
             }
@@ -316,9 +317,8 @@ impl MessageManager {
         // TODO: maybe do this in a helper function?
         if header.get_packet_type() == PacketType::DataFragment {
             // read the fragment data
-            let channel_id = ChannelId::from_bytes(&mut cursor).context("could not serialize")?;
-            let fragment_data =
-                FragmentData::from_bytes(&mut cursor).context("could not serialize")?;
+            let channel_id = ChannelId::from_bytes(&mut cursor)?;
+            let fragment_data = FragmentData::from_bytes(&mut cursor)?;
             self.get_channel_mut(channel_id)?
                 .receiver
                 .buffer_recv(ReceiveMessage {
@@ -328,11 +328,10 @@ impl MessageManager {
         }
         // read single message data
         while cursor.has_remaining() {
-            let channel_id = ChannelId::from_bytes(&mut cursor).context("could not serialize")?;
+            let channel_id = ChannelId::from_bytes(&mut cursor)?;
             let num_messages = cursor.read_varint()?;
             for i in 0..num_messages {
-                let single_data =
-                    SingleData::from_bytes(&mut cursor).context("could not serialize")?;
+                let single_data = SingleData::from_bytes(&mut cursor)?;
                 self.get_channel_mut(channel_id)?
                     .receiver
                     .buffer_recv(ReceiveMessage {
@@ -383,16 +382,14 @@ impl MessageManager {
     pub fn get_channel_mut(
         &mut self,
         channel_id: ChannelId,
-    ) -> anyhow::Result<&mut ChannelContainer> {
+    ) -> Result<&mut ChannelContainer, PacketError> {
         let channel_kind = self
             .channel_registry
             .get_kind_from_net_id(channel_id)
-            .context(format!(
-                "Could not recognize net_id {channel_id:?} as a channel",
-            ))?;
+            .ok_or(PacketError::ChannelNotFound)?;
         self.channels
             .get_mut(channel_kind)
-            .ok_or_else(|| anyhow!("Channel not found"))
+            .ok_or(PacketError::ChannelNotFound)
     }
 
     /// Get the ChannelSendStats of a given channel
@@ -443,7 +440,7 @@ mod tests {
 
     #[test]
     /// We want to test that we can send/receive messages over a connection
-    fn test_message_manager_single_message() -> Result<(), anyhow::Error> {
+    fn test_message_manager_single_message() -> Result<(), PacketError> {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::TRACE)
@@ -522,11 +519,7 @@ mod tests {
 
     #[test]
     /// We want to test that we can send/receive messages over a connection
-    fn test_message_manager_fragment_message() -> Result<(), anyhow::Error> {
-        // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_span_events(FmtSpan::ENTER)
-        //     .with_max_level(tracing::Level::TRACE)
-        //     .init();
+    fn test_message_manager_fragment_message() -> Result<(), PacketError> {
         let (mut client_message_manager, mut server_message_manager) = setup();
 
         // client: buffer send messages, and then send

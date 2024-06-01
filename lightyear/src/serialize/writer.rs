@@ -8,9 +8,10 @@ pub trait WriteBuffer {
     /// There is no padding when we serialize a value (i.e. it's possible to add a single bit
     /// to the buffer)
 
-    fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()>;
+    fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> bitcode::Result<()>;
 
-    fn encode<T: Encode + ?Sized>(&mut self, t: &T, encoding: impl Encoding) -> anyhow::Result<()>;
+    fn encode<T: Encode + ?Sized>(&mut self, t: &T, encoding: impl Encoding)
+        -> bitcode::Result<()>;
 
     fn with_capacity(capacity: usize) -> Self;
 

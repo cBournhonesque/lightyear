@@ -210,19 +210,15 @@ mod wrapped_time {
     }
 
     impl BitSerializable for WrappedTime {
-        fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
-            writer
-                .encode(self, Fixed)
-                .context("error encoding WrappedTime")
+        fn encode(&self, writer: &mut impl WriteBuffer) -> bitcode::Result<()> {
+            writer.encode(self, Fixed)
         }
 
-        fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+        fn decode(reader: &mut impl ReadBuffer) -> bitcode::Result<Self>
         where
             Self: Sized,
         {
-            reader
-                .decode::<Self>(Fixed)
-                .context("error decoding WrappedTime")
+            reader.decode::<Self>(Fixed)
         }
     }
 
