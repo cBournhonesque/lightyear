@@ -1,3 +1,4 @@
+/// Defines the [`Packet`] struct
 use anyhow::Context;
 use bytes::{Buf, Bytes};
 use std::collections::{BTreeMap, HashMap};
@@ -10,6 +11,7 @@ use bitcode::encoding::{Fixed, Gamma};
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
+use crate::packet::packet;
 use crate::packet::packet_builder::Payload;
 use crate::packet::packet_type::PacketType;
 use crate::protocol::channel::ChannelId;

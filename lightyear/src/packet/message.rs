@@ -1,5 +1,4 @@
-//! Module that defines the [`Message`] trait along with some internal wrappers around messages
-//! that we send and receive
+/// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
 use std::fmt::Debug;
 use std::io::Seek;
 
@@ -9,6 +8,7 @@ use bytes::{BufMut, Bytes};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::packet::message;
 use bitcode::encoding::{Fixed, Gamma};
 
 use crate::packet::packet::FRAGMENT_SIZE;
