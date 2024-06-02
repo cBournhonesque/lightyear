@@ -3,7 +3,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
 use bevy::ptr::Ptr;
-use bevy::utils::{HashMap, HashSet};
+use bevy::utils::{Duration, HashMap, HashSet};
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
 use tracing::{debug, info, info_span, trace, trace_span};
@@ -460,6 +460,14 @@ impl Connection {
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_rebroadcast: vec![],
         }
+    }
+
+    pub fn rtt(&self) -> Duration {
+        self.ping_manager.rtt()
+    }
+
+    pub fn jitter(&self) -> Duration {
+        self.ping_manager.jitter()
     }
 
     pub(crate) fn update(

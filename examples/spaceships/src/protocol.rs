@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
@@ -139,7 +140,21 @@ impl PhysicsBundle {
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-pub struct PlayerId(pub ClientId);
+pub struct Player {
+    pub client_id: ClientId,
+    pub rtt: Duration,
+    pub jitter: Duration,
+}
+
+impl Player {
+    pub fn new(client_id: ClientId) -> Self {
+        Self {
+            client_id,
+            rtt: Duration::ZERO,
+            jitter: Duration::ZERO,
+        }
+    }
+}
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
@@ -213,52 +228,49 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        // Player is synced as Simple, because we periodically update rtt ping stats
+        app.register_component::<Player>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple);
 
-        app.register_component::<Name>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once);
 
-        app.register_component::<BallMarker>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<Name>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once);
 
-        app.register_component::<BulletMarker>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<BallMarker>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once);
 
-        app.register_component::<Lifetime>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<BulletMarker>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once);
 
-        // just replicate Weapon once - depending on applying PlayerActions to update the cooldown
-        // and firing for now?
-        app.register_component::<Weapon>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<Lifetime>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once);
 
-        // correction_fn used to smear rollback errors just for the rendering part in postudpate
-        app.register_component::<Position>(ChannelDirection::Bidirectional)
+        app.register_component::<Weapon>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once);
+
+        app.register_component::<LinearVelocity>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full);
+
+        app.register_component::<AngularVelocity>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full);
+
+        // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
+        // over a few frames, just for the rendering part in postudpate.
+        //
+        // They also set `interpolation_fn` which is used by the VisualInterpolationPlugin to smooth
+        // out rendering between fixedupdate ticks.
+        app.register_component::<Position>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation_fn(position::lerp)
             .add_correction_fn(position::lerp);
 
-        app.register_component::<Rotation>(ChannelDirection::Bidirectional)
+        app.register_component::<Rotation>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full)
+            .add_interpolation_fn(rotation::lerp)
             .add_correction_fn(rotation::lerp);
-
-        // NOTE: interpolation/correction is only needed for components that are visually displayed!
-        // we still need prediction to be able to correctly predict the physics on the client
-        app.register_component::<LinearVelocity>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Full);
-
-        app.register_component::<AngularVelocity>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Full);
 
         // channels
         app.add_channel::<Channel1>(ChannelSettings {

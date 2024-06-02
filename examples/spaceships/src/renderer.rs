@@ -1,10 +1,15 @@
 use std::f32::consts::PI;
 use std::f32::consts::TAU;
+use std::time::Duration;
 
+use crate::entity_label::*;
 /// Renders entities using gizmos to draw outlines
 use crate::protocol::*;
 use crate::shared::*;
 use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
+use bevy_screen_diagnostics::ScreenEntityDiagnosticsPlugin;
+use bevy_screen_diagnostics::ScreenFrameDiagnosticsPlugin;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use bevy_xpbd_2d::parry::shape::{Ball, SharedShape};
 use bevy_xpbd_2d::prelude::*;
@@ -29,11 +34,14 @@ pub struct SpaceshipsRendererPlugin;
 impl Plugin for SpaceshipsRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init_camera);
+        app.insert_resource(ClearColor(Color::DARK_GRAY));
         let draw_shadows = false;
         // draw after interpolation is done
         app.add_systems(
             PostUpdate,
             (
+                add_visual_components,
+                update_visual_components,
                 draw_walls,
                 draw_confirmed_shadows.run_if(move || draw_shadows),
                 draw_predicted_entities,
@@ -43,13 +51,69 @@ impl Plugin for SpaceshipsRendererPlugin {
                 .after(InterpolationSet::Interpolate)
                 .after(PredictionSet::VisualCorrection),
         );
+
         app.add_systems(Startup, setup_diagnostic);
         app.add_plugins(ScreenDiagnosticsPlugin::default());
+        app.add_plugins(ScreenEntityDiagnosticsPlugin);
+        app.add_plugins(ScreenFrameDiagnosticsPlugin);
+        app.add_plugins(EntityLabelPlugin {
+            config: EntityLabelConfig {
+                font: "fonts/quicksand-light.ttf".to_owned(),
+            },
+        });
+        // probably want to avoid using this on server, if server gui enabled
+        app.add_plugins(VisualInterpolationPlugin::<Position>::default());
+        app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
     }
 }
 
 fn init_camera(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
+}
+
+// add visual interp components on client predicted entities
+fn add_visual_components(
+    mut commands: Commands,
+    q: Query<
+        Entity,
+        (
+            With<Predicted>,
+            With<Player>,
+            Added<Collider>,
+            Without<VisualInterpolateStatus<Position>>,
+            Without<VisualInterpolateStatus<Rotation>>,
+        ),
+    >,
+) {
+    for e in q.iter() {
+        info!("Adding visual bits to {e:?}");
+        commands.entity(e).insert((
+            VisibilityBundle::default(),
+            TransformBundle::default(),
+            EntityLabel {
+                text: format!("{e:?}"),
+                color: Color::ANTIQUE_WHITE.with_a(0.8),
+                offset: Vec2::Y * -40.0,
+                ..Default::default()
+            },
+            VisualInterpolateStatus::<Position>::default(),
+            VisualInterpolateStatus::<Rotation>::default(),
+        ));
+    }
+}
+
+// update the labels when the player rtt/jitter is updated by the server
+fn update_visual_components(
+    mut q: Query<(Entity, &Player, &mut EntityLabel), Changed<Player>>,
+    tick_manager: Res<TickManager>,
+) {
+    for (e, player, mut label) in q.iter_mut() {
+        label.sub_text = format!(
+            "rtt: {}ms ~{}ms",
+            player.rtt.as_millis(),
+            player.jitter.as_millis()
+        );
+    }
 }
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
@@ -92,13 +156,13 @@ pub(crate) fn draw_confirmed_shadows(
     mut gizmos: Gizmos,
     confirmed_q: Query<
         (&Position, &Rotation, &LinearVelocity, &Confirmed),
-        Or<(With<PlayerId>, With<BallMarker>, With<BulletMarker>)>,
+        Or<(With<Player>, With<BallMarker>, With<BulletMarker>)>,
     >,
     predicted_q: Query<
         (&Position, &Collider, &ColorComponent),
         (
             With<Predicted>,
-            Or<(With<PlayerId>, With<BallMarker>, With<BulletMarker>)>,
+            Or<(With<Player>, With<BallMarker>, With<BulletMarker>)>,
         ),
     >,
 ) {
@@ -166,7 +230,7 @@ fn draw_predicted_entities(
     }
 }
 
-fn draw_walls(walls: Query<&Wall, Without<PlayerId>>, mut gizmos: Gizmos) {
+fn draw_walls(walls: Query<&Wall, Without<Player>>, mut gizmos: Gizmos) {
     for wall in &walls {
         gizmos.line_2d(wall.start, wall.end, Color::WHITE);
     }
@@ -179,7 +243,7 @@ fn draw_confirmed_entities(
     mut gizmos: Gizmos,
     confirmed: Query<
         (&Position, &Rotation, &ColorComponent, &Collider),
-        Or<(With<PlayerId>, With<BallMarker>, With<BulletMarker>)>,
+        Or<(With<Player>, With<BallMarker>, With<BulletMarker>)>,
     >,
 ) {
     for (position, rotation, color, collider) in &confirmed {

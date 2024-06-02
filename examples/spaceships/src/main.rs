@@ -11,6 +11,7 @@ use lightyear_examples_common::settings::{read_settings, Settings};
 use serde::{Deserialize, Serialize};
 
 mod client;
+mod entity_label;
 mod protocol;
 mod renderer;
 mod server;

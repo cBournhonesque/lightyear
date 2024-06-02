@@ -1,10 +1,12 @@
 use std::f32::consts::TAU;
 
 use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 use bevy::utils::HashMap;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
+use lightyear::client::connection;
 use lightyear::inputs::leafwing::InputMessage;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
@@ -48,6 +50,23 @@ impl Plugin for ExampleServerPlugin {
                 .chain()
                 .in_set(FixedSet::Main),
         );
+
+        app.add_systems(
+            Update,
+            update_player_metrics.run_if(on_timer(Duration::from_secs(1))),
+        );
+    }
+}
+
+fn update_player_metrics(
+    connection_manager: Res<ConnectionManager>,
+    mut q: Query<(Entity, &mut Player)>,
+) {
+    for (_e, mut player) in q.iter_mut() {
+        if let Ok(connection) = connection_manager.connection(player.client_id) {
+            player.rtt = connection.rtt();
+            player.jitter = connection.jitter();
+        }
     }
 }
 
@@ -81,7 +100,7 @@ fn init(mut commands: Commands) {
 }
 
 /// Read inputs and move players
-pub(crate) fn player_movement(mut q: Query<ApplyInputsQuery, With<PlayerId>>) {
+pub(crate) fn player_movement(mut q: Query<ApplyInputsQuery, With<Player>>) {
     for aiq in q.iter_mut() {
         shared_movement_behaviour(aiq);
     }
@@ -110,7 +129,7 @@ pub(crate) fn replicate_inputs(
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
     mut commands: Commands,
-    all_players: Query<Entity, With<PlayerId>>,
+    all_players: Query<Entity, With<Player>>,
 ) {
     for connection in connections.read() {
         let client_id = connection.client_id;
@@ -139,7 +158,7 @@ pub(crate) fn handle_connections(
         // spawn the player with ActionState - the client will add their own InputMap
         let player_ent = commands
             .spawn((
-                PlayerId(client_id),
+                Player::new(client_id),
                 Name::new("Player"),
                 ActionState::<PlayerActions>::default(),
                 Position(Vec2::new(x, y)),

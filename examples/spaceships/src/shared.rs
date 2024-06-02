@@ -73,7 +73,7 @@ impl Plugin for SharedPlugin {
         app.add_systems(FixedUpdate, lifetime_despawner.in_set(FixedSet::Main));
 
         // registry types for reflection
-        app.register_type::<PlayerId>();
+        app.register_type::<Player>();
     }
 }
 
@@ -160,10 +160,7 @@ pub fn shared_player_firing(
             &mut Weapon,
             Has<Controlled>,
         ),
-        (
-            With<PlayerId>,
-            Or<(With<Predicted>, With<ReplicationTarget>)>,
-        ),
+        (With<Player>, Or<(With<Predicted>, With<ReplicationTarget>)>),
     >,
     mut commands: Commands,
     tick_manager: Res<TickManager>,
@@ -189,7 +186,7 @@ pub fn shared_player_firing(
         // bullet will despawn after a given number of frames
         let lifetime = Lifetime {
             origin_tick: tick_manager.tick(),
-            lifetime: 64 * 3,
+            lifetime: FIXED_TIMESTEP_HZ as i16 * 2, // 2 secs
         };
 
         // bullet spawns just in front of the nose of the ship, in the direction the ship is facing,
@@ -256,7 +253,7 @@ pub(crate) fn after_physics_log(
     rollback: Option<Res<Rollback>>,
     players: Query<
         (Entity, &Position, &Rotation),
-        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
+        (Without<BallMarker>, Without<Confirmed>, With<Player>),
     >,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
@@ -287,7 +284,7 @@ pub(crate) fn last_log(
             Option<&Correction<Position>>,
             Option<&Correction<Rotation>>,
         ),
-        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
+        (Without<BallMarker>, Without<Confirmed>, With<Player>),
     >,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {

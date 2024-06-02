@@ -119,7 +119,7 @@ fn add_bullet_physics(
 fn handle_new_player(
     connection: Res<ClientConnection>,
     mut commands: Commands,
-    mut player_query: Query<(Entity, Has<Controlled>), (Added<Predicted>, With<PlayerId>)>,
+    mut player_query: Query<(Entity, Has<Controlled>), (Added<Predicted>, With<Player>)>,
 ) {
     for (entity, is_controlled) in player_query.iter_mut() {
         // is this our own entity?
@@ -148,7 +148,7 @@ fn handle_new_player(
 }
 
 // only apply movements to predicted entities
-fn player_movement(mut q: Query<ApplyInputsQuery, (With<PlayerId>, With<Predicted>)>) {
+fn player_movement(mut q: Query<ApplyInputsQuery, (With<Player>, With<Predicted>)>) {
     for aiq in q.iter_mut() {
         shared_movement_behaviour(aiq);
     }
