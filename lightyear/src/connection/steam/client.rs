@@ -1,4 +1,3 @@
-use crate::client::networking::NetworkingState;
 use crate::connection::client::{ConnectionError, ConnectionState, DisconnectReason, NetClient};
 use crate::connection::id::ClientId;
 use crate::packet::packet_builder::Payload;
@@ -6,21 +5,17 @@ use crate::prelude::client::Io;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
-use bevy::reflect::Reflect;
-use bevy::tasks::IoTaskPool;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::{Arc, OnceLock};
-use steamworks::networking_sockets::{InvalidHandle, NetConnection, NetworkingSockets};
+use std::sync::Arc;
+use steamworks::networking_sockets::{InvalidHandle, NetConnection};
 use steamworks::networking_types::{
-    NetConnectionEnd, NetConnectionInfo, NetworkingConfigEntry, NetworkingConfigValue,
-    NetworkingConnectionState, NetworkingIdentity, SendFlags,
+    NetConnectionEnd, NetConnectionInfo, NetworkingConnectionState, NetworkingIdentity, SendFlags,
 };
-use steamworks::{ClientManager, SingleClient, SteamError, SteamId};
-use tracing::{info, warn};
+use steamworks::{ClientManager, SteamError, SteamId};
+use tracing::info;
 
-use super::get_networking_options;
 use super::steamworks_client::SteamworksClient;
 
 const MAX_MESSAGE_BATCH_SIZE: usize = 512;

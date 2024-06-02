@@ -1,4 +1,3 @@
-use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::{
@@ -8,20 +7,16 @@ use crate::packet::packet_builder::Payload;
 use crate::prelude::LinkConditionerConfig;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::io::Io;
-use crate::transport::LOCAL_SOCKET;
 use bevy::utils::HashMap;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use steamworks::networking_sockets::{ListenSocket, NetConnection};
-use steamworks::networking_types::{
-    ListenSocketEvent, NetConnectionEnd, NetworkingConfigEntry, NetworkingConfigValue, SendFlags,
-};
-use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SingleClient, SteamError};
+use steamworks::networking_types::{ListenSocketEvent, NetConnectionEnd, SendFlags};
+use steamworks::{ClientManager, ServerMode, SteamError};
 use tracing::{error, info};
 
-use super::get_networking_options;
 use super::steamworks_client::SteamworksClient;
 
 #[derive(Debug, Clone)]
