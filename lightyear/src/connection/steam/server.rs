@@ -140,7 +140,7 @@ impl NetServer for Server {
                 let server_addr = SocketAddr::new(server_ip.into(), game_port);
                 self.listen_socket = Some(
                     self.steamworks_client
-                        .read()
+                        .try_read()
                         .expect("could not get steamworks client")
                         .get_client()
                         .networking_sockets()
@@ -151,7 +151,7 @@ impl NetServer for Server {
             SocketConfig::P2P { virtual_port } => {
                 self.listen_socket = Some(
                     self.steamworks_client
-                        .read()
+                        .try_read()
                         .expect("could not get steamworks client")
                         .get_client()
                         .networking_sockets()
@@ -195,7 +195,7 @@ impl NetServer for Server {
 
     fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
         self.steamworks_client
-            .write()
+            .try_write()
             .expect("could not get steamworks client")
             .get_single()
             .run_callbacks();

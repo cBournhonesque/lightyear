@@ -86,7 +86,7 @@ impl Client {
     fn connection_info(&self) -> Option<Result<NetConnectionInfo, ConnectionError>> {
         self.connection.as_ref().map(|connection| {
             self.steamworks_client
-                .read()
+                .try_read()
                 .expect("could not get steamworks client")
                 .get_client()
                 .networking_sockets()
@@ -97,9 +97,10 @@ impl Client {
 
     fn connection_state(&self) -> Result<NetworkingConnectionState, ConnectionError> {
         self.connection_info()
-            .unwrap_or(SteamError::NoConnection.into())
+            .unwrap_or(Err(SteamError::NoConnection.into()))
             .map_or(Ok(NetworkingConnectionState::None), |info| {
-                info.state().into()
+                info.state()
+                    .map_err(|err| ConnectionError::SteamInvalidState(err))
             })
     }
 }
@@ -113,7 +114,7 @@ impl NetClient for Client {
             SocketConfig::Ip { server_addr } => {
                 self.connection = Some(
                     self.steamworks_client
-                        .read()
+                        .try_read()
                         .expect("could not get steamworks client")
                         .get_client()
                         .networking_sockets()
@@ -130,7 +131,7 @@ impl NetClient for Client {
             } => {
                 self.connection = Some(
                     self.steamworks_client
-                        .read()
+                        .try_read()
                         .expect("could not get steamworks client")
                         .get_client()
                         .networking_sockets()
@@ -174,7 +175,7 @@ impl NetClient for Client {
 
     fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
         self.steamworks_client
-            .write()
+            .try_write()
             .expect("could not get steamworks single client")
             .get_single()
             .run_callbacks();
@@ -223,7 +224,7 @@ impl NetClient for Client {
     fn id(&self) -> ClientId {
         ClientId::Steam(
             self.steamworks_client
-                .read()
+                .try_read()
                 .expect("could not get steamworks client")
                 .get_client()
                 .user()
