@@ -1,11 +1,10 @@
 use bevy::app::{App, Plugin};
 use bevy::prelude::Component;
 use bevy::utils::default;
-use derive_more::{Add, Mul};
 use lightyear::client::components::ComponentSyncMode;
 use lightyear::client::prediction::plugin::add_prediction_systems;
 use serde::{Deserialize, Serialize};
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 
 use lightyear::prelude::*;
 
@@ -17,7 +16,7 @@ pub struct Message1(pub String);
 pub struct Message2(pub u32);
 
 // Components
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Component1(pub f32);
 
 impl Mul<f32> for &Component1 {
@@ -25,6 +24,14 @@ impl Mul<f32> for &Component1 {
 
     fn mul(self, rhs: f32) -> Self::Output {
         Component1(self.0 * rhs)
+    }
+}
+
+impl Add<Component1> for Component1 {
+    type Output = Self;
+
+    fn add(self, rhs: Component1) -> Self::Output {
+        Component1(self.0 + rhs.0)
     }
 }
 

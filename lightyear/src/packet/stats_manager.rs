@@ -1,19 +1,37 @@
 /// Statistics for packets
 pub(crate) mod packet {
     use bevy::utils::Duration;
-    use derive_more::{AddAssign, SubAssign};
+    use std::ops::{AddAssign, SubAssign};
     use tracing::trace;
 
     use crate::shared::time_manager::{TimeManager, WrappedTime};
     use crate::utils::ready_buffer::ReadyBuffer;
     type PacketStatsBuffer = ReadyBuffer<WrappedTime, PacketStats>;
 
-    #[derive(Default, Copy, Clone, Debug, PartialEq, AddAssign, SubAssign)]
+    #[derive(Default, Copy, Clone, Debug, PartialEq)]
     struct PacketStats {
         num_sent_packets: u32,
         num_sent_packets_acked: u32,
         num_sent_packets_lost: u32,
         num_received_packets: u32,
+    }
+
+    impl AddAssign for PacketStats {
+        fn add_assign(&mut self, other: Self) {
+            self.num_sent_packets += other.num_sent_packets;
+            self.num_sent_packets_acked += other.num_sent_packets_acked;
+            self.num_sent_packets_lost += other.num_sent_packets_lost;
+            self.num_received_packets += other.num_received_packets;
+        }
+    }
+
+    impl SubAssign for PacketStats {
+        fn sub_assign(&mut self, other: Self) {
+            self.num_sent_packets -= other.num_sent_packets;
+            self.num_sent_packets_acked -= other.num_sent_packets_acked;
+            self.num_sent_packets_lost -= other.num_sent_packets_lost;
+            self.num_received_packets -= other.num_received_packets;
+        }
     }
 
     #[derive(Default)]

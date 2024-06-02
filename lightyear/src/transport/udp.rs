@@ -128,6 +128,7 @@ impl PacketReceiver for UdpSocketBuffer {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[cfg(test)]
 mod tests {
     use std::net::SocketAddr;

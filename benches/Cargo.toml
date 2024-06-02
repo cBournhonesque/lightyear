@@ -17,7 +17,6 @@ lightyear = { path = "../lightyear" }
 criterion = { version = "0.3", features = ["html_reports"] }
 crossbeam-channel = "0.5.10"
 bevy = { version = "0.13", features = ["bevy_core_pipeline"] }
-derive_more = { version = "0.99", features = ["add", "mul"] }
 divan = "0.1.14"
 serde = { version = "1.0.188", features = ["derive"] }
 

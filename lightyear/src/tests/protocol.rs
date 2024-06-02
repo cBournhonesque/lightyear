@@ -1,11 +1,10 @@
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect, Resource};
 use bevy::utils::HashSet;
 use cfg_if::cfg_if;
-use derive_more::{Add, Mul};
 use lightyear_macros::ChannelInternal;
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +20,7 @@ pub struct Message1(pub String);
 pub struct Message2(pub u32);
 
 // Components
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Component1(pub f32);
 
 impl Mul<f32> for &Component1 {
@@ -31,10 +30,18 @@ impl Mul<f32> for &Component1 {
     }
 }
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul, Reflect)]
+impl Add<Component1> for Component1 {
+    type Output = Self;
+
+    fn add(self, rhs: Component1) -> Self::Output {
+        Component1(self.0 + rhs.0)
+    }
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Component2(pub f32);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Component3(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
@@ -46,13 +53,21 @@ impl MapEntities for Component4 {
     }
 }
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Component5(pub f32);
 
 impl Mul<f32> for &Component5 {
     type Output = Component5;
     fn mul(self, rhs: f32) -> Self::Output {
         Component5(self.0 * rhs)
+    }
+}
+
+impl Add<Self> for Component5 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
     }
 }
 
@@ -104,10 +119,10 @@ impl Diffable for Component7 {
 }
 
 // Resources
-#[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
+#[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct Resource1(pub f32);
 
-#[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
+#[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct Resource2(pub f32);
 
 // Inputs
