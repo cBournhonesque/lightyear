@@ -43,9 +43,9 @@ You will have to define your protocol in a shared module that is accessible to b
 since the protocol must be shared between them.
 
 There are several steps:
-- [Adding messages](MessageRegistry#adding-messages)
-- [Adding components](ComponentRegistry#adding-components)
-- [Adding channels](ChannelRegistry#adding-channels)
+- [Adding messages](prelude::MessageRegistry#adding-messages)
+- [Adding components](prelude::ComponentRegistry#adding-components)
+- [Adding channels](prelude::ChannelRegistry#adding-channels)
 - [Adding leafwing inputs](client::input::leafwing#adding-leafwing-inputs) or [Adding inputs](client::input::native#adding-a-new-input-type)
 
 ## Using lightyear
@@ -158,6 +158,10 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 }
 ```
 
+[`Replicated`]: prelude::Replicated
+[`ReplicationTarget`]: prelude::ReplicationTarget
+[`Replicating`]: prelude::Replicating
+[`SharedConfig`]: prelude::SharedConfig
  */
 #![allow(unused_variables)]
 #![allow(dead_code)]

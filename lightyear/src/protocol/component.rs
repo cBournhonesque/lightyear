@@ -76,7 +76,7 @@ pub enum ComponentError {
 /// There are some cases where you might want to define additional behaviour for a component.
 ///
 /// #### Entity Mapping
-/// If the component contains [`Entities`](Entity), you need to specify how those entities
+/// If the component contains [`Entities`](bevy::prelude::Entity), you need to specify how those entities
 /// will be mapped from the remote world to the local world.
 ///
 /// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by

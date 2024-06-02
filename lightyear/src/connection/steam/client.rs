@@ -8,9 +8,10 @@ use crate::serialize::bitcode::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use bevy::reflect::Reflect;
 use bevy::tasks::IoTaskPool;
+use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 use steamworks::networking_sockets::{InvalidHandle, NetConnection, NetworkingSockets};
 use steamworks::networking_types::{
     NetConnectionEnd, NetConnectionInfo, NetworkingConfigEntry, NetworkingConfigValue,

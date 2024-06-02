@@ -109,10 +109,9 @@ impl<C> Default for DeltaCompression<C> {
     }
 }
 
-// TODO: should these be sparse set or not?
 /// If this component is present, we won't replicate the component
 ///
-/// (By default, all components that are present in the [`ComponentRegistry`] will be replicated.)
+/// (By default, all components that are present in the [`ComponentRegistry`](crate::prelude::ComponentRegistry) will be replicated.)
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct DisabledComponent<C> {
@@ -259,7 +258,7 @@ pub enum VisibilityMode {
     /// We will replicate this entity to the clients specified in the `replication_target`.
     /// On top of that, we will apply interest management logic to determine which clients should receive the entity
     ///
-    /// You can use [`gain_visibility`](VisibilityManager::gain_visibility) and [`lose_visibility`](VisibilityManager::lose_visibility)
+    /// You can use [`gain_visibility`](crate::prelude::server::VisibilityManager::gain_visibility) and [`lose_visibility`](crate::prelude::server::VisibilityManager::lose_visibility)
     /// to control the visibility of entities.
     /// You can also use the [`RoomManager`](crate::prelude::server::RoomManager)
     ///

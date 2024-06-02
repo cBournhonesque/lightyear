@@ -10,9 +10,10 @@ use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::io::Io;
 use crate::transport::LOCAL_SOCKET;
 use bevy::utils::HashMap;
+use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use steamworks::networking_sockets::{ListenSocket, NetConnection};
 use steamworks::networking_types::{
     ListenSocketEvent, NetConnectionEnd, NetworkingConfigEntry, NetworkingConfigValue, SendFlags,

@@ -1,6 +1,8 @@
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 use enum_dispatch::enum_dispatch;
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -10,6 +12,8 @@ use crate::connection::id::ClientId;
 use crate::connection::steam::{server::SteamConfig, steamworks_client::SteamworksClient};
 use crate::packet::packet_builder::Payload;
 use crate::prelude::server::ServerTransport;
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
+use crate::prelude::LinkConditionerConfig;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::Io;
 use crate::transport::config::SharedIoConfig;
