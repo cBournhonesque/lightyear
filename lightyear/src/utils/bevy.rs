@@ -1,13 +1,9 @@
 //! Implement lightyear traits for some common bevy types
-use std::ops::Mul;
 
-use bevy::ecs::entity::{EntityHashSet, MapEntities};
-use bevy::hierarchy::Parent;
-use bevy::prelude::{Children, Entity, EntityMapper, Transform};
-use tracing::{info, trace};
+use bevy::prelude::{Transform};
+use tracing::{trace};
 
-use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
-use crate::prelude::Message;
+use crate::client::components::{LerpFn};
 
 pub struct TransformLinearInterpolation;
 

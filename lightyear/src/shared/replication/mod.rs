@@ -3,30 +3,25 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHashMap;
-use bevy::prelude::{Component, Entity, Resource};
+use bevy::prelude::{Entity, Resource};
 use bevy::reflect::Map;
 use bevy::utils::HashSet;
 use serde::{Deserialize, Serialize};
 
 use bitcode::{Decode, Encode};
-use network_target::NetworkTarget;
 
-use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{ReplicationGroup, Tick};
-use crate::protocol::component::{ComponentNetId, ComponentRegistry};
+use crate::prelude::{Tick};
 use crate::protocol::registry::NetId;
 use crate::protocol::EventContext;
 use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::shared::events::connection::{
     ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
-use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
+use crate::shared::replication::components::{ReplicationGroupId};
 
 pub mod components;
 

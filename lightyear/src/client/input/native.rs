@@ -44,27 +44,22 @@
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
 use bevy::prelude::{
-    not, App, Condition, EventReader, EventWriter, Events, FixedPostUpdate, FixedPreUpdate, In,
+    not, App, Condition, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate,
     IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
 };
 use bevy::reflect::Reflect;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
 use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::rollback::Rollback;
 use crate::client::sync::{client_is_synced, SyncSet};
-use crate::connection::client::NetClient;
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::{InputMessage, UserAction};
-use crate::prelude::client::ClientConnection;
-use crate::prelude::{
-    is_host_server, server, AppMessageExt, ChannelDirection, SharedConfig, Tick, TickManager,
-};
-use crate::shared::config::Mode;
+use crate::inputs::native::UserAction;
+use crate::prelude::{is_host_server, Tick, TickManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 

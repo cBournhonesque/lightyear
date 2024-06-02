@@ -1,13 +1,9 @@
-use crate::prelude::{Message, Tick};
+use crate::prelude::{Tick};
 use crate::protocol::component::ComponentKind;
-use crate::protocol::serialize::ErasedMapEntitiesFn;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::shared::replication::delta::{DeltaMessage, DeltaType, Diffable};
 use bevy::prelude::Component;
 use bevy::ptr::{Ptr, PtrMut};
 use std::any::TypeId;
-use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
 type ErasedCloneFn = unsafe fn(data: Ptr) -> NonNull<u8>;

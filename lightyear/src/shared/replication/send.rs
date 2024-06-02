@@ -1,32 +1,25 @@
 //! General struct handling replication
-use std::any::Any;
-use std::collections::BTreeMap;
 use std::iter::Extend;
-use std::ptr::NonNull;
 
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{Component, Entity, Reflect};
-use bevy::ptr::{OwningPtr, Ptr, PtrMut};
-use bevy::utils::petgraph::data::ElementIterator;
-use bevy::utils::{hashbrown, HashMap, HashSet};
+use bevy::prelude::Entity;
+use bevy::ptr::Ptr;
+use bevy::utils::{hashbrown, HashMap};
 use crossbeam_channel::Receiver;
-use hashbrown::hash_map::Entry;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
 use crate::packet::message::MessageId;
-use crate::prelude::{ComponentRegistry, ShouldBePredicted, Tick};
+use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::{ComponentKind, ComponentNetId};
-use crate::protocol::registry::NetId;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::RawData;
 use crate::shared::replication::components::ReplicationGroupId;
-use crate::shared::replication::delta::{DeltaManager, Diffable};
-use crate::utils::ready_buffer::ReadyBuffer;
+use crate::shared::replication::delta::DeltaManager;
 
 use super::{
     EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData, SpawnAction,
@@ -590,12 +583,13 @@ impl Default for GroupChannel {
 mod tests {
     use crate::channel::builder::EntityActionsChannel;
     use crate::prelude::server::Replicate;
-    use crate::prelude::{ClientId, ReplicationGroup};
+    use crate::prelude::ClientId;
     use crate::server::connection::ConnectionManager;
-    use crate::shared::replication::components::ReplicationGroupIdBuilder;
-    use crate::tests::protocol::{Component1, Component6};
+
+    use crate::tests::protocol::Component1;
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::prelude::*;
+    use bevy::utils::HashSet;
 
     use super::*;
 

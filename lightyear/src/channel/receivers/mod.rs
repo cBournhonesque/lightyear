@@ -2,7 +2,6 @@ use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
 
 use crate::packet::message::ReceiveMessage;
-use crate::packet::message::SingleData;
 use crate::prelude::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;

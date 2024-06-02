@@ -1,27 +1,17 @@
 /// Defines the [`Packet`] struct
-use bytes::{Buf, Bytes};
-use std::collections::{BTreeMap, HashMap};
-use std::io::Cursor;
-
-use serde::Serialize;
-
-use bitcode::encoding::{Fixed, Gamma};
-
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeader;
-use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
-use crate::packet::packet;
+use crate::packet::message::{FragmentData, MessageAck, SingleData};
 use crate::packet::packet_builder::Payload;
 use crate::packet::packet_type::PacketType;
 use crate::prelude::PacketError;
 use crate::protocol::channel::ChannelId;
-use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::reader::ReadBuffer;
 use crate::serialize::varint::VarIntReadExt;
-use crate::serialize::writer::WriteBuffer;
 use crate::serialize::ToBytes;
 use crate::utils::wrapping_id::wrapping_id;
+use bytes::{Buf, Bytes};
+use std::collections::HashMap;
+use std::io::Cursor;
 
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
@@ -80,7 +70,8 @@ impl Packet {
     }
 
     /// For tests, parse the packet so that we can inspect the contents
-    #[cfg(test)]
+    /// For production, parse the packets directly into messages to not allocate
+    /// an intermediary data structure
     pub(crate) fn parse_packet_payload(
         &mut self,
     ) -> Result<HashMap<ChannelId, Vec<Bytes>>, PacketError> {
@@ -111,19 +102,10 @@ impl Packet {
 #[cfg(test)]
 mod tests {
     use bevy::prelude::{default, Reflect};
-    use bytes::Bytes;
 
-    use bitcode::encoding::Gamma;
     use lightyear_macros::ChannelInternal;
 
-    use crate::packet::message::{FragmentData, MessageId, SingleData};
-    use crate::packet::packet_builder::PacketBuilder;
     use crate::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};
-    use crate::protocol::channel::ChannelKind;
-    use crate::serialize::bitcode::reader::BitcodeReader;
-    use crate::serialize::bitcode::writer::BitcodeWriter;
-
-    use super::*;
 
     #[derive(ChannelInternal, Reflect)]
     struct Channel1;

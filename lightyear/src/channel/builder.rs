@@ -1,6 +1,4 @@
 //! This module contains the [`Channel`] trait
-use bevy::prelude::TypePath;
-use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 
 use lightyear_macros::ChannelInternal;

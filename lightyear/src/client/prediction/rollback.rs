@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicU16, Ordering};
 
 use bevy::app::FixedMain;
 use bevy::ecs::entity::EntityHashSet;
@@ -13,14 +12,13 @@ use bevy::reflect::Reflect;
 use parking_lot::RwLock;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::client::SyncMetadata;
 use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, Tick, TickManager};
 
 use super::predicted_history::PredictionHistory;
@@ -567,11 +565,11 @@ pub(super) mod test_utils {
 mod unit_tests {
     use super::test_utils::*;
     use super::*;
-    use crate::shared::tick_manager::increment_tick;
+    
     use crate::tests::protocol::Component1;
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::ecs::system::RunSystemOnce;
-    use std::time::Duration;
+    
 
     // TODO: check that if A is updated but B is not, and A and B are in the same replication group,
     //  then we need to check the rollback for B as well!
@@ -726,7 +724,7 @@ mod integration_tests {
     use bevy::prelude::*;
 
     use crate::prelude::client::*;
-    use crate::prelude::*;
+    
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

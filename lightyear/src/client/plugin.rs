@@ -19,8 +19,6 @@ use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::{
     receive::ClientReplicationReceivePlugin, send::ClientReplicationSendPlugin,
 };
-use crate::prelude::server::{ServerConfig, ServerPlugins};
-use crate::shared::config::Mode;
 use crate::shared::plugin::SharedPlugin;
 
 use super::config::{ClientConfig, ReplicationConfig};

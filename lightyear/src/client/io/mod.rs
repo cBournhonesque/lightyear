@@ -6,8 +6,7 @@ pub(crate) mod transport;
 use crate::transport::error::{Error, Result};
 use crate::transport::io::{BaseIo, IoState};
 use async_channel::{Receiver, Sender};
-use bevy::prelude::{Deref, DerefMut, Real, Res, Time};
-use tokio::sync::mpsc;
+use bevy::prelude::{Deref, DerefMut};
 
 pub struct IoContext {
     pub(crate) event_sender: Option<ClientNetworkEventSender>,

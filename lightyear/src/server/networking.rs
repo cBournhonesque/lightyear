@@ -1,11 +1,7 @@
 //! Defines the server bevy systems and run conditions
-use crate::client::config::ClientConfig;
-use crate::connection::client::{ClientConnection, NetClient};
-use crate::connection::server::{
-    IoConfig, NetConfig, NetServer, ServerConnection, ServerConnections,
-};
+use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::{
-    is_started, ChannelRegistry, MainSet, MessageRegistry, Mode, TickManager, TimeManager,
+    is_started, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
@@ -14,15 +10,12 @@ use crate::server::connection::ConnectionManager;
 use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, DisconnectEvent};
 use crate::server::io::ServerIoEvent;
-use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::ReplicationSend;
-use crate::shared::run_conditions::is_disconnected;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use crate::shared::time_manager::is_server_ready_to_send;
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
-use tracing::{debug, error, trace, trace_span};
+use tracing::{debug, error, trace};
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
 #[derive(Default)]

@@ -8,7 +8,6 @@ use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::io::IoState;
 use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
-use async_channel::Receiver;
 
 use super::error::Result;
 

@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
+    Commands, Component, DetectChanges, Entity, Query, Ref, Res, With, Without,
 };
 use tracing::{debug, trace};
 

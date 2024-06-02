@@ -1,9 +1,8 @@
 //! Map between local and remote entities
-use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
-use bevy::prelude::{Component, Deref, DerefMut, Entity, EntityWorldMut, World};
+use bevy::ecs::entity::{EntityHashMap, EntityMapper};
+use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use bevy::utils::hashbrown::hash_map::Entry;
-use std::cell::UnsafeCell;
 
 #[derive(Default, Debug, Reflect, Deref, DerefMut)]
 pub struct EntityMap(pub(crate) EntityHashMap<Entity>);
@@ -120,7 +119,7 @@ impl RemoteEntityMap {
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
+    
 
     use crate::prelude::server::Replicate;
     use crate::prelude::*;

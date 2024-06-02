@@ -10,17 +10,11 @@ You can also define additional behaviour for each component (such as how to run 
 
 */
 
-use bevy::prelude::{App, Resource};
-use bevy::reflect::TypePath;
-use bitcode::encoding::Fixed;
-use bitcode::{Decode, Encode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::channel::builder::{Channel, ChannelSettings};
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::shared::replication::ReplicationSend;
 
 /// Defines the various channels that can be used to send data over the network
 pub(crate) mod channel;

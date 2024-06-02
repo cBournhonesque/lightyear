@@ -1,10 +1,9 @@
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportBuilderEnum};
 use crate::client::io::{Io, IoContext};
 use crate::prelude::CompressionConfig;
-use crate::transport;
 use crate::transport::config::SharedIoConfig;
 use crate::transport::dummy::DummyIo;
-use crate::transport::error::{Error, Result};
+use crate::transport::error::{Result};
 use crate::transport::io::{BaseIo, IoStats};
 use crate::transport::local::LocalChannelBuilder;
 #[cfg(feature = "zstd")]

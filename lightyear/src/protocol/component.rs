@@ -1,54 +1,44 @@
-use bevy::app::PreUpdate;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug};
 use std::hash::Hash;
 use std::ops::{Add, Mul};
 
 use bevy::prelude::{
-    App, Component, DetectChangesMut, Entity, EntityMapper, EntityWorldMut, IntoSystemConfigs,
-    Resource, TypePath, World,
+    App, Component, EntityWorldMut,
+    Resource, TypePath,
 };
 use bevy::ptr::Ptr;
-use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
-use cfg_if::cfg_if;
 
 use bitcode::encoding::Fixed;
 use bitcode::Encode;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, trace};
 
-use crate::client::components::{ComponentSyncMode, SyncMetadata};
+use crate::client::components::{ComponentSyncMode};
 use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::prediction::plugin::add_prediction_systems;
 use crate::prelude::client::SyncComponent;
-use crate::prelude::server::{ServerConfig, ServerPlugins};
+use crate::prelude::server::{ServerConfig};
 use crate::prelude::{
-    client, server, AppMessageExt, ChannelDirection, Message, MessageRegistry,
-    PreSpawnedPlayerObject, RemoteEntityMap, ReplicateResourceMetadata, Tick,
+    ChannelDirection, Message, Tick,
 };
 use crate::protocol::delta::ErasedDeltaFns;
-use crate::protocol::message::{MessageKind, MessageRegistration, MessageType};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::ErasedSerializeFns;
-use crate::protocol::{BitSerializable, EventContext};
+use crate::protocol::{BitSerializable};
 use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
 use crate::shared::events::connection::{
-    ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    ConnectionEvents,
 };
-use crate::shared::replication::components::ShouldBePredicted;
-use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
 use crate::shared::replication::delta::{DeltaMessage, Diffable};
 use crate::shared::replication::entity_map::EntityMap;
-use crate::shared::replication::ReplicationSend;
-use crate::shared::sets::InternalMainSet;
 
 pub type ComponentNetId = NetId;
 
@@ -602,9 +592,9 @@ mod replication {
 
 mod delta {
     use super::*;
-    use crate::prelude::client::ConfirmedHistory;
+    
     use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
-    use bevy::ptr::PtrMut;
+    
     use std::ptr::NonNull;
 
     impl ComponentRegistry {

@@ -1,14 +1,12 @@
-use std::marker::PhantomData;
 
 use bevy::prelude::{
-    apply_deferred, not, App, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
+    not, App, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
-use crate::client::config::ClientConfig;
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
@@ -25,8 +23,7 @@ use crate::client::prediction::prespawn::{
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
-use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{is_connected, is_host_server, PreSpawnedPlayerObject, SharedConfig};
+use crate::prelude::{is_connected, is_host_server, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};

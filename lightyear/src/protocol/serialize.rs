@@ -1,9 +1,6 @@
 use crate::prelude::{
-    AppMessageExt, ChannelDirection, ComponentRegistry, Message, MessageRegistry,
-    ReplicateResourceMetadata,
+    ComponentRegistry, Message, MessageRegistry,
 };
-use crate::protocol::message::MessageType;
-use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::bitcode::writer::BitcodeWriter;
@@ -12,9 +9,7 @@ use crate::serialize::writer::WriteBuffer;
 use crate::shared::replication::entity_map::EntityMap;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::Resource;
 use bevy::ptr::{Ptr, PtrMut};
-use bitcode::__private::Fixed;
 use std::any::TypeId;
 
 // TODO: maybe instead of MessageFns, use an erased trait objects? like dyn ErasedSerialize + ErasedDeserialize ?

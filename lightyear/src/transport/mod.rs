@@ -11,9 +11,8 @@ use crate::client::io::transport::ClientTransportEnum;
 use crate::server::io::transport::ServerTransportEnum;
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
-use crate::transport::io::IoState;
-use crate::transport::local::{LocalChannel, LocalChannelBuilder};
-use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
+use crate::transport::local::{LocalChannel};
+use crate::transport::udp::{UdpSocket};
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]

@@ -6,7 +6,7 @@ use super::error::{ChannelReceiveError, Result};
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{MessageData, MessageId, ReceiveMessage, SingleData};
+use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 use crate::prelude::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::{TimeManager, WrappedTime};

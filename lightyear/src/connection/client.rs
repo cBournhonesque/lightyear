@@ -1,24 +1,21 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
 
 use bevy::ecs::system::SystemParam;
-use bevy::prelude::{NextState, Reflect, ResMut, Resource};
+use bevy::prelude::{Reflect, Resource};
 use enum_dispatch::enum_dispatch;
 
 use crate::client::config::NetcodeConfig;
 use crate::client::io::Io;
-use crate::client::networking::NetworkingState;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::ConnectToken;
 
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{client::SteamConfig, steamworks_client::SteamworksClient};
-use crate::packet::packet::Packet;
 use crate::packet::packet_builder::Payload;
 
 use crate::prelude::client::ClientTransport;
-use crate::prelude::{generate_key, Key, LinkConditionerConfig};
+use crate::prelude::{generate_key, Key};
 use crate::transport::config::SharedIoConfig;
 
 #[derive(Debug)]

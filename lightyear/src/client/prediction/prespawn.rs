@@ -1,30 +1,26 @@
 //! Handles spawning entities that are predicted
 
 use std::any::{Any, TypeId};
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::{Hash, Hasher};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, trace};
 
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
-use crate::client::networking::NetworkingState;
-use crate::client::prediction::pre_prediction::PrePredictionPlugin;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::rollback::{Rollback};
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
-use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
 use crate::prelude::server::ControlledBy;
 use crate::prelude::{
     ComponentRegistry, ParentSync, ReplicateHierarchy, Replicated, Replicating, ReplicationTarget,
-    ShouldBePredicted, TargetEntity, Tick, TickManager, VisibilityMode,
+    ShouldBePredicted, TargetEntity, TickManager, VisibilityMode,
 };
 use crate::protocol::component::ComponentKind;
-use crate::server::prediction::compute_hash;
 use crate::server::replication::send::SyncTarget;
 use crate::server::visibility::immediate::ReplicateVisibility;
 use crate::shared::replication::components::DespawnTracker;
@@ -481,7 +477,7 @@ mod tests {
     use hashbrown::HashMap;
 
     use crate::client::prediction::resource::PredictionManager;
-    use crate::prelude::client::*;
+    
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};

@@ -21,13 +21,11 @@ That system must run in the [`BufferI
 
 use std::fmt::Debug;
 
-use bevy::prelude::TypePath;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 pub use input_buffer::InputMessage;
 
-use crate::protocol::BitSerializable;
 
 /// Defines an [`InputBuffer`](input_buffer::InputBuffer) buffer to store the inputs of a player for each tick
 pub mod input_buffer;

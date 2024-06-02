@@ -1,25 +1,21 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut};
-use bevy::utils::HashMap;
-use bytes::Bytes;
-use tracing::{error, info_span, trace};
+use tracing::{error};
 
 use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
 
 use crate::client::connection::ConnectionManager;
 use crate::client::events::MessageEvent;
-use crate::packet::message::SingleData;
-use crate::prelude::{is_connected, ChannelDirection, ChannelKind, Message};
+use crate::prelude::{is_connected, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
-use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
-use crate::shared::ping::message::{Ping, Pong, SyncMessage};
+use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::network_target::NetworkTarget;
-use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
+use crate::shared::replication::{ReplicationMessage};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 // ClientMessages can include some extra Metadata

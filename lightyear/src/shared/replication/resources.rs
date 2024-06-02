@@ -2,20 +2,15 @@
 
 use std::marker::PhantomData;
 
-use async_compat::CompatExt;
 use bevy::app::App;
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::system::Command;
 use bevy::prelude::{
-    Commands, Component, DetectChanges, EntityMapper, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin, PostUpdate, PreUpdate, Res, ResMut, Resource, SystemSet,
+    Commands, DetectChanges, IntoSystemConfigs, IntoSystemSetConfigs,
+    Plugin, PostUpdate, PreUpdate, Res, ResMut, Resource,
 };
 pub use command::{ReplicateResourceExt, StopReplicateResourceExt};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::{ChannelKind, Message};
-use crate::protocol::BitSerializable;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
@@ -87,10 +82,10 @@ impl<R> Default for DespawnResource<R> {
 
 pub(crate) mod send {
     use super::*;
-    use crate::prelude::NetworkIdentity;
+    
     use crate::shared::message::MessageSend;
     use bevy::prelude::resource_removed;
-    use tracing::{info, trace};
+    use tracing::{trace};
 
     pub(crate) struct ResourceSendPlugin<R> {
         _marker: PhantomData<R>,
@@ -183,17 +178,17 @@ pub(crate) mod send {
 }
 
 pub(crate) mod receive {
-    use crate::prelude::{ChannelDirection, ComponentRegistry, NetworkIdentity};
-    use crate::protocol::component::ComponentKind;
+    
+    
     use crate::protocol::EventContext;
     use crate::shared::events::components::{
-        ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
+        MessageEvent,
     };
     use crate::shared::message::MessageSend;
-    use crate::shared::plugin::Identity;
+    
     use crate::shared::replication::ReplicationPeer;
-    use bevy::prelude::{DetectChangesMut, EventReader, Events, RemovedComponents};
-    use tracing::{debug, trace};
+    use bevy::prelude::{DetectChangesMut, EventReader, Events};
+    use tracing::{trace};
 
     use super::*;
 
