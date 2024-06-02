@@ -16,17 +16,14 @@ use crate::connection::server::{
 };
 use crate::packet::packet_builder::Payload;
 use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::reader::ReadBuffer;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
-use crate::transport::io::BaseIo;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender};
 
 use super::{
     bytes::Bytes,
     crypto::{self, Key},
     error::{Error, Result},
-    generate_key,
     packet::{
         ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
         RequestPacket, ResponsePacket,

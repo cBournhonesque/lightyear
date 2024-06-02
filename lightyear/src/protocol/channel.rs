@@ -1,8 +1,5 @@
 use bevy::app::App;
-use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Resource, TypePath};
-use bevy::reflect::Reflect;
-use serde::Deserialize;
 use std::any::TypeId;
 use std::collections::HashMap;
 
@@ -11,7 +8,7 @@ use crate::channel::builder::{
     ChannelContainer, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
 };
 use crate::prelude::{
-    ChannelDirection, ChannelMode, DefaultUnorderedUnreliableChannel, Message, ReliableSettings,
+    ChannelDirection, ChannelMode, DefaultUnorderedUnreliableChannel, ReliableSettings,
 };
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 
@@ -189,7 +186,7 @@ mod tests {
     use bevy::prelude::{default, TypePath};
     use lightyear_macros::ChannelInternal;
 
-    use crate::channel::builder::{ChannelDirection, ChannelMode, ChannelSettings};
+    use crate::channel::builder::{ChannelMode, ChannelSettings};
 
     use super::*;
 

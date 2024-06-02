@@ -10,7 +10,7 @@ use crate::transport::middleware::compression::zstd::compression::ZstdCompressor
 #[cfg(feature = "zstd")]
 use crate::transport::middleware::compression::zstd::decompression::ZstdDecompressor;
 use crate::transport::middleware::conditioner::LinkConditioner;
-use crate::transport::middleware::{PacketReceiverWrapper, PacketSenderWrapper};
+use crate::transport::middleware::PacketReceiverWrapper;
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::WebSocketServerSocketBuilder;
@@ -19,7 +19,6 @@ use crate::transport::webtransport::server::WebTransportServerSocketBuilder;
 use crate::transport::BoxedReceiver;
 use crate::transport::Transport;
 use bevy::prelude::TypePath;
-use bevy::reflect::Reflect;
 use std::net::IpAddr;
 #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
 use wtransport::Identity;

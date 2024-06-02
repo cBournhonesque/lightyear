@@ -1,5 +1,4 @@
 use crate::client::io::Io;
-use crate::client::networking::NetworkingState;
 use crate::connection::client::{ConnectionError, ConnectionState, NetClient};
 use crate::packet::packet_builder::Payload;
 use crate::prelude::ClientId;

@@ -1,16 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
-use bevy::ptr::UnsafeCellDeref;
-use bevy::reflect::Reflect;
 use bytes::{Buf, Bytes};
 use crossbeam_channel::{Receiver, Sender};
-use tracing::{error, info, trace};
+use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
-
-use bitcode::buffer::BufferTrait;
-use bitcode::word_buffer::WordBuffer;
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -22,16 +17,12 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::{
     FragmentData, MessageAck, MessageId, ReceiveMessage, SendMessage, SingleData,
 };
-use crate::packet::packet::{Packet, PacketId, MTU_PAYLOAD_BYTES};
-use crate::packet::packet_builder::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet::PacketId;
+use crate::packet::packet_builder::{PacketBuilder, Payload};
 use crate::packet::packet_type::PacketType;
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
-use crate::prelude::Channel;
 use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::reader::ReadBuffer;
 use crate::serialize::varint::VarIntReadExt;
 use crate::serialize::{RawData, ToBytes};
 use crate::shared::ping::manager::PingManager;
@@ -407,13 +398,12 @@ mod tests {
     use std::collections::HashMap;
 
     use bevy::prelude::default;
-    use bevy::utils::HashSet;
 
     use crate::packet::message::MessageId;
     use crate::packet::packet::FRAGMENT_SIZE;
     use crate::packet::priority_manager::PriorityConfig;
     use crate::prelude::*;
-    use crate::serialize::bitcode::reader::BitcodeReader;
+
     use crate::tests::protocol::*;
 
     use super::*;

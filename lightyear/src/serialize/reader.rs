@@ -1,7 +1,4 @@
-use std::num::NonZeroUsize;
-
 use bitcode::encoding::Encoding;
-use bitcode::word::Word;
 use bitcode::Decode;
 use bitcode::Result;
 use serde::de::DeserializeOwned;

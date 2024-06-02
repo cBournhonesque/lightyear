@@ -2,20 +2,13 @@
 use std::fmt::Debug;
 use std::io::Seek;
 
-use bevy::ecs::entity::MapEntities;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use bytes::{BufMut, Bytes};
+use bytes::Bytes;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::packet::message;
-use bitcode::encoding::{Fixed, Gamma};
-
-use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::{BitSerializable, EventContext};
-use crate::serialize::reader::ReadBuffer;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
-use crate::serialize::writer::WriteBuffer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;

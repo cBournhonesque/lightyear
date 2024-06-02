@@ -1,7 +1,7 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
 use bevy::prelude::*;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error};
 
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
@@ -12,11 +12,8 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
-use crate::prelude::{
-    ReplicateHierarchy, ReplicationGroup, ReplicationTarget, ShouldBePredicted, Tick,
-};
+use crate::prelude::{ReplicateHierarchy, ReplicationGroup, ReplicationTarget, ShouldBePredicted};
 use crate::shared::replication::components::PrePredicted;
-use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 #[derive(Default)]

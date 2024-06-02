@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use bevy::utils::Duration;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
-use tracing::{info, trace};
+use tracing::trace;
 
 use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;

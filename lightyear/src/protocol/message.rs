@@ -1,33 +1,20 @@
-use bevy::app::PreUpdate;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::Debug;
 
 use crate::client::config::ClientConfig;
 use crate::client::message::add_server_to_client_message;
-use crate::prelude::{
-    client, server, AppComponentExt, Channel, ComponentRegistry, RemoteEntityMap,
-    ReplicateResourceMetadata,
-};
-use bevy::prelude::{
-    App, Component, EntityMapper, EventWriter, IntoSystemConfigs, ResMut, Resource, TypePath, World,
-};
-use bevy::reflect::Map;
+use crate::prelude::{client, server};
+use bevy::prelude::{App, Resource, TypePath};
 use bevy::utils::HashMap;
 use bitcode::encoding::Fixed;
-use bitcode::{Decode, Encode};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use tracing::{debug, error};
 
-use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
 use crate::prelude::server::ServerConfig;
-use crate::prelude::{ChannelDirection, ChannelKind, MainSet};
-use crate::protocol::component::{ComponentKind, ComponentRegistration};
+use crate::prelude::ChannelDirection;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::ErasedSerializeFns;
-use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;

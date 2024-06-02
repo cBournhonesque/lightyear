@@ -1,22 +1,11 @@
 //! Components used for replication
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::query::QueryFilter;
 use bevy::ecs::reflect::ReflectComponent;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::{Bundle, Component, Entity, EntityMapper, Or, Query, Reflect, With};
-use bevy::utils::{HashMap, HashSet};
+use bevy::prelude::{Component, Entity, Reflect};
 use serde::{Deserialize, Serialize};
-use tracing::trace;
 
 use bitcode::{Decode, Encode};
 
-use crate::channel::builder::Channel;
-use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
-use crate::prelude::ParentSync;
-use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
-use crate::server::visibility::immediate::{ClientVisibility, VisibilityManager};
-use crate::shared::replication::delta::Diffable;
 use crate::shared::replication::network_target::NetworkTarget;
 
 /// Marker component that indicates that the entity was spawned via replication

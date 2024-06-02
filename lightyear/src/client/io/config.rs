@@ -1,10 +1,9 @@
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportBuilderEnum};
 use crate::client::io::{Io, IoContext};
 use crate::prelude::CompressionConfig;
-use crate::transport;
 use crate::transport::config::SharedIoConfig;
 use crate::transport::dummy::DummyIo;
-use crate::transport::error::{Error, Result};
+use crate::transport::error::Result;
 use crate::transport::io::{BaseIo, IoStats};
 use crate::transport::local::LocalChannelBuilder;
 #[cfg(feature = "zstd")]
@@ -12,7 +11,7 @@ use crate::transport::middleware::compression::zstd::compression::ZstdCompressor
 #[cfg(feature = "zstd")]
 use crate::transport::middleware::compression::zstd::decompression::ZstdDecompressor;
 use crate::transport::middleware::conditioner::LinkConditioner;
-use crate::transport::middleware::{PacketReceiverWrapper, PacketSenderWrapper};
+use crate::transport::middleware::PacketReceiverWrapper;
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(feature = "websocket")]

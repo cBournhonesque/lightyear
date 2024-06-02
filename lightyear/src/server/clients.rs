@@ -19,7 +19,7 @@ mod systems {
     use crate::server::connection::ConnectionManager;
     use crate::server::events::DisconnectEvent;
     use crate::shared::replication::network_target::NetworkTarget;
-    use tracing::{debug, error, trace};
+    use tracing::{debug, trace};
 
     // TODO: remove entity from ControlledBy when ControlledBy gets removed! (via observers)?
     // TODO: remove entity in controlled by lists after the component gets updated

@@ -1,11 +1,9 @@
 //! Common run conditions
 
-use crate::client::networking::NetworkingState;
 use crate::connection::client::{ClientConnection, ConnectionState, NetClient};
 use crate::connection::server::ServerConnections;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{Mode, NetworkIdentity};
-use crate::transport::io::IoState;
 use bevy::prelude::Res;
 
 /// Returns true if the peer is a client

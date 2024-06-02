@@ -6,9 +6,7 @@ use crossbeam_channel::{Receiver, Sender};
 use crate::channel::senders::fragment_ack_receiver::FragmentAckReceiver;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{
-    FragmentData, MessageAck, MessageData, MessageId, SendMessage, SingleData,
-};
+use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::{TimeManager, WrappedTime};

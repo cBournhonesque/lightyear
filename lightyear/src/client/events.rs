@@ -14,7 +14,7 @@
 //! ```
 
 use bevy::app::{App, Plugin, PreUpdate};
-use bevy::prelude::{Component, Event, Events, IntoSystemConfigs};
+use bevy::prelude::{Component, Event, IntoSystemConfigs};
 
 use crate::client::connection::ConnectionManager;
 use crate::connection::client::DisconnectReason;

@@ -4,7 +4,6 @@ use bevy::utils::Duration;
 
 use crate::client::connection::ConnectionManager;
 use crate::client::sync::client_is_synced;
-use crate::prelude::SharedConfig;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -51,33 +50,22 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
-    use crate::client::interpolation::Interpolated;
-    use crate::client::prediction::Predicted;
+
     use crate::connection::client::ClientConnection;
-    use crate::connection::server::ServerConnections;
+
     use crate::prelude::client::NetClient;
-    use crate::prelude::server::{ControlledBy, ServerConfig, ServerReplicationSet};
+
     use crate::prelude::{
-        is_connected, is_host_server, ClientId, ComponentRegistry, DisabledComponent,
-        OverrideTargetComponent, PrePredicted, ReplicateHierarchy, ReplicateOnceComponent,
-        Replicated, ReplicationGroup, ShouldBePredicted, TargetEntity, TickManager, VisibilityMode,
+        is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy,
+        ReplicateOnceComponent, Replicated, ReplicationGroup, TargetEntity, TickManager,
     };
     use crate::protocol::component::ComponentKind;
-    use crate::serialize::RawData;
-    use crate::server::events::EntitySpawnEvent;
-    use crate::server::replication::send::SyncTarget;
-    use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
-    use crate::shared::replication::components::{
-        Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
-        ShouldBeInterpolated,
-    };
-    use crate::shared::replication::network_target::NetworkTarget;
-    use crate::shared::replication::{systems, ReplicationSend};
-    use crate::shared::sets::ServerMarker;
+
+    use crate::shared::replication::components::{DeltaCompression, DespawnTracker, Replicating};
+
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
-    use std::ops::DerefMut;
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {
@@ -539,8 +527,8 @@ pub(crate) mod send {
 
 pub(crate) mod commands {
     use crate::client::connection::ConnectionManager;
-    use crate::shared::replication::ReplicationSend;
-    use bevy::ecs::system::{Command, EntityCommands};
+
+    use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {

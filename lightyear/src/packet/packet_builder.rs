@@ -1,25 +1,18 @@
 //! Module to take a buffer of messages to send and build packets
 use byteorder::WriteBytesExt;
-use std::collections::{BTreeMap, VecDeque};
-use std::io::{Cursor, Write};
+use std::collections::VecDeque;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
-use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, SingleData};
 use crate::packet::packet::{Packet, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES};
 use crate::packet::packet_type::PacketType;
 use crate::prelude::Tick;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
 use crate::serialize::varint::varint_len;
-use crate::serialize::writer::WriteBuffer;
 use crate::serialize::{SerializationError, ToBytes};
-use crate::utils::pool::Reusable;
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.
 // pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
@@ -414,7 +407,7 @@ impl PacketBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, VecDeque};
+    use std::collections::VecDeque;
 
     use bevy::prelude::{default, TypePath};
     use bytes::Bytes;

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use tracing::trace;
 
-use crate::packet::message::{FragmentData, MessageId, SingleData};
+use crate::packet::message::{FragmentData, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::prelude::Tick;
 use crate::shared::time_manager::WrappedTime;

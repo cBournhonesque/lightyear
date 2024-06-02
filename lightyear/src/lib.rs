@@ -159,7 +159,6 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 ```
 
  */
-#![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(clippy::type_complexity)]
@@ -293,8 +292,6 @@ pub mod prelude {
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     pub use crate::connection::steam::steamworks_client::SteamworksClient;
 }
-
-use prelude::*;
 
 pub mod channel;
 

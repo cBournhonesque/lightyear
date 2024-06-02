@@ -1,19 +1,14 @@
 //! Handles interpolation of entities between server updates
 use std::ops::{Add, Mul};
 
-use bevy::prelude::{Added, Commands, Component, Entity, Query, Reflect, Res, ResMut};
-use tracing::trace;
+use bevy::prelude::{Component, Entity, Reflect};
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
 pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 pub use visual_interpolation::{VisualInterpolateStatus, VisualInterpolationPlugin};
 
-use crate::client::components::{Confirmed, LerpFn, SyncComponent};
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::resource::InterpolationManager;
-use crate::shared::replication::components::ShouldBeInterpolated;
+use crate::client::components::LerpFn;
 
 mod despawn;
 mod interpolate;

@@ -2,11 +2,10 @@
 use std::collections::BTreeMap;
 use std::iter::Extend;
 
-use bevy::ecs::entity::{EntityHash, MapEntities};
+use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
-use bevy::reflect::Reflect;
 use bevy::utils::HashSet;
-use tracing::{debug, error, info, trace, trace_span, warn};
+use tracing::{debug, error, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 

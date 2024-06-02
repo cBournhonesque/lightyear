@@ -89,7 +89,7 @@ impl WriteBuffer for BitcodeWriter {
 mod tests {
     use crate::serialize::bitcode::reader::BitcodeReader;
     use crate::serialize::reader::ReadBuffer;
-    use crate::serialize::SerializationError;
+
     use bitcode::{Decode, Encode};
 
     #[derive(Encode, Decode)]
@@ -145,7 +145,6 @@ mod tests {
     fn test_write_multiple_objects() -> bitcode::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
-        use serde::Serialize;
 
         let mut buffer = BitcodeWriter::with_capacity(2);
         let first_vec: Vec<u32> = vec![4, 6, 3];

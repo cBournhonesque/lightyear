@@ -5,7 +5,6 @@ pub(crate) mod transport;
 
 use crate::transport::error::{Error, Result};
 use crate::transport::io::{BaseIo, IoState};
-use async_channel::Receiver;
 use bevy::prelude::{Deref, DerefMut};
 use crossbeam_channel::Sender;
 use std::net::SocketAddr;

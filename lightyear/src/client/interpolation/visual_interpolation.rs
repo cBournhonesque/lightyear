@@ -34,7 +34,7 @@
 
 use bevy::prelude::*;
 
-use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::components::SyncComponent;
 use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::prelude::{ComponentRegistry, TickManager, TimeManager};
 

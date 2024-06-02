@@ -3,7 +3,7 @@
 use bevy::prelude::{Reflect, Res, SystemSet};
 use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::plugin::InterpolationDelay;

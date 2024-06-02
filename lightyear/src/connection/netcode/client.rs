@@ -1,9 +1,7 @@
-use bevy::utils::Duration;
-use std::net::{IpAddr, Ipv4Addr};
 use std::{collections::VecDeque, net::SocketAddr};
 
 use bevy::prelude::Resource;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 
 use crate::client::io::Io;
 use crate::connection::client::{
@@ -11,11 +9,8 @@ use crate::connection::client::{
 };
 use crate::connection::id;
 use crate::packet::packet_builder::Payload;
-use crate::prelude::client::NetworkingState;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::reader::ReadBuffer;
 use crate::transport::io::IoState;
-use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
+use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
 use crate::utils::pool::Pool;
 
 use super::{

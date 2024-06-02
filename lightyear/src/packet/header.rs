@@ -1,7 +1,6 @@
 use bevy::utils::HashMap;
 use byteorder::NetworkEndian;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
-use serde::{Deserialize, Serialize};
 use std::io::Seek;
 use tracing::trace;
 
@@ -350,13 +349,9 @@ impl ReceiveBuffer {
 // TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
-    use bitcode::encoding::Fixed;
+
     use std::io::Cursor;
 
-    use crate::serialize::bitcode::reader::BitcodeReader;
-    use crate::serialize::bitcode::writer::BitcodeWriter;
-    use crate::serialize::reader::ReadBuffer;
-    use crate::serialize::writer::WriteBuffer;
     use crate::serialize::ToBytes;
 
     use super::*;

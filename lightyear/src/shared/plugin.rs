@@ -8,14 +8,13 @@ use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::{
     AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig,
     MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject,
-    ReplicationTarget, ShouldBePredicted, TickConfig,
+    ShouldBePredicted, TickConfig,
 };
-use crate::server::config::ServerConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
-use crate::transport::io::{BaseIo, IoState, IoStats};
+use crate::transport::io::{IoState, IoStats};
 use crate::transport::middleware::compression::CompressionConfig;
 
 #[derive(Default, Debug)]
