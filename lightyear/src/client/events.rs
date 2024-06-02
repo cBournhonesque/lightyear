@@ -23,7 +23,7 @@ use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
-/// Plugin that handles generating bevy [`Events`] related to networking and replication
+/// Plugin that handles generating bevy [`Events`](Event) related to networking and replication
 #[derive(Default)]
 pub struct ClientEventsPlugin;
 

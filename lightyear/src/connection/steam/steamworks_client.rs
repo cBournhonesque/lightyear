@@ -1,8 +1,5 @@
-use std::sync::OnceLock;
-
 use bevy::utils::synccell::SyncCell;
 use steamworks::{ClientManager, SingleClient};
-use tracing::info;
 
 /// This wraps the Steamworks client. It must only be created once per
 /// application run. For convenience, Lightyear can automatically create the

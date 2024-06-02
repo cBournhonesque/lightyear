@@ -1,8 +1,12 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
+use std::sync::Arc;
 
 use bevy::prelude::{Reflect, Resource};
 use enum_dispatch::enum_dispatch;
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
+use parking_lot::RwLock;
 
 use crate::client::config::NetcodeConfig;
 use crate::client::io::Io;
@@ -14,6 +18,8 @@ use crate::connection::steam::{client::SteamConfig, steamworks_client::Steamwork
 use crate::packet::packet_builder::Payload;
 
 use crate::prelude::client::ClientTransport;
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
+use crate::prelude::LinkConditionerConfig;
 use crate::prelude::{generate_key, Key};
 use crate::transport::config::SharedIoConfig;
 
