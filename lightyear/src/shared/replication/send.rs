@@ -513,7 +513,6 @@ impl ReplicationSender {
     ) -> Vec<(ChannelKind, ReplicationGroupId, ReplicationMessageData, f32)> {
         let mut messages = Vec::new();
 
-        dbg!("finalize");
         let pending_actions = self.pending_actions.take();
         let pending_updates = self.pending_updates.take();
         if let (Some(mut pending_actions), Some(mut pending_updates)) =
@@ -585,7 +584,6 @@ impl ReplicationSender {
     }
 
     pub(crate) fn prepare_buffers(&mut self, allocator: &'static SyncBlinkAlloc) {
-        dbg!("prepare buffers");
         self.pending_actions = Some(ArenaEntityHashMap::with_hasher_in(EntityHash, allocator));
         self.pending_updates = Some(ArenaEntityHashMap::with_hasher_in(EntityHash, allocator));
     }
