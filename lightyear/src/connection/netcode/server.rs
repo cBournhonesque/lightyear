@@ -18,7 +18,7 @@ use crate::packet::packet_builder::Payload;
 use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender};
 
 use super::{
     bytes::Bytes,

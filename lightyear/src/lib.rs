@@ -293,7 +293,6 @@ pub mod prelude {
     pub use crate::connection::steam::steamworks_client::SteamworksClient;
 }
 
-
 pub mod channel;
 
 pub mod client;

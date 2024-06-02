@@ -2,7 +2,7 @@
 use std::ops::DerefMut;
 
 use async_channel::TryRecvError;
-use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam};
+use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
@@ -16,13 +16,10 @@ use crate::client::networking::utils::AppStateExt;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::client::sync::SyncSet;
-use crate::connection::client::{
-    ClientConnection, ConnectionState, DisconnectReason, NetClient,
-};
-use crate::connection::server::{IoConfig};
+use crate::connection::client::{ClientConnection, ConnectionState, DisconnectReason, NetClient};
+use crate::connection::server::IoConfig;
 use crate::prelude::{
-    is_host_server, ChannelRegistry, MainSet, MessageRegistry, TickManager,
-    TimeManager,
+    is_host_server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;

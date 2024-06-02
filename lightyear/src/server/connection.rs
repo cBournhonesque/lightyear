@@ -1,12 +1,11 @@
 //! Specify how a Server sends/receives messages with a Client
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::{EntityHash};
+use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
 use bevy::ptr::Ptr;
 use bevy::utils::{HashMap, HashSet};
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
-use serde::Serialize;
 use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
@@ -21,8 +20,7 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::server::{DisconnectEvent, RoomId, RoomManager};
 use crate::prelude::{
-    Channel, ChannelKind, Message, PreSpawnedPlayerObject, ReplicationGroup,
-    ShouldBePredicted,
+    Channel, ChannelKind, Message, PreSpawnedPlayerObject, ReplicationGroup, ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{
@@ -46,10 +44,8 @@ use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
-use crate::shared::replication::components::{
-    ReplicationGroupId, ReplicationTarget,
-};
-use crate::shared::replication::delta::{DeltaManager};
+use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
+use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;

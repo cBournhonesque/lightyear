@@ -40,20 +40,20 @@ it just caches the room metadata to keep track of the visibility of entities.
 use bevy::app::App;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{
-    Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate, RemovedComponents, ResMut, Resource, SystemSet,
+    Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate,
+    RemovedComponents, ResMut, Resource, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use tracing::{trace};
+use tracing::trace;
 
 use crate::connection::id::ClientId;
 use crate::prelude::is_started;
 
 use crate::server::visibility::immediate::{VisibilityManager, VisibilitySet};
 use crate::shared::replication::components::DespawnTracker;
-use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;

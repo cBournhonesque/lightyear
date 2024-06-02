@@ -1,6 +1,6 @@
 //! Handles spawning entities that are predicted
 
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::hash::{Hash, Hasher};
 
 use bevy::prelude::*;
@@ -11,7 +11,7 @@ use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::{Rollback};
+use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::PredictionSet;
@@ -477,7 +477,7 @@ mod tests {
     use hashbrown::HashMap;
 
     use crate::client::prediction::resource::PredictionManager;
-    
+
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};

@@ -1,16 +1,16 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
 use std::fmt::{Debug, Formatter};
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
 use bevy::prelude::*;
 #[cfg(feature = "metrics")]
 use metrics;
 
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender};
 
-use super::error::{Result};
+use super::error::Result;
 use super::{BoxedReceiver, BoxedSender};
 
 /// Connected io layer that can send/receive bytes

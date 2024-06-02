@@ -1,12 +1,10 @@
 //! Components used for replication
 use bevy::ecs::reflect::ReflectComponent;
-use bevy::ecs::system::SystemParam;
 use bevy::prelude::{Component, Entity, Reflect};
 use serde::{Deserialize, Serialize};
 
 use bitcode::{Decode, Encode};
 
-use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
 use crate::shared::replication::network_target::NetworkTarget;
 

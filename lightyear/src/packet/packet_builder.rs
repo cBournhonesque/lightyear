@@ -1,6 +1,6 @@
 //! Module to take a buffer of messages to send and build packets
 use byteorder::WriteBytesExt;
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
@@ -12,7 +12,6 @@ use crate::prelude::Tick;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::serialize::varint::varint_len;
-use crate::serialize::writer::WriteBuffer;
 use crate::serialize::{SerializationError, ToBytes};
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.
@@ -408,7 +407,7 @@ impl PacketBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{VecDeque};
+    use std::collections::VecDeque;
 
     use bevy::prelude::{default, TypePath};
     use bytes::Bytes;

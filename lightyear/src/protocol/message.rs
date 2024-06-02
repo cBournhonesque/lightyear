@@ -4,25 +4,17 @@ use std::fmt::Debug;
 
 use crate::client::config::ClientConfig;
 use crate::client::message::add_server_to_client_message;
-use crate::prelude::{
-    client, server, Channel,
-};
-use bevy::prelude::{
-    App, Resource, TypePath,
-};
-use bevy::reflect::Map;
+use crate::prelude::{client, server};
+use bevy::prelude::{App, Resource, TypePath};
 use bevy::utils::HashMap;
 use bitcode::encoding::Fixed;
-use bitcode::{Decode, Encode};
-use serde::Serialize;
 use tracing::{debug, error};
 
 use crate::packet::message::Message;
 use crate::prelude::server::ServerConfig;
-use crate::prelude::{ChannelDirection};
+use crate::prelude::ChannelDirection;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::ErasedSerializeFns;
-use crate::protocol::{BitSerializable};
 use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;

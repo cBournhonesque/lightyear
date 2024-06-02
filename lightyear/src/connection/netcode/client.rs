@@ -10,7 +10,7 @@ use crate::connection::client::{
 use crate::connection::id;
 use crate::packet::packet_builder::Payload;
 use crate::transport::io::IoState;
-use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
+use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
 use crate::utils::pool::Pool;
 
 use super::{

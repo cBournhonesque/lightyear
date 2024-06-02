@@ -50,31 +50,22 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
-    
-    
+
     use crate::connection::client::ClientConnection;
-    
+
     use crate::prelude::client::NetClient;
-    
+
     use crate::prelude::{
-        is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy, ReplicateOnceComponent,
-        Replicated, ReplicationGroup, TargetEntity, TickManager,
+        is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy,
+        ReplicateOnceComponent, Replicated, ReplicationGroup, TargetEntity, TickManager,
     };
     use crate::protocol::component::ComponentKind;
-    
-    
-    
-    
-    use crate::shared::replication::components::{
-        DeltaCompression, DespawnTracker, Replicating,
-    };
-    
-    use crate::shared::replication::{ReplicationSend};
-    
+
+    use crate::shared::replication::components::{DeltaCompression, DespawnTracker, Replicating};
+
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
-    
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {
@@ -536,8 +527,8 @@ pub(crate) mod send {
 
 pub(crate) mod commands {
     use crate::client::connection::ConnectionManager;
-    
-    use bevy::ecs::system::{EntityCommands};
+
+    use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {
