@@ -1,5 +1,3 @@
-
-
 #[repr(u8)]
 #[derive(Copy, Debug, Clone, Eq, PartialEq)]
 pub enum PacketType {

@@ -1,4 +1,3 @@
-
 use bitcode::encoding::Encoding;
 use bitcode::Decode;
 use bitcode::Result;

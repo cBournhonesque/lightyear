@@ -26,7 +26,6 @@ use serde::Serialize;
 
 pub use input_buffer::InputMessage;
 
-
 /// Defines an [`InputBuffer`](input_buffer::InputBuffer) buffer to store the inputs of a player for each tick
 pub mod input_buffer;
 

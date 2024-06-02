@@ -98,9 +98,9 @@ impl VisibilityManager {
 
 pub(super) mod systems {
     use super::*;
-    
+
     use crate::prelude::VisibilityMode;
-    
+
     use bevy::prelude::DetectChanges;
 
     // NOTE: this might not be needed because we drain the event cache every Send update

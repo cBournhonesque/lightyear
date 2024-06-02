@@ -1,4 +1,4 @@
-use crate::prelude::{Tick};
+use crate::prelude::Tick;
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::delta::{DeltaMessage, DeltaType, Diffable};
 use bevy::prelude::Component;

@@ -1,4 +1,3 @@
-
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
@@ -11,7 +10,7 @@ use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
 use crate::client::interpolation::Interpolated;
 use crate::client::sync::client_is_synced;
-use crate::prelude::{is_host_server};
+use crate::prelude::is_host_server;
 
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,

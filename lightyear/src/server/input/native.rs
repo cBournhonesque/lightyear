@@ -2,13 +2,9 @@
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 
-
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
-use crate::prelude::{
-    is_started, ClientId, MessageRegistry, TickManager,
-    UserAction,
-};
+use crate::prelude::{is_started, ClientId, MessageRegistry, TickManager, UserAction};
 use crate::protocol::message::MessageKind;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputEvent;

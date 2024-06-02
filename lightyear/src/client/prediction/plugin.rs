@@ -1,7 +1,6 @@
-
 use bevy::prelude::{
-    not, App, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin, PostUpdate, PreUpdate, Res, SystemSet,
+    not, App, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
+    PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;

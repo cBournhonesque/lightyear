@@ -3,10 +3,9 @@ use std::io::Cursor;
 
 use bytes::{Buf, Bytes};
 use crossbeam_channel::{Receiver, Sender};
-use tracing::{trace};
+use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
-
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -18,7 +17,7 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::{
     FragmentData, MessageAck, MessageId, ReceiveMessage, SendMessage, SingleData,
 };
-use crate::packet::packet::{PacketId};
+use crate::packet::packet::PacketId;
 use crate::packet::packet_builder::{PacketBuilder, Payload};
 use crate::packet::packet_type::PacketType;
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
@@ -399,13 +398,12 @@ mod tests {
     use std::collections::HashMap;
 
     use bevy::prelude::default;
-    
 
     use crate::packet::message::MessageId;
     use crate::packet::packet::FRAGMENT_SIZE;
     use crate::packet::priority_manager::PriorityConfig;
     use crate::prelude::*;
-    
+
     use crate::tests::protocol::*;
 
     use super::*;

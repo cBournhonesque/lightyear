@@ -565,11 +565,10 @@ pub(super) mod test_utils {
 mod unit_tests {
     use super::test_utils::*;
     use super::*;
-    
+
     use crate::tests::protocol::Component1;
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::ecs::system::RunSystemOnce;
-    
 
     // TODO: check that if A is updated but B is not, and A and B are in the same replication group,
     //  then we need to check the rollback for B as well!
@@ -724,7 +723,7 @@ mod integration_tests {
     use bevy::prelude::*;
 
     use crate::prelude::client::*;
-    
+
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

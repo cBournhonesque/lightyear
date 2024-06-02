@@ -1,10 +1,8 @@
 //! Bevy [`bevy::prelude::System`]s used for replication
 
-use bevy::prelude::{
-    Res, ResMut,
-};
+use bevy::prelude::{Res, ResMut};
 
-use crate::prelude::{TickManager};
+use crate::prelude::TickManager;
 use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 
 /// Systems that runs internal clean-up on the ReplicationSender

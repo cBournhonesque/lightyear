@@ -46,7 +46,7 @@ impl FragmentSender {
 
 #[cfg(test)]
 mod tests {
-    
+
     use bytes::Bytes;
 
     use crate::packet::packet::FRAGMENT_SIZE;

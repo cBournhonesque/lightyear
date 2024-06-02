@@ -1,12 +1,12 @@
 //! Logic to handle spawning Predicted entities
 use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
-use tracing::{debug};
+use tracing::debug;
 
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{ShouldBePredicted};
+use crate::prelude::ShouldBePredicted;
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.

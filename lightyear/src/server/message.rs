@@ -17,7 +17,7 @@ use crate::server::connection::ConnectionManager;
 use crate::server::events::MessageEvent;
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::network_target::NetworkTarget;
-use crate::shared::replication::{ReplicationMessage};
+use crate::shared::replication::ReplicationMessage;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 #[derive(Encode, Decode, Clone, Debug)]

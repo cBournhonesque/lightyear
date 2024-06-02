@@ -1,5 +1,5 @@
 use bevy::utils::HashMap;
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 use std::num::NonZeroU32;
 
 use crossbeam_channel::{Receiver, Sender};

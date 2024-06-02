@@ -8,7 +8,7 @@ use bitcode::word_buffer::{WordBuffer, WordContext, WordReader};
 use bitcode::Decode;
 use self_cell::self_cell;
 use serde::de::DeserializeOwned;
-use tracing::{trace};
+use tracing::trace;
 
 use crate::serialize::reader::ReadBuffer;
 

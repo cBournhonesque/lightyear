@@ -7,7 +7,8 @@ use bevy::prelude::*;
 use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::{
     AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig,
-    MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
+    MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject,
+    ShouldBePredicted, TickConfig,
 };
 use crate::shared::config::SharedConfig;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};

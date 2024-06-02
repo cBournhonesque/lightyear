@@ -62,7 +62,7 @@ pub(crate) mod send {
         ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
-    use crate::shared::replication::{ReplicationSend};
+    use crate::shared::replication::ReplicationSend;
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
@@ -2532,8 +2532,8 @@ pub(crate) mod send {
 
 pub(crate) mod commands {
     use crate::server::connection::ConnectionManager;
-    
-    use bevy::ecs::system::{EntityCommands};
+
+    use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {

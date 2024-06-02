@@ -3,10 +3,9 @@ use std::fmt::Debug;
 use std::io::Seek;
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use bytes::{Bytes};
+use bytes::Bytes;
 use serde::de::DeserializeOwned;
-use serde::{Serialize};
-
+use serde::Serialize;
 
 use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};

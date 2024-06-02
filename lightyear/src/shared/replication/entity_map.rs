@@ -119,7 +119,6 @@ impl RemoteEntityMap {
 
 #[cfg(test)]
 mod tests {
-    
 
     use crate::prelude::server::Replicate;
     use crate::prelude::*;

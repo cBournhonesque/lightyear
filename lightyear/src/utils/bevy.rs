@@ -1,9 +1,9 @@
 //! Implement lightyear traits for some common bevy types
 
-use bevy::prelude::{Transform};
-use tracing::{trace};
+use bevy::prelude::Transform;
+use tracing::trace;
 
-use crate::client::components::{LerpFn};
+use crate::client::components::LerpFn;
 
 pub struct TransformLinearInterpolation;
 

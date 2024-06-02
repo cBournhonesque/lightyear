@@ -109,7 +109,6 @@ mod tests {
 
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::SingleData;
-    
 
     use super::*;
 

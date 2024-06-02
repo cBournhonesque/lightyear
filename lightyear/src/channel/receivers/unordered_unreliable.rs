@@ -65,7 +65,6 @@ mod tests {
     use crate::channel::receivers::error::ChannelReceiveError;
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::{MessageId, SingleData};
-    
 
     use super::*;
 

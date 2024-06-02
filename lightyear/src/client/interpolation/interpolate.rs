@@ -1,7 +1,7 @@
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Without};
 use tracing::{debug, trace};
 
-use crate::client::components::{SyncComponent};
+use crate::client::components::SyncComponent;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;

@@ -3,7 +3,7 @@ use bevy::utils::HashMap;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::sync::{Arc};
+use std::sync::Arc;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]

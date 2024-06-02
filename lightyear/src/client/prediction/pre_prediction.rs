@@ -12,9 +12,7 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
-use crate::prelude::{
-    ReplicateHierarchy, ReplicationGroup, ReplicationTarget, ShouldBePredicted,
-};
+use crate::prelude::{ReplicateHierarchy, ReplicationGroup, ReplicationTarget, ShouldBePredicted};
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 

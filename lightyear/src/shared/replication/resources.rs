@@ -4,8 +4,8 @@ use std::marker::PhantomData;
 
 use bevy::app::App;
 use bevy::prelude::{
-    Commands, DetectChanges, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin, PostUpdate, PreUpdate, Res, ResMut, Resource,
+    Commands, DetectChanges, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
+    PreUpdate, Res, ResMut, Resource,
 };
 pub use command::{ReplicateResourceExt, StopReplicateResourceExt};
 use serde::{Deserialize, Serialize};
@@ -82,10 +82,10 @@ impl<R> Default for DespawnResource<R> {
 
 pub(crate) mod send {
     use super::*;
-    
+
     use crate::shared::message::MessageSend;
     use bevy::prelude::resource_removed;
-    use tracing::{trace};
+    use tracing::trace;
 
     pub(crate) struct ResourceSendPlugin<R> {
         _marker: PhantomData<R>,
@@ -178,17 +178,14 @@ pub(crate) mod send {
 }
 
 pub(crate) mod receive {
-    
-    
+
     use crate::protocol::EventContext;
-    use crate::shared::events::components::{
-        MessageEvent,
-    };
+    use crate::shared::events::components::MessageEvent;
     use crate::shared::message::MessageSend;
-    
+
     use crate::shared::replication::ReplicationPeer;
     use bevy::prelude::{DetectChangesMut, EventReader, Events};
-    use tracing::{trace};
+    use tracing::trace;
 
     use super::*;
 

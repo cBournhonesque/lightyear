@@ -349,13 +349,9 @@ impl ReceiveBuffer {
 // TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
-    
+
     use std::io::Cursor;
 
-    
-    
-    
-    
     use crate::serialize::ToBytes;
 
     use super::*;

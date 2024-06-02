@@ -2,7 +2,7 @@
 use std::collections::BTreeMap;
 use std::iter::Extend;
 
-use bevy::ecs::entity::{EntityHash};
+use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
 use bevy::utils::HashSet;
 use tracing::{debug, error, trace, warn};
