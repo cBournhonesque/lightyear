@@ -13,7 +13,7 @@ use crate::transport::PacketReceiver;
 use crate::utils::ready_buffer::ReadyBuffer;
 
 cfg_if! {
-    if #[cfg(any(test))] {
+    if #[cfg(test)] {
         use mock_instant::Instant;
     } else {
         use bevy::utils::Instant;

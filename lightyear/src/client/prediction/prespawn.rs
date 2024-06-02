@@ -121,15 +121,13 @@ impl PreSpawnedPlayerObjectPlugin {
                         let hash = prespawn.hash.map_or_else(|| {
                             // TODO: try EntityHasher instead since we only hash the 64 lower bits of TypeId
                             // TODO: should I create the hasher once outside?
-                            // let mut hasher =
-                            //     bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
 
+                            // NOTE: tried
+                            // - bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
+                            // - xxhash_rust::xxh3::Xxh3Builder::new().with_seed(1).build_hasher();
+                            // - bevy::utils::AHasher::default();
+                            // but they were not deterministic across processes
                             let mut hasher = seahash::SeaHasher::new();
-                            // let mut hasher = xxhash_rust::xxh3::Xxh3Builder::new()
-                            //     .with_seed(1)
-                            //     .build_hasher();
-                            // TODO: the default hasher doesn't seem to be deterministic across processes
-                            // let mut hasher = bevy::utils::AHasher::default();
 
                             // TODO: this only works currently for entities that are spawned during Update!
                             //  if we want the tick to be valid, compute_hash should also be run at the end of FixedUpdate::Main

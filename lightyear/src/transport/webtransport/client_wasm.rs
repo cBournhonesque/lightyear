@@ -4,7 +4,6 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use base64::prelude::{Engine as _, BASE64_STANDARD};
 use bevy::tasks::{IoTaskPool, TaskPool};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
