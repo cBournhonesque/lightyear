@@ -54,7 +54,7 @@ impl PluginGroup for ClientPlugins {
         let builder = PluginGroupBuilder::start::<Self>();
         let tick_interval = self.config.shared.tick.tick_duration;
         let interpolation_config = self.config.interpolation.clone();
-        let builder = builder
+        let mut builder = builder
             .add(SetupPlugin {
                 config: self.config,
             })
@@ -67,7 +67,13 @@ impl PluginGroup for ClientPlugins {
             .add(InterpolationPlugin::new(interpolation_config));
 
         #[cfg(target_family = "wasm")]
-        let builder = builder.add(crate::client::web::WebPlugin);
+        builder = builder.add(crate::client::web::WebPlugin);
+
+        #[cfg(feature = "arena")]
+        let builder = {
+            builder = builder.add(crate::shared::arena::ArenaPlugin);
+            builder
+        };
 
         builder
     }

@@ -14,7 +14,8 @@ exclude = ["/tests"]
 
 [features]
 #arena = ["dep:bumpalo", "dep:bumpalo-herd"]
-arena = ["dep:blink-alloc", "hashbrown/nightly"]
+#arena = ["dep:blink-alloc", "hashbrown/nightly"]
+arena = ["dep:blink-alloc"]
 trace = []
 metrics = [
     "dep:metrics",
@@ -67,7 +68,7 @@ thiserror = "1.0.50"
 seahash = "4.1.0"
 
 # allocators
-blink-alloc = { version = "0.3", optional = true, features = ["nightly", "sync"] }
+blink-alloc = { version = "0.3", optional = true, features = ["sync", "alloc"] }
 bumpalo = { version = "3", optional = true, features = ["allocator-api2"] }
 bumpalo-herd = { version = "0.1.2", optional = true }
 

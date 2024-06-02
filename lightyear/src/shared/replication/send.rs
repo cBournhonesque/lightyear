@@ -10,6 +10,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::ptr::{OwningPtr, Ptr, PtrMut};
+use bevy::tasks::futures_lite::StreamExt;
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{hashbrown, HashMap, HashSet};
 use blink_alloc::LocalBlinkAlloc;
@@ -28,7 +29,6 @@ use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::protocol::registry::NetId;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::RawData;
-use crate::shared::replication::arena::ARENA_ALLOCATOR;
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::{DeltaManager, Diffable};
 use crate::utils::ready_buffer::ReadyBuffer;
@@ -70,9 +70,9 @@ pub(crate) struct ReplicationSender {
     /// Messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
     pub pending_actions:
-        ArenaEntityHashMap<ReplicationGroupId, ArenaEntityHashMap<Entity, EntityActions>>,
+        Option<ArenaEntityHashMap<ReplicationGroupId, ArenaEntityHashMap<Entity, EntityActions>>>,
     pub pending_updates:
-        ArenaEntityHashMap<ReplicationGroupId, ArenaEntityHashMap<Entity, Vec<RawData>>>,
+        Option<ArenaEntityHashMap<ReplicationGroupId, ArenaEntityHashMap<Entity, Vec<RawData>>>>,
     // Set of unique components for each entity, to avoid sending multiple updates/inserts for the same component
     // pub pending_unique_components:
     //     EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, HashSet<ComponentNetId>>>,
@@ -114,12 +114,8 @@ impl ReplicationSender {
             updates_ack_receiver,
             updates_nack_receiver,
             updates_message_id_to_group_id: Default::default(),
-            pending_actions: ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
-                &ARENA_ALLOCATOR
-            }),
-            pending_updates: ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
-                &ARENA_ALLOCATOR
-            }),
+            pending_actions: None,
+            pending_updates: None,
             // pending_unique_components: EntityHashMap::default(),
             group_channels: Default::default(),
             send_updates_since_last_ack,
@@ -341,12 +337,17 @@ impl ReplicationSender {
     /// Host has spawned an entity, and we want to replicate this to remote
     /// Returns true if we should send a message
     // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+    pub(crate) fn prepare_entity_spawn(
+        &mut self,
+        entity: Entity,
+        group_id: ReplicationGroupId,
+        arena: &'static SyncBlinkAlloc,
+    ) {
         self.pending_actions
+            .as_mut()
+            .unwrap()
             .entry(group_id)
-            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
-                &ARENA_ALLOCATOR
-            }))
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, arena))
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Spawn;
@@ -360,24 +361,30 @@ impl ReplicationSender {
         local_entity: Entity,
         group_id: ReplicationGroupId,
         remote_entity: Entity,
+        arena: &'static SyncBlinkAlloc,
     ) {
         self.pending_actions
+            .as_mut()
+            .unwrap()
             .entry(group_id)
-            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
-                &ARENA_ALLOCATOR
-            }))
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, arena))
             .entry(local_entity)
             .or_default()
             .spawn = SpawnAction::Reuse(remote_entity.to_bits());
     }
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+    pub(crate) fn prepare_entity_despawn(
+        &mut self,
+        entity: Entity,
+        group_id: ReplicationGroupId,
+        arena: &'static SyncBlinkAlloc,
+    ) {
         self.pending_actions
+            .as_mut()
+            .unwrap()
             .entry(group_id)
-            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
-                &ARENA_ALLOCATOR
-            }))
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, arena))
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Despawn;
@@ -393,12 +400,13 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         component: RawData,
         bevy_tick: BevyTick,
+        arena: &'static SyncBlinkAlloc,
     ) {
         self.pending_actions
+            .as_mut()
+            .unwrap()
             .entry(group_id)
-            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
-                &ARENA_ALLOCATOR
-            }))
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, arena))
             .entry(entity)
             .or_default()
             .insert
@@ -411,13 +419,14 @@ impl ReplicationSender {
         entity: Entity,
         group_id: ReplicationGroupId,
         kind: ComponentNetId,
+        arena: &'static SyncBlinkAlloc,
     ) {
         // TODO: is the pending_unique_components even necessary? how could we even happen multiple inserts/updates for the same component?
         self.pending_actions
+            .as_mut()
+            .unwrap()
             .entry(group_id)
-            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
-                &ARENA_ALLOCATOR
-            }))
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, arena))
             .entry(entity)
             .or_default()
             .remove
@@ -430,12 +439,13 @@ impl ReplicationSender {
         entity: Entity,
         group_id: ReplicationGroupId,
         raw_data: RawData,
+        arena: &'static SyncBlinkAlloc,
     ) {
         self.pending_updates
+            .as_mut()
+            .unwrap()
             .entry(group_id)
-            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
-                &ARENA_ALLOCATOR
-            }))
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, arena))
             .entry(entity)
             .or_default()
             .push(raw_data);
@@ -454,6 +464,7 @@ impl ReplicationSender {
         writer: &mut BitcodeWriter,
         delta_manager: &mut DeltaManager,
         tick: Tick,
+        arena: &'static SyncBlinkAlloc,
     ) {
         let group_channel = self.group_channels.entry(group_id).or_default();
         // Get the latest acked tick for this replication group
@@ -484,10 +495,10 @@ impl ReplicationSender {
             });
         trace!(?kind, "Inserting pending update!");
         self.pending_updates
+            .as_mut()
+            .unwrap()
             .entry(group_id)
-            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
-                &ARENA_ALLOCATOR
-            }))
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, arena))
             .entry(entity)
             .or_default()
             .push(raw_data);
@@ -502,10 +513,12 @@ impl ReplicationSender {
     ) -> Vec<(ChannelKind, ReplicationGroupId, ReplicationMessageData, f32)> {
         let mut messages = Vec::new();
 
-        for (group_id, mut actions) in self.pending_actions.drain() {
+        let mut pending_actions = self.pending_actions.take().unwrap();
+        let mut pending_updates = self.pending_updates.take().unwrap();
+        for (group_id, mut actions) in pending_actions.drain() {
             trace!(?group_id, "pending actions: {:?}", actions);
             // add any updates for that group
-            if let Some(updates) = self.pending_updates.remove(&group_id) {
+            if let Some(updates) = pending_updates.remove(&group_id) {
                 trace!(?group_id, "found updates for group: {:?}", updates);
                 for (entity, components) in updates {
                     actions
@@ -539,7 +552,7 @@ impl ReplicationSender {
             debug!("final action messages to send: {:?}", messages);
         }
         // send the remaining updates
-        for (group_id, updates) in self.pending_updates.drain() {
+        for (group_id, updates) in pending_updates.drain() {
             trace!(?group_id, "pending updates: {:?}", updates);
             let channel = self.group_channels.entry(group_id).or_default();
             let priority = channel
@@ -566,9 +579,9 @@ impl ReplicationSender {
         messages
     }
 
-    pub(crate) fn prepare(&mut self, allocator: &'static SyncBlinkAlloc) {
-        self.pending_actions = ArenaEntityHashMap::with_hasher_in(EntityHash, allocator);
-        self.pending_updates = ArenaEntityHashMap::with_hasher_in(EntityHash, allocator);
+    pub(crate) fn prepare_buffers(&mut self, allocator: &'static SyncBlinkAlloc) {
+        self.pending_actions = Some(ArenaEntityHashMap::with_hasher_in(EntityHash, allocator));
+        self.pending_updates = Some(ArenaEntityHashMap::with_hasher_in(EntityHash, allocator));
     }
 }
 
@@ -618,6 +631,7 @@ impl Default for GroupChannel {
     }
 }
 
+#[cfg(feature = "metrics")]
 #[cfg(test)]
 mod tests {
     use crate::channel::builder::EntityActionsChannel;

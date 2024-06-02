@@ -275,6 +275,7 @@ impl<'de, C: Encoding, R: Read> Deserializer<'de> for BitcodeDeserializer<'_, C,
     where
         V: Visitor<'de>,
     {
+        #[allow(non_local_definitions)]
         impl<'a, 'de, C: Encoding, R: Read> EnumAccess<'de> for BitcodeDeserializer<'a, C, R> {
             type Error = Error;
             type Variant = BitcodeDeserializer<'a, C, R>;

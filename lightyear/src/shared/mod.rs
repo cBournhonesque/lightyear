@@ -16,6 +16,8 @@ pub mod sets;
 
 pub mod tick_manager;
 
+#[cfg(feature = "arena")]
+pub mod arena;
 pub mod input;
 pub(crate) mod message;
 pub mod run_conditions;

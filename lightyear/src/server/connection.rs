@@ -4,6 +4,7 @@ use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
 use bevy::ptr::Ptr;
 use bevy::utils::{HashMap, HashSet};
+use blink_alloc::SyncBlinkAlloc;
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
 use serde::Serialize;
@@ -364,6 +365,7 @@ impl ConnectionManager {
         component_registry: &ComponentRegistry,
         data: &C,
         bevy_tick: BevyTick,
+        arena: &'static SyncBlinkAlloc,
     ) -> Result<(), ServerError> {
         let net_id = component_registry
             .get_net_id::<C>()
@@ -371,7 +373,7 @@ impl ConnectionManager {
         let raw_data = component_registry.serialize(data, &mut self.writer)?;
         self.connection_mut(client_id)?
             .replication_sender
-            .prepare_component_insert(entity, group_id, raw_data, bevy_tick);
+            .prepare_component_insert(entity, group_id, raw_data, bevy_tick, arena);
         Ok(())
     }
 }
@@ -724,6 +726,7 @@ impl ConnectionManager {
         entity: Entity,
         group: &ReplicationGroup,
         target: NetworkTarget,
+        arena: &'static SyncBlinkAlloc,
     ) -> Result<(), ServerError> {
         let group_id = group.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
@@ -735,7 +738,7 @@ impl ConnectionManager {
             // );
             self.connection_mut(client_id)?
                 .replication_sender
-                .prepare_entity_despawn(entity, group_id);
+                .prepare_entity_despawn(entity, group_id, arena);
             Ok(())
         })
     }
@@ -746,6 +749,7 @@ impl ConnectionManager {
         kind: ComponentNetId,
         group: &ReplicationGroup,
         target: NetworkTarget,
+        arena: &'static SyncBlinkAlloc,
     ) -> Result<(), ServerError> {
         let group_id = group.group_id(Some(entity));
         debug!(?entity, ?kind, "Sending RemoveComponent");
@@ -759,7 +763,7 @@ impl ConnectionManager {
             //  then we won't send the frame-2 update because we only collect changes since frame 3
             self.connection_mut(client_id)?
                 .replication_sender
-                .prepare_component_remove(entity, group_id, kind);
+                .prepare_component_remove(entity, group_id, kind, arena);
             Ok(())
         })
     }
@@ -779,6 +783,7 @@ impl ConnectionManager {
         delta_compression: bool,
         tick: Tick,
         bevy_tick: BevyTick,
+        arena: &'static SyncBlinkAlloc,
     ) -> Result<(), ServerError> {
         // TODO: first check that the target is not empty!
         let group_id = group.group_id(Some(entity));
@@ -848,7 +853,7 @@ impl ConnectionManager {
                 self.connection_mut(client_id)?
                     .replication_sender
                     // TODO: avoid the clone by using Arc<u8>?
-                    .prepare_component_insert(entity, group_id, raw_data.clone(), bevy_tick);
+                    .prepare_component_insert(entity, group_id, raw_data.clone(), bevy_tick, arena);
                 Ok(())
             })
     }
@@ -866,6 +871,7 @@ impl ConnectionManager {
         system_current_tick: BevyTick,
         tick: Tick,
         delta_compression: bool,
+        arena: &'static SyncBlinkAlloc,
     ) -> Result<(), ServerError> {
         trace!(
             ?kind,
@@ -916,9 +922,9 @@ impl ConnectionManager {
                 // );
                 if !delta_compression {
                     // TODO: avoid component clone with Arc<[u8]>
-                    replication_sender.prepare_component_update(entity, group_id, raw_data.clone());
+                    replication_sender.prepare_component_update(entity, group_id, raw_data.clone(), arena);
                 } else {
-                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick);
+                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick, arena);
                 }
             }
             Ok::<(), ServerError>(())

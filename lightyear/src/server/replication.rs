@@ -57,7 +57,7 @@ pub(crate) mod send {
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
-    use crate::shared::replication::arena::{ArenaManager, ARENA_ALLOCATOR};
+    use crate::shared::arena::ArenaManager;
     use crate::shared::replication::components::{
         Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
         ShouldBeInterpolated,
@@ -82,8 +82,6 @@ pub(crate) mod send {
             app
                 // REFLECTION
                 .register_type::<Replicate>()
-                // RESOURCE
-                .init_resource::<ArenaManager>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
@@ -119,7 +117,7 @@ pub(crate) mod send {
                     //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
                     //  It is ok to run it every frame because it creates at most one message per despawn
                     // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-                    handle_replicating_remove
+                    (handle_replicating_remove, prepare_buffers)
                         .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
                     // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
                     //  be careful that newly_connected_client is cleared every send_interval, not every frame.
@@ -137,14 +135,6 @@ pub(crate) mod send {
                 add_prediction_interpolation_components
                     .after(InternalMainSet::<ServerMarker>::Send)
                     .run_if(is_host_server),
-            );
-
-            app.add_systems(
-                PostUpdate,
-                (
-                    allocate_arena.in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
-                    reset_arena.in_set(InternalReplicationSet::<ServerMarker>::AfterBuffer),
-                ),
             );
         }
     }
@@ -241,24 +231,6 @@ pub(crate) mod send {
         pub marker: Replicating,
     }
 
-    fn allocate_arena(
-        arena_manager: ResMut<ArenaManager>,
-        mut connection_manager: ResMut<ConnectionManager>,
-    ) {
-        // use the new arena to allocate the replication messages
-        connection_manager
-            .connections
-            .values_mut()
-            .for_each(|connection| {
-                let allocator = unsafe { &ARENA_ALLOCATOR };
-                connection.replication_sender.prepare(allocator);
-            })
-    }
-
-    fn reset_arena(arena_manager: ResMut<ArenaManager>) {
-        unsafe { ARENA_ALLOCATOR.reset() };
-    }
-
     /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities
     /// So that client code can still query for them
     fn add_prediction_interpolation_components(
@@ -311,6 +283,16 @@ pub(crate) mod send {
         pub(crate) visibility_mode: VisibilityMode,
         /// If mode = Room, the list of clients that could see the entity
         pub(crate) replication_clients_cache: Vec<ClientId>,
+    }
+
+    /// Prepare buffers using the arena
+    pub(crate) fn prepare_buffers(
+        mut arena: ResMut<ArenaManager>,
+        mut connection_manager: ResMut<ConnectionManager>,
+    ) {
+        for connection in connection_manager.connections.values_mut() {
+            connection.replication_sender.prepare_buffers(arena.get())
+        }
     }
 
     /// For every entity that removes their ReplicationTarget component but are not despawned, remove the component
@@ -372,6 +354,7 @@ pub(crate) mod send {
     /// - adds ControlledBy, ShouldBePredicted, ShouldBeInterpolated component
     /// - handles TargetEntity if it's a Preexisting entity
     pub(crate) fn send_entity_spawn(
+        mut arena: ResMut<ArenaManager>,
         component_registry: Res<ComponentRegistry>,
         query: Query<(
             Entity,
@@ -459,7 +442,7 @@ pub(crate) mod send {
             let _ = sender.apply_replication(target).try_for_each(|client_id| {
                 // let the client know that this entity is controlled by them
                 if controlled_by.targets(&client_id) {
-                    sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled, system_ticks.this_run())?;
+                    sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled, system_ticks.this_run(), arena.get())?;
                 }
                 // if we need to do prediction/interpolation, send a marker component to indicate that to the client
                 if sync_target.prediction.targets(&client_id) {
@@ -470,7 +453,8 @@ pub(crate) mod send {
                         client_id,
                         component_registry.as_ref(),
                         &ShouldBePredicted,
-                        system_ticks.this_run()
+                        system_ticks.this_run(),
+                        arena.get()
                     )?;
                 }
                 if sync_target.interpolation.targets(&client_id) {
@@ -480,7 +464,8 @@ pub(crate) mod send {
                         client_id,
                         component_registry.as_ref(),
                         &ShouldBeInterpolated,
-                        system_ticks.this_run()
+                        system_ticks.this_run(),
+                        arena.get()
                     )?;
                 }
 
@@ -489,10 +474,11 @@ pub(crate) mod send {
                         entity,
                         group_id,
                         *remote_entity,
+                        arena.get(),
                     );
                 } else {
                     sender.connection_mut(client_id)?.replication_sender
-                        .prepare_entity_spawn(entity, group_id);
+                        .prepare_entity_spawn(entity, group_id, arena.get());
                 }
 
                 // also set the priority for the group when we spawn it
@@ -510,6 +496,7 @@ pub(crate) mod send {
     /// 2) the replication target was updated and the client is no longer in the ReplicationTarget
     /// 3) the entity was despawned
     pub(crate) fn send_entity_despawn(
+        mut arena: ResMut<ArenaManager>,
         query: Query<(
             Entity,
             Ref<ReplicationTarget>,
@@ -560,7 +547,8 @@ pub(crate) mod send {
                         .prepare_entity_despawn(
                             entity,
                             group,
-                            target
+                            target,
+                            arena.get()
                         )
                         .inspect_err(|e| {
                             error!("error sending entity despawn: {:?}", e);
@@ -593,6 +581,7 @@ pub(crate) mod send {
                         entity,
                         &replicate_cache.replication_group,
                         network_target,
+                        arena.get(),
                     )
                     // TODO: bubble up errors to user via ConnectionEvents?
                     .inspect_err(|e| {
@@ -615,6 +604,7 @@ pub(crate) mod send {
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
     pub(crate) fn send_component_update<C: Component>(
+        mut arena: ResMut<ArenaManager>,
         tick_manager: Res<TickManager>,
         registry: Res<ComponentRegistry>,
         query: Query<
@@ -735,7 +725,8 @@ pub(crate) mod send {
                                 insert_target,
                                 delta_compression,
                                 tick,
-                                system_bevy_ticks.this_run()
+                                system_bevy_ticks.this_run(),
+                                arena.get()
                             )
                             .inspect_err(|e| {
                                 error!("error sending component insert: {:?}", e);
@@ -754,6 +745,7 @@ pub(crate) mod send {
                                 system_bevy_ticks.this_run(),
                                 tick,
                                 delta_compression,
+                                arena.get()
                             )
                             .inspect_err(|e| {
                                 error!("error sending component update: {:?}", e);
@@ -765,6 +757,7 @@ pub(crate) mod send {
 
     /// This system sends updates for all components that were removed
     pub(crate) fn send_component_removed<C: Component>(
+        mut arena: ResMut<ArenaManager>,
         registry: Res<ComponentRegistry>,
         // only remove the component for entities that are being actively replicated
         query: Query<
@@ -822,7 +815,7 @@ pub(crate) mod send {
                 }
                 let group_id = group.group_id(Some(entity));
                 debug!(?entity, ?kind, "Sending RemoveComponent");
-                let _ = sender.prepare_component_remove(entity, kind, group, target);
+                let _ = sender.prepare_component_remove(entity, kind, group, target, arena.get());
             }
         })
     }

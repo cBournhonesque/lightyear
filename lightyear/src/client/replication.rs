@@ -67,7 +67,7 @@ pub(crate) mod send {
     use crate::server::events::EntitySpawnEvent;
     use crate::server::replication::send::SyncTarget;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
-    use crate::shared::replication::arena::{ArenaManager, ARENA_ALLOCATOR};
+    use crate::shared::arena::ArenaManager;
     use crate::shared::replication::components::{
         Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
         ShouldBeInterpolated,
@@ -90,8 +90,6 @@ pub(crate) mod send {
             app
                 // REFLECTION
                 .register_type::<Replicate>()
-                // RESOURCE
-                .init_resource::<ArenaManager>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
@@ -118,7 +116,7 @@ pub(crate) mod send {
                         //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
                         //  It is ok to run it every frame because it creates at most one message per despawn
                         // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-                        handle_replicating_remove
+                        (handle_replicating_remove, prepare_buffers)
                             .in_set(InternalReplicationSet::<ClientMarker>::BeforeBuffer),
                         send_entity_spawn
                             .in_set(InternalReplicationSet::<ClientMarker>::BufferEntityUpdates),
@@ -130,13 +128,6 @@ pub(crate) mod send {
                         add_replicated_component_host_server.run_if(is_host_server),
                     ),
                 );
-            app.add_systems(
-                PostUpdate,
-                (
-                    allocate_arena.in_set(InternalReplicationSet::<ClientMarker>::BeforeBuffer),
-                    reset_arena.in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
-                ),
-            );
         }
     }
 
@@ -189,6 +180,13 @@ pub(crate) mod send {
     #[derive(PartialEq, Debug)]
     pub(crate) struct ReplicateCache {
         pub(crate) replication_group: ReplicationGroup,
+    }
+
+    pub(crate) fn prepare_buffers(
+        mut arena: ResMut<ArenaManager>,
+        mut connection: ResMut<ConnectionManager>,
+    ) {
+        connection.replication_sender.prepare_buffers(arena.get());
     }
 
     /// For every entity that removes their ReplicationTarget component but are not despawned, remove the component
@@ -259,6 +257,7 @@ pub(crate) mod send {
     /// - handles TargetEntity if it's a Preexisting entity
     /// - setting the priority
     pub(crate) fn send_entity_spawn(
+        mut arena: ResMut<ArenaManager>,
         query: Query<
             (Entity, &ReplicationGroup, Option<&TargetEntity>),
             (With<Replicating>, Changed<ReplicateToServer>),
@@ -273,11 +272,12 @@ pub(crate) mod send {
                     entity,
                     group_id,
                     *remote_entity,
+                    arena.get(),
                 );
             } else {
                 sender
                     .replication_sender
-                    .prepare_entity_spawn(entity, group_id);
+                    .prepare_entity_spawn(entity, group_id, arena.get());
             }
             // TODO: should the priority be a component on the entity? but it should be shared between a group
             //  should a GroupChannel be a separate entity?
@@ -292,6 +292,7 @@ pub(crate) mod send {
     /// - an entity that had a DespawnTracker was despawned
     /// - an entity with Replicating had the ReplicationToServerTarget removed
     pub(crate) fn send_entity_despawn(
+        mut arena: ResMut<ArenaManager>,
         query: Query<(Entity, &ReplicationGroup), (With<Replicating>, Without<ReplicateToServer>)>,
         // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
         //  not just entities that had despawn tracker once
@@ -305,9 +306,11 @@ pub(crate) mod send {
                 ?entity,
                 "send entity despawn because ReplicationToServerTarget was removed"
             );
-            sender
-                .replication_sender
-                .prepare_entity_despawn(entity, group.group_id(Some(entity)));
+            sender.replication_sender.prepare_entity_despawn(
+                entity,
+                group.group_id(Some(entity)),
+                arena.get(),
+            );
         });
 
         // Despawn entities when the entity gets despawned on local world
@@ -321,6 +324,7 @@ pub(crate) mod send {
                 sender.replication_sender.prepare_entity_despawn(
                     entity,
                     replicate_cache.replication_group.group_id(Some(entity)),
+                    arena.get(),
                 );
             }
         }
@@ -334,6 +338,7 @@ pub(crate) mod send {
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
     pub(crate) fn send_component_update<C: Component>(
+        mut arena: ResMut<ArenaManager>,
         tick_manager: Res<TickManager>,
         registry: Res<ComponentRegistry>,
         query: Query<
@@ -406,6 +411,7 @@ pub(crate) mod send {
                             group_id,
                             raw_data,
                             system_bevy_ticks.this_run(),
+                            arena.get(),
                         );
                     } else {
                         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
@@ -438,9 +444,12 @@ pub(crate) mod send {
                                 let raw_data = registry
                                     .erased_serialize(component_data, writer, kind)
                                     .expect("could not serialize component");
-                                connection
-                                    .replication_sender
-                                    .prepare_component_update(entity, group_id, raw_data);
+                                connection.replication_sender.prepare_component_update(
+                                    entity,
+                                    group_id,
+                                    raw_data,
+                                    arena.get(),
+                                );
                             } else {
                                 connection
                                     .replication_sender
@@ -453,6 +462,7 @@ pub(crate) mod send {
                                         writer,
                                         &mut connection.delta_manager,
                                         tick,
+                                        arena.get(),
                                     );
                             }
                         }
@@ -464,6 +474,7 @@ pub(crate) mod send {
 
     /// Send component remove
     pub(crate) fn send_component_removed<C: Component>(
+        mut arena: ResMut<ArenaManager>,
         registry: Res<ComponentRegistry>,
         // only remove the component for entities that are being actively replicated
         query: Query<
@@ -482,9 +493,12 @@ pub(crate) mod send {
                 }
                 let group_id = group.group_id(Some(entity));
                 trace!(?entity, kind = ?std::any::type_name::<C>(), "Sending RemoveComponent");
-                sender
-                    .replication_sender
-                    .prepare_component_remove(entity, group_id, kind);
+                sender.replication_sender.prepare_component_remove(
+                    entity,
+                    group_id,
+                    kind,
+                    arena.get(),
+                );
             }
         })
     }
@@ -504,19 +518,6 @@ pub(crate) mod send {
                     .in_set(InternalReplicationSet::<ClientMarker>::BufferComponentUpdates),
             ),
         );
-    }
-
-    fn allocate_arena(
-        arena_manager: ResMut<ArenaManager>,
-        mut connection_manager: ResMut<ConnectionManager>,
-    ) {
-        // use the new arena to allocate the replication messages
-        let allocator = unsafe { &ARENA_ALLOCATOR };
-        connection_manager.replication_sender.prepare(allocator);
-    }
-
-    fn reset_arena(arena_manager: ResMut<ArenaManager>) {
-        unsafe { ARENA_ALLOCATOR.reset() };
     }
 
     #[cfg(test)]
