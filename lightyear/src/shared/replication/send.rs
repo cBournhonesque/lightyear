@@ -513,62 +513,67 @@ impl ReplicationSender {
     ) -> Vec<(ChannelKind, ReplicationGroupId, ReplicationMessageData, f32)> {
         let mut messages = Vec::new();
 
-        let mut pending_actions = self.pending_actions.take().unwrap();
-        let mut pending_updates = self.pending_updates.take().unwrap();
-        for (group_id, mut actions) in pending_actions.drain() {
-            trace!(?group_id, "pending actions: {:?}", actions);
-            // add any updates for that group
-            if let Some(updates) = pending_updates.remove(&group_id) {
-                trace!(?group_id, "found updates for group: {:?}", updates);
-                for (entity, components) in updates {
-                    actions
-                        .entry(entity)
-                        .or_default()
-                        .updates
-                        .extend(components.into_iter());
+        dbg!("finalize");
+        let pending_actions = self.pending_actions.take();
+        let pending_updates = self.pending_updates.take();
+        if let (Some(mut pending_actions), Some(mut pending_updates)) =
+            (pending_actions, pending_updates)
+        {
+            for (group_id, mut actions) in pending_actions.drain() {
+                trace!(?group_id, "pending actions: {:?}", actions);
+                // add any updates for that group
+                if let Some(updates) = pending_updates.remove(&group_id) {
+                    trace!(?group_id, "found updates for group: {:?}", updates);
+                    for (entity, components) in updates {
+                        actions
+                            .entry(entity)
+                            .or_default()
+                            .updates
+                            .extend(components.into_iter());
+                    }
                 }
+                let channel = self.group_channels.entry(group_id).or_default();
+                // update the send tick so that we don't send updates immediately after an insert message
+                // (which would happen because the send_tick is only set to Some(x) after an Update message is sent)
+                // This is ok to do because EntityActions messages are guaranteed to be sent at some point.
+                channel.send_tick = Some(bevy_tick);
+                let priority = channel
+                    .accumulated_priority
+                    .unwrap_or(channel.base_priority);
+                let message_id = channel.actions_next_send_message_id;
+                channel.actions_next_send_message_id += 1;
+                channel.last_action_tick = Some(tick);
+                messages.push((
+                    ChannelKind::of::<EntityActionsChannel>(),
+                    group_id,
+                    ReplicationMessageData::Actions(EntityActionMessage {
+                        sequence_id: message_id,
+                        // TODO: maybe we can just send the HashMap directly?
+                        actions: Vec::from_iter(actions.into_iter()),
+                    }),
+                    priority,
+                ));
+                debug!("final action messages to send: {:?}", messages);
             }
-            let channel = self.group_channels.entry(group_id).or_default();
-            // update the send tick so that we don't send updates immediately after an insert message
-            // (which would happen because the send_tick is only set to Some(x) after an Update message is sent)
-            // This is ok to do because EntityActions messages are guaranteed to be sent at some point.
-            channel.send_tick = Some(bevy_tick);
-            let priority = channel
-                .accumulated_priority
-                .unwrap_or(channel.base_priority);
-            let message_id = channel.actions_next_send_message_id;
-            channel.actions_next_send_message_id += 1;
-            channel.last_action_tick = Some(tick);
-            messages.push((
-                ChannelKind::of::<EntityActionsChannel>(),
-                group_id,
-                ReplicationMessageData::Actions(EntityActionMessage {
-                    sequence_id: message_id,
-                    // TODO: maybe we can just send the HashMap directly?
-                    actions: Vec::from_iter(actions.into_iter()),
-                }),
-                priority,
-            ));
-            debug!("final action messages to send: {:?}", messages);
-        }
-        // send the remaining updates
-        for (group_id, updates) in pending_updates.drain() {
-            trace!(?group_id, "pending updates: {:?}", updates);
-            let channel = self.group_channels.entry(group_id).or_default();
-            let priority = channel
-                .accumulated_priority
-                .unwrap_or(channel.base_priority);
-            messages.push((
-                ChannelKind::of::<EntityUpdatesChannel>(),
-                group_id,
-                ReplicationMessageData::Updates(EntityUpdatesMessage {
-                    // SAFETY: the last action tick is always set because we send Actions before Updates
-                    last_action_tick: channel.last_action_tick,
-                    // TODO: maybe we can just send the HashMap directly?
-                    updates: Vec::from_iter(updates.into_iter()),
-                }),
-                priority,
-            ));
+            // send the remaining updates
+            for (group_id, updates) in pending_updates.drain() {
+                trace!(?group_id, "pending updates: {:?}", updates);
+                let channel = self.group_channels.entry(group_id).or_default();
+                let priority = channel
+                    .accumulated_priority
+                    .unwrap_or(channel.base_priority);
+                messages.push((
+                    ChannelKind::of::<EntityUpdatesChannel>(),
+                    group_id,
+                    ReplicationMessageData::Updates(EntityUpdatesMessage {
+                        // SAFETY: the last action tick is always set because we send Actions before Updates
+                        last_action_tick: channel.last_action_tick,
+                        // TODO: maybe we can just send the HashMap directly?
+                        updates: Vec::from_iter(updates.into_iter()),
+                    }),
+                    priority,
+                ));
+            }
         }
 
         if !messages.is_empty() {
@@ -580,6 +585,7 @@ impl ReplicationSender {
     }
 
     pub(crate) fn prepare_buffers(&mut self, allocator: &'static SyncBlinkAlloc) {
+        dbg!("prepare buffers");
         self.pending_actions = Some(ArenaEntityHashMap::with_hasher_in(EntityHash, allocator));
         self.pending_updates = Some(ArenaEntityHashMap::with_hasher_in(EntityHash, allocator));
     }

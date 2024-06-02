@@ -287,7 +287,7 @@ pub(crate) mod send {
 
     /// Prepare buffers using the arena
     pub(crate) fn prepare_buffers(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         mut connection_manager: ResMut<ConnectionManager>,
     ) {
         for connection in connection_manager.connections.values_mut() {
@@ -354,7 +354,7 @@ pub(crate) mod send {
     /// - adds ControlledBy, ShouldBePredicted, ShouldBeInterpolated component
     /// - handles TargetEntity if it's a Preexisting entity
     pub(crate) fn send_entity_spawn(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         component_registry: Res<ComponentRegistry>,
         query: Query<(
             Entity,
@@ -496,7 +496,7 @@ pub(crate) mod send {
     /// 2) the replication target was updated and the client is no longer in the ReplicationTarget
     /// 3) the entity was despawned
     pub(crate) fn send_entity_despawn(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         query: Query<(
             Entity,
             Ref<ReplicationTarget>,
@@ -604,7 +604,7 @@ pub(crate) mod send {
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
     pub(crate) fn send_component_update<C: Component>(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         tick_manager: Res<TickManager>,
         registry: Res<ComponentRegistry>,
         query: Query<
@@ -757,7 +757,7 @@ pub(crate) mod send {
 
     /// This system sends updates for all components that were removed
     pub(crate) fn send_component_removed<C: Component>(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         registry: Res<ComponentRegistry>,
         // only remove the component for entities that are being actively replicated
         query: Query<

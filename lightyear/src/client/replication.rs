@@ -183,7 +183,7 @@ pub(crate) mod send {
     }
 
     pub(crate) fn prepare_buffers(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         mut connection: ResMut<ConnectionManager>,
     ) {
         connection.replication_sender.prepare_buffers(arena.get());
@@ -257,7 +257,7 @@ pub(crate) mod send {
     /// - handles TargetEntity if it's a Preexisting entity
     /// - setting the priority
     pub(crate) fn send_entity_spawn(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         query: Query<
             (Entity, &ReplicationGroup, Option<&TargetEntity>),
             (With<Replicating>, Changed<ReplicateToServer>),
@@ -292,7 +292,7 @@ pub(crate) mod send {
     /// - an entity that had a DespawnTracker was despawned
     /// - an entity with Replicating had the ReplicationToServerTarget removed
     pub(crate) fn send_entity_despawn(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         query: Query<(Entity, &ReplicationGroup), (With<Replicating>, Without<ReplicateToServer>)>,
         // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
         //  not just entities that had despawn tracker once
@@ -338,7 +338,7 @@ pub(crate) mod send {
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
     pub(crate) fn send_component_update<C: Component>(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         tick_manager: Res<TickManager>,
         registry: Res<ComponentRegistry>,
         query: Query<
@@ -474,7 +474,7 @@ pub(crate) mod send {
 
     /// Send component remove
     pub(crate) fn send_component_removed<C: Component>(
-        mut arena: ResMut<ArenaManager>,
+        arena: Res<ArenaManager>,
         registry: Res<ComponentRegistry>,
         // only remove the component for entities that are being actively replicated
         query: Query<

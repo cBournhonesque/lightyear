@@ -47,11 +47,11 @@ impl ServerPlugins {
 
 impl PluginGroup for ServerPlugins {
     fn build(self) -> PluginGroupBuilder {
-        let mut builder = PluginGroupBuilder::start::<Self>();
+        let builder = PluginGroupBuilder::start::<Self>();
         let tick_interval = self.config.shared.tick.tick_duration;
 
         #[cfg(feature = "arena")]
-        builder = builder.add(crate::shared::arena::ArenaPlugin);
+        let builder = builder.add(crate::shared::arena::ArenaPlugin);
 
         builder
             .add(SetupPlugin {

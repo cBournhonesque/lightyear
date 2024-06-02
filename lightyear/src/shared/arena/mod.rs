@@ -5,6 +5,7 @@
 //! objects need to be allocated, and then are suddenly not needed and can be
 //! deallocated all at once.
 
+use crate::prelude::MainSet;
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 use bevy::prelude::*;
 use blink_alloc::SyncBlinkAlloc;
@@ -24,7 +25,9 @@ impl Plugin for ArenaPlugin {
 
         app.add_systems(
             PostUpdate,
-            Self::reset.in_set(InternalReplicationSet::<ServerMarker>::AfterBuffer),
+            Self::reset
+                .in_set(MainSet::Send)
+                .after(MainSet::SendPackets),
         );
     }
 }
