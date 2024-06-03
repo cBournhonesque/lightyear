@@ -239,7 +239,7 @@ impl ConnectionManager {
         let message = ClientMessage { message, target };
         self.writer.start_write();
         message.encode(&mut self.writer)?;
-        // TODO: doesn't this serialize the bytes twice?
+        // TODO: doesn't this serialize the bytes twice? fix this..
         let message_bytes = self.writer.finish_write().to_vec();
         // message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message_bytes, channel)?;

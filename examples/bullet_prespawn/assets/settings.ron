@@ -57,7 +57,7 @@ MySettings(
         shared: SharedSettings(
             protocol_id: 0,
             private_key: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-            compression: Lz4,
+            compression: None,
         )
     )
 )

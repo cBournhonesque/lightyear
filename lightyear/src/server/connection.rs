@@ -474,12 +474,8 @@ impl Connection {
             .channel_registry
             .name(&channel)
             .ok_or::<ServerError>(MessageError::NotRegistered.into())?;
-        self.writer.start_write();
-        message.encode(&mut self.writer)?;
-        // TODO: doesn't this serialize the bytes twice?
-        let message_bytes = self.writer.finish_write().to_vec();
         // message.emit_send_logs(&channel_name);
-        self.message_manager.buffer_send(message_bytes, channel)?;
+        self.message_manager.buffer_send(message, channel)?;
         Ok(())
     }
 
