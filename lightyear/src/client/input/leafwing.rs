@@ -45,7 +45,7 @@ use std::marker::PhantomData;
 use std::ops::DerefMut;
 
 use bevy::prelude::*;
-use bevy::utils::{HashMap, HashSet};
+use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use tracing::{error, trace};
@@ -56,21 +56,17 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::client::sync::{client_is_synced, SyncSet};
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::server::MessageEvent;
-use crate::prelude::{
-    is_host_server, MessageRegistry, Mode, NetworkTarget, SharedConfig, ShouldBePredicted, Tick,
-    TickManager,
-};
+use crate::prelude::{is_host_server, MessageRegistry, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::{ClientMarker, FixedUpdateSet, InternalMainSet};
+use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
 /// Run condition to control most of the systems in the LeafwingInputPlugin
@@ -1097,7 +1093,6 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
-    use bevy::asset::AsyncReadExt;
     use bevy::input::InputPlugin;
     use bevy::prelude::*;
     use bevy::utils::Duration;
@@ -1111,8 +1106,6 @@ mod tests {
     use crate::prelude::{client, LinkConditionerConfig, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-
-    use super::*;
 
     fn setup() -> (BevyStepper, Entity, Entity) {
         let frame_duration = Duration::from_millis(10);
