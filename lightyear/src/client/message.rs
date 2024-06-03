@@ -13,25 +13,14 @@ use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::serialize::RawData;
-use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::network_target::NetworkTarget;
-use crate::shared::replication::ReplicationMessage;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
-// ClientMessages can include some extra Metadata
 #[derive(Encode, Decode, Clone, Debug)]
-pub(crate) enum ClientMessage {
-    #[bitcode_hint(frequency = 2)]
-    // #[bitcode(with_serde)]
-    Message(RawData, NetworkTarget),
-    #[bitcode_hint(frequency = 3)]
-    // #[bitcode(with_serde)]
-    Replication(ReplicationMessage),
-    #[bitcode_hint(frequency = 1)]
-    // the reason why we include sync here instead of doing another MessageManager is so that
-    // the sync messages can be added to packets that have other messages
-    Ping(Ping),
-    Pong(Pong),
+pub struct ClientMessage {
+    pub(crate) message: RawData,
+    /// Used if you want to automatically rebroadcast a message to a specific target
+    pub(crate) target: NetworkTarget,
 }
 
 /// Read the message received from the server and emit the MessageEvent event

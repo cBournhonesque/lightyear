@@ -29,6 +29,7 @@ use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
+use crate::utils::captures::Captures;
 
 // TODO: hard to split message manager into send/receive because the acks need both the send side and receive side
 //  maybe have a separate actor for acks?
@@ -350,21 +351,33 @@ impl MessageManager {
     ///
     /// EDIT: Actually, prioritization discards messages that are not sent, so maybe it is guaranteed that the tick
     /// is the remote send tick.
-    // TODO: avoid allocating this temporary map!
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
+    pub fn read_messages(
+        &mut self,
+    ) -> impl Iterator<Item = (ChannelKind, (Tick, Bytes))> + Captures<&()> {
+        // let mut map = HashMap::new();
+        self.channels
+            .iter_mut()
+            .flat_map(move |(channel_kind, channel)| {
+                channel.receiver.read_message().map(move |(tick, bytes)| {
+                    trace!(?channel_kind, "reading message: {:?}", bytes);
+                    // SAFETY: when we receive the message, we set the tick of the message to the header tick
+                    // so every message has a tick
+                    (*channel_kind, (tick, bytes))
+                })
+            })
+    }
+
+    #[cfg(test)]
+    pub fn collect_messages(
+        &self,
+        messages: impl Iterator<Item = (ChannelKind, (Tick, Bytes))>,
+    ) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
         let mut map = HashMap::new();
-        for (channel_kind, channel) in self.channels.iter_mut() {
-            let mut messages = vec![];
-            while let Some((tick, bytes)) = channel.receiver.read_message() {
-                trace!(?channel_kind, "reading message: {:?}", bytes);
-                // SAFETY: when we receive the message, we set the tick of the message to the header tick
-                // so every message has a tick
-                messages.push((tick, bytes));
-            }
-            if !messages.is_empty() {
-                map.insert(*channel_kind, messages);
-            }
+        for (channel_kind, (tick, bytes)) in messages {
+            map.entry(channel_kind)
+                .or_insert_with(Vec::new)
+                .push((tick, bytes));
         }
         map
     }
@@ -384,7 +397,7 @@ impl MessageManager {
 
     /// Get the ChannelSendStats of a given channel
     #[cfg(feature = "trace")]
-    pub fn channel_send_stats<C: Channel>(&self) -> Option<&ChannelSendStats> {
+    pub fn channel_send_stats<C: crate::prelude::Channel>(&self) -> Option<&ChannelSendStats> {
         self.channels
             .get(&ChannelKind::of::<C>())
             .map(|channel| &channel.sender_stats)
@@ -461,7 +474,9 @@ mod tests {
         for payload in payloads {
             server_message_manager.recv_packet(payload)?;
         }
-        let mut data = server_message_manager.read_messages();
+        let it = server_message_manager.read_messages();
+        let data = server_message_manager.collect_messages(it);
+
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
             &vec![(Tick(0), message.clone().into())]
@@ -472,7 +487,8 @@ mod tests {
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io
-        data = server_message_manager.read_messages();
+        let it = server_message_manager.read_messages();
+        let data = server_message_manager.collect_messages(it);
         assert!(data.is_empty());
 
         // Check the state of the packet headers
@@ -551,7 +567,8 @@ mod tests {
         for payload in payloads {
             server_message_manager.recv_packet(payload)?;
         }
-        let mut data = server_message_manager.read_messages();
+        let it = server_message_manager.read_messages();
+        let data = server_message_manager.collect_messages(it);
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
             &vec![(Tick(0), message.clone().into())]
@@ -562,7 +579,8 @@ mod tests {
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io
-        data = server_message_manager.read_messages();
+        let it = server_message_manager.read_messages();
+        let data = server_message_manager.collect_messages(it);
         assert!(data.is_empty());
 
         // Check the state of the packet headers

@@ -67,16 +67,20 @@ impl Default for EntityActions {
 
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
+/// All the entity actions (Spawn/despawn/inserts/removals) for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub struct EntityActionMessage {
+pub struct EntityActionsMessage {
     sequence_id: MessageId,
+    group_id: ReplicationGroupId,
     #[bitcode(with_serde)]
     // we use vec but the order of entities should not matter
     pub(crate) actions: Vec<(Entity, EntityActions)>,
 }
 
+/// All the component updates for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
 pub struct EntityUpdatesMessage {
+    pub(crate) group_id: ReplicationGroupId,
     /// The last tick for which we sent an EntityActionsMessage for this group
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
     /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
@@ -87,20 +91,6 @@ pub struct EntityUpdatesMessage {
     // /// Updates containing diffs with a previous value
     // #[bitcode(with_serde)]
     // diff_updates: Vec<(Entity, Vec<RawData>)>,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub enum ReplicationMessageData {
-    /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
-    Actions(EntityActionMessage),
-    /// All the entity updates for a given group
-    Updates(EntityUpdatesMessage),
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub struct ReplicationMessage {
-    pub(crate) group_id: ReplicationGroupId,
-    pub(crate) data: ReplicationMessageData,
 }
 
 /// Trait for a service that participates in replication.

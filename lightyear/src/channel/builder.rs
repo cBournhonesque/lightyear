@@ -228,6 +228,11 @@ pub struct EntityUpdatesChannel;
 #[derive(ChannelInternal)]
 pub struct PingChannel;
 
+/// Default channel to send pongs. This is a Sequenced Unreliable channel, because
+/// there is no point in getting older pongs.
+#[derive(ChannelInternal)]
+pub struct PongChannel;
+
 #[derive(ChannelInternal)]
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;
