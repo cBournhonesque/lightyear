@@ -4,8 +4,6 @@ use bevy::prelude::*;
 use bevy::utils::HashMap;
 
 use crate::connection::id::ClientId;
-#[cfg(feature = "leafwing")]
-use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::ComponentRegistry;
 use crate::server::connection::ConnectionManager;
 use crate::shared::events::connection::{

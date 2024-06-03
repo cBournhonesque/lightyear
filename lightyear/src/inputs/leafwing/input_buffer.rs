@@ -4,19 +4,14 @@ use std::fmt::{Debug, Formatter};
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Vec2;
 use bevy::prelude::{
-    Component, Entity, EntityMapper, Event, FromReflect, Reflect, Resource, TypePath,
+    Component, Entity, EntityMapper, Event, Reflect, Resource, TypePath,
 };
-use bevy::reflect::DynamicTypePath;
 use bevy::utils::HashMap;
 use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::prelude::ActionState;
-use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
-use tracing::{trace, warn};
+use tracing::{trace};
 
-use crate::prelude::client::SyncComponent;
-use crate::prelude::Message;
-use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
 
 use super::LeafwingUserAction;
