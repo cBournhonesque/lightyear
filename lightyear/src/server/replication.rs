@@ -916,6 +916,22 @@ pub(crate) mod send {
         }
 
         #[test]
+        fn test_multi_entity_spawn() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            stepper
+                .server_app
+                .world
+                .spawn_batch(vec![Replicate::default(); 2]);
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the entities were spawned
+            assert_eq!(stepper.client_app.world.entities().len(), 2);
+        }
+
+        #[test]
         fn test_entity_spawn_visibility() {
             let mut stepper = MultiBevyStepper::default();
 

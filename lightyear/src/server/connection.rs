@@ -15,6 +15,7 @@ use crate::channel::builder::{
 };
 use bitcode::encoding::Fixed;
 
+use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
 use crate::connection::id::ClientId;
@@ -568,84 +569,89 @@ impl Connection {
     ) -> ConnectionEvents {
         let _span = trace_span!("receive").entered();
         let message_registry = world.resource::<MessageRegistry>();
-        for (channel_kind, (tick, single_data)) in self.message_manager.read_messages() {
-            // let channel_name = self
-            //     .message_manager
-            //     .channel_registry
-            //     .name(&channel_kind)
-            //     .unwrap_or("unknown");
-            // let _span_channel = trace_span!("channel", channel = channel_name).entered();
+        self.message_manager
+            .channels
+            .iter_mut()
+            .for_each(|(channel_kind, channel)| {
+                while let Some((tick, single_data)) = channel.receiver.read_message() {
+                    // let channel_name = self
+                    //     .message_manager
+                    //     .channel_registry
+                    //     .name(&channel_kind)
+                    //     .unwrap_or("unknown");
+                    // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
-            trace!(?channel_kind, ?tick, ?single_data, "received message");
-            // TODO: in this case, it looks like we might not need the pool?
-            //  we can just have a single buffer, and keep re-using that buffer
-            let mut reader = self.reader_pool.start_read(single_data.as_ref());
+                    trace!(?channel_kind, ?tick, ?single_data, "received message");
+                    // TODO: in this case, it looks like we might not need the pool?
+                    //  we can just have a single buffer, and keep re-using that buffer
+                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
 
-            // TODO: get const type ids
-            if channel_kind == ChannelKind::of::<PingChannel>() {
-                let ping = reader.decode::<Ping>(Fixed).expect("Could not decode Ping");
-                // prepare a pong in response (but do not send yet, because we need
-                // to set the correct send time)
-                self.ping_manager
-                    .buffer_pending_pong(&ping, time_manager.current_time());
-                trace!("buffer pong");
-            } else if channel_kind == ChannelKind::of::<PongChannel>() {
-                let pong = reader.decode::<Pong>(Fixed).expect("Could not decode Pong");
-                // process the pong
-                self.ping_manager
-                    .process_pong(&pong, time_manager.current_time());
-            } else if channel_kind == ChannelKind::of::<EntityActionsChannel>() {
-                let actions = EntityActionsMessage::decode(&mut reader)
-                    .expect("Could not decode EntityActionMessage");
-                trace!(?tick, ?actions, "received replication actions message");
-                // buffer the replication message
-                self.replication_receiver.recv_actions(actions, tick);
-            } else if channel_kind == ChannelKind::of::<EntityUpdatesChannel>() {
-                let updates = EntityUpdatesMessage::decode(&mut reader)
-                    .expect("Could not decode EntityUpdatesMessage");
-                trace!(?tick, ?updates, "received replication updates message");
-                // buffer the replication message
-                self.replication_receiver.recv_updates(updates, tick);
-            } else {
-                // TODO: we only get RawData here, does that mean we're deserializing multiple times?
-                //  instead just read the bytes for the target!!
-                let ClientMessage { message, target } =
-                    ClientMessage::decode(&mut reader).expect("Could not decode ClientMessage");
+                    // TODO: get const type ids
+                    if channel_kind == &ChannelKind::of::<PingChannel>() {
+                        let ping = reader.decode::<Ping>(Fixed).expect("Could not decode Ping");
+                        // prepare a pong in response (but do not send yet, because we need
+                        // to set the correct send time)
+                        self.ping_manager
+                            .buffer_pending_pong(&ping, time_manager.current_time());
+                        trace!("buffer pong");
+                    } else if channel_kind == &ChannelKind::of::<PongChannel>() {
+                        let pong = reader.decode::<Pong>(Fixed).expect("Could not decode Pong");
+                        // process the pong
+                        self.ping_manager
+                            .process_pong(&pong, time_manager.current_time());
+                    } else if channel_kind == &ChannelKind::of::<EntityActionsChannel>() {
+                        let actions = EntityActionsMessage::decode(&mut reader)
+                            .expect("Could not decode EntityActionMessage");
+                        trace!(?tick, ?actions, "received replication actions message");
+                        // buffer the replication message
+                        self.replication_receiver.recv_actions(actions, tick);
+                    } else if channel_kind == &ChannelKind::of::<EntityUpdatesChannel>() {
+                        let updates = EntityUpdatesMessage::decode(&mut reader)
+                            .expect("Could not decode EntityUpdatesMessage");
+                        trace!(?tick, ?updates, "received replication updates message");
+                        // buffer the replication message
+                        self.replication_receiver.recv_updates(updates, tick);
+                    } else {
+                        // TODO: we only get RawData here, does that mean we're deserializing multiple times?
+                        //  instead just read the bytes for the target!!
+                        let ClientMessage { message, target } = ClientMessage::decode(&mut reader)
+                            .expect("Could not decode ClientMessage");
 
-                let mut reader = self.reader_pool.start_read(message.as_slice());
-                let net_id = reader
-                    .decode::<NetId>(Fixed)
-                    .expect("could not decode MessageKind");
-                self.reader_pool.attach(reader);
-                // we are also sending target and channel kind so the message can be
-                // rebroadcasted to other clients after we have converted the entities from the
-                // client World to the server World
-                // TODO: but do we have data to convert the entities from the client to the server?
-                //  I don't think so... maybe the sender should map_entities themselves?
-                //  or it matters for input messages?
-                // TODO: avoid clone with Arc<[u8]>?
-                let data = (message.clone().into(), target.clone(), channel_kind);
+                        let mut reader = self.reader_pool.start_read(message.as_slice());
+                        let net_id = reader
+                            .decode::<NetId>(Fixed)
+                            .expect("could not decode MessageKind");
+                        self.reader_pool.attach(reader);
+                        // we are also sending target and channel kind so the message can be
+                        // rebroadcasted to other clients after we have converted the entities from the
+                        // client World to the server World
+                        // TODO: but do we have data to convert the entities from the client to the server?
+                        //  I don't think so... maybe the sender should map_entities themselves?
+                        //  or it matters for input messages?
+                        // TODO: avoid clone with Arc<[u8]>?
+                        let data = (message.clone().into(), target.clone(), *channel_kind);
 
-                match message_registry.message_type(net_id) {
-                    #[cfg(feature = "leafwing")]
-                    MessageType::LeafwingInput => self
-                        .received_leafwing_input_messages
-                        .entry(net_id)
-                        .or_default()
-                        .push(data),
-                    MessageType::NativeInput => {
-                        self.received_input_messages
-                            .entry(net_id)
-                            .or_default()
-                            .push(data);
+                        match message_registry.message_type(net_id) {
+                            #[cfg(feature = "leafwing")]
+                            MessageType::LeafwingInput => self
+                                .received_leafwing_input_messages
+                                .entry(net_id)
+                                .or_default()
+                                .push(data),
+                            MessageType::NativeInput => {
+                                self.received_input_messages
+                                    .entry(net_id)
+                                    .or_default()
+                                    .push(data);
+                            }
+                            MessageType::Normal => {
+                                self.received_messages.entry(net_id).or_default().push(data);
+                            }
+                        }
                     }
-                    MessageType::Normal => {
-                        self.received_messages.entry(net_id).or_default().push(data);
-                    }
+                    self.reader_pool.attach(reader);
                 }
-            }
-            self.reader_pool.attach(reader);
-        }
+            });
 
         // Check if we have any replication messages we can apply to the World (and emit events)
         self.replication_receiver.apply_world(

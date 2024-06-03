@@ -11,6 +11,7 @@ use crate::channel::builder::{
 };
 use bitcode::encoding::Fixed;
 
+use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::client::config::{PacketConfig, ReplicationConfig};
 use crate::client::error::ClientError;
@@ -196,7 +197,7 @@ impl ConnectionManager {
         self.writer.encode(&pong, Fixed)?;
         let message_bytes = self.writer.finish_write().to_vec();
         self.message_manager
-            .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
+            .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
     }
 
@@ -322,88 +323,91 @@ impl ConnectionManager {
     ) {
         let _span = trace_span!("receive").entered();
         let message_registry = world.resource::<MessageRegistry>();
-        for (channel_kind, (tick, single_data)) in self.message_manager.read_messages() {
-            // let channel_name = self
-            //     .message_manager
-            //     .channel_registry
-            //     .name(&channel_kind)
-            //     .unwrap_or("unknown");
-            // let _span_channel = trace_span!("channel", channel = channel_name).entered();
+        self.message_manager
+            .channels
+            .iter_mut()
+            .for_each(|(channel_kind, channel)| {
+                while let Some((tick, single_data)) = channel.receiver.read_message() {
+                    // let channel_name = self
+                    //     .message_manager
+                    //     .channel_registry
+                    //     .name(&channel_kind)
+                    //     .unwrap_or("unknown");
+                    // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
-            trace!(?channel_kind, ?tick, ?single_data, "Received message");
-            // TODO: in this case, it looks like we might not need the pool?
-            //  we can just have a single buffer, and keep re-using that buffer
-            trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
-            let mut reader = self.reader_pool.start_read(single_data.as_ref());
-            if channel_kind == ChannelKind::of::<PingChannel>() {
-                let ping = reader
-                    .decode::<Ping>(Fixed)
-                    .expect("Could not decode ping message");
-                // prepare a pong in response (but do not send yet, because we need
-                // to set the correct send time)
-                self.ping_manager
-                    .buffer_pending_pong(&ping, time_manager.current_time());
-            } else if channel_kind == ChannelKind::of::<PongChannel>() {
-                let pong = reader
-                    .decode::<Pong>(Fixed)
-                    .expect("Could not decode pong message");
-                // process the pong
-                self.ping_manager
-                    .process_pong(&pong, time_manager.current_time());
-                // TODO: a bit dangerous because we want:
-                // - real time when computing RTT
-                // - virtual time when computing the generation
-                // - maybe we should just send both in Pong message?
-                // update the tick generation from the time + tick information
-                self.sync_manager.server_pong_tick = tick;
-                self.sync_manager.server_pong_generation = pong
-                    .pong_sent_time
-                    .tick_generation(tick_manager.config.tick_duration, tick);
-                trace!(
-                    ?tick,
-                    generation = ?self.sync_manager.server_pong_generation,
-                    time = ?pong.pong_sent_time,
-                    "Updated server pong generation"
-                )
-            } else if channel_kind == ChannelKind::of::<EntityActionsChannel>() {
-                let actions = EntityActionsMessage::decode(&mut reader)
-                    .expect("Could not decode EntityActionsMessage");
-                self.replication_receiver.recv_actions(actions, tick);
-            } else if channel_kind == ChannelKind::of::<EntityUpdatesChannel>() {
-                let updates = EntityUpdatesMessage::decode(&mut reader)
-                    .expect("Could not decode EntityUpdatesMessage");
-                self.replication_receiver.recv_updates(updates, tick);
-            } else {
-                // identify the type of message
-                let net_id = reader
-                    .decode::<NetId>(Fixed)
-                    .expect("could not decode MessageKind");
-                dbg!(&channel_kind);
-                dbg!(net_id);
-                match message_registry.message_type(net_id) {
-                    #[cfg(feature = "leafwing")]
-                    MessageType::LeafwingInput => {
-                        self.received_leafwing_input_messages
-                            .entry(net_id)
-                            .or_default()
-                            .push(single_data.into());
+                    trace!(?channel_kind, ?tick, ?single_data, "Received message");
+                    // TODO: in this case, it looks like we might not need the pool?
+                    //  we can just have a single buffer, and keep re-using that buffer
+                    trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
+                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
+                    if *channel_kind == ChannelKind::of::<PingChannel>() {
+                        let ping = reader
+                            .decode::<Ping>(Fixed)
+                            .expect("Could not decode ping message");
+                        // prepare a pong in response (but do not send yet, because we need
+                        // to set the correct send time)
+                        self.ping_manager
+                            .buffer_pending_pong(&ping, time_manager.current_time());
+                    } else if *channel_kind == ChannelKind::of::<PongChannel>() {
+                        let pong = reader
+                            .decode::<Pong>(Fixed)
+                            .expect("Could not decode pong message");
+                        // process the pong
+                        self.ping_manager
+                            .process_pong(&pong, time_manager.current_time());
+                        // TODO: a bit dangerous because we want:
+                        // - real time when computing RTT
+                        // - virtual time when computing the generation
+                        // - maybe we should just send both in Pong message?
+                        // update the tick generation from the time + tick information
+                        self.sync_manager.server_pong_tick = tick;
+                        self.sync_manager.server_pong_generation = pong
+                            .pong_sent_time
+                            .tick_generation(tick_manager.config.tick_duration, tick);
+                        trace!(
+                            ?tick,
+                            generation = ?self.sync_manager.server_pong_generation,
+                            time = ?pong.pong_sent_time,
+                            "Updated server pong generation"
+                        )
+                    } else if *channel_kind == ChannelKind::of::<EntityActionsChannel>() {
+                        let actions = EntityActionsMessage::decode(&mut reader)
+                            .expect("Could not decode EntityActionsMessage");
+                        self.replication_receiver.recv_actions(actions, tick);
+                    } else if *channel_kind == ChannelKind::of::<EntityUpdatesChannel>() {
+                        let updates = EntityUpdatesMessage::decode(&mut reader)
+                            .expect("Could not decode EntityUpdatesMessage");
+                        self.replication_receiver.recv_updates(updates, tick);
+                    } else {
+                        // identify the type of message
+                        let net_id = reader
+                            .decode::<NetId>(Fixed)
+                            .expect("could not decode MessageKind");
+                        match message_registry.message_type(net_id) {
+                            #[cfg(feature = "leafwing")]
+                            MessageType::LeafwingInput => {
+                                self.received_leafwing_input_messages
+                                    .entry(net_id)
+                                    .or_default()
+                                    .push(single_data.into());
+                            }
+                            MessageType::NativeInput => {
+                                todo!()
+                            }
+                            MessageType::Normal => {
+                                dbg!("Normal message");
+                                self.received_messages
+                                    .entry(net_id)
+                                    .or_default()
+                                    .push(single_data.into());
+                            }
+                        }
                     }
-                    MessageType::NativeInput => {
-                        todo!()
-                    }
-                    MessageType::Normal => {
-                        dbg!("Normal message");
-                        self.received_messages
-                            .entry(net_id)
-                            .or_default()
-                            .push(single_data.into());
-                    }
+
+                    // return the buffer to the pool
+                    self.reader_pool.attach(reader);
                 }
-            }
-
-            // return the buffer to the pool
-            self.reader_pool.attach(reader);
-        }
+            });
 
         if self.sync_manager.is_synced() {
             world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {

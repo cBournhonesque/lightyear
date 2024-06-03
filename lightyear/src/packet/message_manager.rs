@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
-use bytes::{Buf, Bytes};
+use bytes::Buf;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::trace;
 #[cfg(feature = "trace")]
@@ -29,6 +29,7 @@ use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
+#[cfg(test)]
 use crate::utils::captures::Captures;
 
 // TODO: hard to split message manager into send/receive because the acks need both the send side and receive side
@@ -166,6 +167,7 @@ impl MessageManager {
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
                 let (single_data, fragment_data) = channel.sender.send_packet();
+
                 if !single_data.is_empty() || !fragment_data.is_empty() {
                     trace!(?channel_id, "send message with channel_id");
                     has_data_to_send = true;
@@ -351,14 +353,18 @@ impl MessageManager {
     ///
     /// EDIT: Actually, prioritization discards messages that are not sent, so maybe it is guaranteed that the tick
     /// is the remote send tick.
+    ///
+    /// Right now we cannot use this because we need to call a while loop inside the iterator...
+    /// We could have the read_message() return a Box<dyn Iterator>, but let's just copy-paste the code right now.
+    #[cfg(test)]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn read_messages(
         &mut self,
-    ) -> impl Iterator<Item = (ChannelKind, (Tick, Bytes))> + Captures<&()> {
-        // let mut map = HashMap::new();
+    ) -> impl Iterator<Item = (ChannelKind, (Tick, bytes::Bytes))> + Captures<&()> {
         self.channels
             .iter_mut()
             .flat_map(move |(channel_kind, channel)| {
+                // TODO: this is broken, we need to call a read_message in a while loop !
                 channel.receiver.read_message().map(move |(tick, bytes)| {
                     trace!(?channel_kind, "reading message: {:?}", bytes);
                     // SAFETY: when we receive the message, we set the tick of the message to the header tick
