@@ -370,7 +370,6 @@ impl MessageManager {
 
     #[cfg(test)]
     pub fn collect_messages(
-        &self,
         messages: impl Iterator<Item = (ChannelKind, (Tick, Bytes))>,
     ) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
         let mut map = HashMap::new();
@@ -475,7 +474,7 @@ mod tests {
             server_message_manager.recv_packet(payload)?;
         }
         let it = server_message_manager.read_messages();
-        let data = server_message_manager.collect_messages(it);
+        let data = MessageManager::collect_messages(it);
 
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
@@ -488,7 +487,7 @@ mod tests {
 
         // Confirm what happens if we try to receive but there is nothing on the io
         let it = server_message_manager.read_messages();
-        let data = server_message_manager.collect_messages(it);
+        let data = MessageManager::collect_messages(it);
         assert!(data.is_empty());
 
         // Check the state of the packet headers
@@ -568,7 +567,7 @@ mod tests {
             server_message_manager.recv_packet(payload)?;
         }
         let it = server_message_manager.read_messages();
-        let data = server_message_manager.collect_messages(it);
+        let data = MessageManager::collect_messages(it);
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
             &vec![(Tick(0), message.clone().into())]
@@ -580,7 +579,7 @@ mod tests {
 
         // Confirm what happens if we try to receive but there is nothing on the io
         let it = server_message_manager.read_messages();
-        let data = server_message_manager.collect_messages(it);
+        let data = MessageManager::collect_messages(it);
         assert!(data.is_empty());
 
         // Check the state of the packet headers

@@ -17,6 +17,8 @@ pub enum SerializationError {
     InvalidPacketType,
     #[error("Substraction overflow")]
     SubstractionOverflow,
+    #[error(transparent)]
+    Bitcode(#[from] ::bitcode::Error),
 }
 
 #[allow(clippy::len_without_is_empty)]

@@ -260,25 +260,12 @@ impl ConnectionManager {
         //     return Ok(());
         // }
 
-        self.replication_sender
-            .actions_to_send(tick, bevy_tick)
-            .try_for_each(|(message, priority)| {
-                // message.emit_send_logs("EntityActionsChannel");
-                self.writer.start_write();
-                message.encode(&mut self.writer)?;
-                // TODO: doesn't this serialize the bytes twice?
-                let message_bytes = self.writer.finish_write().to_vec();
-                let message_id = self
-                    .message_manager
-                    // TODO: use const type_id?
-                    .buffer_send_with_priority(
-                        message_bytes,
-                        ChannelKind::of::<EntityActionsChannel>(),
-                        priority,
-                    )?
-                    .expect("The entity actions channels should always return a message_id");
-                Ok::<(), ClientError>(())
-            })?;
+        self.replication_sender.send_actions_messages(
+            tick,
+            bevy_tick,
+            &mut self.writer,
+            &mut self.message_manager,
+        )?;
 
         self.replication_sender
             .updates_to_send(tick, bevy_tick)
