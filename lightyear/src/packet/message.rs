@@ -7,7 +7,7 @@ use bytes::Bytes;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::protocol::{BitSerializable, EventContext};
+use crate::protocol::EventContext;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::tick_manager::Tick;
@@ -21,8 +21,8 @@ wrapping_id!(MessageId);
 ///
 /// Every type that can be sent over the network must implement this trait.
 ///
-pub trait Message: EventContext + BitSerializable + DeserializeOwned + Serialize {}
-impl<T: EventContext + BitSerializable + DeserializeOwned + Serialize> Message for T {}
+pub trait Message: EventContext + DeserializeOwned + Serialize {}
+impl<T: EventContext + DeserializeOwned + Serialize> Message for T {}
 
 pub type FragmentIndex = u8;
 

@@ -1,16 +1,15 @@
 use crate::serialize::RawData;
-use serde::Serialize;
 use std::io::{Cursor, Write};
 
 pub struct Writer(Cursor<RawData>);
 
 impl Write for Writer {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.write(buf)
+        self.0.write(buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.flush()
+        self.0.flush()
     }
 }
 
@@ -27,7 +26,7 @@ impl Writer {
 
     /// Reset the writer but keeps the underlying allocation
     pub(crate) fn reset(&mut self) {
-        self.reset()
+        self.0.set_position(0);
     }
 
     /// Consume the writer to get the RawData

@@ -16,9 +16,8 @@ use crate::packet::message::MessageId;
 use crate::packet::message_manager::MessageManager;
 use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick};
 use crate::protocol::component::{ComponentKind, ComponentNetId};
-use crate::protocol::BitSerializable;
 use crate::serialize::writer::Writer;
-use crate::serialize::{RawData, SerializationError};
+use crate::serialize::{RawData, SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
 #[cfg(test)]
@@ -548,15 +547,12 @@ impl ReplicationSender {
                 let message_id = channel.actions_next_send_message_id;
                 channel.actions_next_send_message_id += 1;
                 channel.last_action_tick = Some(tick);
-                let message = (
-                    EntityActionsMessage {
-                        sequence_id: message_id,
-                        group_id,
-                        // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
-                        actions: Vec::from_iter(actions),
-                    },
-                    priority,
-                );
+                let message = EntityActionsMessage {
+                    sequence_id: message_id,
+                    group_id,
+                    // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
+                    actions: Vec::from_iter(actions),
+                };
                 debug!("final action messages to send: {:?}", message);
 
                 // TODO: we had to put this here because of the borrow checker, but it's not ideal,
@@ -568,10 +564,10 @@ impl ReplicationSender {
                 // message.emit_send_logs("EntityActionsChannel");
                 let mut writer = Writer::default();
                 message
-                    .encode(&mut writer)
+                    .to_bytes(&mut writer)
                     .map_err(SerializationError::from)?;
                 // TODO: doesn't this serialize the bytes twice?
-                let message_bytes = writer.finish_write().to_vec();
+                let message_bytes = writer.consume();
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(
@@ -642,9 +638,11 @@ impl ReplicationSender {
                 };
 
                 // message.emit_send_logs("EntityUpdatesChannel");
-                writer.start_write();
-                message.encode(writer).map_err(SerializationError::from)?;
-                let message_bytes = writer.finish_write().to_vec();
+                let mut writer = Writer::default();
+                message
+                    .to_bytes(&mut writer)
+                    .map_err(SerializationError::from)?;
+                let message_bytes = writer.consume();
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(

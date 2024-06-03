@@ -180,7 +180,7 @@ pub(crate) fn receive(world: &mut World) {
                                                                 .unwrap();
                                                         }
                                                         // RECEIVE: receive packets from message managers
-                                                        connection.receive(world, time_manager.as_ref(), tick_manager.as_ref());
+                                                        let _ = connection.receive(world, time_manager.as_ref(), tick_manager.as_ref()).inspect_err(|e| error!("Error receiving packets: {}", e));
                                                     });
                                             });
                                         });

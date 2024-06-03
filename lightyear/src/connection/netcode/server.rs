@@ -15,7 +15,6 @@ use crate::connection::server::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer,
 };
 use crate::packet::packet_builder::Payload;
-use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
 use crate::transport::{PacketReceiver, PacketSender};
@@ -128,9 +127,6 @@ struct ConnectionCache {
     // packet queue for all clients
     packet_queue: VecDeque<(Payload, ClientId)>,
 
-    // pool of buffers to re-use for decoding packets
-    buffer_pool: BufferPool,
-
     // corresponds to the server time
     time: f64,
 }
@@ -142,7 +138,6 @@ impl ConnectionCache {
             client_id_map: HashMap::with_capacity(MAX_CLIENTS),
             replay_protection: HashMap::with_capacity(MAX_CLIENTS),
             packet_queue: VecDeque::with_capacity(MAX_CLIENTS * 2),
-            buffer_pool: BufferPool::default(),
             time: server_time,
         }
     }

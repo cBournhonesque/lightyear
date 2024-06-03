@@ -7,12 +7,12 @@ use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
 use bevy::utils::HashMap;
-use bitcode::{Decode, Encode};
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ptr::NonNull;
 
-#[derive(Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {
     /// This delta is computed from a previous value
     Normal {
@@ -26,10 +26,9 @@ pub enum DeltaType {
 /// A message that contains a delta between two states (for serializing delta compression)
 // Need repr(C) to be able to cast the pointer to a u8 pointer
 #[repr(C)]
-#[derive(Encode, Decode, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DeltaMessage<M> {
     pub(crate) delta_type: DeltaType,
-    #[bitcode(with_serde)]
     pub(crate) delta: M,
 }
 

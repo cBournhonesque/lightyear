@@ -8,7 +8,6 @@ use bevy::prelude::{App, Component, EntityWorldMut, Resource, TypePath};
 use bevy::ptr::Ptr;
 use bevy::utils::HashMap;
 
-use bitcode::encoding::Fixed;
 use tracing::{debug, error, trace};
 
 use crate::client::components::ComponentSyncMode;
@@ -21,11 +20,8 @@ use crate::prelude::{ChannelDirection, Message, Tick};
 use crate::protocol::delta::ErasedDeltaFns;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::ErasedSerializeFns;
-use crate::serialize::bitcode::reader::BitcodeReader;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::{RawData, Reader, SerializationError};
+use crate::serialize::reader::Reader;
+use crate::serialize::{RawData, SerializationError};
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::delta::{DeltaMessage, Diffable};
 use crate::shared::replication::entity_map::EntityMap;
@@ -44,7 +40,7 @@ pub enum ComponentError {
     MissingDeltaFns,
     #[error("delta compression error: {0}")]
     DeltaCompressionError(String),
-    #[transparent]
+    #[error("component error: {0}")]
     SerializationError(#[from] SerializationError),
 }
 
@@ -256,7 +252,9 @@ impl ComponentRegistry {
 
 mod serialize {
     use super::*;
-    use crate::serialize::{Reader, ToBytes, Writer};
+    use crate::serialize::reader::Reader;
+    use crate::serialize::writer::Writer;
+    use crate::serialize::ToBytes;
 
     impl ComponentRegistry {
         pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
@@ -303,7 +301,7 @@ mod serialize {
             component: Ptr,
             writer: &mut Writer,
             kind: ComponentKind,
-        ) -> Result<RawData, ComponentError> {
+        ) -> Result<(), ComponentError> {
             let erased_fns = self
                 .serialize_fns_map
                 .get(&kind)
@@ -314,7 +312,7 @@ mod serialize {
             unsafe {
                 (erased_fns.serialize)(component, writer)?;
             }
-            Ok(writer.finish_write().to_vec())
+            Ok(())
         }
 
         /// Deserialize only the component value (the ComponentNetId has already been read)
@@ -341,7 +339,7 @@ mod serialize {
             reader: &mut Reader,
             entity_map: &mut EntityMap,
         ) -> Result<C, ComponentError> {
-            let net_id = NetId::from_bytes(reader)?;
+            let net_id = NetId::from_bytes(reader).map_err(SerializationError::from)?;
             self.raw_deserialize(reader, net_id, entity_map)
         }
 
@@ -488,7 +486,8 @@ mod interpolation {
 
 mod replication {
     use super::*;
-    use crate::serialize::{Reader, ToBytes};
+    use crate::serialize::reader::Reader;
+    use crate::serialize::ToBytes;
 
     impl ComponentRegistry {
         pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self) {
@@ -513,7 +512,7 @@ mod replication {
             entity_map: &mut EntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
-            let net_id = ComponentNetId::from_bytes(reader)?;
+            let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
             let kind = self
                 .kind_map
                 .kind(net_id)
@@ -586,7 +585,7 @@ mod delta {
 
     use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
 
-    use crate::serialize::Writer;
+    use crate::serialize::writer::Writer;
     use std::ptr::NonNull;
 
     impl ComponentRegistry {
@@ -647,17 +646,17 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
-        ) -> Result<RawData, ComponentError> {
+        ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
                 .ok_or(ComponentError::MissingDeltaFns)?;
 
             let delta = (delta_fns.diff)(start_tick, start, new);
-            let raw_data = self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind);
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
             // drop the delta message
             (delta_fns.drop_delta_message)(delta);
-            raw_data
+            Ok(())
         }
 
         /// SAFETY: The Ptrs must correspond to the correct ComponentKind
@@ -667,16 +666,16 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
-        ) -> Result<RawData, ComponentError> {
+        ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
                 .ok_or(ComponentError::MissingDeltaFns)?;
             let delta = (delta_fns.diff_from_base)(component_data);
-            let raw_data = self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind);
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
             // drop the delta message
             (delta_fns.drop_delta_message)(delta);
-            raw_data
+            Ok(())
         }
 
         /// Deserialize the DeltaMessage<C::Delta> and apply it to the component

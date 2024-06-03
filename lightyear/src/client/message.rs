@@ -1,14 +1,14 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut};
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::io::{Read, Seek, Write};
+use std::io::Seek;
 use tracing::error;
 
 use crate::client::connection::ConnectionManager;
 use crate::client::events::MessageEvent;
 use crate::prelude::{is_connected, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
-use crate::serialize::reader::{ReadBuffer, Reader};
+use crate::serialize::reader::Reader;
 use crate::serialize::{RawData, SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalMainSet};

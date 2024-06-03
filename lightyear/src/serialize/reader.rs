@@ -1,6 +1,6 @@
 use crate::serialize::RawData;
 use bytes::Bytes;
-use std::io::{Cursor, Seek, SeekFrom};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 
 pub struct Reader(Cursor<RawData>);
 
@@ -23,7 +23,13 @@ impl From<Vec<u8>> for Reader {
 
 impl Seek for Reader {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.seek(pos)
+        self.0.seek(pos)
+    }
+}
+
+impl Read for Reader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
     }
 }
 

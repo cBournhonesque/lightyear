@@ -1,5 +1,5 @@
 use crate::prelude::{ComponentRegistry, Message, MessageRegistry};
-use crate::serialize::{Reader, SerializationError, Writer};
+use crate::serialize::{reader::Reader, writer::Writer, SerializationError};
 use crate::shared::replication::entity_map::EntityMap;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
@@ -24,7 +24,7 @@ pub struct SerializeFns<M> {
 
 type ErasedSerializeFn =
     unsafe fn(message: Ptr, writer: &mut Writer) -> Result<(), SerializationError>;
-type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<(), SerializationError>;
+type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>;
 
 pub(crate) type ErasedMapEntitiesFn = unsafe fn(message: PtrMut, entity_map: &mut EntityMap);
 
@@ -34,12 +34,12 @@ unsafe fn erased_serialize<M: Message>(
     buffer: &mut Writer,
 ) -> Result<(), SerializationError> {
     let data = message.deref::<M>();
-    let _ = bincode::encode_into_std_write(data, buffer, bincode::config::standard())?;
+    let _ = bincode::serde::encode_into_std_write(data, buffer, bincode::config::standard())?;
     Ok(())
 }
 
-unsafe fn erased_deserialize<M: Message>(buffer: &mut Reader) -> Result<M, SerializationError> {
-    let data = bincode::decode_from_std_read(buffer, bincode::config::standard())?;
+fn erased_deserialize<M: Message>(buffer: &mut Reader) -> Result<M, SerializationError> {
+    let data = bincode::serde::decode_from_std_read(buffer, bincode::config::standard())?;
     Ok(data)
 }
 
@@ -54,11 +54,12 @@ unsafe fn erased_map_entities<M: MapEntities + 'static>(
 
 impl ErasedSerializeFns {
     pub(crate) fn new<M: Message>() -> Self {
+        let erased_deserialize: DeserializeFn<M> = erased_deserialize::<M>;
         Self {
             type_id: TypeId::of::<M>(),
             type_name: std::any::type_name::<M>(),
             serialize: erased_serialize::<M>,
-            deserialize: unsafe { std::mem::transmute(erased_deserialize::<M>) },
+            deserialize: unsafe { std::mem::transmute(erased_deserialize) },
             map_entities: None,
         }
     }

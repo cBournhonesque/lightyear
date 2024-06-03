@@ -12,7 +12,7 @@ use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::{ClientId, Tick};
 use crate::protocol::component::ComponentRegistry;
-use crate::serialize::reader::{ReadBuffer, Reader};
+use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 #[cfg(test)]

@@ -20,18 +20,37 @@ macro_rules! wrapping_id {
         use crate::_internal::paste;
         paste! {
         mod [<$struct_name:lower _module>] {
-            use bitcode::{Decode, Encode};
             use serde::{Deserialize, Serialize};
+            use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+            use std::io::{Seek};
             use std::ops::{Add, AddAssign, Deref, Sub};
             use std::cmp::Ordering;
             use bevy::reflect::Reflect;
+            use crate::serialize::{SerializationError, ToBytes};
             use crate::utils::wrapping_id::{wrapping_diff, WrappedId};
 
             // define the struct
-            #[derive(
-                Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect
+            #[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect
             )]
             pub struct $struct_name(pub u16);
+
+            impl ToBytes for $struct_name {
+                fn len(&self) -> usize {
+                    2
+                }
+
+                fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+                    Ok(buffer.write_u16::<NetworkEndian>(self.0)?)
+                }
+
+                fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+                where
+                    Self: Sized,
+                {
+                    Ok(Self(buffer.read_u16::<NetworkEndian>()?))
+                }
+            }
+
 
             // impl $struct_name {
             //     pub fn wrapping_diff(a: u16, b: u16) -> i16 {

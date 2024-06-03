@@ -4,7 +4,6 @@ use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
 use bevy::ptr::Ptr;
 use bevy::utils::{HashMap, HashSet};
-use bytes::Bytes;
 use hashbrown::hash_map::Entry;
 use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
@@ -13,7 +12,6 @@ use tracing::{instrument, Level};
 use crate::channel::builder::{
     EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel,
 };
-use bitcode::encoding::Fixed;
 
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
@@ -31,10 +29,9 @@ use crate::protocol::component::{
 };
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
-use crate::serialize::{RawData, ToBytes};
+use crate::serialize::{RawData, SerializationError, ToBytes};
 use crate::server::config::{PacketConfig, ReplicationConfig};
 use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
@@ -291,7 +288,9 @@ impl ConnectionManager {
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        let message_bytes = self.message_registry.serialize(message, &mut self.writer)?;
+        let writer = Writer::default();
+        self.message_registry.serialize(message, &mut self.writer)?;
+        let message_bytes = writer.consume();
         self.buffer_message(message_bytes, channel_kind, target)
     }
 
@@ -321,7 +320,7 @@ impl ConnectionManager {
         // TODO: do this in parallel
         self.connections
             .iter_mut()
-            .for_each(|(client_id, connection)| {
+            .try_for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
                 world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
                     // receive events on the connection
@@ -330,15 +329,17 @@ impl ConnectionManager {
                         component_registry.as_ref(),
                         time_manager,
                         tick_manager,
-                    );
+                    )?;
                     // move the events from the connection to the connection manager
                     self.events.push_events(*client_id, events);
+                    Ok::<(), ServerError>(())
                 });
 
                 // rebroadcast messages
                 messages_to_rebroadcast
                     .extend(std::mem::take(&mut connection.messages_to_rebroadcast));
-            });
+                Ok::<(), ServerError>(())
+            })?;
         for (message, target, channel_kind) in messages_to_rebroadcast {
             self.buffer_message(message, channel_kind, target)?;
         }
@@ -382,11 +383,11 @@ pub struct Connection {
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
-    pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
+    pub(crate) received_messages: HashMap<NetId, Vec<(RawData, NetworkTarget, ChannelKind)>>,
+    pub(crate) received_input_messages: HashMap<NetId, Vec<(RawData, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
-        HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
+        HashMap<NetId, Vec<(RawData, NetworkTarget, ChannelKind)>>,
     writer: Writer,
     // messages that we have received that need to be rebroadcasted to other clients
     pub(crate) messages_to_rebroadcast: Vec<(RawData, NetworkTarget, ChannelKind)>,
@@ -559,13 +560,13 @@ impl Connection {
         component_registry: &ComponentRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> ConnectionEvents {
+    ) -> Result<ConnectionEvents, ServerError> {
         let _span = trace_span!("receive").entered();
         let message_registry = world.resource::<MessageRegistry>();
         self.message_manager
             .channels
             .iter_mut()
-            .for_each(|(channel_kind, channel)| {
+            .try_for_each(|(channel_kind, channel)| {
                 while let Some((tick, single_data)) = channel.receiver.read_message() {
                     // let channel_name = self
                     //     .message_manager
@@ -578,40 +579,35 @@ impl Connection {
                     let mut reader = Reader::from(single_data);
                     // TODO: get const type ids
                     if channel_kind == &ChannelKind::of::<PingChannel>() {
-                        let ping = reader.decode::<Ping>(Fixed).expect("Could not decode Ping");
+                        let ping = Ping::from_bytes(&mut reader)?;
                         // prepare a pong in response (but do not send yet, because we need
                         // to set the correct send time)
                         self.ping_manager
                             .buffer_pending_pong(&ping, time_manager.current_time());
                         trace!("buffer pong");
                     } else if channel_kind == &ChannelKind::of::<PongChannel>() {
-                        let pong = reader.decode::<Pong>(Fixed).expect("Could not decode Pong");
+                        let pong = Pong::from_bytes(&mut reader)?;
                         // process the pong
                         self.ping_manager
                             .process_pong(&pong, time_manager.current_time());
                     } else if channel_kind == &ChannelKind::of::<EntityActionsChannel>() {
-                        let actions = EntityActionsMessage::decode(&mut reader)
-                            .expect("Could not decode EntityActionMessage");
+                        let actions = EntityActionsMessage::from_bytes(&mut reader)?;
                         trace!(?tick, ?actions, "received replication actions message");
                         // buffer the replication message
                         self.replication_receiver.recv_actions(actions, tick);
                     } else if channel_kind == &ChannelKind::of::<EntityUpdatesChannel>() {
-                        let updates = EntityUpdatesMessage::decode(&mut reader)
-                            .expect("Could not decode EntityUpdatesMessage");
+                        let updates = EntityUpdatesMessage::from_bytes(&mut reader)?;
                         trace!(?tick, ?updates, "received replication updates message");
                         // buffer the replication message
                         self.replication_receiver.recv_updates(updates, tick);
                     } else {
                         // TODO: we only get RawData here, does that mean we're deserializing multiple times?
                         //  instead just read the bytes for the target!!
-                        let ClientMessage { message, target } = ClientMessage::decode(&mut reader)
-                            .expect("Could not decode ClientMessage");
+                        let ClientMessage { message, target } =
+                            ClientMessage::from_bytes(&mut reader)?;
 
-                        let mut reader = self.reader_pool.start_read(message.as_slice());
-                        let net_id = reader
-                            .decode::<NetId>(Fixed)
-                            .expect("could not decode MessageKind");
-                        self.reader_pool.attach(reader);
+                        let mut reader = Reader::from(message);
+                        let net_id = NetId::from_bytes(&mut reader)?;
                         // we are also sending target and channel kind so the message can be
                         // rebroadcasted to other clients after we have converted the entities from the
                         // client World to the server World
@@ -619,7 +615,7 @@ impl Connection {
                         //  I don't think so... maybe the sender should map_entities themselves?
                         //  or it matters for input messages?
                         // TODO: avoid clone with Arc<[u8]>?
-                        let data = (message.clone().into(), target.clone(), *channel_kind);
+                        let data = (reader.consume(), target.clone(), *channel_kind);
 
                         match message_registry.message_type(net_id) {
                             #[cfg(feature = "leafwing")]
@@ -640,7 +636,8 @@ impl Connection {
                         }
                     }
                 }
-            });
+                Ok::<(), SerializationError>(())
+            })?;
 
         // Check if we have any replication messages we can apply to the World (and emit events)
         self.replication_receiver.apply_world(
@@ -654,7 +651,7 @@ impl Connection {
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
         //  is it because of push_connection?
-        std::mem::replace(&mut self.events, ConnectionEvents::new())
+        Ok(std::mem::replace(&mut self.events, ConnectionEvents::new()))
     }
 
     pub fn recv_packet(
@@ -944,7 +941,7 @@ impl ReplicationSend for ConnectionManager {
     type Error = ServerError;
     type ReplicateCache = EntityHashMap<Entity, ReplicateCache>;
 
-    fn writer(&mut self) -> &mut BitcodeWriter {
+    fn writer(&mut self) -> &mut Writer {
         &mut self.writer
     }
 

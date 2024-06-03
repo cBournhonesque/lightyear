@@ -42,15 +42,11 @@ fn read_message<M: Message>(
                     Ok(message) => {
                         // rebroadcast
                         if target != NetworkTarget::None {
-                            if let Ok(message_bytes) =
-                                message_registry.serialize(&message, &mut connection_manager.writer)
-                            {
-                                connection.messages_to_rebroadcast.push((
-                                    message_bytes,
-                                    target,
-                                    channel_kind,
-                                ));
-                            }
+                            connection.messages_to_rebroadcast.push((
+                                reader.consume(),
+                                target,
+                                channel_kind,
+                            ));
                         }
                         event.send(MessageEvent::new(message, *client_id));
                         trace!("Received message: {:?}", std::any::type_name::<M>());

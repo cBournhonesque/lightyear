@@ -19,7 +19,6 @@ use bevy::utils::Duration;
 use bevy::utils::Instant;
 use chrono::Duration as ChronoDuration;
 
-use bitcode::{Decode, Encode};
 pub use wrapped_time::WrappedTime;
 
 use crate::prelude::Tick;

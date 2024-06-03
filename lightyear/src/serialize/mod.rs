@@ -2,7 +2,7 @@
 
 use crate::serialize::varint::varint_len;
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::io::{Cursor, Seek};
+use std::io::Seek;
 
 pub mod reader;
 pub(crate) mod varint;
@@ -17,12 +17,14 @@ pub enum SerializationError {
     Io(#[from] std::io::Error),
     #[error("Invalid packet type")]
     InvalidPacketType,
+    #[error("Invalid value")]
+    InvalidValue,
     #[error("Substraction overflow")]
     SubstractionOverflow,
     #[error(transparent)]
-    Bitcode(#[from] ::bitcode::Error),
-    #[error(transparent)]
     BincodeEncode(#[from] bincode::error::EncodeError),
+    #[error(transparent)]
+    BincodeDecode(#[from] bincode::error::DecodeError),
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -40,7 +42,7 @@ pub trait ToBytes {
         Self: Sized;
 }
 
-impl<T: ToBytes> ToBytes for Vec<T> {
+impl<M: ToBytes> ToBytes for Vec<M> {
     fn len(&self) -> usize {
         varint_len(self.len() as u64) + self.iter().map(ToBytes::len).sum::<usize>()
     }
@@ -58,7 +60,7 @@ impl<T: ToBytes> ToBytes for Vec<T> {
         let len = buffer.read_u64::<byteorder::NetworkEndian>()? as usize;
         let mut vec = Vec::with_capacity(len);
         for _ in 0..len {
-            vec.push(T::from_bytes(buffer)?);
+            vec.push(M::from_bytes(buffer)?);
         }
         Ok(vec)
     }

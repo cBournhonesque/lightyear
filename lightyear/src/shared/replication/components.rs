@@ -5,8 +5,6 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use std::io::Seek;
 
-use bitcode::{Decode, Encode};
-
 use crate::connection::id::ClientId;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
@@ -239,20 +237,7 @@ impl ReplicationGroup {
     }
 }
 
-#[derive(
-    Default,
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    Reflect,
-    Encode,
-    Decode,
-)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub struct ReplicationGroupId(pub u64);
 
 impl ToBytes for ReplicationGroupId {

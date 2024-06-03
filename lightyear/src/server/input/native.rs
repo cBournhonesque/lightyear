@@ -6,6 +6,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
 use crate::prelude::{is_started, ClientId, MessageRegistry, TickManager, UserAction};
 use crate::protocol::message::MessageKind;
+use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputEvent;
 use crate::shared::replication::network_target::NetworkTarget;
@@ -119,7 +120,7 @@ fn receive_input_message<A: UserAction>(
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_input_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
-                let mut reader = connection.reader_pool.start_read(&message_bytes);
+                let mut reader = Reader::from(message_bytes);
                 match message_registry.deserialize::<InputMessage<A>>(
                     &mut reader,
                     &mut connection
@@ -138,8 +139,8 @@ fn receive_input_message<A: UserAction>(
                         if target != NetworkTarget::None {
                             // NOTE: we can re-send the same bytes directly because InputMessage does not include any Entity references
                             connection.messages_to_rebroadcast.push((
-                                // TODO: avoid to_vec
-                                message_bytes.to_vec(),
+                                // TODO: avoid clone, or use bytes?
+                                reader.consume(),
                                 target,
                                 channel_kind,
                             ));
@@ -149,7 +150,6 @@ fn receive_input_message<A: UserAction>(
                         error!("Error deserializing input message: {:?}", e);
                     }
                 }
-                connection.reader_pool.attach(reader);
             }
         }
     }

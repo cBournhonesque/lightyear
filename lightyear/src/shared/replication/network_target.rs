@@ -1,9 +1,9 @@
 use crate::prelude::ClientId;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
+use crate::serialize::varint::VarIntReadExt;
 use crate::serialize::{SerializationError, ToBytes};
 use bevy::prelude::Reflect;
 use bevy::utils::HashSet;
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use std::io::Seek;
 
@@ -29,15 +29,11 @@ impl ToBytes for NetworkTarget {
     fn len(&self) -> usize {
         match self {
             NetworkTarget::None => 1,
-            NetworkTarget::AllExceptSingle(client_id) => 9,
-            NetworkTarget::AllExcept(client_ids) => {
-                1 + varint_len(client_ids.len() as u64) + client_ids.len() * 8
-            }
+            NetworkTarget::AllExceptSingle(client_id) => 1 + client_id.len(),
+            NetworkTarget::AllExcept(client_ids) => 1 + client_ids.len(),
             NetworkTarget::All => 1,
-            NetworkTarget::Only(client_ids) => {
-                1 + varint_len(client_ids.len() as u64) + client_ids.len() * 8
-            }
-            NetworkTarget::Single(client_id) => 9,
+            NetworkTarget::Only(client_ids) => 1 + client_ids.len(),
+            NetworkTarget::Single(client_id) => 1 + client_id.len(),
         }
     }
 
@@ -46,9 +42,9 @@ impl ToBytes for NetworkTarget {
             NetworkTarget::None => {
                 buffer.write_u8(0)?;
             }
-            NetworkTarget::AllExceptSingle(client_ids) => {
+            NetworkTarget::AllExceptSingle(client_id) => {
                 buffer.write_u8(1)?;
-                buffer.write_u64::<NetworkEndian>(client_ids.to_bits())?;
+                client_id.to_bytes(buffer)?;
             }
             NetworkTarget::AllExcept(client_ids) => {
                 buffer.write_u8(2)?;
@@ -63,7 +59,7 @@ impl ToBytes for NetworkTarget {
             }
             NetworkTarget::Single(client_id) => {
                 buffer.write_u8(1)?;
-                buffer.write_u64::<NetworkEndian>(client_id.to_bits())?;
+                client_id.to_bytes(buffer)?;
             }
         }
         Ok(())
@@ -75,9 +71,9 @@ impl ToBytes for NetworkTarget {
     {
         match buffer.read_u8()? {
             0 => Ok(NetworkTarget::None),
-            1 => Ok(NetworkTarget::AllExceptSingle(ClientId::from_bits(
-                buffer.read_u64::<NetworkEndian>()?,
-            ))),
+            1 => Ok(NetworkTarget::AllExceptSingle(ClientId::from_bytes(
+                buffer,
+            )?)),
             2 => {
                 let len = buffer.read_varint()? as usize;
                 // consume the vec (we don't need it
@@ -90,9 +86,7 @@ impl ToBytes for NetworkTarget {
                 let client_ids = ToBytes::from_bytes(buffer)?;
                 Ok(NetworkTarget::Only(client_ids))
             }
-            5 => Ok(NetworkTarget::Single(ClientId::from_bits(
-                buffer.read_u64::<NetworkEndian>()?,
-            ))),
+            5 => Ok(NetworkTarget::Single(ClientId::from_bytes(buffer)?)),
             _ => Err(SerializationError::InvalidPacketType),
         }
     }
