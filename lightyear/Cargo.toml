@@ -92,7 +92,7 @@ tracing-subscriber = { version = "0.3.17", features = [
 crossbeam-channel = { version = "0.5.8", features = [] }
 
 # metrics
-metrics = { version = "0.22", optional = true }
+metrics = { version = "0.23", optional = true }
 metrics-util = { version = "0.15", optional = true }
 metrics-tracing-context = { version = "0.15", optional = true }
 metrics-exporter-prometheus = { version = "0.13.0", optional = true, default-features = false, features = [
@@ -132,9 +132,9 @@ wtransport = { version = "=0.1.13", optional = true, features = [
   "dangerous-configuration",
 ] }
 # websocket
-tokio-tungstenite = { version = "0.21.0", optional = true, features = [
-  "connect",
-  "handshake",
+tokio-tungstenite = { version = "0.23.0", optional = true, features = [
+    "connect",
+    "handshake",
 ] }
 # compression
 zstd = { version = "0.13.1", optional = true }
