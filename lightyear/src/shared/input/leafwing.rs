@@ -7,9 +7,7 @@ use crate::client::config::ClientConfig;
 use crate::client::input::leafwing::LeafwingInputConfig;
 use crate::inputs::leafwing::InputMessage;
 use crate::prelude::client::ComponentSyncMode;
-use crate::prelude::{
-    AppComponentExt, AppSerializeExt, ChannelDirection, LeafwingUserAction,
-};
+use crate::prelude::{AppComponentExt, ChannelDirection, LeafwingUserAction};
 use crate::protocol::message::AppMessageInternalExt;
 use crate::protocol::message::MessageType;
 use crate::server::config::ServerConfig;

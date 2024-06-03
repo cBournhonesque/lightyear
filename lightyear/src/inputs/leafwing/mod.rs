@@ -4,10 +4,9 @@ use std::fmt::Debug;
 
 use leafwing_input_manager::Actionlike;
 use serde::de::DeserializeOwned;
-use serde::{Serialize};
+use serde::Serialize;
 
 pub use input_buffer::InputMessage;
-
 
 pub(crate) mod input_buffer;
 

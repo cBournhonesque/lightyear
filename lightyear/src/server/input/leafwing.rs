@@ -4,10 +4,7 @@ use std::ops::DerefMut;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::connection::client::NetClient;
-use crate::inputs::leafwing::input_buffer::{
-    ActionDiffBuffer, InputTarget,
-};
+use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputTarget};
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::server::MessageEvent;
 use crate::prelude::{is_started, MessageRegistry, Mode, TickManager};
@@ -226,7 +223,7 @@ mod tests {
     use bevy::utils::Duration;
     use leafwing_input_manager::prelude::ActionState;
 
-    use crate::inputs::leafwing::input_buffer::ActionDiff;
+    use crate::inputs::leafwing::input_buffer::{ActionDiff, InputBuffer};
     use crate::prelude::client;
     use crate::prelude::client::{
         InterpolationConfig, LeafwingInputConfig, PredictionConfig, SyncConfig,

@@ -3,14 +3,12 @@ use std::fmt::{Debug, Formatter};
 
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Vec2;
-use bevy::prelude::{
-    Component, Entity, EntityMapper, Event, Reflect, Resource, TypePath,
-};
+use bevy::prelude::{Component, Entity, EntityMapper, Event, Reflect, Resource};
 use bevy::utils::HashMap;
 use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::prelude::ActionState;
 use serde::{Deserialize, Serialize};
-use tracing::{trace};
+use tracing::trace;
 
 use crate::shared::tick_manager::Tick;
 
@@ -493,6 +491,7 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
 #[cfg(test)]
 mod tests {
     use bevy::prelude::Reflect;
+    use leafwing_input_manager::Actionlike;
 
     use super::*;
 
