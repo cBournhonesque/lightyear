@@ -1,26 +1,46 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut};
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use std::io::{Read, Seek, Write};
 use tracing::error;
-
-use bitcode::encoding::Fixed;
-use bitcode::{Decode, Encode};
 
 use crate::client::connection::ConnectionManager;
 use crate::client::events::MessageEvent;
 use crate::prelude::{is_connected, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
-use crate::protocol::BitSerializable;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::reader::{ReadBuffer, Reader};
+use crate::serialize::{RawData, SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct ClientMessage {
     pub(crate) message: RawData,
     /// Used if you want to automatically rebroadcast a message to a specific target
     pub(crate) target: NetworkTarget,
+}
+
+impl ToBytes for ClientMessage {
+    fn len(&self) -> usize {
+        self.message.len() + self.target.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        // TODO: does this just copy to slice?
+        self.target.to_bytes(buffer)?;
+        buffer.write_all(&self.message)?;
+        Ok(())
+    }
+
+    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let target = NetworkTarget::from_bytes(buffer)?;
+        let mut message = vec![];
+        let _ = buffer.read_to_end(&mut message)?;
+        Ok(Self { message, target })
+    }
 }
 
 /// Read the message received from the server and emit the MessageEvent event
@@ -39,7 +59,7 @@ fn read_message<M: Message>(
     };
     if let Some(message_list) = connection.received_messages.remove(&net) {
         for message in message_list {
-            let mut reader = connection.reader_pool.start_read(&message);
+            let mut reader = Reader::from(message);
             // we have to re-decode the net id
             let Ok(message) = message_registry.deserialize::<M>(
                 &mut reader,
@@ -51,7 +71,6 @@ fn read_message<M: Message>(
                 error!("Could not deserialize message");
                 continue;
             };
-            connection.reader_pool.attach(reader);
             event.send(MessageEvent::new(message, ()));
         }
     }
@@ -66,18 +85,6 @@ pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
             .in_set(InternalMainSet::<ClientMarker>::EmitEvents)
             .run_if(is_connected),
     );
-}
-
-impl BitSerializable for ClientMessage {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> bitcode::Result<()> {
-        writer.encode(self, Fixed)
-    }
-    fn decode(reader: &mut impl ReadBuffer) -> bitcode::Result<Self>
-    where
-        Self: Sized,
-    {
-        reader.decode::<Self>(Fixed)
-    }
 }
 
 // impl ClientMessage {

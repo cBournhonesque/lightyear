@@ -1,18 +1,38 @@
 //! Defines the actual ping/pong messages
-use bitcode::{Decode, Encode};
-
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::store::PingId;
 use crate::shared::time_manager::WrappedTime;
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use std::io::Seek;
 
 // TODO: do we need the ping ids? we could just re-use the message id ?
 /// Ping message; the remote should respond immediately with a pong
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Ping {
     pub id: PingId,
 }
 
+impl ToBytes for Ping {
+    fn len(&self) -> usize {
+        2
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.id.to_bytes(buffer)
+    }
+
+    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Ping {
+            id: PingId::from_bytes(buffer)?,
+        })
+    }
+}
+
 /// Pong message sent in response to a ping
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Pong {
     /// id of the ping message that triggered this pong
     pub ping_id: PingId,
@@ -22,8 +42,25 @@ pub struct Pong {
     pub pong_sent_time: WrappedTime,
 }
 
-#[derive(Encode, Decode, Clone, Debug)]
-pub enum SyncMessage {
-    Ping(Ping),
-    Pong(Pong),
+impl ToBytes for Pong {
+    fn len(&self) -> usize {
+        10
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.ping_id.to_bytes(buffer)?;
+        self.ping_received_time.to_bytes(buffer)?;
+        self.pong_sent_time.to_bytes(buffer)
+    }
+
+    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Pong {
+            ping_id: PingId::from_bytes(buffer)?,
+            ping_received_time: WrappedTime::from_bytes(buffer)?,
+            pong_sent_time: WrappedTime::from_bytes(buffer)?,
+        })
+    }
 }

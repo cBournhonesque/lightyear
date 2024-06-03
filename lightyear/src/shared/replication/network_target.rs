@@ -1,10 +1,13 @@
 use crate::prelude::ClientId;
+use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
+use crate::serialize::{SerializationError, ToBytes};
 use bevy::prelude::Reflect;
 use bevy::utils::HashSet;
-use bitcode::{Decode, Encode};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
+use std::io::Seek;
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect, Encode, Decode)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// NetworkTarget indicated which clients should receive some message
 pub enum NetworkTarget {
     #[default]
@@ -20,6 +23,79 @@ pub enum NetworkTarget {
     Only(Vec<ClientId>),
     /// Message sent to only this one client
     Single(ClientId),
+}
+
+impl ToBytes for NetworkTarget {
+    fn len(&self) -> usize {
+        match self {
+            NetworkTarget::None => 1,
+            NetworkTarget::AllExceptSingle(client_id) => 9,
+            NetworkTarget::AllExcept(client_ids) => {
+                1 + varint_len(client_ids.len() as u64) + client_ids.len() * 8
+            }
+            NetworkTarget::All => 1,
+            NetworkTarget::Only(client_ids) => {
+                1 + varint_len(client_ids.len() as u64) + client_ids.len() * 8
+            }
+            NetworkTarget::Single(client_id) => 9,
+        }
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        match self {
+            NetworkTarget::None => {
+                buffer.write_u8(0)?;
+            }
+            NetworkTarget::AllExceptSingle(client_ids) => {
+                buffer.write_u8(1)?;
+                buffer.write_u64::<NetworkEndian>(client_ids.to_bits())?;
+            }
+            NetworkTarget::AllExcept(client_ids) => {
+                buffer.write_u8(2)?;
+                ToBytes::to_bytes(client_ids, buffer)?;
+            }
+            NetworkTarget::All => {
+                buffer.write_u8(3)?;
+            }
+            NetworkTarget::Only(client_ids) => {
+                buffer.write_u8(4)?;
+                ToBytes::to_bytes(client_ids, buffer)?;
+            }
+            NetworkTarget::Single(client_id) => {
+                buffer.write_u8(1)?;
+                buffer.write_u64::<NetworkEndian>(client_id.to_bits())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        match buffer.read_u8()? {
+            0 => Ok(NetworkTarget::None),
+            1 => Ok(NetworkTarget::AllExceptSingle(ClientId::from_bits(
+                buffer.read_u64::<NetworkEndian>()?,
+            ))),
+            2 => {
+                let len = buffer.read_varint()? as usize;
+                // consume the vec (we don't need it
+                let client_ids = ToBytes::from_bytes(buffer)?;
+                Ok(NetworkTarget::AllExcept(client_ids))
+            }
+            3 => Ok(NetworkTarget::All),
+            4 => {
+                let len = buffer.read_varint()? as usize;
+                let client_ids = ToBytes::from_bytes(buffer)?;
+                Ok(NetworkTarget::Only(client_ids))
+            }
+            5 => Ok(NetworkTarget::Single(ClientId::from_bits(
+                buffer.read_u64::<NetworkEndian>()?,
+            ))),
+            _ => Err(SerializationError::InvalidPacketType),
+        }
+    }
 }
 
 impl Extend<ClientId> for NetworkTarget {

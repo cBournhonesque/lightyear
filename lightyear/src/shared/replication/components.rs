@@ -1,11 +1,14 @@
 //! Components used for replication
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{Component, Entity, Reflect};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
+use std::io::Seek;
 
 use bitcode::{Decode, Encode};
 
 use crate::connection::id::ClientId;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 
 /// Marker component that indicates that the entity was spawned via replication
@@ -251,6 +254,24 @@ impl ReplicationGroup {
     Decode,
 )]
 pub struct ReplicationGroupId(pub u64);
+
+impl ToBytes for ReplicationGroupId {
+    fn len(&self) -> usize {
+        8
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_u64::<NetworkEndian>(self.0)?;
+        Ok(())
+    }
+
+    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Self(buffer.read_u64::<NetworkEndian>()?))
+    }
+}
 
 #[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
 #[reflect(Component)]

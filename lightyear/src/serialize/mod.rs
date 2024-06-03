@@ -1,14 +1,16 @@
 //! Serialization and deserialization of types
 
-use std::io::Seek;
+use crate::serialize::varint::varint_len;
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use std::io::{Cursor, Seek};
 
-pub mod bitcode;
 pub mod reader;
 pub(crate) mod varint;
 pub mod writer;
 
 pub type RawData = Vec<u8>;
 
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 pub enum SerializationError {
     #[error(transparent)]
@@ -19,6 +21,8 @@ pub enum SerializationError {
     SubstractionOverflow,
     #[error(transparent)]
     Bitcode(#[from] ::bitcode::Error),
+    #[error(transparent)]
+    BincodeEncode(#[from] bincode::error::EncodeError),
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -34,4 +38,28 @@ pub trait ToBytes {
     ) -> Result<Self, SerializationError>
     where
         Self: Sized;
+}
+
+impl<T: ToBytes> ToBytes for Vec<T> {
+    fn len(&self) -> usize {
+        varint_len(self.len() as u64) + self.iter().map(ToBytes::len).sum::<usize>()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_u64::<byteorder::NetworkEndian>(self.len() as u64)?;
+        self.iter().try_for_each(|item| item.to_bytes(buffer))?;
+        Ok(())
+    }
+
+    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let len = buffer.read_u64::<byteorder::NetworkEndian>()? as usize;
+        let mut vec = Vec::with_capacity(len);
+        for _ in 0..len {
+            vec.push(T::from_bytes(buffer)?);
+        }
+        Ok(vec)
+    }
 }

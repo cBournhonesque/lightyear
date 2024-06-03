@@ -6,6 +6,7 @@ use tracing::{error, trace};
 
 use crate::prelude::{is_started, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
+use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::MessageEvent;
 use crate::shared::replication::network_target::NetworkTarget;
@@ -30,7 +31,7 @@ fn read_message<M: Message>(
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
-                let mut reader = connection.reader_pool.start_read(&message_bytes);
+                let mut reader = Reader::from(message_bytes);
                 match message_registry.deserialize::<M>(
                     &mut reader,
                     &mut connection
@@ -62,7 +63,6 @@ fn read_message<M: Message>(
                         );
                     }
                 }
-                connection.reader_pool.attach(reader);
             }
         }
     }

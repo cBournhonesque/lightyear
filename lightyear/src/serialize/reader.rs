@@ -1,18 +1,35 @@
-use bitcode::encoding::Encoding;
-use bitcode::Decode;
-use bitcode::Result;
-use serde::de::DeserializeOwned;
+use crate::serialize::RawData;
+use bytes::Bytes;
+use std::io::{Cursor, Seek, SeekFrom};
 
-pub trait ReadBuffer {
-    /// Deserialize from the buffer using serde
-    fn deserialize<T: DeserializeOwned>(&mut self) -> Result<T>;
+pub struct Reader(Cursor<RawData>);
 
-    /// Deserialize from the buffer using bitcode
-    fn decode<T: Decode>(&mut self, encoding: impl Encoding) -> Result<T>;
+impl From<Bytes> for Reader {
+    fn from(value: Bytes) -> Self {
+        // TODO: check that this has no cost
+        Self {
+            0: Cursor::new(value.into()),
+        }
+    }
+}
 
-    /// Copy the bytes into the buffer, so that we can deserialize them
-    fn start_read(bytes: &[u8]) -> Self;
+impl From<Vec<u8>> for Reader {
+    fn from(value: Vec<u8>) -> Self {
+        Self {
+            0: Cursor::new(value),
+        }
+    }
+}
 
-    /// Check for errors such as Eof and ExpectedEof
-    fn finish_read(&mut self) -> Result<()>;
+impl Seek for Reader {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.seek(pos)
+    }
+}
+
+impl Reader {
+    /// Returns the underlying RawData
+    pub(crate) fn consume(self) -> RawData {
+        self.0.into_inner()
+    }
 }

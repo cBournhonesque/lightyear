@@ -25,7 +25,7 @@ use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::bitcode::writer::BitcodeWriter;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::{RawData, Reader, SerializationError};
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::delta::{DeltaMessage, Diffable};
 use crate::shared::replication::entity_map::EntityMap;
@@ -44,8 +44,8 @@ pub enum ComponentError {
     MissingDeltaFns,
     #[error("delta compression error: {0}")]
     DeltaCompressionError(String),
-    #[error(transparent)]
-    Bitcode(#[from] bitcode::Error),
+    #[transparent]
+    SerializationError(#[from] SerializationError),
 }
 
 /// A [`Resource`] that will keep track of all the [`Components`](Component) that can be replicated.
@@ -181,7 +181,7 @@ pub struct InterpolationMetadata {
 type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
 type RawWriteFn = fn(
     &ComponentRegistry,
-    &mut BitcodeReader,
+    &mut Reader,
     ComponentNetId,
     Tick,
     &mut EntityWorldMut,
@@ -256,6 +256,7 @@ impl ComponentRegistry {
 
 mod serialize {
     use super::*;
+    use crate::serialize::{Reader, ToBytes, Writer};
 
     impl ComponentRegistry {
         pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
@@ -279,7 +280,7 @@ mod serialize {
         pub(crate) fn serialize<C: 'static>(
             &self,
             component: &C,
-            writer: &mut BitcodeWriter,
+            writer: &mut Writer,
         ) -> Result<RawData, ComponentError> {
             let kind = ComponentKind::of::<C>();
             let erased_fns = self
@@ -287,8 +288,8 @@ mod serialize {
                 .get(&kind)
                 .ok_or(ComponentError::MissingSerializationFns)?;
             let net_id = self.kind_map.net_id(&kind).unwrap();
-            writer.start_write();
-            writer.encode(net_id, Fixed)?;
+
+            net_id.to_bytes(writer)?;
             // SAFETY: the ErasedFns corresponds to type C
             unsafe {
                 erased_fns.serialize(component, writer)?;
@@ -300,7 +301,7 @@ mod serialize {
         pub(crate) fn erased_serialize(
             &self,
             component: Ptr,
-            writer: &mut BitcodeWriter,
+            writer: &mut Writer,
             kind: ComponentKind,
         ) -> Result<RawData, ComponentError> {
             let erased_fns = self
@@ -308,8 +309,7 @@ mod serialize {
                 .get(&kind)
                 .ok_or(ComponentError::MissingSerializationFns)?;
             let net_id = self.kind_map.net_id(&kind).unwrap();
-            writer.start_write();
-            writer.encode(net_id, Fixed)?;
+            net_id.to_bytes(writer)?;
             // SAFETY: the ErasedSerializeFns corresponds to type C
             unsafe {
                 (erased_fns.serialize)(component, writer)?;
@@ -320,7 +320,7 @@ mod serialize {
         /// Deserialize only the component value (the ComponentNetId has already been read)
         pub(crate) fn raw_deserialize<C: 'static>(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             net_id: ComponentNetId,
             entity_map: &mut EntityMap,
         ) -> Result<C, ComponentError> {
@@ -338,10 +338,10 @@ mod serialize {
 
         pub(crate) fn deserialize<C: Component>(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             entity_map: &mut EntityMap,
         ) -> Result<C, ComponentError> {
-            let net_id = reader.decode::<ComponentNetId>(Fixed)?;
+            let net_id = NetId::from_bytes(reader)?;
             self.raw_deserialize(reader, net_id, entity_map)
         }
 
@@ -488,6 +488,7 @@ mod interpolation {
 
 mod replication {
     use super::*;
+    use crate::serialize::{Reader, ToBytes};
 
     impl ComponentRegistry {
         pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self) {
@@ -506,13 +507,13 @@ mod replication {
         /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
         pub(crate) fn raw_write(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             entity_world_mut: &mut EntityWorldMut,
             tick: Tick,
             entity_map: &mut EntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
-            let net_id = reader.decode::<ComponentNetId>(Fixed)?;
+            let net_id = ComponentNetId::from_bytes(reader)?;
             let kind = self
                 .kind_map
                 .kind(net_id)
@@ -534,7 +535,7 @@ mod replication {
 
         pub(crate) fn write<C: Component + PartialEq>(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
@@ -585,6 +586,7 @@ mod delta {
 
     use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
 
+    use crate::serialize::Writer;
     use std::ptr::NonNull;
 
     impl ComponentRegistry {
@@ -642,7 +644,7 @@ mod delta {
             start_tick: Tick,
             start: Ptr,
             new: Ptr,
-            writer: &mut BitcodeWriter,
+            writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
         ) -> Result<RawData, ComponentError> {
@@ -662,7 +664,7 @@ mod delta {
         pub(crate) unsafe fn serialize_diff_from_base_value(
             &self,
             component_data: Ptr,
-            writer: &mut BitcodeWriter,
+            writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
         ) -> Result<RawData, ComponentError> {
@@ -680,7 +682,7 @@ mod delta {
         /// Deserialize the DeltaMessage<C::Delta> and apply it to the component
         pub(crate) fn write_delta<C: Component + PartialEq + Diffable>(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,

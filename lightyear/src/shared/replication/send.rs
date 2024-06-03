@@ -17,8 +17,7 @@ use crate::packet::message_manager::MessageManager;
 use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick};
 use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::writer::WriteBuffer;
+use crate::serialize::writer::Writer;
 use crate::serialize::{RawData, SerializationError};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
@@ -344,7 +343,7 @@ impl ReplicationSender {
             .or_default()
             .entry(local_entity)
             .or_default()
-            .spawn = SpawnAction::Reuse(remote_entity.to_bits());
+            .spawn = SpawnAction::Reuse(remote_entity);
     }
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
@@ -419,7 +418,7 @@ impl ReplicationSender {
         kind: ComponentKind,
         component_data: Ptr,
         registry: &ComponentRegistry,
-        writer: &mut BitcodeWriter,
+        writer: &mut Writer,
         delta_manager: &mut DeltaManager,
         tick: Tick,
     ) {
@@ -516,7 +515,8 @@ impl ReplicationSender {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-        writer: &mut BitcodeWriter,
+        // TODO: this is useful if we write everything in the same buffer?
+        writer: &mut Writer,
         message_manager: &mut MessageManager,
     ) -> Result<(), PacketError> {
         self.pending_actions
@@ -566,8 +566,10 @@ impl ReplicationSender {
                 // buffer the message in the MessageManager
 
                 // message.emit_send_logs("EntityActionsChannel");
-                writer.start_write();
-                message.encode(writer).map_err(SerializationError::from)?;
+                let mut writer = Writer::default();
+                message
+                    .encode(&mut writer)
+                    .map_err(SerializationError::from)?;
                 // TODO: doesn't this serialize the bytes twice?
                 let message_bytes = writer.finish_write().to_vec();
                 let message_id = message_manager
@@ -618,7 +620,7 @@ impl ReplicationSender {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-        writer: &mut BitcodeWriter,
+        writer: &mut Writer,
         message_manager: &mut MessageManager,
     ) -> Result<(), PacketError> {
         self.pending_updates
@@ -851,7 +853,7 @@ mod tests {
             .group_channels
             .get(group_id)
             .expect("we should have a group channel for the entity");
-        assert_eq!(group_channel.send_tick, Some(*bevy_tick));
+        assert_eq!(group_channel.send_tick, Some(bevy_tick));
         assert_eq!(group_channel.ack_tick, None);
     }
 

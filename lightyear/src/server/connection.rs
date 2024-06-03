@@ -32,11 +32,9 @@ use crate::protocol::component::{
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::reader::Reader;
+use crate::serialize::writer::Writer;
+use crate::serialize::{RawData, ToBytes};
 use crate::server::config::{PacketConfig, ReplicationConfig};
 use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
@@ -76,8 +74,7 @@ pub struct ConnectionManager {
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
-    pub(crate) writer: BitcodeWriter,
-    pub(crate) reader_pool: BufferPool,
+    pub(crate) writer: Writer,
 
     // CONFIG
     replication_config: ReplicationConfig,
@@ -101,8 +98,7 @@ impl ConnectionManager {
             delta_manager: DeltaManager::default(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
-            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
-            reader_pool: BufferPool::new(1),
+            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
             replication_config,
             packet_config,
             ping_config,
@@ -391,8 +387,7 @@ pub struct Connection {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
         HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
-    writer: BitcodeWriter,
-    pub(crate) reader_pool: BufferPool,
+    writer: Writer,
     // messages that we have received that need to be rebroadcasted to other clients
     pub(crate) messages_to_rebroadcast: Vec<(RawData, NetworkTarget, ChannelKind)>,
 }
@@ -444,9 +439,7 @@ impl Connection {
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
-            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
-            reader_pool: BufferPool::new(1),
+            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
             messages_to_rebroadcast: vec![],
         }
     }
@@ -465,7 +458,7 @@ impl Connection {
 
     pub(crate) fn buffer_message(
         &mut self,
-        message: Vec<u8>,
+        message: RawData,
         channel: ChannelKind,
     ) -> Result<(), ServerError> {
         // TODO: i know channel names never change so i should be able to get them as static
@@ -503,9 +496,9 @@ impl Connection {
 
     fn send_ping(&mut self, ping: Ping) -> Result<(), ServerError> {
         trace!("Sending ping {:?}", ping);
-        self.writer.start_write();
-        self.writer.encode(&ping, Fixed)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(ping.len());
+        ping.to_bytes(&mut writer)?;
+        let message_bytes = writer.consume();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
         Ok(())
@@ -513,9 +506,9 @@ impl Connection {
 
     fn send_pong(&mut self, pong: Pong) -> Result<(), ServerError> {
         trace!("Sending pong {:?}", pong);
-        self.writer.start_write();
-        self.writer.encode(&pong, Fixed)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(pong.len());
+        pong.to_bytes(&mut writer)?;
+        let message_bytes = writer.consume();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
@@ -582,10 +575,7 @@ impl Connection {
                     // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
                     trace!(?channel_kind, ?tick, ?single_data, "received message");
-                    // TODO: in this case, it looks like we might not need the pool?
-                    //  we can just have a single buffer, and keep re-using that buffer
-                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
-
+                    let mut reader = Reader::from(single_data);
                     // TODO: get const type ids
                     if channel_kind == &ChannelKind::of::<PingChannel>() {
                         let ping = reader.decode::<Ping>(Fixed).expect("Could not decode Ping");
@@ -649,7 +639,6 @@ impl Connection {
                             }
                         }
                     }
-                    self.reader_pool.attach(reader);
                 }
             });
 

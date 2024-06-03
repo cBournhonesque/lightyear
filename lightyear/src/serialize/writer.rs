@@ -1,37 +1,37 @@
-use bitcode::encoding::Encoding;
-use bitcode::Encode;
+use crate::serialize::RawData;
 use serde::Serialize;
+use std::io::{Cursor, Write};
 
-/// Buffer to facilitate writing bits
-pub trait WriteBuffer {
-    /// Serialize the given value into the buffer
-    /// There is no padding when we serialize a value (i.e. it's possible to add a single bit
-    /// to the buffer)
+pub struct Writer(Cursor<RawData>);
 
-    fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> bitcode::Result<()>;
+impl Write for Writer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.write(buf)
+    }
 
-    fn encode<T: Encode + ?Sized>(&mut self, t: &T, encoding: impl Encoding)
-        -> bitcode::Result<()>;
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.flush()
+    }
+}
 
-    fn with_capacity(capacity: usize) -> Self;
+impl Default for Writer {
+    fn default() -> Self {
+        // TODO: we start with some capacity, benchmark how much we need
+        Self::with_capacity(20)
+    }
+}
+impl Writer {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self(Cursor::new(Vec::with_capacity(capacity)))
+    }
 
-    /// Clears the buffer.
-    fn start_write(&mut self);
+    /// Reset the writer but keeps the underlying allocation
+    pub(crate) fn reset(&mut self) {
+        self.reset()
+    }
 
-    /// Returns the finalized bytes (with padding to make a full byte)
-    /// There is 0-7 bits of padding so that the serialized value is byte-aligned
-    fn finish_write(&mut self) -> &[u8];
-
-    fn num_bits_written(&self) -> usize;
-    fn overflowed(&self) -> bool;
-
-    /// Increase the maximum number of bits that can be written with this buffer
-    /// (we are tracking them separately from the buffers capacity)
-    fn reserve_bits(&mut self, num_bits: usize);
-
-    /// Decrease the maximum number of bits that can be written with this buffer
-    fn release_bits(&mut self, num_bits: usize);
-
-    /// Set the number of bits that can be written to this buffer
-    fn set_reserved_bits(&mut self, num_bits: usize);
+    /// Consume the writer to get the RawData
+    pub(crate) fn consume(self) -> RawData {
+        self.0.into_inner()
+    }
 }

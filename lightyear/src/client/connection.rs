@@ -26,11 +26,9 @@ use crate::protocol::component::ComponentRegistry;
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::reader::{ReadBuffer, Reader};
+use crate::serialize::writer::Writer;
+use crate::serialize::{RawData, ToBytes};
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
@@ -86,9 +84,8 @@ pub struct ConnectionManager {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
-    pub(crate) writer: BitcodeWriter,
-    pub(crate) reader_pool: BufferPool,
+    pub(crate) received_messages: HashMap<NetId, Vec<RawData>>,
+    pub(crate) writer: Writer,
     // TODO: maybe don't do any replication until connection is synced?
 }
 
@@ -144,9 +141,7 @@ impl ConnectionManager {
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
             received_messages: HashMap::default(),
-            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
-            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
-            reader_pool: BufferPool::new(1),
+            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
         }
     }
 
@@ -184,18 +179,18 @@ impl ConnectionManager {
 
     fn send_ping(&mut self, ping: Ping) -> Result<(), ClientError> {
         trace!("Sending ping {:?}", ping);
-        self.writer.start_write();
-        self.writer.encode(&ping, Fixed)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(ping.len());
+        ping.to_bytes(&mut writer)?;
+        let message_bytes = writer.consume();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
         Ok(())
     }
 
     fn send_pong(&mut self, pong: Pong) -> Result<(), ClientError> {
-        self.writer.start_write();
-        self.writer.encode(&pong, Fixed)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(pong.len());
+        pong.to_bytes(&mut writer)?;
+        let message_bytes = writer.consume();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
@@ -336,10 +331,7 @@ impl ConnectionManager {
                     // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
                     trace!(?channel_kind, ?tick, ?single_data, "Received message");
-                    // TODO: in this case, it looks like we might not need the pool?
-                    //  we can just have a single buffer, and keep re-using that buffer
-                    trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
-                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
+                    let mut reader = Reader::from(single_data);
                     if *channel_kind == ChannelKind::of::<PingChannel>() {
                         let ping = reader
                             .decode::<Ping>(Fixed)
@@ -383,6 +375,7 @@ impl ConnectionManager {
                         let net_id = reader
                             .decode::<NetId>(Fixed)
                             .expect("could not decode MessageKind");
+                        let single_data = reader.consume();
                         match message_registry.message_type(net_id) {
                             #[cfg(feature = "leafwing")]
                             MessageType::LeafwingInput => {
@@ -403,9 +396,6 @@ impl ConnectionManager {
                             }
                         }
                     }
-
-                    // return the buffer to the pool
-                    self.reader_pool.attach(reader);
                 }
             });
 
@@ -497,7 +487,7 @@ impl ReplicationSend for ConnectionManager {
     type Error = ClientError;
     type ReplicateCache = EntityHashMap<ReplicateCache>;
 
-    fn writer(&mut self) -> &mut BitcodeWriter {
+    fn writer(&mut self) -> &mut Writer {
         &mut self.writer
     }
 

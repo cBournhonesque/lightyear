@@ -1,7 +1,5 @@
 use crate::prelude::{ComponentRegistry, Message, MessageRegistry};
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BitcodeReader;
-use crate::serialize::bitcode::writer::BitcodeWriter;
+use crate::serialize::{Reader, SerializationError, Writer};
 use crate::shared::replication::entity_map::EntityMap;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
@@ -24,18 +22,25 @@ pub struct SerializeFns<M> {
     pub deserialize: DeserializeFn<M>,
 }
 
-type ErasedSerializeFn = unsafe fn(message: Ptr, writer: &mut BitcodeWriter) -> bitcode::Result<()>;
-type DeserializeFn<M> = fn(reader: &mut BitcodeReader) -> bitcode::Result<M>;
+type ErasedSerializeFn =
+    unsafe fn(message: Ptr, writer: &mut Writer) -> Result<(), SerializationError>;
+type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<(), SerializationError>;
 
 pub(crate) type ErasedMapEntitiesFn = unsafe fn(message: PtrMut, entity_map: &mut EntityMap);
 
 /// SAFETY: the Ptr must be a valid pointer to a value of type M
 unsafe fn erased_serialize<M: Message>(
     message: Ptr,
-    writer: &mut BitcodeWriter,
-) -> bitcode::Result<()> {
+    buffer: &mut Writer,
+) -> Result<(), SerializationError> {
     let data = message.deref::<M>();
-    M::encode(data, writer)
+    let _ = bincode::encode_into_std_write(data, buffer, bincode::config::standard())?;
+    Ok(())
+}
+
+unsafe fn erased_deserialize<M: Message>(buffer: &mut Reader) -> Result<M, SerializationError> {
+    let data = bincode::decode_from_std_read(buffer, bincode::config::standard())?;
+    Ok(data)
 }
 
 /// SAFETY: the PtrMut must be a valid pointer to a value of type M
@@ -49,12 +54,11 @@ unsafe fn erased_map_entities<M: MapEntities + 'static>(
 
 impl ErasedSerializeFns {
     pub(crate) fn new<M: Message>() -> Self {
-        let deserialize: DeserializeFn<M> = <M as BitSerializable>::decode;
         Self {
             type_id: TypeId::of::<M>(),
             type_name: std::any::type_name::<M>(),
             serialize: erased_serialize::<M>,
-            deserialize: unsafe { std::mem::transmute(deserialize) },
+            deserialize: unsafe { std::mem::transmute(erased_deserialize::<M>) },
             map_entities: None,
         }
     }
@@ -87,8 +91,8 @@ impl ErasedSerializeFns {
     pub(crate) unsafe fn serialize<M: 'static>(
         &self,
         message: &M,
-        writer: &mut BitcodeWriter,
-    ) -> bitcode::Result<()> {
+        writer: &mut Writer,
+    ) -> Result<(), SerializationError> {
         let ptr = Ptr::from(message);
         (self.serialize)(ptr, writer)
     }
@@ -98,9 +102,9 @@ impl ErasedSerializeFns {
     /// SAFETY: the ErasedSerializeFns must be created for the type M
     pub(crate) unsafe fn deserialize<M: 'static>(
         &self,
-        reader: &mut BitcodeReader,
+        reader: &mut Reader,
         entity_map: &mut EntityMap,
-    ) -> bitcode::Result<M> {
+    ) -> Result<M, SerializationError> {
         let fns = unsafe { self.typed::<M>() };
         let mut message = (fns.deserialize)(reader)?;
         if let Some(map_entities) = self.map_entities {
