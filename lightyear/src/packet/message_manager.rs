@@ -376,8 +376,8 @@ impl MessageManager {
 
     #[cfg(test)]
     pub fn collect_messages(
-        messages: impl Iterator<Item = (ChannelKind, (Tick, Bytes))>,
-    ) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
+        messages: impl Iterator<Item = (ChannelKind, (Tick, bytes::Bytes))>,
+    ) -> HashMap<ChannelKind, Vec<(Tick, bytes::Bytes)>> {
         let mut map = HashMap::new();
         for (channel_kind, (tick, bytes)) in messages {
             map.entry(channel_kind)

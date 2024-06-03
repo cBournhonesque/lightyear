@@ -500,7 +500,7 @@ impl ReplicationSender {
                         sequence_id: message_id,
                         group_id,
                         // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
-                        actions: Vec::from_iter(actions.into_iter()),
+                        actions: Vec::from_iter(actions),
                     },
                     priority,
                 );
@@ -553,7 +553,7 @@ impl ReplicationSender {
                         sequence_id: message_id,
                         group_id,
                         // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
-                        actions: Vec::from_iter(actions.into_iter()),
+                        actions: Vec::from_iter(actions),
                     },
                     priority,
                 );
@@ -604,7 +604,7 @@ impl ReplicationSender {
                     // SAFETY: the last action tick is always set because we send Actions before Updates
                     last_action_tick: channel.last_action_tick,
                     // TODO: maybe we can just send the HashMap directly?
-                    updates: Vec::from_iter(updates.into_iter()),
+                    updates: Vec::from_iter(updates),
                 },
                 priority,
             )
@@ -612,7 +612,7 @@ impl ReplicationSender {
         // TODO: also return for each message a list of the components that have delta-compression data?
     }
 
-    /// Buffer the [`EntityUpdateMessage`] to send in the [`MessageManager`]j w
+    /// Buffer the [`EntityUpdatesMessage`] to send in the [`MessageManager`]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn send_updates_messages(
         &mut self,
@@ -636,7 +636,7 @@ impl ReplicationSender {
                     // SAFETY: the last action tick is always set because we send Actions before Updates
                     last_action_tick: channel.last_action_tick,
                     // TODO: maybe we can just send the HashMap directly?
-                    updates: Vec::from_iter(updates.into_iter()),
+                    updates: Vec::from_iter(updates),
                 };
 
                 // message.emit_send_logs("EntityUpdatesChannel");

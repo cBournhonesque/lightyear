@@ -399,7 +399,7 @@ impl ConnectionManager {
                                 self.received_messages
                                     .entry(net_id)
                                     .or_default()
-                                    .push(single_data.into());
+                                    .push(single_data);
                             }
                         }
                     }

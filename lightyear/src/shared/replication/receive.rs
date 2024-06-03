@@ -647,7 +647,7 @@ impl<'a> Iterator for ActionsIterator<'a> {
 }
 
 // TODO: try a sequence buffer?
-/// Stores the EntityUpdatesMessage for a given [`ReplicationGroup`], sorted
+/// Stores the [`EntityUpdatesMessage`] for a given [`ReplicationGroup`](crate::prelude::ReplicationGroup), sorted
 /// in descending remote tick order (the most recent tick first, the oldest tick last)
 #[derive(Debug)]
 pub struct UpdatesBuffer(Vec<(Tick, EntityUpdatesMessage)>);
@@ -689,9 +689,7 @@ impl UpdatesBuffer {
     /// or None if there are None
     fn max_index_to_apply(&self, latest_tick: Option<Tick>) -> Option<usize> {
         // if we haven't applied any latest_tick, we can't apply any updates
-        let Some(latest_tick) = latest_tick else {
-            return None;
-        };
+        let latest_tick = latest_tick?;
 
         let idx = self.0.partition_point(|(_, message)| {
             let Some(last_action_tick) = message.last_action_tick else {
@@ -732,9 +730,7 @@ impl<'a> Iterator for UpdatesIterator<'a> {
 
         // TODO: ideally we do this update only once, when instantiating the iterator?
         // if we cannot apply any updates, return None
-        let Some(max_applicable_idx) = self.max_applicable_idx else {
-            return None;
-        };
+        let max_applicable_idx = self.max_applicable_idx?;
 
         // we have returned all the items that were ready, stop now
         if self.channel.buffered_updates.len() == max_applicable_idx {
@@ -1313,7 +1309,7 @@ mod tests {
         let mut updates = manager.read_updates();
         let update = updates.next().unwrap();
         assert_eq!(update.remote_tick, Tick(5));
-        assert_eq!(update.is_history, false);
+        assert!(!update.is_history);
         assert!(updates.next().is_none());
     }
 
