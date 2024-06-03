@@ -50,7 +50,7 @@ cfg-if = "1.0"
 enum_dispatch = "0.3"
 hashbrown = "0.14"
 governor = "0.6.0"
-mock_instant = { version = "0.4.0", optional = true }
+mock_instant = { version = "0.5.1", optional = true }
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.1"
 paste = "1.0"
@@ -174,7 +174,7 @@ zstd = { version = "0.13.1", optional = true, features = ["wasm"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.39"
-mock_instant = { version = "0.4.0" }
+mock_instant = { version = "0.5.1" }
 tracing-subscriber = "0.3.17"
 bitvec = "1.0"
 approx = "0.5.1"
