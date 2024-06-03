@@ -213,6 +213,7 @@ impl ReplicationReceiver {
 ///
 /// - all component inserts/removes/updates for an entity to be grouped together in a single message
 impl ReplicationReceiver {
+    #[cfg(test)]
     pub(crate) fn apply_actions_message(
         &mut self,
         world: &mut World,
@@ -366,6 +367,7 @@ impl ReplicationReceiver {
         self.update_confirmed_tick(world, group_id, remote_tick);
     }
 
+    #[cfg(test)]
     pub(crate) fn apply_updates_message(
         &mut self,
         world: &mut World,
@@ -491,7 +493,7 @@ impl ReplicationReceiver {
         //     )
         // });
 
-        trace!(?current_tick, ?self.group_channels, "reading replication messages");
+        trace!(?current_tick, ?self.group_channels, "applying replication actions messages");
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
@@ -533,7 +535,7 @@ impl ReplicationReceiver {
                 );
             });
 
-        trace!(?self.group_channels, "reading replication messages");
+        trace!(?self.group_channels, "applying replication updates messages");
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
@@ -554,7 +556,7 @@ impl ReplicationReceiver {
                 // pop the oldest until we reach the max applicable index
                 while channel.buffered_updates.len() > max_applicable_idx {
                     let (remote_tick, message) = channel.buffered_updates.pop_oldest().unwrap();
-                    let is_history = channel.buffered_updates.len() - 1 == max_applicable_idx;
+                    let is_history = channel.buffered_updates.len() != max_applicable_idx;
                     channel.apply_updates_message(
                         world,
                         remote,
@@ -578,10 +580,10 @@ pub struct GroupChannel {
     // set of remote entities that are part of the same Replication Group
     remote_entities: HashSet<Entity>,
     // actions
-    pub actions_pending_recv_message_id: MessageId,
-    pub actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionsMessage)>,
+    pub(crate) actions_pending_recv_message_id: MessageId,
+    pub(crate) actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionsMessage)>,
     // updates
-    pub buffered_updates: UpdatesBuffer,
+    pub(crate) buffered_updates: UpdatesBuffer,
     /// remote tick of the latest update/action that we applied to the local group
     pub latest_tick: Option<Tick>,
 }
@@ -651,6 +653,7 @@ impl<'a> Iterator for ActionsIterator<'a> {
 pub struct UpdatesBuffer(Vec<(Tick, EntityUpdatesMessage)>);
 
 /// Update that is given to `apply_world`
+#[derive(Debug, PartialEq)]
 struct Update {
     remote_tick: Tick,
     message: EntityUpdatesMessage,
@@ -724,7 +727,7 @@ impl<'a> Iterator for UpdatesIterator<'a> {
     type Item = Update;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // TODO: NEED TO REIMPLENT THIS TODO!
+        // TODO: NEED TO REIMPLEMENT THIS TODO!
         // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
 
         // TODO: ideally we do this update only once, when instantiating the iterator?
@@ -743,7 +746,7 @@ impl<'a> Iterator for UpdatesIterator<'a> {
         Some(Update {
             remote_tick,
             message,
-            is_history: self.channel.buffered_updates.len() - 1 == max_applicable_idx,
+            is_history: self.channel.buffered_updates.len() != max_applicable_idx,
         })
     }
 }
@@ -1013,6 +1016,149 @@ impl GroupChannel {
 mod tests {
     use super::*;
     use crate::shared::replication::EntityActions;
+
+    /// Test that the UpdatesIterator works correctly, when we want to iterate through
+    /// the buffered updates we have received
+    #[test]
+    fn test_read_update_messages() {
+        let mut manager = ReplicationReceiver::new();
+        let group_id = ReplicationGroupId(0);
+
+        manager
+            .group_channels
+            .entry(group_id)
+            .or_default()
+            .latest_tick = Some(Tick(1));
+        // not even inserted because in the past compared to what we have applied
+        manager.recv_updates(
+            EntityUpdatesMessage {
+                group_id,
+                last_action_tick: Some(Tick(0)),
+                updates: Default::default(),
+            },
+            Tick(0),
+        );
+        // insert some updates
+        manager.recv_updates(
+            EntityUpdatesMessage {
+                group_id,
+                last_action_tick: Some(Tick(1)),
+                updates: Default::default(),
+            },
+            Tick(2),
+        );
+        manager.recv_updates(
+            EntityUpdatesMessage {
+                group_id,
+                last_action_tick: Some(Tick(3)),
+                updates: Default::default(),
+            },
+            Tick(5),
+        );
+        manager.recv_updates(
+            EntityUpdatesMessage {
+                group_id,
+                last_action_tick: Some(Tick(6)),
+                updates: Default::default(),
+            },
+            Tick(10),
+        );
+        manager.recv_updates(
+            EntityUpdatesMessage {
+                group_id,
+                last_action_tick: Some(Tick(6)),
+                updates: Default::default(),
+            },
+            Tick(15),
+        );
+
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .buffered_updates
+                .len(),
+            4
+        );
+
+        let mut it = manager
+            .group_channels
+            .get_mut(&group_id)
+            .unwrap()
+            .read_updates();
+        assert_eq!(
+            it.next().unwrap(),
+            Update {
+                remote_tick: Tick(2),
+                message: EntityUpdatesMessage {
+                    group_id,
+                    last_action_tick: Some(Tick(1)),
+                    updates: Default::default(),
+                },
+                is_history: false,
+            }
+        );
+        assert!(it.next().is_none());
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .buffered_updates
+                .len(),
+            3
+        );
+        // we received a new action tick
+        manager
+            .group_channels
+            .entry(group_id)
+            .or_default()
+            .latest_tick = Some(Tick(6));
+
+        let mut it = manager
+            .group_channels
+            .get_mut(&group_id)
+            .unwrap()
+            .read_updates();
+        assert_eq!(
+            it.next().unwrap(),
+            Update {
+                remote_tick: Tick(5),
+                message: EntityUpdatesMessage {
+                    group_id,
+                    last_action_tick: Some(Tick(3)),
+                    updates: Default::default(),
+                },
+                is_history: true,
+            }
+        );
+        assert_eq!(
+            it.next().unwrap(),
+            Update {
+                remote_tick: Tick(10),
+                message: EntityUpdatesMessage {
+                    group_id,
+                    last_action_tick: Some(Tick(6)),
+                    updates: Default::default(),
+                },
+                is_history: true,
+            }
+        );
+        assert_eq!(
+            it.next().unwrap(),
+            Update {
+                remote_tick: Tick(15),
+                message: EntityUpdatesMessage {
+                    group_id,
+                    last_action_tick: Some(Tick(6)),
+                    updates: Default::default(),
+                },
+                is_history: false,
+            }
+        );
+        assert!(it.next().is_none());
+    }
 
     #[allow(clippy::get_first)]
     #[test]
