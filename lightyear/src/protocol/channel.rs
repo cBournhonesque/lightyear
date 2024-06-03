@@ -3,7 +3,7 @@ use bevy::prelude::{Resource, TypePath};
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings};
+use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings, PongChannel};
 use crate::channel::builder::{
     ChannelContainer, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
 };
@@ -87,6 +87,12 @@ impl ChannelRegistry {
             priority: 10.0,
         });
         registry.add_channel::<PingChannel>(ChannelSettings {
+            mode: ChannelMode::SequencedUnreliable,
+            direction: ChannelDirection::Bidirectional,
+            // we always want to include the ping in the packet
+            priority: 1000.0,
+        });
+        registry.add_channel::<PongChannel>(ChannelSettings {
             mode: ChannelMode::SequencedUnreliable,
             direction: ChannelDirection::Bidirectional,
             // we always want to include the ping in the packet

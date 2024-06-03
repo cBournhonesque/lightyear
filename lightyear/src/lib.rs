@@ -164,6 +164,7 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 [`SharedConfig`]: prelude::SharedConfig
  */
 #![allow(unused_variables)]
+#![allow(clippy::too_many_arguments)]
 #![allow(dead_code)]
 #![allow(clippy::type_complexity)]
 #![allow(rustdoc::private_intra_doc_links)]

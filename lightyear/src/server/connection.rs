@@ -10,9 +10,12 @@ use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
+use crate::channel::builder::{
+    EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel,
+};
 use bitcode::encoding::Fixed;
 
+use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
 use crate::connection::id::ClientId;
@@ -37,7 +40,6 @@ use crate::serialize::RawData;
 use crate::server::config::{PacketConfig, ReplicationConfig};
 use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
-use crate::server::message::ServerMessage;
 use crate::server::replication::send::ReplicateCache;
 use crate::server::visibility::error::VisibilityError;
 use crate::shared::events::connection::ConnectionEvents;
@@ -49,8 +51,8 @@ use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::{ReplicationMessage, ReplicationReceive, ReplicationSend};
-use crate::shared::replication::{ReplicationMessageData, ReplicationPeer};
+use crate::shared::replication::{EntityActionsMessage, EntityUpdatesMessage, ReplicationPeer};
+use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 use crate::shared::sets::ServerMarker;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
@@ -473,13 +475,8 @@ impl Connection {
             .channel_registry
             .name(&channel)
             .ok_or::<ServerError>(MessageError::NotRegistered.into())?;
-        let message = ServerMessage::Message(message);
-        self.writer.start_write();
-        message.encode(&mut self.writer)?;
-        // TODO: doesn't this serialize the bytes twice?
-        let message_bytes = self.writer.finish_write().to_vec();
         // message.emit_send_logs(&channel_name);
-        self.message_manager.buffer_send(message_bytes, channel)?;
+        self.message_manager.buffer_send(message, channel)?;
         Ok(())
     }
 
@@ -489,43 +486,25 @@ impl Connection {
         tick: Tick,
         bevy_tick: BevyTick,
     ) -> Result<(), ServerError> {
-        self.replication_sender
-            .finalize(tick, bevy_tick)
-            .into_iter()
-            .try_for_each(|(channel, group_id, message_data, priority)| {
-                let should_track_ack = matches!(message_data, ReplicationMessageData::Updates(_));
-                let channel_name = self
-                    .message_manager
-                    .channel_registry
-                    .name(&channel)
-                    .ok_or::<ServerError>(MessageError::NotRegistered.into())?;
-                let message = ClientMessage::Replication(ReplicationMessage {
-                    group_id,
-                    data: message_data,
-                });
-                self.writer.start_write();
-                message.encode(&mut self.writer)?;
-                // TODO: doesn't this serialize the bytes twice?
-                let message_bytes = self.writer.finish_write().to_vec();
-                // message.emit_send_logs(&channel_name);
-                let message_id = self
-                    .message_manager
-                    .buffer_send_with_priority(message_bytes, channel, priority)?
-                    .expect("The replication channels should always return a message_id");
-
-                // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
-                if should_track_ack {
-                    self.replication_sender
-                        .buffer_replication_update_message(group_id, message_id, bevy_tick, tick);
-                }
-                Ok(())
-            })
+        self.replication_sender.send_actions_messages(
+            tick,
+            bevy_tick,
+            &mut self.writer,
+            &mut self.message_manager,
+        )?;
+        self.replication_sender.send_updates_messages(
+            tick,
+            bevy_tick,
+            &mut self.writer,
+            &mut self.message_manager,
+        )?;
+        Ok(())
     }
 
     fn send_ping(&mut self, ping: Ping) -> Result<(), ServerError> {
         trace!("Sending ping {:?}", ping);
         self.writer.start_write();
-        ServerMessage::Ping(ping).encode(&mut self.writer)?;
+        self.writer.encode(&ping, Fixed)?;
         let message_bytes = self.writer.finish_write().to_vec();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
@@ -535,10 +514,10 @@ impl Connection {
     fn send_pong(&mut self, pong: Pong) -> Result<(), ServerError> {
         trace!("Sending pong {:?}", pong);
         self.writer.start_write();
-        ServerMessage::Pong(pong).encode(&mut self.writer)?;
+        self.writer.encode(&pong, Fixed)?;
         let message_bytes = self.writer.finish_write().to_vec();
         self.message_manager
-            .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
+            .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
     }
 
@@ -590,104 +569,98 @@ impl Connection {
     ) -> ConnectionEvents {
         let _span = trace_span!("receive").entered();
         let message_registry = world.resource::<MessageRegistry>();
-        for (channel_kind, messages) in self.message_manager.read_messages() {
-            let channel_name = self
-                .message_manager
-                .channel_registry
-                .name(&channel_kind)
-                .unwrap_or("unknown");
-            let _span_channel = trace_span!("channel", channel = channel_name).entered();
+        self.message_manager
+            .channels
+            .iter_mut()
+            .for_each(|(channel_kind, channel)| {
+                while let Some((tick, single_data)) = channel.receiver.read_message() {
+                    // let channel_name = self
+                    //     .message_manager
+                    //     .channel_registry
+                    //     .name(&channel_kind)
+                    //     .unwrap_or("unknown");
+                    // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
-            if !messages.is_empty() {
-                trace!(?channel_name, ?messages, "Received messages");
-                for (tick, single_data) in messages.into_iter() {
-                    trace!(?tick, ?single_data, "received message");
+                    trace!(?channel_kind, ?tick, ?single_data, "received message");
                     // TODO: in this case, it looks like we might not need the pool?
                     //  we can just have a single buffer, and keep re-using that buffer
                     let mut reader = self.reader_pool.start_read(single_data.as_ref());
-                    // TODO: maybe just decode a single bit to know if it's message vs replication?
-                    let message = ClientMessage::decode(&mut reader)
-                        .expect("Could not decode server message");
-                    self.reader_pool.attach(reader);
 
-                    match message {
-                        ClientMessage::Message(message, target) => {
-                            let mut reader = self.reader_pool.start_read(message.as_slice());
-                            let net_id = reader
-                                .decode::<NetId>(Fixed)
-                                .expect("could not decode MessageKind");
-                            self.reader_pool.attach(reader);
+                    // TODO: get const type ids
+                    if channel_kind == &ChannelKind::of::<PingChannel>() {
+                        let ping = reader.decode::<Ping>(Fixed).expect("Could not decode Ping");
+                        // prepare a pong in response (but do not send yet, because we need
+                        // to set the correct send time)
+                        self.ping_manager
+                            .buffer_pending_pong(&ping, time_manager.current_time());
+                        trace!("buffer pong");
+                    } else if channel_kind == &ChannelKind::of::<PongChannel>() {
+                        let pong = reader.decode::<Pong>(Fixed).expect("Could not decode Pong");
+                        // process the pong
+                        self.ping_manager
+                            .process_pong(&pong, time_manager.current_time());
+                    } else if channel_kind == &ChannelKind::of::<EntityActionsChannel>() {
+                        let actions = EntityActionsMessage::decode(&mut reader)
+                            .expect("Could not decode EntityActionMessage");
+                        trace!(?tick, ?actions, "received replication actions message");
+                        // buffer the replication message
+                        self.replication_receiver.recv_actions(actions, tick);
+                    } else if channel_kind == &ChannelKind::of::<EntityUpdatesChannel>() {
+                        let updates = EntityUpdatesMessage::decode(&mut reader)
+                            .expect("Could not decode EntityUpdatesMessage");
+                        trace!(?tick, ?updates, "received replication updates message");
+                        // buffer the replication message
+                        self.replication_receiver.recv_updates(updates, tick);
+                    } else {
+                        // TODO: we only get RawData here, does that mean we're deserializing multiple times?
+                        //  instead just read the bytes for the target!!
+                        let ClientMessage { message, target } = ClientMessage::decode(&mut reader)
+                            .expect("Could not decode ClientMessage");
 
-                            // we are also sending target and channel kind so the message can be
-                            // rebroadcasted to other clients after we have converted the entities from the
-                            // client World to the server World
-                            // TODO: but do we have data to convert the entities from the client to the server?
-                            //  I don't think so... maybe the sender should map_entities themselves?
-                            //  or it matters for input messages?
-                            // TODO: avoid clone with Arc<[u8]>?
-                            let data = (message.clone().into(), target.clone(), channel_kind);
+                        let mut reader = self.reader_pool.start_read(message.as_slice());
+                        let net_id = reader
+                            .decode::<NetId>(Fixed)
+                            .expect("could not decode MessageKind");
+                        self.reader_pool.attach(reader);
+                        // we are also sending target and channel kind so the message can be
+                        // rebroadcasted to other clients after we have converted the entities from the
+                        // client World to the server World
+                        // TODO: but do we have data to convert the entities from the client to the server?
+                        //  I don't think so... maybe the sender should map_entities themselves?
+                        //  or it matters for input messages?
+                        // TODO: avoid clone with Arc<[u8]>?
+                        let data = (message.clone().into(), target.clone(), *channel_kind);
 
-                            match message_registry.message_type(net_id) {
-                                #[cfg(feature = "leafwing")]
-                                MessageType::LeafwingInput => self
-                                    .received_leafwing_input_messages
+                        match message_registry.message_type(net_id) {
+                            #[cfg(feature = "leafwing")]
+                            MessageType::LeafwingInput => self
+                                .received_leafwing_input_messages
+                                .entry(net_id)
+                                .or_default()
+                                .push(data),
+                            MessageType::NativeInput => {
+                                self.received_input_messages
                                     .entry(net_id)
                                     .or_default()
-                                    .push(data),
-                                MessageType::NativeInput => {
-                                    self.received_input_messages
-                                        .entry(net_id)
-                                        .or_default()
-                                        .push(data);
-                                }
-                                MessageType::Normal => {
-                                    self.received_messages.entry(net_id).or_default().push(data);
-                                }
+                                    .push(data);
+                            }
+                            MessageType::Normal => {
+                                self.received_messages.entry(net_id).or_default().push(data);
                             }
                         }
-                        ClientMessage::Replication(replication) => {
-                            trace!(?tick, ?replication, "received replication message");
-                            // buffer the replication message
-                            self.replication_receiver.recv_message(replication, tick);
-                        }
-                        ClientMessage::Ping(ping) => {
-                            // prepare a pong in response (but do not send yet, because we need
-                            // to set the correct send time)
-                            self.ping_manager
-                                .buffer_pending_pong(&ping, time_manager.current_time());
-                            trace!("buffer pong");
-                        }
-                        ClientMessage::Pong(pong) => {
-                            // process the pong
-                            self.ping_manager
-                                .process_pong(&pong, time_manager.current_time());
-                        }
                     }
+                    self.reader_pool.attach(reader);
                 }
-            }
-        }
+            });
 
-        // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
         // Check if we have any replication messages we can apply to the World (and emit events)
-        for (group, replication_list) in
-            self.replication_receiver.read_messages(tick_manager.tick())
-        {
-            trace!(?group, ?replication_list, "read replication messages");
-            replication_list
-                .into_iter()
-                .for_each(|(tick, replication)| {
-                    // TODO: we could include the server tick when this replication_message was sent.
-                    self.replication_receiver.apply_world(
-                        world,
-                        Some(self.client_id),
-                        component_registry,
-                        tick,
-                        replication,
-                        group,
-                        &mut self.events,
-                    );
-                });
-        }
+        self.replication_receiver.apply_world(
+            world,
+            Some(self.client_id),
+            component_registry,
+            tick_manager.tick(),
+            &mut self.events,
+        );
 
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?

@@ -133,8 +133,8 @@ wtransport = { version = "=0.1.13", optional = true, features = [
 ] }
 # websocket
 tokio-tungstenite = { version = "0.23.0", optional = true, features = [
-    "connect",
-    "handshake",
+  "connect",
+  "handshake",
 ] }
 # compression
 zstd = { version = "0.13.1", optional = true }

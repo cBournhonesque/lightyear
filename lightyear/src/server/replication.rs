@@ -840,7 +840,7 @@ pub(crate) mod send {
         use crate::client::events::ComponentUpdateEvent;
         use crate::prelude::client::Confirmed;
         use crate::prelude::server::{ControlledBy, NetConfig, Replicate, VisibilityManager};
-        use crate::prelude::{client, server, LinkConditionerConfig, Replicated};
+        use crate::prelude::{client, LinkConditionerConfig, Replicated};
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
         use crate::shared::replication::delta::DeltaComponentHistory;
@@ -875,7 +875,7 @@ pub(crate) mod send {
                 .server_app
                 .world
                 .entity_mut(server_entity)
-                .insert(server::Replicate {
+                .insert(Replicate {
                     sync: SyncTarget {
                         prediction: NetworkTarget::All,
                         interpolation: NetworkTarget::All,
@@ -916,6 +916,22 @@ pub(crate) mod send {
         }
 
         #[test]
+        fn test_multi_entity_spawn() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            stepper
+                .server_app
+                .world
+                .spawn_batch(vec![Replicate::default(); 2]);
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the entities were spawned
+            assert_eq!(stepper.client_app.world.entities().len(), 2);
+        }
+
+        #[test]
         fn test_entity_spawn_visibility() {
             let mut stepper = MultiBevyStepper::default();
 
@@ -923,7 +939,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     ..default()
                 })
@@ -979,7 +995,7 @@ pub(crate) mod send {
                 .server_app
                 .world
                 .spawn((
-                    server::Replicate::default(),
+                    Replicate::default(),
                     TargetEntity::Preexisting(client_entity),
                 ))
                 .id();
@@ -1016,7 +1032,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     target: ReplicationTarget {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
                     },
@@ -1063,11 +1079,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper
-                .server_app
-                .world
-                .spawn(server::Replicate::default())
-                .id();
+            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1100,7 +1112,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     ..default()
                 })
@@ -1149,7 +1161,7 @@ pub(crate) mod send {
             let server_entity_1 = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     group: ReplicationGroup::new_id(1),
                     ..default()
@@ -1158,7 +1170,7 @@ pub(crate) mod send {
             let server_entity_2 = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     group: ReplicationGroup::new_id(1),
                     ..default()
@@ -1231,7 +1243,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     target: ReplicationTarget {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
                     },
@@ -1270,11 +1282,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper
-                .server_app
-                .world
-                .spawn(server::Replicate::default())
-                .id();
+            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
@@ -1313,11 +1321,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper
-                .server_app
-                .world
-                .spawn(server::Replicate::default())
-                .id();
+            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
@@ -2390,7 +2394,7 @@ pub(crate) mod send {
                 stepper
                     .server_app
                     .world
-                    .resource::<server::ConnectionManager>()
+                    .resource::<ConnectionManager>()
                     .replicate_component_cache
                     .get(&server_entity)
                     .expect("ReplicateCache missing"),

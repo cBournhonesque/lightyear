@@ -54,11 +54,6 @@ mod command {
 
 /// Metadata indicating how a resource should be replicated.
 /// The resource is only replicated if this resource exists
-///
-/// Currently, resources are cloned to be replicated, so only use this for resources that are
-/// cheap-to-clone. (the clone only happens when the resource is modified)
-///
-/// Only one entity per World should have this component.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct ReplicateResourceMetadata<R> {
     pub target: NetworkTarget,

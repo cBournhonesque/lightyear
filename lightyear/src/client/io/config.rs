@@ -121,6 +121,7 @@ impl SharedIoConfig<ClientTransport> {
             CompressionConfig::None => {}
             #[cfg(feature = "zstd")]
             CompressionConfig::Zstd { level } => {
+                use crate::transport::middleware::PacketSenderWrapper;
                 let compressor = ZstdCompressor::new(level);
                 sender = Box::new(compressor.wrap(sender));
                 let decompressor = ZstdDecompressor::new();
@@ -128,6 +129,7 @@ impl SharedIoConfig<ClientTransport> {
             }
             #[cfg(feature = "lz4")]
             CompressionConfig::Lz4 => {
+                use crate::transport::middleware::PacketSenderWrapper;
                 let compressor =
                     crate::transport::middleware::compression::lz4::Compressor::default();
                 sender = Box::new(compressor.wrap(sender));
