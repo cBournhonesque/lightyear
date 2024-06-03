@@ -459,54 +459,56 @@ impl ReplicationSender {
             .push(raw_data);
     }
 
-    // #[cfg(test)]
-    // pub(crate) fn actions_to_send(
-    //     &mut self,
-    //     tick: Tick,
-    //     bevy_tick: BevyTick,
-    // ) -> impl Iterator<Item = (EntityActionsMessage, f32)> + Captures<&()> {
-    //     self.pending_actions
-    //         .drain()
-    //         .map(move |(group_id, mut actions)| {
-    //             trace!(?group_id, "pending actions: {:?}", actions);
-    //             // add any updates for that group
-    //             if let Some(updates) = self.pending_updates.remove(&group_id) {
-    //                 trace!(?group_id, "found updates for group: {:?}", updates);
-    //                 for (entity, components) in updates {
-    //                     actions
-    //                         .entry(entity)
-    //                         .or_default()
-    //                         .updates
-    //                         .extend(components);
-    //                 }
-    //             }
-    //             let channel = self.group_channels.entry(group_id).or_default();
-    //
-    //             // update the send tick so that we don't send updates immediately after an insert messagex.
-    //             // (which would happen because the send_tick is only set to Some(x) after an Update message is sent, so
-    //             // when an entity is first spawned the send_tick is still None)
-    //             // This is ok to do even if we don't get an actual send notification because EntityActions messages are
-    //             // guaranteed to be sent at some point. (since the actions channel is reliable)
-    //             channel.send_tick = Some(bevy_tick);
-    //             let priority = channel
-    //                 .accumulated_priority
-    //                 .unwrap_or(channel.base_priority);
-    //             let message_id = channel.actions_next_send_message_id;
-    //             channel.actions_next_send_message_id += 1;
-    //             channel.last_action_tick = Some(tick);
-    //             let message = (
-    //                 EntityActionsMessage {
-    //                     sequence_id: message_id,
-    //                     group_id,
-    //                     // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
-    //                     actions: Vec::from_iter(actions.into_iter()),
-    //                 },
-    //                 priority,
-    //             );
-    //             debug!("final action messages to send: {:?}", message);
-    //             message
-    //         })
-    // }
+    #[cfg(test)]
+    pub(crate) fn actions_to_send(
+        &mut self,
+        tick: Tick,
+        bevy_tick: BevyTick,
+    ) -> Vec<(EntityActionsMessage, f32)> {
+        // ) -> impl Iterator<Item = (EntityActionsMessage, f32)> + Captures<&()> {
+        self.pending_actions
+            .drain()
+            .map(|(group_id, mut actions)| {
+                trace!(?group_id, "pending actions: {:?}", actions);
+                // add any updates for that group
+                if let Some(updates) = self.pending_updates.remove(&group_id) {
+                    trace!(?group_id, "found updates for group: {:?}", updates);
+                    for (entity, components) in updates {
+                        actions
+                            .entry(entity)
+                            .or_default()
+                            .updates
+                            .extend(components);
+                    }
+                }
+                let channel = self.group_channels.entry(group_id).or_default();
+
+                // update the send tick so that we don't send updates immediately after an insert messagex.
+                // (which would happen because the send_tick is only set to Some(x) after an Update message is sent, so
+                // when an entity is first spawned the send_tick is still None)
+                // This is ok to do even if we don't get an actual send notification because EntityActions messages are
+                // guaranteed to be sent at some point. (since the actions channel is reliable)
+                channel.send_tick = Some(bevy_tick);
+                let priority = channel
+                    .accumulated_priority
+                    .unwrap_or(channel.base_priority);
+                let message_id = channel.actions_next_send_message_id;
+                channel.actions_next_send_message_id += 1;
+                channel.last_action_tick = Some(tick);
+                let message = (
+                    EntityActionsMessage {
+                        sequence_id: message_id,
+                        group_id,
+                        // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
+                        actions: Vec::from_iter(actions.into_iter()),
+                    },
+                    priority,
+                );
+                debug!("final action messages to send: {:?}", message);
+                message
+            })
+            .collect()
+    }
 
     /// Prepare the [`EntityActionsMessage`] messages to send.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
@@ -729,6 +731,7 @@ mod tests {
     use crate::tests::protocol::Component1;
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::prelude::*;
+    use bevy::utils::HashSet;
 
     use super::*;
 
@@ -1042,37 +1045,34 @@ mod tests {
 
         manager.prepare_component_update(entity_3, group_2, raw_4.clone());
 
-        // TODO: RE-ADD THIS
-        // // the order of actions is not important if there are no relations between the entities
-        // let actions = manager
-        //     .actions_to_send(Tick(2), BevyTick::new(2))
-        //     .collect::<Vec<_>>();
-        // let (a, _) = actions.first().unwrap();
-        // assert_eq!(a.group_id, group_1);
-        // assert_eq!(a.sequence_id, MessageId(2));
-        // assert_eq!(
-        //     EntityHashMap::from_iter(a.actions.clone()),
-        //     EntityHashMap::from_iter(vec![
-        //         (
-        //             entity_1,
-        //             EntityActions {
-        //                 spawn: SpawnAction::Spawn,
-        //                 insert: vec![raw_1],
-        //                 remove: HashSet::from_iter(vec![net_id_2]),
-        //                 updates: vec![raw_2],
-        //             }
-        //         ),
-        //         (
-        //             entity_2,
-        //             EntityActions {
-        //                 spawn: SpawnAction::None,
-        //                 insert: vec![],
-        //                 remove: HashSet::default(),
-        //                 updates: vec![raw_3],
-        //             }
-        //         )
-        //     ])
-        // );
+        // the order of actions is not important if there are no relations between the entities
+        let actions = manager.actions_to_send(Tick(2), BevyTick::new(2));
+        let (a, _) = actions.first().unwrap();
+        assert_eq!(a.group_id, group_1);
+        assert_eq!(a.sequence_id, MessageId(2));
+        assert_eq!(
+            EntityHashMap::from_iter(a.actions.clone()),
+            EntityHashMap::from_iter(vec![
+                (
+                    entity_1,
+                    EntityActions {
+                        spawn: SpawnAction::Spawn,
+                        insert: vec![raw_1],
+                        remove: HashSet::from_iter(vec![net_id_2]),
+                        updates: vec![raw_2],
+                    }
+                ),
+                (
+                    entity_2,
+                    EntityActions {
+                        spawn: SpawnAction::None,
+                        insert: vec![],
+                        remove: HashSet::default(),
+                        updates: vec![raw_3],
+                    }
+                )
+            ])
+        );
 
         let updates = manager
             .updates_to_send(Tick(2), BevyTick::new(2))

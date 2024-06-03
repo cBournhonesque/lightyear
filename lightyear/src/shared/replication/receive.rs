@@ -1236,10 +1236,10 @@ mod tests {
         manager.recv_updates(
             EntityUpdatesMessage {
                 group_id: ReplicationGroupId(0),
-                last_action_tick: Some(Tick(2)),
+                last_action_tick: Some(Tick(3)),
                 updates: Default::default(),
             },
-            Tick(4),
+            Tick(5),
         );
         assert_eq!(
             manager
@@ -1250,10 +1250,10 @@ mod tests {
                 .0,
             vec![
                 (
-                    Tick(4),
+                    Tick(5),
                     EntityUpdatesMessage {
                         group_id: ReplicationGroupId(0),
-                        last_action_tick: Some(Tick(2)),
+                        last_action_tick: Some(Tick(3)),
                         updates: Default::default(),
                     }
                 ),
@@ -1291,7 +1291,8 @@ mod tests {
             },
             Tick(3),
         );
-        assert!(manager.read_updates().next().is_none());
+        // if we tried to iterate actions, we get nothing because we are still waiting for actions-2
+        assert!(manager.read_actions(Tick(2)).next().is_none());
         // recv actions-2: we should now be able to read actions-2, actions-3, updates-4
         manager.recv_actions(
             EntityActionsMessage {
@@ -1305,14 +1306,13 @@ mod tests {
             let mut actions = manager.read_actions(Tick(10));
             let (tick, _) = actions.next().unwrap();
             assert_eq!(tick, Tick(2));
+            let (tick, _) = actions.next().unwrap();
+            assert_eq!(tick, Tick(3));
             assert!(actions.next().is_none());
         }
         let mut updates = manager.read_updates();
         let update = updates.next().unwrap();
-        assert_eq!(update.remote_tick, Tick(3));
-        assert_eq!(update.is_history, true);
-        let update = updates.next().unwrap();
-        assert_eq!(update.remote_tick, Tick(4));
+        assert_eq!(update.remote_tick, Tick(5));
         assert_eq!(update.is_history, false);
         assert!(updates.next().is_none());
     }

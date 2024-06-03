@@ -378,6 +378,8 @@ impl ConnectionManager {
                 let net_id = reader
                     .decode::<NetId>(Fixed)
                     .expect("could not decode MessageKind");
+                dbg!(&channel_kind);
+                dbg!(net_id);
                 match message_registry.message_type(net_id) {
                     #[cfg(feature = "leafwing")]
                     MessageType::LeafwingInput => {
@@ -390,6 +392,7 @@ impl ConnectionManager {
                         todo!()
                     }
                     MessageType::Normal => {
+                        dbg!("Normal message");
                         self.received_messages
                             .entry(net_id)
                             .or_default()
