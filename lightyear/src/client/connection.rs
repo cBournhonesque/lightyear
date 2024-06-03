@@ -266,33 +266,13 @@ impl ConnectionManager {
             &mut self.writer,
             &mut self.message_manager,
         )?;
-
-        self.replication_sender
-            .updates_to_send(tick, bevy_tick)
-            .try_for_each(|(message, priority)| {
-                // message.emit_send_logs("EntityUpdatesChannel");
-                self.writer.start_write();
-                message.encode(&mut self.writer)?;
-                let message_bytes = self.writer.finish_write().to_vec();
-                let message_id = self
-                    .message_manager
-                    // TODO: use const type_id?
-                    .buffer_send_with_priority(
-                        message_bytes,
-                        ChannelKind::of::<EntityUpdatesChannel>(),
-                        priority,
-                    )?
-                    .expect("The entity actions channels should always return a message_id");
-
-                // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
-                self.replication_sender.buffer_replication_update_message(
-                    message.group_id,
-                    message_id,
-                    bevy_tick,
-                    tick,
-                );
-                Ok(())
-            })
+        self.replication_sender.send_updates_messages(
+            tick,
+            bevy_tick,
+            &mut self.writer,
+            &mut self.message_manager,
+        )?;
+        Ok(())
     }
 
     /// Send packets that are ready to be sent

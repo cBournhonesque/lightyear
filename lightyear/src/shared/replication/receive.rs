@@ -16,6 +16,7 @@ use crate::serialize::bitcode::reader::BitcodeReader;
 use crate::serialize::reader::ReadBuffer;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::{Replicated, ReplicationGroupId};
+#[cfg(test)]
 use crate::utils::captures::Captures;
 
 use super::entity_map::RemoteEntityMap;
@@ -131,8 +132,9 @@ impl ReplicationReceiver {
     /// For each [`ReplicationGroup`], we return the actions in order.
     ///
     /// (i.e. if we have sent an action for tick 3 and tick 7, we wait until we receive the one for tick 3 first)
+    #[cfg(test)]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn read_actions(
+    fn read_actions(
         &mut self,
         current_tick: Tick,
     ) -> impl Iterator<Item = (Tick, EntityActionsMessage)> + Captures<&()> {
@@ -142,8 +144,9 @@ impl ReplicationReceiver {
             .flat_map(move |(group_id, channel)| channel.read_actions(current_tick))
     }
 
+    #[cfg(test)]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn read_updates(&mut self) -> impl Iterator<Item = Update> + Captures<&()> {
+    fn read_updates(&mut self) -> impl Iterator<Item = Update> + Captures<&()> {
         trace!(?self.group_channels, "reading replication messages");
         self.group_channels
             .iter_mut()
@@ -460,29 +463,111 @@ impl ReplicationReceiver {
         events: &mut ConnectionEvents,
     ) {
         // apply actions first
-        self.read_actions(current_tick)
-            .for_each(|(remote_tick, actions)| {
-                self.apply_actions_message(
+
+        // TODO: this would be how we do it, but the borrow-checked prevents us...
+        //  either create a ViewLens?
+
+        // self.read_actions(current_tick)
+        //     .for_each(|(remote_tick, actions)| {
+        //         self.apply_actions_message(
+        //             world,
+        //             remote,
+        //             component_registry,
+        //             remote_tick,
+        //             actions,
+        //             events,
+        //         )
+        //     });
+        // // then updates
+        // self.read_updates().for_each(|update| {
+        //     self.apply_updates_message(
+        //         world,
+        //         remote,
+        //         component_registry,
+        //         update.remote_tick,
+        //         update.is_history,
+        //         update.message,
+        //         events,
+        //     )
+        // });
+
+        trace!(?current_tick, ?self.group_channels, "reading replication messages");
+        self.group_channels
+            .iter_mut()
+            .for_each(|(group_id, channel)| {
+                let Some((remote_tick, _)) = channel
+                    .actions_recv_message_buffer
+                    .get(&channel.actions_pending_recv_message_id)
+                else {
+                    return;
+                };
+                // if the message is from the future, keep it there
+                if *remote_tick > current_tick {
+                    debug!(
+                        "message tick {:?} is from the future compared to our current tick {:?}",
+                        remote_tick, current_tick
+                    );
+                    return;
+                }
+
+                // We have received the message we are waiting for
+                let (remote_tick, message) = channel
+                    .actions_recv_message_buffer
+                    .remove(&channel.actions_pending_recv_message_id)
+                    .unwrap();
+
+                channel.actions_pending_recv_message_id += 1;
+                // Update the latest server tick that we have processed
+                channel.latest_tick = Some(remote_tick);
+
+                channel.apply_actions_message(
                     world,
                     remote,
                     component_registry,
                     remote_tick,
-                    actions,
+                    message,
                     events,
-                )
+                    &mut self.remote_entity_map,
+                    &mut self.remote_entity_to_group,
+                    &mut self.reader,
+                );
             });
-        // then updates
-        self.read_updates().for_each(|update| {
-            self.apply_updates_message(
-                world,
-                remote,
-                component_registry,
-                update.remote_tick,
-                update.is_history,
-                update.message,
-                events,
-            )
-        });
+
+        trace!(?self.group_channels, "reading replication messages");
+        self.group_channels
+            .iter_mut()
+            .for_each(|(group_id, channel)| {
+                // the buffered_channel is sorted in descending order,
+                // [most_recent_tick, ...,  max_readable_tick (based on last_action_tick), ..., oldest_tick]
+                // What we want is to return (not necessarily in order) [max_readable_tick, ..., oldest_tick]
+                // along with a flag that lets us know if we are the max_readable_tick or not.
+                // (max_readable_tick is the only one we want to actually apply to the world, because the other
+                //  older updates are redundant. The older ticks are included so that we can have a comprehensive
+                //  confirmed history, for example to have a better interpolation)
+                let Some(max_applicable_idx) = channel
+                    .buffered_updates
+                    .max_index_to_apply(channel.latest_tick)
+                else {
+                    return;
+                };
+
+                // pop the oldest until we reach the max applicable index
+                while channel.buffered_updates.len() > max_applicable_idx {
+                    let (remote_tick, message) = channel.buffered_updates.pop_oldest().unwrap();
+                    let is_history = channel.buffered_updates.len() - 1 == max_applicable_idx;
+                    channel.apply_updates_message(
+                        world,
+                        remote,
+                        component_registry,
+                        remote_tick,
+                        is_history,
+                        message,
+                        events,
+                        &mut self.remote_entity_map,
+                        &mut self.reader,
+                    );
+                }
+            })
     }
 }
 
@@ -521,7 +606,7 @@ impl Default for GroupChannel {
 /// This assumes that the sender sends all message ids sequentially.
 ///
 /// If had received updates that were waiting on a given action, we also return them
-pub struct ActionsIterator<'a> {
+struct ActionsIterator<'a> {
     channel: &'a mut GroupChannel,
     current_tick: Tick,
 }
@@ -628,7 +713,7 @@ impl UpdatesBuffer {
 /// We read from the [`UpdatesBuffer`] in ascending remote tick order:
 /// - if we have not reached the last_action_tick for a given update, we stop there
 /// - else, we return all the updates whose last_action_tick is reached, and
-pub struct UpdatesIterator<'a> {
+struct UpdatesIterator<'a> {
     channel: &'a mut GroupChannel,
     /// We iterate until we reach this idx in the buffer
     max_applicable_idx: Option<usize>,
@@ -684,10 +769,243 @@ impl GroupChannel {
         //  older updates are redundant. The older ticks are included so that we can have a comprehensive
         //  confirmed history, for example to have a better interpolation)
         let max_applicable_idx = self.buffered_updates.max_index_to_apply(self.latest_tick);
+
         UpdatesIterator {
             channel: self,
             max_applicable_idx,
         }
+    }
+
+    /// Apply actions for channel
+    pub(crate) fn apply_actions_message(
+        &mut self,
+        world: &mut World,
+        remote: Option<ClientId>,
+        component_registry: &ComponentRegistry,
+        remote_tick: Tick,
+        message: EntityActionsMessage,
+        events: &mut ConnectionEvents,
+        remote_entity_map: &mut RemoteEntityMap,
+        remote_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
+        reader: &mut BitcodeReader,
+    ) {
+        let group_id = message.group_id;
+        debug!(?remote_tick, ?message, "Received replication actions");
+        // NOTE: order matters here, because some components can depend on other entities.
+        // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
+        // Our solution is to first handle spawn for all entities separately.
+        for (remote_entity, actions) in message.actions.iter() {
+            debug!(?remote_entity, "Received entity actions");
+            // spawn
+            match actions.spawn {
+                SpawnAction::Spawn => {
+                    remote_entity_to_group.insert(*remote_entity, group_id);
+                    if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
+                        if world.get_entity(*local_entity).is_some() {
+                            warn!("Received spawn for an entity that already exists");
+                            continue;
+                        }
+                        warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
+                        continue;
+                    }
+                    // TODO: optimization: spawn the bundle of insert components
+
+                    // TODO: spawning all entities with Confirmed:
+                    //  - is inefficient because we don't need the receive tick in most cases (only for prediction/interpolation)
+                    //  - we can't use Without<Confirmed> queries to display all interpolated/predicted entities, because
+                    //    the entities we receive from other clients all have Confirmed added.
+                    //    Doing Or<(With<Interpolated>, With<Predicted>)> is not ideal; what if we want to see a replicated entity that doesn't have
+                    //    interpolation/prediction? Maybe we should introduce new components ReplicatedFrom<Server> and ReplicatedFrom<Client>.
+                    // // we spawn every replicated entity with the `Confirmed` component
+                    // let local_entity = world.spawn(Confirmed {
+                    //     predicted: None,
+                    //     interpolated: None,
+                    //     tick,
+                    // });
+                    let local_entity = world.spawn(Replicated { from: remote });
+                    remote_entity_map.insert(*remote_entity, local_entity.id());
+                    trace!("Updated remote entity map: {:?}", remote_entity_map);
+
+                    debug!(?remote_entity, "Received entity spawn");
+                    events.push_spawn(local_entity.id());
+                }
+                SpawnAction::Reuse(local_entity) => {
+                    let local_entity = Entity::from_bits(local_entity);
+                    let Some(mut entity_mut) = world.get_entity_mut(local_entity) else {
+                        // TODO: ignore the entity in the next steps because it does not exist!
+                        error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
+                        continue;
+                    };
+                    entity_mut.insert(Replicated { from: remote });
+                    // update the entity mapping
+                    remote_entity_map.insert(*remote_entity, local_entity);
+                }
+                _ => {}
+            }
+        }
+
+        for (entity, actions) in message.actions.into_iter() {
+            debug!(remote_entity = ?entity, "Received entity actions");
+
+            // despawn
+            if actions.spawn == SpawnAction::Despawn {
+                debug!(remote_entity = ?entity, "Received entity despawn");
+                if let Some(local_entity) = remote_entity_map.remove_by_remote(entity) {
+                    self.remote_entities.remove(&entity);
+                    // TODO: we despawn all children as well right now, but that might not be what we want?
+                    if let Some(entity_mut) = world.get_entity_mut(local_entity) {
+                        entity_mut.despawn_recursive();
+                    }
+                    events.push_despawn(local_entity);
+                    remote_entity_to_group.remove(&entity);
+                } else {
+                    error!("Received despawn for an entity that does not exist")
+                }
+                continue;
+            }
+
+            // safety: we know by this point that the entity exists
+            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
+                error!("cannot find entity");
+                continue;
+            };
+
+            // NOTE: 2 options
+            //  - send the raw data to a separate typed system
+            //  -  or just insert it here via function pointers
+
+            // inserts
+            // TODO: remove updates that are duplicate for the same component
+            debug!(remote_entity = ?entity, "Received InsertComponent");
+            for component in actions.insert {
+                reader.reset_read(component.as_slice());
+                let _ = component_registry
+                    .raw_write(
+                        reader,
+                        &mut local_entity_mut,
+                        remote_tick,
+                        &mut remote_entity_map.remote_to_local,
+                        events,
+                    )
+                    .inspect_err(|e| {
+                        error!("could not write the component to the entity: {:?}", e)
+                    });
+
+                // TODO: special-case for pre-spawned entities: we receive them from a client, but then we
+                //  we should immediately take ownership of it, so we won't receive a despawn for it
+                //  thus, we should remove it from the entity map right after receiving it!
+                //  Actually, we should figure out a way to cleanup every received entity where the sender
+                //  stopped replicating or didn't replicate the Despawn, as this could just cause memory to accumulate
+
+                // TODO: maybe if is-server, attach the client-id to the ShouldBePredicted entity
+                //  to know for which client we should do the pre-prediction
+            }
+
+            // removals
+            trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
+            for kind in actions.remove {
+                events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
+                component_registry.raw_remove(kind, &mut local_entity_mut);
+            }
+
+            // updates
+            debug!(remote_entity = ?entity, "Received UpdateComponent");
+            for component in actions.updates {
+                // TODO: re-use buffers via pool?
+                reader.reset_read(component.as_slice());
+                let _ = component_registry
+                    .raw_write(
+                        reader,
+                        &mut local_entity_mut,
+                        remote_tick,
+                        &mut remote_entity_map.remote_to_local,
+                        events,
+                    )
+                    .inspect_err(|e| {
+                        error!("could not write the component to the entity: {:?}", e)
+                    });
+            }
+        }
+        self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
+    }
+
+    pub(crate) fn apply_updates_message(
+        &mut self,
+        world: &mut World,
+        remote: Option<ClientId>,
+        component_registry: &ComponentRegistry,
+        remote_tick: Tick,
+        is_history: bool,
+        message: EntityUpdatesMessage,
+        events: &mut ConnectionEvents,
+        remote_entity_map: &mut RemoteEntityMap,
+        reader: &mut BitcodeReader,
+    ) {
+        let group_id = message.group_id;
+        debug!(?remote_tick, ?message, "Received replication updates");
+        // TODO: store this in ConfirmedHistory?
+        if is_history {
+            return;
+        }
+        for (entity, components) in message.updates.into_iter() {
+            debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
+            // update the entity only if it exists
+            if let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) {
+                for component in components {
+                    reader.reset_read(component.as_slice());
+                    let _ = component_registry
+                        .raw_write(
+                            reader,
+                            &mut local_entity_mut,
+                            remote_tick,
+                            &mut remote_entity_map.remote_to_local,
+                            events,
+                        )
+                        .inspect_err(|e| {
+                            error!("could not write the component to the entity: {:?}", e)
+                        });
+                }
+            } else {
+                // we can get a few buffered updates after the entity has been despawned
+                // those are the updates that we received before the despawn action message, but with a tick
+                // later than the despawn action message
+                debug!("update for entity that doesn't exist?");
+            }
+        }
+        self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
+    }
+
+    /// Update the Confirmed tick for all entities in the replication group
+    /// so that Predicted/Interpolated entities can be notified
+    ///
+    /// We update it for all entities in the group (even if we received only an update that contains
+    /// updates for E1, it also means that E2 is updated to the same tick, since they are part of the
+    /// same group)
+    pub(crate) fn update_confirmed_tick(
+        &mut self,
+        world: &mut World,
+        group_id: ReplicationGroupId,
+        remote_tick: Tick,
+        remote_entity_map: &mut RemoteEntityMap,
+    ) {
+        // TODO: maybe get the confirmed tick from the apply_world message directly?
+        // // let confirmed_tick = self.group_channels.get(&group_id).unwrap().latest_tick;
+        // if let Some(group_channel) = self.group_channels
+        //     .get(&group_id) {
+        //     grou.remote_entities
+        //
+        // }
+
+        self.remote_entities.iter().for_each(|remote_entity| {
+            if let Some(mut local_entity_mut) =
+                remote_entity_map.get_by_remote(world, *remote_entity)
+            {
+                trace!(?remote_tick, "updating confirmed tick for entity");
+                if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                    confirmed.tick = remote_tick;
+                }
+            }
+        });
     }
 }
 

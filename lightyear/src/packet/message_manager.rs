@@ -352,7 +352,7 @@ impl MessageManager {
     /// EDIT: Actually, prioritization discards messages that are not sent, so maybe it is guaranteed that the tick
     /// is the remote send tick.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn read_messages(
+    pub(crate) fn read_messages(
         &mut self,
     ) -> impl Iterator<Item = (ChannelKind, (Tick, Bytes))> + Captures<&()> {
         // let mut map = HashMap::new();
