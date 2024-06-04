@@ -1,8 +1,9 @@
 //! Serialization and deserialization of types
 
 use crate::serialize::reader::Reader;
-use crate::serialize::varint::varint_len;
+use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use byteorder::{ReadBytesExt, WriteBytesExt};
+use bytes::Bytes;
 
 pub mod reader;
 pub(crate) mod varint;
@@ -39,6 +40,91 @@ pub trait ToBytes {
     where
         Self: Sized;
 }
+
+impl<M: ToBytes> ToBytes for Option<M> {
+    fn len(&self) -> usize {
+        match self {
+            Some(value) => 1 + value.len(),
+            None => 1,
+        }
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        match self {
+            Some(value) => {
+                buffer.write_u8(1)?;
+                value.to_bytes(buffer)?;
+            }
+            None => {
+                buffer.write_u8(0)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let has_value = buffer.read_u8()? != 0;
+        if has_value {
+            Ok(Some(M::from_bytes(buffer)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+/// For Bytes, when we read instead of allocating we just create a new Bytes by slicing the buffer
+impl ToBytes for Bytes {
+    fn len(&self) -> usize {
+        varint_len(self.len() as u64) + self.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_varint(self.len() as u64)?;
+        buffer.write_all(self.as_ref())?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let len = buffer.read_varint()? as usize;
+        let bytes = buffer.split_len(len);
+        Ok(Bytes::from(bytes))
+    }
+}
+
+macro_rules! impl_tuple_query_data {
+    ($($name: ident),*) => {
+
+        #[allow(non_snake_case)]
+        #[allow(clippy::unused_unit)]
+        // SAFETY: defers to soundness `$name: WorldQuery` impl
+        impl<$($name: ToBytes),*> ToBytes for ($($name,)*) {
+            fn len(&self) -> usize {
+                let ($($name,)*) = self;
+                let mut len = 0;
+                $(len += $name.len();)*
+                len
+            }
+
+            fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+                let ($($name,)*) = self;
+                $($name.to_bytes(buffer)?;)*
+                Ok(())
+            }
+
+            fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError> {
+                Ok(($($name::from_bytes(buffer)?,)*))
+            }
+        }
+    };
+}
+
+bevy::utils::all_tuples!(impl_tuple_query_data, 1, 8, P);
 
 impl<M: ToBytes> ToBytes for Vec<M> {
     fn len(&self) -> usize {

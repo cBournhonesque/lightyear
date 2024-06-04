@@ -4,14 +4,13 @@ use std::hash::Hash;
 
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource};
-use bevy::utils::HashSet;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::Tick;
-use crate::protocol::registry::NetId;
+use crate::protocol::component::ComponentNetId;
 use crate::protocol::EventContext;
 use crate::serialize::reader::Reader;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
@@ -66,25 +65,33 @@ pub struct EntityActions {
     pub(crate) spawn: SpawnAction,
     // TODO: maybe do HashMap<NetId, RawData>? for example for ShouldReuseTarget
     pub(crate) insert: Vec<Bytes>,
-    // TODO: use a ComponentNetId instead of NetId?
-    pub(crate) remove: HashSet<NetId>,
+    pub(crate) remove: Vec<ComponentNetId>,
     pub(crate) updates: Vec<Bytes>,
 }
 
 impl ToBytes for EntityActions {
     fn len(&self) -> usize {
-        todo!()
+        self.spawn.len() + self.insert.len() + self.remove.len() + self.updates.len()
     }
 
     fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        todo!()
+        self.spawn.to_bytes(buffer)?;
+        self.insert.to_bytes(buffer)?;
+        self.remove.to_bytes(buffer)?;
+        self.updates.to_bytes(buffer)?;
+        Ok(())
     }
 
     fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
-        todo!()
+        Ok(Self {
+            spawn: SpawnAction::from_bytes(buffer)?,
+            insert: Vec::from_bytes(buffer)?,
+            remove: Vec::from_bytes(buffer)?,
+            updates: Vec::from_bytes(buffer)?,
+        })
     }
 }
 
@@ -139,7 +146,7 @@ impl Default for EntityActions {
         Self {
             spawn: SpawnAction::None,
             insert: Vec::new(),
-            remove: HashSet::new(),
+            remove: Vec::new(),
             updates: Vec::new(),
         }
     }
@@ -152,21 +159,29 @@ impl Default for EntityActions {
 pub struct EntityActionsMessage {
     sequence_id: MessageId,
     group_id: ReplicationGroupId,
+    // TODO: for better compression, we should use columnar storage
     // we use vec but the order of entities should not matter
     pub(crate) actions: Vec<(Entity, EntityActions)>,
 }
 
 impl ToBytes for EntityActionsMessage {
     fn len(&self) -> usize {
-        todo!()
+        self.sequence_id.len() + self.group_id.len() + self.actions.len()
     }
 
     fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        todo!()
+        self.sequence_id.to_bytes(buffer)?;
+        self.group_id.to_bytes(buffer)?;
+        self.actions.to_bytes(buffer)?;
+        Ok(())
     }
 
     fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError> {
-        todo!()
+        Ok(Self {
+            sequence_id: MessageId::from_bytes(buffer)?,
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            actions: Vec::<(Entity, EntityActions)>::from_bytes(buffer)?,
+        })
     }
 }
 
@@ -187,18 +202,25 @@ pub struct EntityUpdatesMessage {
 
 impl ToBytes for EntityUpdatesMessage {
     fn len(&self) -> usize {
-        todo!()
+        self.group_id.len() + self.last_action_tick.len() + self.updates.len()
     }
 
     fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        todo!()
+        self.group_id.to_bytes(buffer)?;
+        self.last_action_tick.to_bytes(buffer)?;
+        self.updates.to_bytes(buffer)?;
+        Ok(())
     }
 
     fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
-        todo!()
+        Ok(Self {
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            last_action_tick: Option::<Tick>::from_bytes(buffer)?,
+            updates: Vec::<(Entity, Vec<Bytes>)>::from_bytes(buffer)?,
+        })
     }
 }
 

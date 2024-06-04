@@ -390,7 +390,7 @@ impl ReplicationSender {
             .entry(entity)
             .or_default()
             .remove
-            .insert(kind);
+            .push(kind);
     }
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
@@ -736,7 +736,6 @@ mod tests {
     use crate::tests::protocol::Component1;
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::prelude::*;
-    use bevy::utils::HashSet;
 
     use super::*;
 
@@ -1063,7 +1062,7 @@ mod tests {
                     EntityActions {
                         spawn: SpawnAction::Spawn,
                         insert: vec![raw_1],
-                        remove: HashSet::from_iter(vec![net_id_2]),
+                        remove: vec![net_id_2],
                         updates: vec![raw_2],
                     }
                 ),
@@ -1072,7 +1071,7 @@ mod tests {
                     EntityActions {
                         spawn: SpawnAction::None,
                         insert: vec![],
-                        remove: HashSet::default(),
+                        remove: vec![],
                         updates: vec![raw_3],
                     }
                 )
