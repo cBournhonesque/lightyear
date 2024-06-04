@@ -21,12 +21,11 @@ macro_rules! wrapping_id {
         paste! {
         mod [<$struct_name:lower _module>] {
             use serde::{Deserialize, Serialize};
-            use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-            use std::io::{Seek};
+            use byteorder::{NetworkEndian, WriteBytesExt};
             use std::ops::{Add, AddAssign, Deref, Sub};
             use std::cmp::Ordering;
             use bevy::reflect::Reflect;
-            use crate::serialize::{SerializationError, ToBytes};
+            use crate::serialize::{SerializationError, Reader, ToBytes};
             use crate::utils::wrapping_id::{wrapping_diff, WrappedId};
 
             // define the struct
@@ -43,7 +42,7 @@ macro_rules! wrapping_id {
                     Ok(buffer.write_u16::<NetworkEndian>(self.0)?)
                 }
 
-                fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+                fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
                 where
                     Self: Sized,
                 {

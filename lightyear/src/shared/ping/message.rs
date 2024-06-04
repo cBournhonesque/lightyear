@@ -1,4 +1,5 @@
 //! Defines the actual ping/pong messages
+use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::store::PingId;
 use crate::shared::time_manager::WrappedTime;
@@ -21,7 +22,7 @@ impl ToBytes for Ping {
         self.id.to_bytes(buffer)
     }
 
-    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
@@ -53,7 +54,7 @@ impl ToBytes for Pong {
         self.pong_sent_time.to_bytes(buffer)
     }
 
-    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {

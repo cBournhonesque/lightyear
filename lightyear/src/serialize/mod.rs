@@ -1,14 +1,16 @@
 //! Serialization and deserialization of types
 
+use crate::serialize::reader::Reader;
 use crate::serialize::varint::varint_len;
 use byteorder::{ReadBytesExt, WriteBytesExt};
+use bytes::Bytes;
 use std::io::Seek;
 
 pub mod reader;
 pub(crate) mod varint;
 pub mod writer;
 
-pub type RawData = Vec<u8>;
+pub type RawData = Bytes;
 
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
@@ -35,9 +37,7 @@ pub trait ToBytes {
         buffer: &mut T,
     ) -> Result<(), SerializationError>;
 
-    fn from_bytes<T: byteorder::ReadBytesExt + Seek>(
-        buffer: &mut T,
-    ) -> Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized;
 }
@@ -53,7 +53,7 @@ impl<M: ToBytes> ToBytes for Vec<M> {
         Ok(())
     }
 
-    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {

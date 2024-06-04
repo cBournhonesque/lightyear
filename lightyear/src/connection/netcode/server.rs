@@ -14,7 +14,7 @@ use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer,
 };
-use crate::packet::packet_builder::Payload;
+use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::server::config::NetcodeConfig;
 use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
 use crate::transport::{PacketReceiver, PacketSender};
@@ -125,7 +125,7 @@ struct ConnectionCache {
     replay_protection: HashMap<ClientId, ReplayProtection>,
 
     // packet queue for all clients
-    packet_queue: VecDeque<(Payload, ClientId)>,
+    packet_queue: VecDeque<(RecvPayload, ClientId)>,
 
     // corresponds to the server time
     time: f64,
@@ -501,8 +501,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                     // self.conn_cache.buffer_pool.attach(reader);
 
                     // TODO: use a pool of buffers to avoid re-allocation
-                    let mut buf = vec![0u8; packet.buf.len()];
-                    buf.copy_from_slice(packet.buf);
+                    let mut buf = bytes::Bytes::copy_from_slice(packet.buf);
                     self.conn_cache.packet_queue.push_back((buf, idx));
                 }
                 Ok(())
@@ -865,7 +864,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     ///    }
     ///    # break;
     /// }
-    pub fn recv(&mut self) -> Option<(Payload, ClientId)> {
+    pub fn recv(&mut self) -> Option<(RecvPayload, ClientId)> {
         self.conn_cache.packet_queue.pop_front()
     }
     /// Sends a packet to a client.
@@ -1102,7 +1101,7 @@ pub(crate) mod connection {
             Ok(())
         }
 
-        fn recv(&mut self) -> Option<(Payload, id::ClientId)> {
+        fn recv(&mut self) -> Option<(RecvPayload, id::ClientId)> {
             self.server
                 .recv()
                 .map(|(packet, id)| (packet, id::ClientId::Netcode(id)))

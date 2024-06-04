@@ -19,7 +19,7 @@ impl ToBytes for NetId {
         Ok(())
     }
 
-    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {

@@ -3,6 +3,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::{Mut, Resource, World};
 use bevy::utils::{Duration, HashMap};
+use bytes::Bytes;
 use tracing::{debug, trace, trace_span};
 
 use crate::channel::builder::{
@@ -17,7 +18,7 @@ use crate::client::message::ClientMessage;
 use crate::client::replication::send::ReplicateCache;
 use crate::client::sync::SyncConfig;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::packet_builder::{Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{Payload, RecvPayload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::{Channel, ChannelKind, ClientId, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
@@ -79,7 +80,7 @@ pub struct ConnectionManager {
 
     /// Used to read the leafwing InputMessages from other clients
     #[cfg(feature = "leafwing")]
-    pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
+    pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<RawData>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<RawData>>,
     pub(crate) writer: Writer,
@@ -407,7 +408,7 @@ impl ConnectionManager {
 
     pub(crate) fn recv_packet(
         &mut self,
-        packet: Payload,
+        packet: RecvPayload,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
     ) -> Result<(), ClientError> {

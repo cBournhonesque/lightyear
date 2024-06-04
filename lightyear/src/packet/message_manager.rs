@@ -18,7 +18,7 @@ use crate::packet::message::{
     FragmentData, MessageAck, MessageId, ReceiveMessage, SendMessage, SingleData,
 };
 use crate::packet::packet::PacketId;
-use crate::packet::packet_builder::{PacketBuilder, Payload};
+use crate::packet::packet_builder::{PacketBuilder, Payload, RecvPayload};
 use crate::packet::packet_type::PacketType;
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
@@ -271,7 +271,7 @@ impl MessageManager {
     /// Update the acks, and put the messages from the packets in internal buffers
     /// Returns the tick of the packet
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn recv_packet(&mut self, packet: Payload) -> Result<Tick, PacketError> {
+    pub fn recv_packet(&mut self, packet: RecvPayload) -> Result<Tick, PacketError> {
         let mut cursor = Cursor::new(&packet);
 
         // Step 1. Parse the packet

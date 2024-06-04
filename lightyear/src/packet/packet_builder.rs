@@ -1,5 +1,6 @@
 //! Module to take a buffer of messages to send and build packets
 use byteorder::WriteBytesExt;
+use bytes::Bytes;
 use std::collections::VecDeque;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
@@ -19,6 +20,13 @@ use crate::serialize::{SerializationError, ToBytes};
 pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize);
 
 pub type Payload = Vec<u8>;
+
+/// We use `Bytes` on the receive side because we want to be able to refer to sub-slices of the original
+/// packet without allocating.
+///
+/// e.g. we receive 1200 bytes from the network, we want to read parts of it (header, channel) but then
+/// store subslices in receiver channels without allocating.
+pub type RecvPayload = Bytes;
 
 /// `PacketBuilder` handles the process of creating a packet (writing the header and packing the
 /// messages into packets)

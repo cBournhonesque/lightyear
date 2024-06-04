@@ -1,6 +1,6 @@
 /// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
 use std::fmt::Debug;
-use std::io::Seek;
+use std::io::{Cursor, Seek};
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::protocol::EventContext;
+use crate::serialize::reader::Reader;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::tick_manager::Tick;
@@ -136,7 +137,7 @@ impl ToBytes for SingleData {
         Ok(())
     }
 
-    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
@@ -146,8 +147,7 @@ impl ToBytes for SingleData {
             None
         };
         let len = buffer.read_varint()? as usize;
-        let mut bytes = vec![0; len];
-        buffer.read_exact(&mut bytes)?;
+        let bytes = buffer.split_len(len);
         Ok(Self {
             id,
             bytes: Bytes::from(bytes),
@@ -185,15 +185,16 @@ impl ToBytes for FragmentData {
         Ok(())
     }
 
-    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    /// We get the FragmentData as a subslice of the original Bytes. O(1) operation.
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
         let message_id = MessageId(buffer.read_u16::<NetworkEndian>()?);
         let fragment_id = buffer.read_u8()?;
         let num_fragments = buffer.read_u8()?;
-        let mut bytes = vec![0; buffer.read_varint()? as usize];
-        buffer.read_exact(&mut bytes)?;
+        let len = buffer.read_varint()? as usize;
+        let bytes = buffer.split_len(len);
         Ok(Self {
             message_id,
             fragment_id,
