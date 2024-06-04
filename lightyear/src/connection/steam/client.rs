@@ -1,9 +1,8 @@
 use crate::connection::client::{ConnectionError, ConnectionState, DisconnectReason, NetClient};
 use crate::connection::id::ClientId;
-use crate::packet::packet_builder::Payload;
+use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::client::Io;
 use crate::prelude::LinkConditionerConfig;
-use crate::serialize::bitcode::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
@@ -57,8 +56,7 @@ pub struct Client {
     steamworks_client: Arc<RwLock<SteamworksClient>>,
     config: SteamConfig,
     connection: Option<NetConnection<ClientManager>>,
-    packet_queue: VecDeque<Payload>,
-    buffer_pool: BufferPool,
+    packet_queue: VecDeque<RecvPayload>,
     conditioner: Option<LinkConditionerConfig>,
 }
 
@@ -73,7 +71,6 @@ impl Client {
             config,
             connection: None,
             packet_queue: VecDeque::new(),
-            buffer_pool: BufferPool::default(),
             conditioner,
         }
     }
@@ -195,16 +192,15 @@ impl NetClient for Client {
                     // let packet = Packet::decode(&mut reader).context("could not decode packet")?;
                     // // return the buffer to the pool
                     // self.buffer_pool.attach(reader);
-                    let mut buf = vec![0u8; message.data().len()];
-                    buf.copy_from_slice(message.data());
-                    self.packet_queue.push_back(buf);
+                    let payload = RecvPayload::copy_from_slice(message.data());
+                    self.packet_queue.push_back(payload);
                 }
                 Ok(())
             }
         };
     }
 
-    fn recv(&mut self) -> Option<Payload> {
+    fn recv(&mut self) -> Option<RecvPayload> {
         self.packet_queue.pop_front()
     }
 

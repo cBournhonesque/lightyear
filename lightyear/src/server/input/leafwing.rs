@@ -9,6 +9,7 @@ use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::server::MessageEvent;
 use crate::prelude::{is_started, MessageRegistry, Mode, TickManager};
 use crate::protocol::message::MessageKind;
+use crate::serialize::reader::Reader;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::shared::replication::network_target::NetworkTarget;
@@ -119,7 +120,7 @@ fn receive_input_message<A: LeafwingUserAction>(
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
-                let mut reader = connection.reader_pool.start_read(&message_bytes);
+                let mut reader = Reader::from(message_bytes);
                 match message_registry.deserialize::<InputMessage<A>>(
                     &mut reader,
                     &mut connection
@@ -163,11 +164,11 @@ fn receive_input_message<A: LeafwingUserAction>(
 
                         // rebroadcast
                         if target != NetworkTarget::None {
-                            if let Ok(message_bytes) =
+                            if let Ok(()) =
                                 message_registry.serialize(&message, &mut connection_manager.writer)
                             {
                                 connection.messages_to_rebroadcast.push((
-                                    message_bytes,
+                                    reader.consume(),
                                     target,
                                     channel_kind,
                                 ));
@@ -179,7 +180,6 @@ fn receive_input_message<A: LeafwingUserAction>(
                         error!(?e, "could not deserialize leafwing input message");
                     }
                 }
-                connection.reader_pool.attach(reader);
             }
         }
     }

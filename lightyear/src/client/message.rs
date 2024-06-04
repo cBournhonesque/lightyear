@@ -1,8 +1,7 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut};
-use byteorder::{WriteBytesExt};
+use byteorder::WriteBytesExt;
 use bytes::Bytes;
-use std::io::{Read};
 use tracing::error;
 
 use crate::client::connection::ConnectionManager;
@@ -14,21 +13,21 @@ use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ClientMessage {
-    pub(crate) message: Bytes,
     /// Used if you want to automatically rebroadcast a message to a specific target
     pub(crate) target: NetworkTarget,
+    pub(crate) message: Bytes,
 }
 
 impl ToBytes for ClientMessage {
     fn len(&self) -> usize {
-        self.message.len() + self.target.len()
+        self.target.len() + self.message.len()
     }
 
     fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        // TODO: does this just copy to slice?
         self.target.to_bytes(buffer)?;
+        // NOTE: we just write the message bytes directly! We don't provide the length
         buffer.write_all(&self.message)?;
         Ok(())
     }
@@ -38,12 +37,10 @@ impl ToBytes for ClientMessage {
         Self: Sized,
     {
         let target = NetworkTarget::from_bytes(buffer)?;
-        let mut message = vec![];
-        let _ = buffer.read_to_end(&mut message)?;
-        Ok(Self {
-            message: message.into(),
-            target,
-        })
+        // NOTE: this only works if the reader only contains the ClientMessage bytes!
+        let remaining = buffer.remaining();
+        let message = buffer.split_len(remaining);
+        Ok(Self { message, target })
     }
 }
 
@@ -191,3 +188,24 @@ pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
 //         }
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::serialize::writer::Writer;
+
+    #[test]
+    fn client_message_serde() {
+        let data = ClientMessage {
+            target: NetworkTarget::None,
+            message: Bytes::from_static(b"hello world"),
+        };
+        let mut writer = Writer::default();
+        data.to_bytes(&mut writer).unwrap();
+        let bytes = writer.to_bytes();
+
+        let mut reader = Reader::from(bytes);
+        let result = ClientMessage::from_bytes(&mut reader).unwrap();
+        assert_eq!(data, result);
+    }
+}

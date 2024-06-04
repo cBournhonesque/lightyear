@@ -331,6 +331,7 @@ mod tests {
 
         // add the resource
         stepper.server_app.world.insert_resource(Resource1(1.0));
+        dbg!("SHOULD SEND RESOURCE MESSAGE");
         stepper.frame_step();
         stepper.frame_step();
 

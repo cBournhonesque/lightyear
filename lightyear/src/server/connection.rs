@@ -287,8 +287,8 @@ impl ConnectionManager {
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        let writer = Writer::default();
-        self.message_registry.serialize(message, &mut self.writer)?;
+        let mut writer = Writer::default();
+        self.message_registry.serialize(message, &mut writer)?;
         let message_bytes = writer.to_bytes();
         self.buffer_message(message_bytes, channel_kind, target)
     }

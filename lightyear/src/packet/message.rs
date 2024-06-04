@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::protocol::EventContext;
 use crate::serialize::reader::Reader;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
+use crate::serialize::varint::varint_len;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
@@ -131,8 +131,9 @@ impl ToBytes for SingleData {
         } else {
             buffer.write_u8(0)?;
         }
-        buffer.write_varint(self.bytes.len() as u64)?;
-        buffer.write_all(self.bytes.as_ref())?;
+        self.bytes.to_bytes(buffer)?;
+        // buffer.write_varint(self.bytes.len() as u64)?;
+        // buffer.write_all(self.bytes.as_ref())?;
         Ok(())
     }
 
@@ -145,12 +146,10 @@ impl ToBytes for SingleData {
         } else {
             None
         };
-        let len = buffer.read_varint()? as usize;
-        let bytes = buffer.split_len(len);
-        Ok(Self {
-            id,
-            bytes: Bytes::from(bytes),
-        })
+        let bytes = Bytes::from_bytes(buffer)?;
+        // let len = buffer.read_varint()? as usize;
+        // let bytes = buffer.split_len(len);
+        Ok(Self { id, bytes })
     }
 }
 
@@ -179,8 +178,9 @@ impl ToBytes for FragmentData {
         buffer.write_u16::<NetworkEndian>(self.message_id.0)?;
         buffer.write_u8(self.fragment_id)?;
         buffer.write_u8(self.num_fragments)?;
-        buffer.write_varint(self.bytes.len() as u64)?;
-        buffer.write_all(self.bytes.as_ref())?;
+        self.bytes.to_bytes(buffer)?;
+        // buffer.write_varint(self.bytes.len() as u64)?;
+        // buffer.write_all(self.bytes.as_ref())?;
         Ok(())
     }
 
@@ -192,13 +192,14 @@ impl ToBytes for FragmentData {
         let message_id = MessageId(buffer.read_u16::<NetworkEndian>()?);
         let fragment_id = buffer.read_u8()?;
         let num_fragments = buffer.read_u8()?;
-        let len = buffer.read_varint()? as usize;
-        let bytes = buffer.split_len(len);
+        let bytes = Bytes::from_bytes(buffer)?;
+        // let len = buffer.read_varint()? as usize;
+        // let bytes = buffer.split_len(len);
         Ok(Self {
             message_id,
             fragment_id,
             num_fragments,
-            bytes: Bytes::from(bytes),
+            bytes,
         })
     }
 }

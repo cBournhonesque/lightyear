@@ -38,6 +38,10 @@ impl Reader {
         self.0.into_inner()
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.0.get_ref().len()
+    }
+
     /// Split of the next `len` bytes from the reader into a separate Bytes.
     ///
     /// This doesn't allocate and just increases some reference counts. O(1) cost.
@@ -53,5 +57,9 @@ impl Reader {
 
     pub(crate) fn has_remaining(&self) -> bool {
         self.0.has_remaining()
+    }
+
+    pub(crate) fn remaining(&self) -> usize {
+        self.0.remaining()
     }
 }

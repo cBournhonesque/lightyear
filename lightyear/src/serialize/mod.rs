@@ -75,7 +75,7 @@ impl<M: ToBytes> ToBytes for Option<M> {
     }
 }
 
-/// For Bytes, when we read instead of allocating we just create a new Bytes by slicing the buffer
+/// When we read, instead of allocating we just create a new Bytes by slicing the buffer
 impl ToBytes for Bytes {
     fn len(&self) -> usize {
         varint_len(self.len() as u64) + self.len()
@@ -142,10 +142,28 @@ impl<M: ToBytes> ToBytes for Vec<M> {
         Self: Sized,
     {
         let len = buffer.read_u64::<byteorder::NetworkEndian>()? as usize;
+        // TODO: if we know the MIN_LEN we can preallocate
         let mut vec = Vec::with_capacity(len);
         for _ in 0..len {
             vec.push(M::from_bytes(buffer)?);
         }
         Ok(vec)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::serialize::writer::Writer;
+
+    #[test]
+    fn test_serialize_bytes() {
+        let a: Bytes = vec![7; 100].into();
+        let mut writer = Writer::with_capacity(5);
+        a.to_bytes(&mut writer).unwrap();
+
+        let mut reader = Reader::from(writer.to_bytes());
+        let read = Bytes::from_bytes(&mut reader).unwrap();
+        assert_eq!(a, read);
     }
 }

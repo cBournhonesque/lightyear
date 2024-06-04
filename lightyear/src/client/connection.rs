@@ -235,8 +235,9 @@ impl ConnectionManager {
             .name(&channel)
             .ok_or::<ClientError>(MessageError::NotRegistered.into())?;
         let message = ClientMessage { message, target };
-        let writer = Writer::default();
-        message.to_bytes(&mut self.writer)?;
+        // TODO: WE ARE ALLOCATING A SECOND TIME HERE, AVOID!
+        let mut writer = Writer::default();
+        message.to_bytes(&mut writer)?;
         // TODO: doesn't this serialize the bytes twice? fix this..
         let message_bytes = writer.to_bytes();
         // message.emit_send_logs(&channel_name);

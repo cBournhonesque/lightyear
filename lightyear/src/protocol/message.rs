@@ -302,6 +302,7 @@ impl MessageRegistry {
             .get(&kind)
             .ok_or(MessageError::MissingSerializationFns)?;
         let net_id = self.kind_map.net_id(&kind).unwrap();
+        net_id.to_bytes(writer)?;
         // SAFETY: the ErasedSerializeFns was created for the type M
         unsafe {
             erased_fns.serialize(message, writer)?;
@@ -343,5 +344,28 @@ impl TypeKind for MessageKind {}
 impl From<TypeId> for MessageKind {
     fn from(type_id: TypeId) -> Self {
         Self(type_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::protocol::Resource1;
+
+    #[test]
+    fn test_serde() {
+        let mut registry = MessageRegistry::default();
+        registry.add_message::<Resource1>(MessageType::Normal);
+
+        let message = Resource1(1.0);
+        let mut writer = Writer::default();
+        registry.serialize(&message, &mut writer).unwrap();
+        let data = writer.to_bytes();
+
+        let mut reader = Reader::from(data);
+        let read = registry
+            .deserialize(&mut reader, &mut EntityMap::default())
+            .unwrap();
+        assert_eq!(message, read);
     }
 }
