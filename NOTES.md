@@ -5,6 +5,7 @@
          (we only need them up to the end of the frame)
        - this buffer then gets stored in the channels
        - maybe it would gain to be a bytes for reliable channels (even after sending once), we need to store the message until we receive an ack
+       - Or can we reuse an existing buffer where we put all the messages that we clear after sending?
     - for replication, we sometimes serialize components individually and buffer them before we can write the final message.
       - we know the component is still owned by the world and not removed/changed at this point,
         so we could just store the raw pointer + ComponentNetId at this point and serialize later in one go using the component registry? But the Ptr wouldn't work anymore because we're not querying, no?
@@ -17,6 +18,8 @@
     - we want to be able to read parts of it (header, channel_id) but then parts of the big Bytes 
       would be stored in channel receivers. Hopefully using Bytes we can avoid allocating?
       We can use `Bytes::slice` to create a new Bytes from a subset of the original Bytes!
+      -> DONE!
+    - When reading the replication messages, we can do the same trick where we split the bytes for each component? but then it's a waste because we need to store the length of the bytes. More efficient if we just read directly inline. 
 
 
 - Replication current policy:

@@ -214,6 +214,8 @@ impl ConnectionManager {
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
+        // TODO: can we avoid allocating here, but instead re-use an existing buffer? i.e
+        //  fetch the buffer from a pool of writers. It comes back to the pool when the message is sent.
         let mut writer = Writer::default();
         self.message_registry.serialize(message, &mut writer)?;
         let message_bytes = writer.to_bytes();

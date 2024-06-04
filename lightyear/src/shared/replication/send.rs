@@ -856,7 +856,7 @@ mod tests {
             .group_channels
             .get(group_id)
             .expect("we should have a group channel for the entity");
-        assert_eq!(group_channel.send_tick, Some(bevy_tick));
+        assert_eq!(group_channel.send_tick, Some(*bevy_tick));
         assert_eq!(group_channel.ack_tick, None);
     }
 
@@ -1019,10 +1019,10 @@ mod tests {
         let net_id_1: ComponentNetId = 0;
         let net_id_2: ComponentNetId = 1;
         let net_id_3: ComponentNetId = 1;
-        let raw_1 = vec![0];
-        let raw_2 = vec![1];
-        let raw_3 = vec![2];
-        let raw_4 = vec![3];
+        let raw_1: Bytes = vec![0].into();
+        let raw_2: Bytes = vec![1].into();
+        let raw_3: Bytes = vec![2].into();
+        let raw_4: Bytes = vec![3].into();
 
         manager.group_channels.insert(
             group_1,

@@ -212,7 +212,6 @@ impl FragmentData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
 
     #[test]
     fn test_to_bytes_single_data() {
@@ -223,7 +222,7 @@ mod tests {
 
             assert_eq!(writer.len(), data.len());
 
-            let mut reader = Cursor::new(writer);
+            let mut reader = writer.into();
             let decoded = SingleData::from_bytes(&mut reader).unwrap();
             assert_eq!(decoded, data);
         }
@@ -234,7 +233,7 @@ mod tests {
 
             assert_eq!(writer.len(), data.len());
 
-            let mut reader = Cursor::new(writer);
+            let mut reader = writer.into();
             let decoded = SingleData::from_bytes(&mut reader).unwrap();
             assert_eq!(decoded, data);
         }
@@ -254,7 +253,7 @@ mod tests {
 
         assert_eq!(writer.len(), data.len());
 
-        let mut reader = Cursor::new(writer);
+        let mut reader = writer.into();
         let decoded = FragmentData::from_bytes(&mut reader).unwrap();
         assert_eq!(decoded, data);
     }

@@ -475,7 +475,7 @@ mod tests {
         let fragment_data = vec![];
         let mut packets = manager.build_packets(Tick(0), single_data, fragment_data)?;
         assert_eq!(packets.len(), 1);
-        let mut packet = packets.pop().unwrap();
+        let packet = packets.pop().unwrap();
         assert_eq!(packet.message_acks, vec![]);
         let contents = packet.parse_packet_payload()?;
         assert_eq!(
@@ -595,7 +595,7 @@ mod tests {
 
         let mut packets_queue: VecDeque<_> = packets.into();
         // 1st packet
-        let mut packet = packets_queue.pop_front().unwrap();
+        let packet = packets_queue.pop_front().unwrap();
         assert_eq!(
             packet.message_acks,
             vec![(
@@ -613,7 +613,7 @@ mod tests {
         );
 
         // 2nd packet
-        let mut packet = packets_queue.pop_front().unwrap();
+        let packet = packets_queue.pop_front().unwrap();
         assert_eq!(
             packet.message_acks,
             vec![(

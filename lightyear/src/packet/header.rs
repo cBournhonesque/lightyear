@@ -348,9 +348,6 @@ impl ReceiveBuffer {
 // TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
-
-    use std::io::Cursor;
-
     use crate::serialize::ToBytes;
 
     use super::*;
@@ -419,7 +416,7 @@ mod tests {
         header.to_bytes(&mut writer)?;
         assert_eq!(writer.len(), header.len());
 
-        let mut reader = Cursor::new(writer);
+        let mut reader = writer.into();
         let read_header = PacketHeader::from_bytes(&mut reader)?;
         assert_eq!(header, read_header);
         Ok(())

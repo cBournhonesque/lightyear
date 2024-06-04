@@ -1,10 +1,22 @@
 /// Defines the [`Packet`] struct
 use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::packet::message::{MessageAck};
+use crate::packet::message::MessageAck;
 use crate::packet::packet_builder::Payload;
 use crate::protocol::channel::ChannelId;
 use crate::serialize::ToBytes;
 use crate::utils::wrapping_id::wrapping_id;
+
+cfg_if::cfg_if!(
+    if #[cfg(test)] {
+        use bytes::Bytes;
+        use crate::serialize::varint::VarIntReadExt;
+        use crate::prelude::PacketError;
+        use crate::packet::header::PacketHeader;
+        use crate::packet::packet_type::PacketType;
+        use crate::packet::message::{SingleData, FragmentData};
+        use bevy::utils::HashMap;
+    }
+);
 
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
@@ -67,9 +79,9 @@ impl Packet {
     /// an intermediary data structure
     #[cfg(test)]
     pub(crate) fn parse_packet_payload(
-        &mut self,
+        self,
     ) -> Result<HashMap<ChannelId, Vec<Bytes>>, PacketError> {
-        let mut cursor = Cursor::new(&mut self.payload);
+        let mut cursor = self.payload.into();
         let mut res: HashMap<ChannelId, Vec<Bytes>> = HashMap::new();
         let header = PacketHeader::from_bytes(&mut cursor)?;
 

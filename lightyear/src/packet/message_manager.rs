@@ -455,7 +455,7 @@ mod tests {
         let (mut client_message_manager, mut server_message_manager) = setup();
 
         // client: buffer send messages, and then send
-        let message = vec![0, 1];
+        let message: Bytes = vec![0, 1].into();
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -477,7 +477,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
-            server_message_manager.recv_packet(payload)?;
+            server_message_manager.recv_packet(payload.into())?;
         }
         let it = server_message_manager.read_messages();
         let data = MessageManager::collect_messages(it);
@@ -516,7 +516,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for payload in payloads {
-            client_message_manager.recv_packet(payload)?;
+            client_message_manager.recv_packet(payload.into())?;
         }
 
         // Check that reliability works correctly
@@ -535,7 +535,7 @@ mod tests {
         // client: buffer send messages, and then send
         const MESSAGE_SIZE: usize = (1.5 * FRAGMENT_SIZE as f32) as usize;
 
-        let message = [0; MESSAGE_SIZE].to_vec();
+        let message = Bytes::copy_from_slice(&[0; MESSAGE_SIZE]);
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -570,7 +570,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
-            server_message_manager.recv_packet(payload)?;
+            server_message_manager.recv_packet(payload.into())?;
         }
         let it = server_message_manager.read_messages();
         let data = MessageManager::collect_messages(it);
@@ -605,12 +605,12 @@ mod tests {
         }
 
         // Server sends back a message
-        server_message_manager.buffer_send(vec![1], channel_kind_1)?;
+        server_message_manager.buffer_send(vec![1].into(), channel_kind_1)?;
         let payloads = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for payload in payloads {
-            client_message_manager.recv_packet(payload)?;
+            client_message_manager.recv_packet(payload.into())?;
         }
 
         // Check that reliability works correctly
@@ -633,7 +633,7 @@ mod tests {
             .subscribe_acks();
 
         let message_id = client_message_manager
-            .buffer_send(vec![0], Channel2::kind())?
+            .buffer_send(vec![0].into(), Channel2::kind())?
             .unwrap();
         assert_eq!(message_id, MessageId(0));
         let payloads = client_message_manager.send_packets(Tick(0))?;
@@ -653,16 +653,16 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
-            server_message_manager.recv_packet(payload)?;
+            server_message_manager.recv_packet(payload.into())?;
         }
 
         // Server sends back a message (to ack the message)
-        server_message_manager.buffer_send(vec![1], Channel2::kind())?;
+        server_message_manager.buffer_send(vec![1].into(), Channel2::kind())?;
         let payloads = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for payload in payloads {
-            client_message_manager.recv_packet(payload)?;
+            client_message_manager.recv_packet(payload.into())?;
         }
 
         assert_eq!(update_acks_tracker.try_recv().unwrap(), message_id);
