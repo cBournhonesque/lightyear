@@ -2,7 +2,7 @@ use crate::serialize::reader::Reader;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::{SerializationError, ToBytes};
 use bevy::utils::HashMap;
-use byteorder::{WriteBytesExt};
+use byteorder::WriteBytesExt;
 use std::any::TypeId;
 use std::hash::Hash;
 

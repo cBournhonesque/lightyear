@@ -6,17 +6,13 @@ pub struct Reader(Cursor<Bytes>);
 impl From<Bytes> for Reader {
     fn from(value: Bytes) -> Self {
         // TODO: check that this has no cost
-        Self {
-            0: Cursor::new(value.into()),
-        }
+        Self(Cursor::new(value))
     }
 }
 
 impl From<Vec<u8>> for Reader {
     fn from(value: Vec<u8>) -> Self {
-        Self {
-            0: Cursor::new(value.into()),
-        }
+        Self(Cursor::new(value.into()))
     }
 }
 

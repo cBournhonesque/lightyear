@@ -1,6 +1,5 @@
 use crate::prelude::ClientId;
 use crate::serialize::reader::Reader;
-use crate::serialize::varint::VarIntReadExt;
 use crate::serialize::{SerializationError, ToBytes};
 use bevy::prelude::Reflect;
 use bevy::utils::HashSet;
@@ -48,14 +47,14 @@ impl ToBytes for NetworkTarget {
             }
             NetworkTarget::AllExcept(client_ids) => {
                 buffer.write_u8(2)?;
-                ToBytes::to_bytes(client_ids, buffer)?;
+                client_ids.to_bytes(buffer)?;
             }
             NetworkTarget::All => {
                 buffer.write_u8(3)?;
             }
             NetworkTarget::Only(client_ids) => {
                 buffer.write_u8(4)?;
-                ToBytes::to_bytes(client_ids, buffer)?;
+                client_ids.to_bytes(buffer)?;
             }
             NetworkTarget::Single(client_id) => {
                 buffer.write_u8(1)?;
@@ -74,18 +73,11 @@ impl ToBytes for NetworkTarget {
             1 => Ok(NetworkTarget::AllExceptSingle(ClientId::from_bytes(
                 buffer,
             )?)),
-            2 => {
-                let len = buffer.read_varint()? as usize;
-                // consume the vec (we don't need it
-                let client_ids = ToBytes::from_bytes(buffer)?;
-                Ok(NetworkTarget::AllExcept(client_ids))
-            }
+            2 => Ok(NetworkTarget::AllExcept(Vec::<ClientId>::from_bytes(
+                buffer,
+            )?)),
             3 => Ok(NetworkTarget::All),
-            4 => {
-                let len = buffer.read_varint()? as usize;
-                let client_ids = ToBytes::from_bytes(buffer)?;
-                Ok(NetworkTarget::Only(client_ids))
-            }
+            4 => Ok(NetworkTarget::Only(Vec::<ClientId>::from_bytes(buffer)?)),
             5 => Ok(NetworkTarget::Single(ClientId::from_bytes(buffer)?)),
             _ => Err(SerializationError::InvalidPacketType),
         }
@@ -382,8 +374,18 @@ impl NetworkTarget {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::ClientId;
-    use crate::shared::replication::network_target::NetworkTarget;
+    use super::*;
+    use crate::serialize::writer::Writer;
+
+    #[test]
+    fn test_serde() {
+        let target = NetworkTarget::AllExcept(vec![]);
+        let mut writer = Writer::default();
+        target.to_bytes(&mut writer).unwrap();
+        let mut reader = Reader::from(writer.to_bytes());
+        let deserialized = NetworkTarget::from_bytes(&mut reader).unwrap();
+        assert_eq!(target, deserialized);
+    }
 
     #[test]
     fn test_exclude() {

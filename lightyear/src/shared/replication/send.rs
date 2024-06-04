@@ -576,7 +576,7 @@ impl ReplicationSender {
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(
-                        message_bytes.into(),
+                        message_bytes,
                         ChannelKind::of::<EntityActionsChannel>(),
                         priority,
                     )?
@@ -651,7 +651,7 @@ impl ReplicationSender {
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(
-                        message_bytes.into(),
+                        message_bytes,
                         ChannelKind::of::<EntityUpdatesChannel>(),
                         priority,
                     )?

@@ -8,7 +8,7 @@ use crate::connection::client::{
     ConnectionError, ConnectionState, DisconnectReason, IoConfig, NetClient,
 };
 use crate::connection::id;
-use crate::packet::packet_builder::{RecvPayload};
+use crate::packet::packet_builder::RecvPayload;
 use crate::transport::io::IoState;
 use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
 use crate::utils::pool::Pool;

@@ -484,11 +484,11 @@ mod tests {
 
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
-            &vec![(Tick(0), message.clone().into())]
+            &vec![(Tick(0), message.clone())]
         );
         assert_eq!(
             data.get(&channel_kind_2).unwrap(),
-            &vec![(Tick(0), message.clone().into())]
+            &vec![(Tick(0), message.clone())]
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io
@@ -576,11 +576,11 @@ mod tests {
         let data = MessageManager::collect_messages(it);
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
-            &vec![(Tick(0), message.clone().into())]
+            &vec![(Tick(0), message.clone())]
         );
         assert_eq!(
             data.get(&channel_kind_2).unwrap(),
-            &vec![(Tick(0), message.clone().into())]
+            &vec![(Tick(0), message.clone())]
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io

@@ -532,7 +532,7 @@ mod tests {
                 .client_app
                 .world
                 .register_system(|mut commands: Commands| {
-                    commands.replicate_resource::<Resource2, Channel1>(NetworkTarget::All);
+                    commands.replicate_resource::<Resource2, Channel1>(NetworkTarget::None);
                 });
         let stop_client_replicate_system =
             stepper

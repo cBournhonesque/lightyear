@@ -17,7 +17,7 @@ impl Write for Writer {
 impl Default for Writer {
     fn default() -> Self {
         // TODO: we start with some capacity, benchmark how much we need
-        Self::with_capacity(20)
+        Self::with_capacity(10)
     }
 }
 impl Writer {
@@ -37,6 +37,6 @@ impl Writer {
 
     /// Consume the writer to get the RawData
     pub(crate) fn to_vec(self) -> Vec<u8> {
-        self.0.into_inner().into()
+        self.0.into_inner()
     }
 }

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{server::SteamConfig, steamworks_client::SteamworksClient};
-use crate::packet::packet_builder::{RecvPayload};
+use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::server::ServerTransport;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::prelude::LinkConditionerConfig;

@@ -14,7 +14,7 @@ use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer,
 };
-use crate::packet::packet_builder::{RecvPayload};
+use crate::packet::packet_builder::RecvPayload;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
 use crate::transport::{PacketReceiver, PacketSender};

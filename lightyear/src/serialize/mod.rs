@@ -93,7 +93,7 @@ impl ToBytes for Bytes {
     {
         let len = buffer.read_varint()? as usize;
         let bytes = buffer.split_len(len);
-        Ok(Bytes::from(bytes))
+        Ok(bytes)
     }
 }
 

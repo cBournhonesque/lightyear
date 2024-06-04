@@ -3,7 +3,7 @@ use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::store::PingId;
 use crate::shared::time_manager::WrappedTime;
-use byteorder::{WriteBytesExt};
+use byteorder::WriteBytesExt;
 
 // TODO: do we need the ping ids? we could just re-use the message id ?
 /// Ping message; the remote should respond immediately with a pong
