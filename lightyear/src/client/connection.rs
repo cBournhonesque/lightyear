@@ -80,9 +80,9 @@ pub struct ConnectionManager {
 
     /// Used to read the leafwing InputMessages from other clients
     #[cfg(feature = "leafwing")]
-    pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<RawData>>,
+    pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: HashMap<NetId, Vec<RawData>>,
+    pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
     pub(crate) writer: Writer,
     // TODO: maybe don't do any replication until connection is synced?
 }
@@ -222,7 +222,7 @@ impl ConnectionManager {
 
     pub(crate) fn buffer_message(
         &mut self,
-        message: RawData,
+        message: Bytes,
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {

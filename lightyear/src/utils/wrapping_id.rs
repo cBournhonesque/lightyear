@@ -25,7 +25,8 @@ macro_rules! wrapping_id {
             use std::ops::{Add, AddAssign, Deref, Sub};
             use std::cmp::Ordering;
             use bevy::reflect::Reflect;
-            use crate::serialize::{SerializationError, Reader, ToBytes};
+            use byteorder::ReadBytesExt;
+            use crate::serialize::{SerializationError, reader::Reader, ToBytes};
             use crate::utils::wrapping_id::{wrapping_diff, WrappedId};
 
             // define the struct

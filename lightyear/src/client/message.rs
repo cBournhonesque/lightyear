@@ -2,7 +2,7 @@
 use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
-use std::io::Seek;
+use std::io::{Read, Seek};
 use tracing::error;
 
 use crate::client::connection::ConnectionManager;
@@ -40,7 +40,10 @@ impl ToBytes for ClientMessage {
         let target = NetworkTarget::from_bytes(buffer)?;
         let mut message = vec![];
         let _ = buffer.read_to_end(&mut message)?;
-        Ok(Self { message, target })
+        Ok(Self {
+            message: message.into(),
+            target,
+        })
     }
 }
 

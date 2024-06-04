@@ -188,8 +188,8 @@ impl TimeManager {
 
 mod wrapped_time {
     use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-    use std::io::Seek;
 
+    use crate::serialize::reader::Reader;
     use crate::serialize::{SerializationError, ToBytes};
 
     use super::*;

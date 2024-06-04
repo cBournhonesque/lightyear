@@ -1,4 +1,5 @@
 //! Module to handle the various possible ClientIds
+use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use bevy::reflect::Reflect;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};

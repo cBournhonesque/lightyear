@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Seek;
 
 use crate::connection::id::ClientId;
+use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 

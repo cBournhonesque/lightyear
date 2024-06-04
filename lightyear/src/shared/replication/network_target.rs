@@ -1,4 +1,5 @@
 use crate::prelude::ClientId;
+use crate::serialize::reader::Reader;
 use crate::serialize::varint::VarIntReadExt;
 use crate::serialize::{SerializationError, ToBytes};
 use bevy::prelude::Reflect;
