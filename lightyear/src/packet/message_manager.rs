@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
-use bytes::Buf;
+use bytes::{Buf, Bytes};
 use crossbeam_channel::{Receiver, Sender};
 use tracing::trace;
 #[cfg(feature = "trace")]
@@ -23,6 +23,7 @@ use crate::packet::packet_type::PacketType;
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
+use crate::serialize::reader::Reader;
 use crate::serialize::varint::VarIntReadExt;
 use crate::serialize::{RawData, ToBytes};
 use crate::shared::ping::manager::PingManager;
@@ -117,7 +118,7 @@ impl MessageManager {
     /// Returns the message id associated with the message, if there is one
     pub fn buffer_send(
         &mut self,
-        message: Vec<u8>,
+        message: Bytes,
         channel_kind: ChannelKind,
     ) -> Result<Option<MessageId>, PacketError> {
         self.buffer_send_with_priority(message, channel_kind, DEFAULT_MESSAGE_PRIORITY)
@@ -137,7 +138,7 @@ impl MessageManager {
     /// Returns the message id associated with the message, if there is one
     pub fn buffer_send_with_priority(
         &mut self,
-        message: RawData,
+        message: Bytes,
         channel_kind: ChannelKind,
         priority: f32,
     ) -> Result<Option<MessageId>, PacketError> {
@@ -145,7 +146,7 @@ impl MessageManager {
             .channels
             .get_mut(&channel_kind)
             .ok_or(PacketError::ChannelNotFound)?;
-        Ok(channel.sender.buffer_send(message.into(), priority))
+        Ok(channel.sender.buffer_send(message, priority))
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
@@ -272,12 +273,12 @@ impl MessageManager {
     /// Returns the tick of the packet
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn recv_packet(&mut self, packet: RecvPayload) -> Result<Tick, PacketError> {
-        let mut cursor = Cursor::new(&packet);
+        trace!(?packet, "Received packet");
+        let mut cursor = Reader::from(packet);
 
         // Step 1. Parse the packet
         let header = PacketHeader::from_bytes(&mut cursor)?;
         let tick = header.tick;
-        trace!(?packet, "Received packet");
 
         // TODO: if it's fragmented, put it in a buffer? while we wait for all the parts to be ready?
         //  maybe the channel can handle the fragmentation?

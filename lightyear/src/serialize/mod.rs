@@ -10,7 +10,7 @@ pub mod reader;
 pub(crate) mod varint;
 pub mod writer;
 
-pub type RawData = Bytes;
+pub type RawData = Vec<u8>;
 
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug)]

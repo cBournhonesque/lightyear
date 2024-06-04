@@ -1,6 +1,7 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut};
 use byteorder::{ReadBytesExt, WriteBytesExt};
+use bytes::Bytes;
 use std::io::Seek;
 use tracing::error;
 
@@ -15,7 +16,7 @@ use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 #[derive(Clone, Debug)]
 pub struct ClientMessage {
-    pub(crate) message: RawData,
+    pub(crate) message: Bytes,
     /// Used if you want to automatically rebroadcast a message to a specific target
     pub(crate) target: NetworkTarget,
 }

@@ -1,8 +1,8 @@
 use crate::serialize::RawData;
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
-pub struct Reader(Cursor<RawData>);
+pub struct Reader(Cursor<Bytes>);
 
 impl From<Bytes> for Reader {
     fn from(value: Bytes) -> Self {
@@ -35,7 +35,7 @@ impl Read for Reader {
 
 impl Reader {
     /// Returns the underlying RawData
-    pub(crate) fn consume(self) -> RawData {
+    pub(crate) fn consume(self) -> Bytes {
         self.0.into_inner()
     }
 
@@ -50,5 +50,9 @@ impl Reader {
         // increment the position
         self.0.set_position(new_pos as u64);
         bytes
+    }
+
+    pub(crate) fn has_remaining(&self) -> bool {
+        self.0.has_remaining()
     }
 }

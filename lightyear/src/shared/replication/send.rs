@@ -7,6 +7,7 @@ use bevy::ecs::entity::EntityHash;
 use bevy::prelude::Entity;
 use bevy::ptr::Ptr;
 use bevy::utils::{hashbrown, HashMap};
+use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
@@ -56,7 +57,7 @@ pub(crate) struct ReplicationSender {
     /// Messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
     pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
-    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<RawData>>>,
+    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<Bytes>>>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 
@@ -363,7 +364,7 @@ impl ReplicationSender {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        component: RawData,
+        component: Bytes,
         bevy_tick: BevyTick,
     ) {
         self.pending_actions
@@ -397,7 +398,7 @@ impl ReplicationSender {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        raw_data: RawData,
+        raw_data: Bytes,
     ) {
         self.pending_updates
             .entry(group_id)
@@ -439,7 +440,7 @@ impl ReplicationSender {
                         .serialize_diff(ack_tick, old_data, component_data, &mut writer, kind)
                         .expect("could not serialize delta")
                 }
-                writer.consume()
+                writer.to_bytes()
             })
             .unwrap_or_else(|| {
                 let mut writer = Writer::default();
@@ -450,7 +451,7 @@ impl ReplicationSender {
                         .serialize_diff_from_base_value(component_data, &mut writer, kind)
                         .expect("could not serialize delta")
                 }
-                writer.consume()
+                writer.to_bytes()
             });
         trace!(?kind, "Inserting pending update!");
         self.pending_updates
@@ -571,11 +572,11 @@ impl ReplicationSender {
                     .to_bytes(&mut writer)
                     .map_err(SerializationError::from)?;
                 // TODO: doesn't this serialize the bytes twice?
-                let message_bytes = writer.consume();
+                let message_bytes = writer.to_bytes();
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(
-                        message_bytes,
+                        message_bytes.into(),
                         ChannelKind::of::<EntityActionsChannel>(),
                         priority,
                     )?
@@ -646,11 +647,11 @@ impl ReplicationSender {
                 message
                     .to_bytes(&mut writer)
                     .map_err(SerializationError::from)?;
-                let message_bytes = writer.consume();
+                let message_bytes = writer.to_bytes();
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(
-                        message_bytes,
+                        message_bytes.into(),
                         ChannelKind::of::<EntityUpdatesChannel>(),
                         priority,
                     )?

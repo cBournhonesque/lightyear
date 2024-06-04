@@ -179,7 +179,7 @@ impl ConnectionManager {
         trace!("Sending ping {:?}", ping);
         let mut writer = Writer::with_capacity(ping.len());
         ping.to_bytes(&mut writer)?;
-        let message_bytes = writer.consume();
+        let message_bytes = writer.to_bytes();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
         Ok(())
@@ -188,7 +188,7 @@ impl ConnectionManager {
     fn send_pong(&mut self, pong: Pong) -> Result<(), ClientError> {
         let mut writer = Writer::with_capacity(pong.len());
         pong.to_bytes(&mut writer)?;
-        let message_bytes = writer.consume();
+        let message_bytes = writer.to_bytes();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
@@ -216,7 +216,7 @@ impl ConnectionManager {
     ) -> Result<(), ClientError> {
         let mut writer = Writer::default();
         self.message_registry.serialize(message, &mut writer)?;
-        let message_bytes = writer.consume();
+        let message_bytes = writer.to_bytes();
         self.buffer_message(message_bytes, channel_kind, target)
     }
 
@@ -236,7 +236,7 @@ impl ConnectionManager {
         let writer = Writer::default();
         message.to_bytes(&mut self.writer)?;
         // TODO: doesn't this serialize the bytes twice? fix this..
-        let message_bytes = writer.consume();
+        let message_bytes = writer.to_bytes();
         // message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message_bytes, channel)?;
         Ok(())

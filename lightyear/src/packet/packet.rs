@@ -72,6 +72,7 @@ impl Packet {
     /// For tests, parse the packet so that we can inspect the contents
     /// For production, parse the packets directly into messages to not allocate
     /// an intermediary data structure
+    #[cfg(test)]
     pub(crate) fn parse_packet_payload(
         &mut self,
     ) -> Result<HashMap<ChannelId, Vec<Bytes>>, PacketError> {

@@ -7,12 +7,14 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource};
 use bevy::utils::HashSet;
 use byteorder::{ReadBytesExt, WriteBytesExt};
+use bytes::Bytes;
 
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::Tick;
 use crate::protocol::registry::NetId;
 use crate::protocol::EventContext;
+use crate::serialize::reader::Reader;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::writer::Writer;
 use crate::serialize::{RawData, SerializationError, ToBytes};
@@ -64,10 +66,10 @@ impl ToBytes for Entity {
 pub struct EntityActions {
     pub(crate) spawn: SpawnAction,
     // TODO: maybe do HashMap<NetId, RawData>? for example for ShouldReuseTarget
-    pub(crate) insert: Vec<RawData>,
+    pub(crate) insert: Vec<Bytes>,
     // TODO: use a ComponentNetId instead of NetId?
     pub(crate) remove: HashSet<NetId>,
-    pub(crate) updates: Vec<RawData>,
+    pub(crate) updates: Vec<Bytes>,
 }
 
 impl ToBytes for EntityActions {
@@ -178,7 +180,7 @@ pub struct EntityUpdatesMessage {
     /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
     last_action_tick: Option<Tick>,
     /// Updates containing the full component data
-    pub(crate) updates: Vec<(Entity, Vec<RawData>)>,
+    pub(crate) updates: Vec<(Entity, Vec<Bytes>)>,
     // /// Updates containing diffs with a previous value
     // #[bitcode(with_serde)]
     // diff_updates: Vec<(Entity, Vec<RawData>)>,

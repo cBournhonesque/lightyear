@@ -1,4 +1,5 @@
 use crate::serialize::RawData;
+use bytes::Bytes;
 use std::io::{Cursor, Write};
 
 pub struct Writer(Cursor<RawData>);
@@ -30,7 +31,12 @@ impl Writer {
     }
 
     /// Consume the writer to get the RawData
-    pub(crate) fn consume(self) -> RawData {
-        self.0.into_inner()
+    pub(crate) fn to_bytes(self) -> Bytes {
+        self.0.into_inner().into()
+    }
+
+    /// Consume the writer to get the RawData
+    pub(crate) fn to_vec(self) -> Vec<u8> {
+        self.0.into_inner().into()
     }
 }

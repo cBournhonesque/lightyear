@@ -384,7 +384,7 @@ pub(crate) mod send {
                                 .erased_serialize(component_data, &mut writer, kind)
                                 .expect("could not serialize component")
                         };
-                        let raw_data = writer.consume();
+                        let raw_data = writer.to_bytes();
                         connection.replication_sender.prepare_component_insert(
                             entity,
                             group_id,
@@ -422,7 +422,7 @@ pub(crate) mod send {
                                 registry
                                     .erased_serialize(component_data, &mut writer, kind)
                                     .expect("could not serialize component");
-                                let raw_data = writer.consume();
+                                let raw_data = writer.to_bytes();
                                 connection
                                     .replication_sender
                                     .prepare_component_update(entity, group_id, raw_data);

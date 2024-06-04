@@ -4,6 +4,7 @@ use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
 use bevy::ptr::Ptr;
 use bevy::utils::{HashMap, HashSet};
+use bytes::Bytes;
 use hashbrown::hash_map::Entry;
 use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
@@ -270,15 +271,13 @@ impl ConnectionManager {
 
     pub(crate) fn buffer_message(
         &mut self,
-        message: RawData,
+        message: Bytes,
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
         self.connections
             .iter_mut()
             .filter(|(id, _)| target.targets(id))
-            // TODO: is it worth it to use Arc<Vec<u8>> or Bytes to have a free clone?
-            //  at some point the bytes will have to be copied into the final message, so maybe do it now?
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
     }
 
@@ -290,7 +289,7 @@ impl ConnectionManager {
     ) -> Result<(), ServerError> {
         let writer = Writer::default();
         self.message_registry.serialize(message, &mut self.writer)?;
-        let message_bytes = writer.consume();
+        let message_bytes = writer.to_bytes();
         self.buffer_message(message_bytes, channel_kind, target)
     }
 
@@ -363,7 +362,7 @@ impl ConnectionManager {
             .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
         let mut writer = Writer::default();
         component_registry.serialize(data, &mut writer)?;
-        let raw_data = writer.consume();
+        let raw_data = writer.to_bytes();
         self.connection_mut(client_id)?
             .replication_sender
             .prepare_component_insert(entity, group_id, raw_data, bevy_tick);
@@ -385,14 +384,14 @@ pub struct Connection {
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: HashMap<NetId, Vec<(RawData, NetworkTarget, ChannelKind)>>,
-    pub(crate) received_input_messages: HashMap<NetId, Vec<(RawData, NetworkTarget, ChannelKind)>>,
+    pub(crate) received_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
+    pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
-        HashMap<NetId, Vec<(RawData, NetworkTarget, ChannelKind)>>,
+        HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     writer: Writer,
     // messages that we have received that need to be rebroadcasted to other clients
-    pub(crate) messages_to_rebroadcast: Vec<(RawData, NetworkTarget, ChannelKind)>,
+    pub(crate) messages_to_rebroadcast: Vec<(Bytes, NetworkTarget, ChannelKind)>,
 }
 
 impl Connection {
@@ -461,7 +460,7 @@ impl Connection {
 
     pub(crate) fn buffer_message(
         &mut self,
-        message: RawData,
+        message: Bytes,
         channel: ChannelKind,
     ) -> Result<(), ServerError> {
         // TODO: i know channel names never change so i should be able to get them as static
@@ -501,7 +500,7 @@ impl Connection {
         trace!("Sending ping {:?}", ping);
         let mut writer = Writer::with_capacity(ping.len());
         ping.to_bytes(&mut writer)?;
-        let message_bytes = writer.consume();
+        let message_bytes = writer.to_bytes();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
         Ok(())
@@ -511,7 +510,7 @@ impl Connection {
         trace!("Sending pong {:?}", pong);
         let mut writer = Writer::with_capacity(pong.len());
         pong.to_bytes(&mut writer)?;
-        let message_bytes = writer.consume();
+        let message_bytes = writer.to_bytes();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
@@ -785,7 +784,7 @@ impl ConnectionManager {
                 .erased_serialize(component_data, &mut writer, kind)
                 .expect("could not serialize component")
         };
-        let raw_data = writer.consume();
+        let raw_data = writer.to_bytes();
         self.apply_replication(actual_target)
             .try_for_each(|client_id| {
                 // trace!(
@@ -832,12 +831,12 @@ impl ConnectionManager {
         );
 
         let group_id = group.group_id(Some(entity));
-        let mut raw_data: RawData = vec![];
+        let mut raw_data: Bytes = Bytes::new();
         if !delta_compression {
             let mut writer = Writer::default();
             // we serialize once and re-use the result for all clients
             registry.erased_serialize(component, &mut writer, kind)?;
-            raw_data = writer.consume();
+            raw_data = writer.to_bytes();
         }
         let mut num_targets = 0;
         self.apply_replication(target).try_for_each(|client_id| {
