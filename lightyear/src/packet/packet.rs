@@ -1,17 +1,10 @@
 /// Defines the [`Packet`] struct
 use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::packet::header::PacketHeader;
-use crate::packet::message::{FragmentData, MessageAck, SingleData};
+use crate::packet::message::{MessageAck};
 use crate::packet::packet_builder::Payload;
-use crate::packet::packet_type::PacketType;
-use crate::prelude::PacketError;
 use crate::protocol::channel::ChannelId;
-use crate::serialize::varint::VarIntReadExt;
 use crate::serialize::ToBytes;
 use crate::utils::wrapping_id::wrapping_id;
-use bytes::{Buf, Bytes};
-use std::collections::HashMap;
-use std::io::Cursor;
 
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);

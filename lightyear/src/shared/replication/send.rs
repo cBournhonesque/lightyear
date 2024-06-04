@@ -18,7 +18,7 @@ use crate::packet::message_manager::MessageManager;
 use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick};
 use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::serialize::writer::Writer;
-use crate::serialize::{RawData, SerializationError, ToBytes};
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
 #[cfg(test)]

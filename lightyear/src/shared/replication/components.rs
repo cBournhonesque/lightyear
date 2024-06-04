@@ -3,7 +3,6 @@ use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{Component, Entity, Reflect};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
-use std::io::Seek;
 
 use crate::connection::id::ClientId;
 use crate::serialize::reader::Reader;

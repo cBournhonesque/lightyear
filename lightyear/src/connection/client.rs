@@ -15,7 +15,7 @@ use crate::connection::netcode::ConnectToken;
 
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{client::SteamConfig, steamworks_client::SteamworksClient};
-use crate::packet::packet_builder::{Payload, RecvPayload};
+use crate::packet::packet_builder::{RecvPayload};
 
 use crate::prelude::client::ClientTransport;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]

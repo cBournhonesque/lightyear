@@ -3,8 +3,6 @@
 use crate::serialize::reader::Reader;
 use crate::serialize::varint::varint_len;
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use bytes::Bytes;
-use std::io::Seek;
 
 pub mod reader;
 pub(crate) mod varint;

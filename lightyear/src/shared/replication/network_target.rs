@@ -6,7 +6,6 @@ use bevy::prelude::Reflect;
 use bevy::utils::HashSet;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
-use std::io::Seek;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// NetworkTarget indicated which clients should receive some message

@@ -2,7 +2,6 @@ use bevy::utils::HashMap;
 use byteorder::NetworkEndian;
 use byteorder::ReadBytesExt;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
-use std::io::Seek;
 use tracing::trace;
 
 use crate::packet::packet::PacketId;

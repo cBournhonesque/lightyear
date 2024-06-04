@@ -1,7 +1,6 @@
 use std::collections::{HashMap, VecDeque};
-use std::io::Cursor;
 
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::trace;
 #[cfg(feature = "trace")]
@@ -25,7 +24,7 @@ use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::varint::VarIntReadExt;
-use crate::serialize::{RawData, ToBytes};
+use crate::serialize::ToBytes;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;

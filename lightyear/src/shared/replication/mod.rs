@@ -1,7 +1,6 @@
 //! Module to handle replicating entities and components from server to client
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::io::Seek;
 
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource};
@@ -17,7 +16,7 @@ use crate::protocol::EventContext;
 use crate::serialize::reader::Reader;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::writer::Writer;
-use crate::serialize::{RawData, SerializationError, ToBytes};
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::events::connection::{
     ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterEntityDespawnEvent, IterEntitySpawnEvent,

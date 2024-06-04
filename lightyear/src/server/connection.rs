@@ -32,7 +32,7 @@ use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
-use crate::serialize::{RawData, SerializationError, ToBytes};
+use crate::serialize::{SerializationError, ToBytes};
 use crate::server::config::{PacketConfig, ReplicationConfig};
 use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};

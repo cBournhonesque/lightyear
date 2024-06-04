@@ -26,7 +26,7 @@ use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
-use crate::serialize::{RawData, SerializationError, ToBytes};
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};

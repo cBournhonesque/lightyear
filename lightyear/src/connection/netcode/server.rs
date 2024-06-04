@@ -14,7 +14,7 @@ use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer,
 };
-use crate::packet::packet_builder::{Payload, RecvPayload};
+use crate::packet::packet_builder::{RecvPayload};
 use crate::server::config::NetcodeConfig;
 use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
 use crate::transport::{PacketReceiver, PacketSender};
@@ -501,7 +501,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                     // self.conn_cache.buffer_pool.attach(reader);
 
                     // TODO: use a pool of buffers to avoid re-allocation
-                    let mut buf = bytes::Bytes::copy_from_slice(packet.buf);
+                    let buf = bytes::Bytes::copy_from_slice(packet.buf);
                     self.conn_cache.packet_queue.push_back((buf, idx));
                 }
                 Ok(())

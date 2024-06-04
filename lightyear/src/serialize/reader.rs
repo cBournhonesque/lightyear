@@ -1,4 +1,3 @@
-use crate::serialize::RawData;
 use bytes::{Buf, Bytes};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
