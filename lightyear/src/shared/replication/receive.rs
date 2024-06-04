@@ -12,8 +12,7 @@ use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::{ClientId, Tick};
 use crate::protocol::component::ComponentRegistry;
-use crate::serialize::bitcode::reader::BitcodeReader;
-use crate::serialize::reader::ReadBuffer;
+use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 #[cfg(test)]
@@ -27,7 +26,6 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 pub(crate) struct ReplicationReceiver {
-    reader: BitcodeReader,
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
 
@@ -42,7 +40,6 @@ pub(crate) struct ReplicationReceiver {
 impl ReplicationReceiver {
     pub(crate) fn new() -> Self {
         Self {
-            reader: BitcodeReader::start_read(&[]),
             // RECEIVE
             remote_entity_map: RemoteEntityMap::default(),
             remote_entity_to_group: Default::default(),
@@ -265,7 +262,6 @@ impl ReplicationReceiver {
                     events.push_spawn(local_entity.id());
                 }
                 SpawnAction::Reuse(local_entity) => {
-                    let local_entity = Entity::from_bits(local_entity);
                     let Some(mut entity_mut) = world.get_entity_mut(local_entity) else {
                         // TODO: ignore the entity in the next steps because it does not exist!
                         error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
@@ -316,10 +312,12 @@ impl ReplicationReceiver {
             // TODO: remove updates that are duplicate for the same component
             debug!(remote_entity = ?entity, "Received InsertComponent");
             for component in actions.insert {
-                self.reader.reset_read(component.as_slice());
+                // TODO: we allocate a new vector for each component but we should
+                //  be able to re-use the same reader
+                let mut reader = Reader::from(component);
                 let _ = component_registry
                     .raw_write(
-                        &mut self.reader,
+                        &mut reader,
                         &mut local_entity_mut,
                         remote_tick,
                         &mut self.remote_entity_map.remote_to_local,
@@ -350,10 +348,10 @@ impl ReplicationReceiver {
             debug!(remote_entity = ?entity, "Received UpdateComponent");
             for component in actions.updates {
                 // TODO: re-use buffers via pool?
-                self.reader.reset_read(component.as_slice());
+                let mut reader = Reader::from(component);
                 let _ = component_registry
                     .raw_write(
-                        &mut self.reader,
+                        &mut reader,
                         &mut local_entity_mut,
                         remote_tick,
                         &mut self.remote_entity_map.remote_to_local,
@@ -390,10 +388,10 @@ impl ReplicationReceiver {
             if let Some(mut local_entity_mut) = self.remote_entity_map.get_by_remote(world, entity)
             {
                 for component in components {
-                    self.reader.reset_read(component.as_slice());
+                    let mut reader = Reader::from(component);
                     let _ = component_registry
                         .raw_write(
-                            &mut self.reader,
+                            &mut reader,
                             &mut local_entity_mut,
                             remote_tick,
                             &mut self.remote_entity_map.remote_to_local,
@@ -531,7 +529,6 @@ impl ReplicationReceiver {
                     events,
                     &mut self.remote_entity_map,
                     &mut self.remote_entity_to_group,
-                    &mut self.reader,
                 );
             });
 
@@ -566,7 +563,6 @@ impl ReplicationReceiver {
                         message,
                         events,
                         &mut self.remote_entity_map,
-                        &mut self.reader,
                     );
                 }
             })
@@ -786,7 +782,6 @@ impl GroupChannel {
         events: &mut ConnectionEvents,
         remote_entity_map: &mut RemoteEntityMap,
         remote_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
-        reader: &mut BitcodeReader,
     ) {
         let group_id = message.group_id;
         debug!(?remote_tick, ?message, "Received replication actions");
@@ -829,7 +824,6 @@ impl GroupChannel {
                     events.push_spawn(local_entity.id());
                 }
                 SpawnAction::Reuse(local_entity) => {
-                    let local_entity = Entity::from_bits(local_entity);
                     let Some(mut entity_mut) = world.get_entity_mut(local_entity) else {
                         // TODO: ignore the entity in the next steps because it does not exist!
                         error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
@@ -877,10 +871,11 @@ impl GroupChannel {
             // TODO: remove updates that are duplicate for the same component
             debug!(remote_entity = ?entity, "Received InsertComponent");
             for component in actions.insert {
-                reader.reset_read(component.as_slice());
+                // TODO: reuse a single reader that reads through the entire message
+                let mut reader = Reader::from(component);
                 let _ = component_registry
                     .raw_write(
-                        reader,
+                        &mut reader,
                         &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
@@ -910,11 +905,10 @@ impl GroupChannel {
             // updates
             debug!(remote_entity = ?entity, "Received UpdateComponent");
             for component in actions.updates {
-                // TODO: re-use buffers via pool?
-                reader.reset_read(component.as_slice());
+                let mut reader = Reader::from(component);
                 let _ = component_registry
                     .raw_write(
-                        reader,
+                        &mut reader,
                         &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
@@ -938,7 +932,6 @@ impl GroupChannel {
         message: EntityUpdatesMessage,
         events: &mut ConnectionEvents,
         remote_entity_map: &mut RemoteEntityMap,
-        reader: &mut BitcodeReader,
     ) {
         let group_id = message.group_id;
         debug!(?remote_tick, ?message, "Received replication updates");
@@ -951,10 +944,10 @@ impl GroupChannel {
             // update the entity only if it exists
             if let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) {
                 for component in components {
-                    reader.reset_read(component.as_slice());
+                    let mut reader = Reader::from(component);
                     let _ = component_registry
                         .raw_write(
-                            reader,
+                            &mut reader,
                             &mut local_entity_mut,
                             remote_tick,
                             &mut remote_entity_map.remote_to_local,
@@ -1328,7 +1321,7 @@ mod tests {
             actions: vec![(
                 remote_entity,
                 EntityActions {
-                    spawn: SpawnAction::Reuse(local_entity.to_bits()),
+                    spawn: SpawnAction::Reuse(local_entity),
                     insert: vec![],
                     remove: Default::default(),
                     updates: vec![],

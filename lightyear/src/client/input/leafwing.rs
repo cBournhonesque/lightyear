@@ -65,6 +65,7 @@ use crate::inputs::leafwing::input_buffer::{
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{is_host_server, MessageRegistry, TickManager};
 use crate::protocol::message::MessageKind;
+use crate::serialize::reader::Reader;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
@@ -1033,7 +1034,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
 
     if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
         for message_bytes in message_list {
-            let mut reader = connection.reader_pool.start_read(&message_bytes);
+            let mut reader = Reader::from(message_bytes);
             match message_registry.deserialize::<InputMessage<A>>(
                 &mut reader,
                 &mut connection
@@ -1086,7 +1087,6 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                     error!(?e, "could not deserialize leafwing input message");
                 }
             }
-            connection.reader_pool.attach(reader);
         }
     }
 }

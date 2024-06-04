@@ -9,7 +9,6 @@ use tracing::{debug, trace, trace_span};
 use crate::channel::builder::{
     EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel,
 };
-use bitcode::encoding::Fixed;
 
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
@@ -19,18 +18,15 @@ use crate::client::message::ClientMessage;
 use crate::client::replication::send::ReplicateCache;
 use crate::client::sync::SyncConfig;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::packet_builder::{Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{Payload, RecvPayload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::{Channel, ChannelKind, ClientId, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::reader::Reader;
+use crate::serialize::writer::Writer;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
@@ -87,8 +83,7 @@ pub struct ConnectionManager {
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
-    pub(crate) writer: BitcodeWriter,
-    pub(crate) reader_pool: BufferPool,
+    pub(crate) writer: Writer,
     // TODO: maybe don't do any replication until connection is synced?
 }
 
@@ -144,9 +139,7 @@ impl ConnectionManager {
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
             received_messages: HashMap::default(),
-            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
-            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
-            reader_pool: BufferPool::new(1),
+            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
         }
     }
 
@@ -184,18 +177,18 @@ impl ConnectionManager {
 
     fn send_ping(&mut self, ping: Ping) -> Result<(), ClientError> {
         trace!("Sending ping {:?}", ping);
-        self.writer.start_write();
-        self.writer.encode(&ping, Fixed)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(ping.len());
+        ping.to_bytes(&mut writer)?;
+        let message_bytes = writer.to_bytes();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
         Ok(())
     }
 
     fn send_pong(&mut self, pong: Pong) -> Result<(), ClientError> {
-        self.writer.start_write();
-        self.writer.encode(&pong, Fixed)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(pong.len());
+        pong.to_bytes(&mut writer)?;
+        let message_bytes = writer.to_bytes();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
@@ -221,13 +214,17 @@ impl ConnectionManager {
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
-        let message_bytes = self.message_registry.serialize(message, &mut self.writer)?;
+        // TODO: can we avoid allocating here, but instead re-use an existing buffer? i.e
+        //  fetch the buffer from a pool of writers. It comes back to the pool when the message is sent.
+        let mut writer = Writer::default();
+        self.message_registry.serialize(message, &mut writer)?;
+        let message_bytes = writer.to_bytes();
         self.buffer_message(message_bytes, channel_kind, target)
     }
 
     pub(crate) fn buffer_message(
         &mut self,
-        message: RawData,
+        message: Bytes,
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
@@ -238,10 +235,11 @@ impl ConnectionManager {
             .name(&channel)
             .ok_or::<ClientError>(MessageError::NotRegistered.into())?;
         let message = ClientMessage { message, target };
-        self.writer.start_write();
-        message.encode(&mut self.writer)?;
+        // TODO: WE ARE ALLOCATING A SECOND TIME HERE, AVOID!
+        let mut writer = Writer::default();
+        message.to_bytes(&mut writer)?;
         // TODO: doesn't this serialize the bytes twice? fix this..
-        let message_bytes = self.writer.finish_write().to_vec();
+        let message_bytes = writer.to_bytes();
         // message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message_bytes, channel)?;
         Ok(())
@@ -320,13 +318,13 @@ impl ConnectionManager {
         world: &mut World,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) {
+    ) -> Result<(), ClientError> {
         let _span = trace_span!("receive").entered();
         let message_registry = world.resource::<MessageRegistry>();
         self.message_manager
             .channels
             .iter_mut()
-            .for_each(|(channel_kind, channel)| {
+            .try_for_each(|(channel_kind, channel)| {
                 while let Some((tick, single_data)) = channel.receiver.read_message() {
                     // let channel_name = self
                     //     .message_manager
@@ -336,22 +334,15 @@ impl ConnectionManager {
                     // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
                     trace!(?channel_kind, ?tick, ?single_data, "Received message");
-                    // TODO: in this case, it looks like we might not need the pool?
-                    //  we can just have a single buffer, and keep re-using that buffer
-                    trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
-                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
+                    let mut reader = Reader::from(single_data);
                     if *channel_kind == ChannelKind::of::<PingChannel>() {
-                        let ping = reader
-                            .decode::<Ping>(Fixed)
-                            .expect("Could not decode ping message");
+                        let ping = Ping::from_bytes(&mut reader)?;
                         // prepare a pong in response (but do not send yet, because we need
                         // to set the correct send time)
                         self.ping_manager
                             .buffer_pending_pong(&ping, time_manager.current_time());
                     } else if *channel_kind == ChannelKind::of::<PongChannel>() {
-                        let pong = reader
-                            .decode::<Pong>(Fixed)
-                            .expect("Could not decode pong message");
+                        let pong = Pong::from_bytes(&mut reader)?;
                         // process the pong
                         self.ping_manager
                             .process_pong(&pong, time_manager.current_time());
@@ -371,18 +362,15 @@ impl ConnectionManager {
                             "Updated server pong generation"
                         )
                     } else if *channel_kind == ChannelKind::of::<EntityActionsChannel>() {
-                        let actions = EntityActionsMessage::decode(&mut reader)
-                            .expect("Could not decode EntityActionsMessage");
+                        let actions = EntityActionsMessage::from_bytes(&mut reader)?;
                         self.replication_receiver.recv_actions(actions, tick);
                     } else if *channel_kind == ChannelKind::of::<EntityUpdatesChannel>() {
-                        let updates = EntityUpdatesMessage::decode(&mut reader)
-                            .expect("Could not decode EntityUpdatesMessage");
+                        let updates = EntityUpdatesMessage::from_bytes(&mut reader)?;
                         self.replication_receiver.recv_updates(updates, tick);
                     } else {
                         // identify the type of message
-                        let net_id = reader
-                            .decode::<NetId>(Fixed)
-                            .expect("could not decode MessageKind");
+                        let net_id = NetId::from_bytes(&mut reader)?;
+                        let single_data = reader.consume();
                         match message_registry.message_type(net_id) {
                             #[cfg(feature = "leafwing")]
                             MessageType::LeafwingInput => {
@@ -395,7 +383,6 @@ impl ConnectionManager {
                                 todo!()
                             }
                             MessageType::Normal => {
-                                dbg!("Normal message");
                                 self.received_messages
                                     .entry(net_id)
                                     .or_default()
@@ -403,11 +390,9 @@ impl ConnectionManager {
                             }
                         }
                     }
-
-                    // return the buffer to the pool
-                    self.reader_pool.attach(reader);
                 }
-            });
+                Ok::<(), SerializationError>(())
+            })?;
 
         if self.sync_manager.is_synced() {
             world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
@@ -421,11 +406,12 @@ impl ConnectionManager {
                 );
             });
         }
+        Ok(())
     }
 
     pub(crate) fn recv_packet(
         &mut self,
-        packet: Payload,
+        packet: RecvPayload,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
     ) -> Result<(), ClientError> {
@@ -497,7 +483,7 @@ impl ReplicationSend for ConnectionManager {
     type Error = ClientError;
     type ReplicateCache = EntityHashMap<ReplicateCache>;
 
-    fn writer(&mut self) -> &mut BitcodeWriter {
+    fn writer(&mut self) -> &mut Writer {
         &mut self.writer
     }
 

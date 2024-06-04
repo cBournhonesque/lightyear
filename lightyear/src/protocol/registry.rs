@@ -1,10 +1,10 @@
+use crate::serialize::reader::Reader;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::{SerializationError, ToBytes};
 use bevy::utils::HashMap;
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::WriteBytesExt;
 use std::any::TypeId;
 use std::hash::Hash;
-use std::io::Seek;
 
 /// ID used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;
@@ -19,7 +19,7 @@ impl ToBytes for NetId {
         Ok(())
     }
 
-    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {

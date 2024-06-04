@@ -7,6 +7,7 @@ use bevy::ecs::entity::EntityHash;
 use bevy::prelude::Entity;
 use bevy::ptr::Ptr;
 use bevy::utils::{hashbrown, HashMap};
+use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
@@ -16,10 +17,8 @@ use crate::packet::message::MessageId;
 use crate::packet::message_manager::MessageManager;
 use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick};
 use crate::protocol::component::{ComponentKind, ComponentNetId};
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::{RawData, SerializationError};
+use crate::serialize::writer::Writer;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
 #[cfg(test)]
@@ -58,7 +57,7 @@ pub(crate) struct ReplicationSender {
     /// Messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
     pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
-    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<RawData>>>,
+    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<Bytes>>>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 
@@ -344,7 +343,7 @@ impl ReplicationSender {
             .or_default()
             .entry(local_entity)
             .or_default()
-            .spawn = SpawnAction::Reuse(remote_entity.to_bits());
+            .spawn = SpawnAction::Reuse(remote_entity);
     }
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
@@ -365,7 +364,7 @@ impl ReplicationSender {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        component: RawData,
+        component: Bytes,
         bevy_tick: BevyTick,
     ) {
         self.pending_actions
@@ -391,7 +390,7 @@ impl ReplicationSender {
             .entry(entity)
             .or_default()
             .remove
-            .insert(kind);
+            .push(kind);
     }
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
@@ -399,7 +398,7 @@ impl ReplicationSender {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        raw_data: RawData,
+        raw_data: Bytes,
     ) {
         self.pending_updates
             .entry(group_id)
@@ -419,7 +418,7 @@ impl ReplicationSender {
         kind: ComponentKind,
         component_data: Ptr,
         registry: &ComponentRegistry,
-        writer: &mut BitcodeWriter,
+        writer: &mut Writer,
         delta_manager: &mut DeltaManager,
         tick: Tick,
     ) {
@@ -434,21 +433,25 @@ impl ReplicationSender {
                     .data
                     .get_component_value(entity, ack_tick, kind, group_id)
                     .expect("we should have stored a component value for this tick");
+                let mut writer = Writer::default();
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
                     registry
-                        .serialize_diff(ack_tick, old_data, component_data, writer, kind)
+                        .serialize_diff(ack_tick, old_data, component_data, &mut writer, kind)
                         .expect("could not serialize delta")
                 }
+                writer.to_bytes()
             })
             .unwrap_or_else(|| {
+                let mut writer = Writer::default();
                 // SAFETY: the component_data is a pointer to a component that corresponds to kind
                 unsafe {
                     // compute a diff from the base value, and serialize that
                     registry
-                        .serialize_diff_from_base_value(component_data, writer, kind)
+                        .serialize_diff_from_base_value(component_data, &mut writer, kind)
                         .expect("could not serialize delta")
                 }
+                writer.to_bytes()
             });
         trace!(?kind, "Inserting pending update!");
         self.pending_updates
@@ -516,7 +519,8 @@ impl ReplicationSender {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-        writer: &mut BitcodeWriter,
+        // TODO: this is useful if we write everything in the same buffer?
+        writer: &mut Writer,
         message_manager: &mut MessageManager,
     ) -> Result<(), PacketError> {
         self.pending_actions
@@ -548,15 +552,12 @@ impl ReplicationSender {
                 let message_id = channel.actions_next_send_message_id;
                 channel.actions_next_send_message_id += 1;
                 channel.last_action_tick = Some(tick);
-                let message = (
-                    EntityActionsMessage {
-                        sequence_id: message_id,
-                        group_id,
-                        // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
-                        actions: Vec::from_iter(actions),
-                    },
-                    priority,
-                );
+                let message = EntityActionsMessage {
+                    sequence_id: message_id,
+                    group_id,
+                    // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
+                    actions: Vec::from_iter(actions),
+                };
                 debug!("final action messages to send: {:?}", message);
 
                 // TODO: we had to put this here because of the borrow checker, but it's not ideal,
@@ -566,10 +567,12 @@ impl ReplicationSender {
                 // buffer the message in the MessageManager
 
                 // message.emit_send_logs("EntityActionsChannel");
-                writer.start_write();
-                message.encode(writer).map_err(SerializationError::from)?;
+                let mut writer = Writer::default();
+                message
+                    .to_bytes(&mut writer)
+                    .map_err(SerializationError::from)?;
                 // TODO: doesn't this serialize the bytes twice?
-                let message_bytes = writer.finish_write().to_vec();
+                let message_bytes = writer.to_bytes();
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(
@@ -618,7 +621,7 @@ impl ReplicationSender {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-        writer: &mut BitcodeWriter,
+        writer: &mut Writer,
         message_manager: &mut MessageManager,
     ) -> Result<(), PacketError> {
         self.pending_updates
@@ -640,9 +643,11 @@ impl ReplicationSender {
                 };
 
                 // message.emit_send_logs("EntityUpdatesChannel");
-                writer.start_write();
-                message.encode(writer).map_err(SerializationError::from)?;
-                let message_bytes = writer.finish_write().to_vec();
+                let mut writer = Writer::default();
+                message
+                    .to_bytes(&mut writer)
+                    .map_err(SerializationError::from)?;
+                let message_bytes = writer.to_bytes();
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(
@@ -731,7 +736,6 @@ mod tests {
     use crate::tests::protocol::Component1;
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::prelude::*;
-    use bevy::utils::HashSet;
 
     use super::*;
 
@@ -1014,10 +1018,10 @@ mod tests {
         let net_id_1: ComponentNetId = 0;
         let net_id_2: ComponentNetId = 1;
         let net_id_3: ComponentNetId = 1;
-        let raw_1 = vec![0];
-        let raw_2 = vec![1];
-        let raw_3 = vec![2];
-        let raw_4 = vec![3];
+        let raw_1: Bytes = vec![0].into();
+        let raw_2: Bytes = vec![1].into();
+        let raw_3: Bytes = vec![2].into();
+        let raw_4: Bytes = vec![3].into();
 
         manager.group_channels.insert(
             group_1,
@@ -1058,7 +1062,7 @@ mod tests {
                     EntityActions {
                         spawn: SpawnAction::Spawn,
                         insert: vec![raw_1],
-                        remove: HashSet::from_iter(vec![net_id_2]),
+                        remove: vec![net_id_2],
                         updates: vec![raw_2],
                     }
                 ),
@@ -1067,7 +1071,7 @@ mod tests {
                     EntityActions {
                         spawn: SpawnAction::None,
                         insert: vec![],
-                        remove: HashSet::default(),
+                        remove: vec![],
                         updates: vec![raw_3],
                     }
                 )

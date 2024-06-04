@@ -13,14 +13,13 @@ use tracing::{instrument, Level};
 use crate::channel::builder::{
     EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel,
 };
-use bitcode::encoding::Fixed;
 
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
 use crate::connection::id::ClientId;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::packet_builder::{Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{Payload, RecvPayload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::server::{DisconnectEvent, RoomId, RoomManager};
 use crate::prelude::{
     Channel, ChannelKind, Message, PreSpawnedPlayerObject, ReplicationGroup, ShouldBePredicted,
@@ -31,12 +30,9 @@ use crate::protocol::component::{
 };
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::reader::Reader;
+use crate::serialize::writer::Writer;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::server::config::{PacketConfig, ReplicationConfig};
 use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
@@ -76,8 +72,7 @@ pub struct ConnectionManager {
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
-    pub(crate) writer: BitcodeWriter,
-    pub(crate) reader_pool: BufferPool,
+    pub(crate) writer: Writer,
 
     // CONFIG
     replication_config: ReplicationConfig,
@@ -101,8 +96,7 @@ impl ConnectionManager {
             delta_manager: DeltaManager::default(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
-            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
-            reader_pool: BufferPool::new(1),
+            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
             replication_config,
             packet_config,
             ping_config,
@@ -277,15 +271,13 @@ impl ConnectionManager {
 
     pub(crate) fn buffer_message(
         &mut self,
-        message: RawData,
+        message: Bytes,
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
         self.connections
             .iter_mut()
             .filter(|(id, _)| target.targets(id))
-            // TODO: is it worth it to use Arc<Vec<u8>> or Bytes to have a free clone?
-            //  at some point the bytes will have to be copied into the final message, so maybe do it now?
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
     }
 
@@ -295,7 +287,9 @@ impl ConnectionManager {
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        let message_bytes = self.message_registry.serialize(message, &mut self.writer)?;
+        let mut writer = Writer::default();
+        self.message_registry.serialize(message, &mut writer)?;
+        let message_bytes = writer.to_bytes();
         self.buffer_message(message_bytes, channel_kind, target)
     }
 
@@ -325,7 +319,7 @@ impl ConnectionManager {
         // TODO: do this in parallel
         self.connections
             .iter_mut()
-            .for_each(|(client_id, connection)| {
+            .try_for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
                 world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
                     // receive events on the connection
@@ -334,15 +328,17 @@ impl ConnectionManager {
                         component_registry.as_ref(),
                         time_manager,
                         tick_manager,
-                    );
+                    )?;
                     // move the events from the connection to the connection manager
                     self.events.push_events(*client_id, events);
-                });
+                    Ok::<(), ServerError>(())
+                })?;
 
                 // rebroadcast messages
                 messages_to_rebroadcast
                     .extend(std::mem::take(&mut connection.messages_to_rebroadcast));
-            });
+                Ok::<(), ServerError>(())
+            })?;
         for (message, target, channel_kind) in messages_to_rebroadcast {
             self.buffer_message(message, channel_kind, target)?;
         }
@@ -364,7 +360,9 @@ impl ConnectionManager {
         let net_id = component_registry
             .get_net_id::<C>()
             .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
-        let raw_data = component_registry.serialize(data, &mut self.writer)?;
+        let mut writer = Writer::default();
+        component_registry.serialize(data, &mut writer)?;
+        let raw_data = writer.to_bytes();
         self.connection_mut(client_id)?
             .replication_sender
             .prepare_component_insert(entity, group_id, raw_data, bevy_tick);
@@ -391,10 +389,9 @@ pub struct Connection {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
         HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
-    writer: BitcodeWriter,
-    pub(crate) reader_pool: BufferPool,
+    writer: Writer,
     // messages that we have received that need to be rebroadcasted to other clients
-    pub(crate) messages_to_rebroadcast: Vec<(RawData, NetworkTarget, ChannelKind)>,
+    pub(crate) messages_to_rebroadcast: Vec<(Bytes, NetworkTarget, ChannelKind)>,
 }
 
 impl Connection {
@@ -444,9 +441,7 @@ impl Connection {
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
-            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
-            reader_pool: BufferPool::new(1),
+            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
             messages_to_rebroadcast: vec![],
         }
     }
@@ -465,7 +460,7 @@ impl Connection {
 
     pub(crate) fn buffer_message(
         &mut self,
-        message: Vec<u8>,
+        message: Bytes,
         channel: ChannelKind,
     ) -> Result<(), ServerError> {
         // TODO: i know channel names never change so i should be able to get them as static
@@ -503,9 +498,9 @@ impl Connection {
 
     fn send_ping(&mut self, ping: Ping) -> Result<(), ServerError> {
         trace!("Sending ping {:?}", ping);
-        self.writer.start_write();
-        self.writer.encode(&ping, Fixed)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(ping.len());
+        ping.to_bytes(&mut writer)?;
+        let message_bytes = writer.to_bytes();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
         Ok(())
@@ -513,9 +508,9 @@ impl Connection {
 
     fn send_pong(&mut self, pong: Pong) -> Result<(), ServerError> {
         trace!("Sending pong {:?}", pong);
-        self.writer.start_write();
-        self.writer.encode(&pong, Fixed)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(pong.len());
+        pong.to_bytes(&mut writer)?;
+        let message_bytes = writer.to_bytes();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
@@ -566,13 +561,13 @@ impl Connection {
         component_registry: &ComponentRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> ConnectionEvents {
+    ) -> Result<ConnectionEvents, ServerError> {
         let _span = trace_span!("receive").entered();
         let message_registry = world.resource::<MessageRegistry>();
         self.message_manager
             .channels
             .iter_mut()
-            .for_each(|(channel_kind, channel)| {
+            .try_for_each(|(channel_kind, channel)| {
                 while let Some((tick, single_data)) = channel.receiver.read_message() {
                     // let channel_name = self
                     //     .message_manager
@@ -582,46 +577,38 @@ impl Connection {
                     // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
                     trace!(?channel_kind, ?tick, ?single_data, "received message");
-                    // TODO: in this case, it looks like we might not need the pool?
-                    //  we can just have a single buffer, and keep re-using that buffer
-                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
-
+                    let mut reader = Reader::from(single_data);
                     // TODO: get const type ids
                     if channel_kind == &ChannelKind::of::<PingChannel>() {
-                        let ping = reader.decode::<Ping>(Fixed).expect("Could not decode Ping");
+                        let ping = Ping::from_bytes(&mut reader)?;
                         // prepare a pong in response (but do not send yet, because we need
                         // to set the correct send time)
                         self.ping_manager
                             .buffer_pending_pong(&ping, time_manager.current_time());
                         trace!("buffer pong");
                     } else if channel_kind == &ChannelKind::of::<PongChannel>() {
-                        let pong = reader.decode::<Pong>(Fixed).expect("Could not decode Pong");
+                        let pong = Pong::from_bytes(&mut reader)?;
                         // process the pong
                         self.ping_manager
                             .process_pong(&pong, time_manager.current_time());
                     } else if channel_kind == &ChannelKind::of::<EntityActionsChannel>() {
-                        let actions = EntityActionsMessage::decode(&mut reader)
-                            .expect("Could not decode EntityActionMessage");
+                        let actions = EntityActionsMessage::from_bytes(&mut reader)?;
                         trace!(?tick, ?actions, "received replication actions message");
                         // buffer the replication message
                         self.replication_receiver.recv_actions(actions, tick);
                     } else if channel_kind == &ChannelKind::of::<EntityUpdatesChannel>() {
-                        let updates = EntityUpdatesMessage::decode(&mut reader)
-                            .expect("Could not decode EntityUpdatesMessage");
+                        let updates = EntityUpdatesMessage::from_bytes(&mut reader)?;
                         trace!(?tick, ?updates, "received replication updates message");
                         // buffer the replication message
                         self.replication_receiver.recv_updates(updates, tick);
                     } else {
                         // TODO: we only get RawData here, does that mean we're deserializing multiple times?
                         //  instead just read the bytes for the target!!
-                        let ClientMessage { message, target } = ClientMessage::decode(&mut reader)
-                            .expect("Could not decode ClientMessage");
+                        let ClientMessage { message, target } =
+                            ClientMessage::from_bytes(&mut reader)?;
 
-                        let mut reader = self.reader_pool.start_read(message.as_slice());
-                        let net_id = reader
-                            .decode::<NetId>(Fixed)
-                            .expect("could not decode MessageKind");
-                        self.reader_pool.attach(reader);
+                        let mut reader = Reader::from(message);
+                        let net_id = NetId::from_bytes(&mut reader)?;
                         // we are also sending target and channel kind so the message can be
                         // rebroadcasted to other clients after we have converted the entities from the
                         // client World to the server World
@@ -629,7 +616,7 @@ impl Connection {
                         //  I don't think so... maybe the sender should map_entities themselves?
                         //  or it matters for input messages?
                         // TODO: avoid clone with Arc<[u8]>?
-                        let data = (message.clone().into(), target.clone(), *channel_kind);
+                        let data = (reader.consume(), target.clone(), *channel_kind);
 
                         match message_registry.message_type(net_id) {
                             #[cfg(feature = "leafwing")]
@@ -649,9 +636,9 @@ impl Connection {
                             }
                         }
                     }
-                    self.reader_pool.attach(reader);
                 }
-            });
+                Ok::<(), SerializationError>(())
+            })?;
 
         // Check if we have any replication messages we can apply to the World (and emit events)
         self.replication_receiver.apply_world(
@@ -665,12 +652,12 @@ impl Connection {
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
         //  is it because of push_connection?
-        std::mem::replace(&mut self.events, ConnectionEvents::new())
+        Ok(std::mem::replace(&mut self.events, ConnectionEvents::new()))
     }
 
     pub fn recv_packet(
         &mut self,
-        packet: Payload,
+        packet: RecvPayload,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
         delta_manager: &mut DeltaManager,
@@ -774,8 +761,8 @@ impl ConnectionManager {
 
         // even with delta-compression enabled
         // the diff can be shared for every client since we're inserting
-        let writer = &mut self.writer;
-        let raw_data = if delta_compression {
+        let mut writer = Writer::default();
+        if delta_compression {
             // store the component value in a storage shared between all connections, so that we can compute diffs
             // NOTE: we don't update the ack data because we only receive acks for ReplicationUpdate messages
             self.delta_manager.data.store_component_value(
@@ -789,14 +776,15 @@ impl ConnectionManager {
             // SAFETY: the component_data corresponds to the kind
             unsafe {
                 component_registry
-                    .serialize_diff_from_base_value(component_data, writer, kind)
+                    .serialize_diff_from_base_value(component_data, &mut writer, kind)
                     .expect("could not serialize delta")
             }
         } else {
             component_registry
-                .erased_serialize(component_data, writer, kind)
+                .erased_serialize(component_data, &mut writer, kind)
                 .expect("could not serialize component")
         };
+        let raw_data = writer.to_bytes();
         self.apply_replication(actual_target)
             .try_for_each(|client_id| {
                 // trace!(
@@ -843,10 +831,12 @@ impl ConnectionManager {
         );
 
         let group_id = group.group_id(Some(entity));
-        let mut raw_data: RawData = vec![];
+        let mut raw_data: Bytes = Bytes::new();
         if !delta_compression {
+            let mut writer = Writer::default();
             // we serialize once and re-use the result for all clients
-            raw_data = registry.erased_serialize(component, &mut self.writer, kind)?;
+            registry.erased_serialize(component, &mut writer, kind)?;
+            raw_data = writer.to_bytes();
         }
         let mut num_targets = 0;
         self.apply_replication(target).try_for_each(|client_id| {
@@ -955,7 +945,7 @@ impl ReplicationSend for ConnectionManager {
     type Error = ServerError;
     type ReplicateCache = EntityHashMap<Entity, ReplicateCache>;
 
-    fn writer(&mut self) -> &mut BitcodeWriter {
+    fn writer(&mut self) -> &mut Writer {
         &mut self.writer
     }
 

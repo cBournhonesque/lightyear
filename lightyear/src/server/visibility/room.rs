@@ -45,7 +45,7 @@ use bevy::prelude::{
 };
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
-use bitcode::{Decode, Encode};
+
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -60,20 +60,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 /// Id for a [`Room`], which is used to perform interest management.
-#[derive(
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    PartialEq,
-    Default,
-    Reflect,
-)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect)]
 pub struct RoomId(pub u64);
 
 impl From<Entity> for RoomId {

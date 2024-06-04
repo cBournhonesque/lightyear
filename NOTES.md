@@ -1,3 +1,27 @@
+- Serialization strategy:
+  - SEND:
+    - we need to send individual messages early (because we don't want to clone the data, and we want to serialize only once even when sending to multiple clients), so we allocate a buffer for each message and serialize the data inside.
+       - maybe use an arena allocator at this stage so that all new messages are allocated quickly
+         (we only need them up to the end of the frame)
+       - this buffer then gets stored in the channels
+       - maybe it would gain to be a bytes for reliable channels (even after sending once), we need to store the message until we receive an ack
+       - Or can we reuse an existing buffer where we put all the messages that we clear after sending?
+    - for replication, we sometimes serialize components individually and buffer them before we can write the final message.
+      - we know the component is still owned by the world and not removed/changed at this point,
+        so we could just store the raw pointer + ComponentNetId at this point and serialize later in one go using the component registry? But the Ptr wouldn't work anymore because we're not querying, no?
+      - we could try to build the final message directly to avoid allocating once the structure to store the individual component data, and once to build the final message
+    - when building the packet to send, we can allocate a big buffer (of size MTU), then
+      iterate through the channels to find the packets that are ready, and pack them into the 
+      final packet. That buffer can just be a Vec<u8> since we are not doing any splitting.
+  - RECEIVE:
+    - we receive the bytes from the io, and we can store them in a big Bytes.
+    - we want to be able to read parts of it (header, channel_id) but then parts of the big Bytes 
+      would be stored in channel receivers. Hopefully using Bytes we can avoid allocating?
+      We can use `Bytes::slice` to create a new Bytes from a subset of the original Bytes!
+      -> DONE!
+    - When reading the replication messages, we can do the same trick where we split the bytes for each component? but then it's a waste because we need to store the length of the bytes. More efficient if we just read directly inline. 
+
+
 - Replication current policy:
   - send all updates since last ACK tick for that entity.
 - Replication new policy: send all updates since last send

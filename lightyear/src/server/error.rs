@@ -15,7 +15,7 @@ pub enum ServerError {
     #[error(transparent)]
     Packet(#[from] crate::packet::error::PacketError),
     #[error(transparent)]
-    Bitcode(#[from] bitcode::Error),
+    Serialization(#[from] crate::serialize::SerializationError),
     #[error(transparent)]
     MessageProtocolError(#[from] crate::protocol::message::MessageError),
     #[error(transparent)]

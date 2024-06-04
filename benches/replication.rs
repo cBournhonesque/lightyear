@@ -38,13 +38,13 @@ criterion_group!(
 criterion_main!(replication_benches);
 
 // const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
-const NUM_ENTITIES: &[usize] = &[1000];
+const NUM_ENTITIES: &[usize] = &[1000, 10000];
 
 /// Replicating N entity spawn from server to channel, with a local io
 fn send_float_insert_one_client(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_insert/1_client");
-    group.warm_up_time(std::time::Duration::from_millis(500));
-    group.measurement_time(std::time::Duration::from_millis(4000));
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -58,7 +58,7 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                             (
                                 Component1(0.0),
                                 Replicate {
-                                    group: ReplicationGroup::new_id(1),
+                                    // group: ReplicationGroup::new_id(1),
                                     ..default()
                                 }
                             );
@@ -207,8 +207,8 @@ fn receive_float_insert(criterion: &mut Criterion) {
 /// Replicating N entity spawn from server to channel, with a local io
 fn receive_float_update(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/receive_float_update/1_client");
-    group.warm_up_time(std::time::Duration::from_millis(500));
-    group.measurement_time(std::time::Duration::from_millis(4000));
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),

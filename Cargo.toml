@@ -3,11 +3,9 @@ resolver = "2"
 members = [
   "lightyear",
   "macros",
-
   # internal
   "benches",
   "examples/*",
-  "vendor/bitcode",
 ]
 default-members = ["lightyear"]
 exclude = ["examples/certificates"]
