@@ -333,7 +333,7 @@ impl ConnectionManager {
                     // move the events from the connection to the connection manager
                     self.events.push_events(*client_id, events);
                     Ok::<(), ServerError>(())
-                });
+                })?;
 
                 // rebroadcast messages
                 messages_to_rebroadcast
@@ -361,7 +361,9 @@ impl ConnectionManager {
         let net_id = component_registry
             .get_net_id::<C>()
             .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
-        let raw_data = component_registry.serialize(data, &mut self.writer)?;
+        let mut writer = Writer::default();
+        component_registry.serialize(data, &mut writer)?;
+        let raw_data = writer.consume();
         self.connection_mut(client_id)?
             .replication_sender
             .prepare_component_insert(entity, group_id, raw_data, bevy_tick);
@@ -760,8 +762,8 @@ impl ConnectionManager {
 
         // even with delta-compression enabled
         // the diff can be shared for every client since we're inserting
-        let writer = &mut self.writer;
-        let raw_data = if delta_compression {
+        let mut writer = Writer::default();
+        if delta_compression {
             // store the component value in a storage shared between all connections, so that we can compute diffs
             // NOTE: we don't update the ack data because we only receive acks for ReplicationUpdate messages
             self.delta_manager.data.store_component_value(
@@ -775,14 +777,15 @@ impl ConnectionManager {
             // SAFETY: the component_data corresponds to the kind
             unsafe {
                 component_registry
-                    .serialize_diff_from_base_value(component_data, writer, kind)
+                    .serialize_diff_from_base_value(component_data, &mut writer, kind)
                     .expect("could not serialize delta")
             }
         } else {
             component_registry
-                .erased_serialize(component_data, writer, kind)
+                .erased_serialize(component_data, &mut writer, kind)
                 .expect("could not serialize component")
         };
+        let raw_data = writer.consume();
         self.apply_replication(actual_target)
             .try_for_each(|client_id| {
                 // trace!(
@@ -831,8 +834,10 @@ impl ConnectionManager {
         let group_id = group.group_id(Some(entity));
         let mut raw_data: RawData = vec![];
         if !delta_compression {
+            let mut writer = Writer::default();
             // we serialize once and re-use the result for all clients
-            raw_data = registry.erased_serialize(component, &mut self.writer, kind)?;
+            registry.erased_serialize(component, &mut writer, kind)?;
+            raw_data = writer.consume();
         }
         let mut num_targets = 0;
         self.apply_replication(target).try_for_each(|client_id| {

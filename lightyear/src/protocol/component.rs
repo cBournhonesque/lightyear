@@ -21,7 +21,7 @@ use crate::protocol::delta::ErasedDeltaFns;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::ErasedSerializeFns;
 use crate::serialize::reader::Reader;
-use crate::serialize::{RawData, SerializationError};
+use crate::serialize::SerializationError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::delta::{DeltaMessage, Diffable};
 use crate::shared::replication::entity_map::EntityMap;
@@ -279,7 +279,7 @@ mod serialize {
             &self,
             component: &C,
             writer: &mut Writer,
-        ) -> Result<RawData, ComponentError> {
+        ) -> Result<(), ComponentError> {
             let kind = ComponentKind::of::<C>();
             let erased_fns = self
                 .serialize_fns_map
@@ -292,7 +292,7 @@ mod serialize {
             unsafe {
                 erased_fns.serialize(component, writer)?;
             }
-            Ok(writer.finish_write().to_vec())
+            Ok(())
         }
 
         /// SAFETY: the Ptr must correspond to the correct ComponentKind
