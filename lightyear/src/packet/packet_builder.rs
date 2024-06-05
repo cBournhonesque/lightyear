@@ -1,4 +1,5 @@
 //! Module to take a buffer of messages to send and build packets
+use crate::connection::netcode::MAX_PACKET_SIZE;
 use byteorder::WriteBytesExt;
 use bytes::Bytes;
 use std::collections::VecDeque;
@@ -59,7 +60,7 @@ impl PacketBuilder {
 
     // TODO: get the vec from a pool of preallocated buffers
     fn get_new_buffer(&self) -> Payload {
-        Vec::with_capacity(MTU_PAYLOAD_BYTES)
+        Vec::with_capacity(MAX_PACKET_SIZE)
     }
 
     /// Start building new packet, we start with an empty packet
@@ -242,7 +243,11 @@ impl PacketBuilder {
             let mut packet = self.current_packet.take().unwrap();
             // we need to call this to preassign the channel_id
             if !packet.can_fit_channel(*channel_id) {
-                unreachable!();
+                // can't add any more messages (since we sorted messages from smallest to largest)
+                // finish packet and go back to trying to write fragment messages
+                self.current_packet = Some(packet);
+                packets.push(self.finish_packet());
+                continue 'out;
             }
             // number of messages for this channel that we will write
             // (we wait until we know the full number, because we want to write that)
@@ -490,6 +495,44 @@ mod tests {
             contents.get(channel_id3).unwrap(),
             &vec![small_bytes.clone()]
         );
+        Ok(())
+    }
+
+    /// We cannot write the channel id of the next channel in the packet, so we need to finish the current
+    /// packet and start a new one.
+    /// We have 1200 -11 (header) -1 (channel_id) - 1(num_message) = 1184 bytes per message
+    ///
+    /// Test both with different channels and same channels
+    #[test]
+    fn test_pack_cannot_write_channel_id() -> Result<(), PacketError> {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketBuilder::new(1.5);
+        let channel_kind1 = ChannelKind::of::<Channel1>();
+        let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
+        let channel_kind2 = ChannelKind::of::<Channel2>();
+        let channel_id2 = channel_registry.get_net_from_kind(&channel_kind2).unwrap();
+
+        let small_bytes = Bytes::from(vec![7u8; 1184]);
+        let small_message = SingleData::new(None, small_bytes.clone());
+
+        {
+            let single_data = vec![(
+                *channel_id1,
+                VecDeque::from(vec![small_message.clone(), small_message.clone()]),
+            )];
+            let fragment_data = vec![];
+            let packets = manager.build_packets(Tick(0), single_data, fragment_data)?;
+            assert_eq!(packets.len(), 2);
+        }
+        {
+            let single_data = vec![
+                (*channel_id1, VecDeque::from(vec![small_message.clone()])),
+                (*channel_id2, VecDeque::from(vec![small_message.clone()])),
+            ];
+            let fragment_data = vec![];
+            let packets = manager.build_packets(Tick(0), single_data, fragment_data)?;
+            assert_eq!(packets.len(), 2);
+        }
         Ok(())
     }
 
