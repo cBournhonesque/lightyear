@@ -145,7 +145,7 @@ impl MessageManager {
             .channels
             .get_mut(&channel_kind)
             .ok_or(PacketError::ChannelNotFound)?;
-        Ok(channel.sender.buffer_send(message, priority))
+        Ok(channel.sender.buffer_send(message, priority)?)
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send

@@ -10,6 +10,7 @@ use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, SingleData};
+use crate::serialize::SerializationError;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::{TimeManager, WrappedTime};
@@ -102,12 +103,16 @@ impl ChannelSend for ReliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
+    fn buffer_send(
+        &mut self,
+        message: Bytes,
+        priority: f32,
+    ) -> Result<Option<MessageId>, SerializationError> {
         let message_id = self.next_send_message_id;
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message);
+                .build_fragments(message_id, None, message)?;
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()
@@ -134,7 +139,7 @@ impl ChannelSend for ReliableSender {
         self.unacked_messages
             .insert(message_id, unacked_message_with_priority);
         self.next_send_message_id += 1;
-        Some(message_id)
+        Ok(Some(message_id))
     }
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
@@ -323,7 +328,7 @@ mod tests {
 
         // Buffer a new message
         let message1 = Bytes::from("hello");
-        sender.buffer_send(message1.clone(), 1.0);
+        sender.buffer_send(message1.clone(), 1.0).unwrap();
         assert_eq!(sender.unacked_messages.len(), 1);
         assert_eq!(sender.next_send_message_id, MessageId(1));
         // Collect the messages to be sent
