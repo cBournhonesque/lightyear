@@ -38,7 +38,7 @@ impl Plugin for SpaceshipsRendererPlugin {
         let draw_shadows = false;
         // draw after interpolation is done
         app.add_systems(
-            PostUpdate,
+            Last,
             (
                 add_visual_components,
                 update_visual_components,
@@ -47,9 +47,9 @@ impl Plugin for SpaceshipsRendererPlugin {
                 draw_predicted_entities,
                 draw_confirmed_entities.run_if(is_server),
             )
-                .chain()
-                .after(InterpolationSet::Interpolate)
-                .after(PredictionSet::VisualCorrection),
+                .chain(), // .after(InterpolationSet::Interpolate)
+                          // .after(PredictionSet::VisualCorrection)
+                          // .after(bevy::transform::TransformSystem::TransformPropagate),
         );
 
         app.add_systems(Startup, setup_diagnostic);
@@ -104,12 +104,25 @@ fn add_visual_components(
 
 // update the labels when the player rtt/jitter is updated by the server
 fn update_visual_components(
-    mut q: Query<(Entity, &Player, &mut EntityLabel), Changed<Player>>,
+    mut q: Query<
+        (
+            Entity,
+            &Player,
+            &mut EntityLabel,
+            // &ActionDiffBuffer<PlayerActions>,
+        ),
+        Changed<Player>,
+    >,
     tick_manager: Res<TickManager>,
 ) {
+    // unknowable how many missing inputs we have for remote players as long as diffs are enabled
+    // since input messages only sent when a diff is non-empty, ie holding down a key doesn't send one input per tick.
+    // so you can't know if they haven't released the key, or that message is just late?
     for (e, player, mut label) in q.iter_mut() {
+        let missing_inputs = 999;
+        // lightyear::utils::wrapping_id::wrapping_diff(tick_manager.tick().0, adb.end_tick().0);
         label.sub_text = format!(
-            "rtt: {}ms ~{}ms",
+            "{} (~{}) ms, inp: {missing_inputs}",
             player.rtt.as_millis(),
             player.jitter.as_millis()
         );

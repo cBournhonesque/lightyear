@@ -407,7 +407,7 @@ impl ConnectionManager {
                                 self.received_leafwing_input_messages
                                     .entry(net_id)
                                     .or_default()
-                                    .push(single_data.into());
+                                    .push(single_data);
                             }
                             MessageType::NativeInput => {
                                 todo!()

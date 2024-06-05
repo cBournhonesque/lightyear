@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client;
+use lightyear::prelude::client::{self, LeafwingInputConfig};
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
@@ -233,6 +233,8 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Player>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Simple);
 
+        //
+
         app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
@@ -250,6 +252,8 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<Weapon>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
+
+        //
 
         app.register_component::<LinearVelocity>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);

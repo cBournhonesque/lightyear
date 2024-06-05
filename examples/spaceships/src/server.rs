@@ -5,12 +5,13 @@ use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 use bevy::utils::HashMap;
 use bevy_xpbd_2d::prelude::*;
+use leafwing_input_manager::action_diff::ActionDiff;
 use leafwing_input_manager::prelude::*;
 use lightyear::client::connection;
-use lightyear::inputs::leafwing::InputMessage;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear::shared::tick_manager;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
@@ -33,14 +34,15 @@ impl Plugin for ExampleServerPlugin {
         app.insert_resource(Global {
             predict_all: self.predict_all,
         });
-
         app.add_systems(Startup, (start_server, init));
+        // app.add_systems(FixedPostUpdate, broadcast_future_inputs);
         app.add_systems(
             PreUpdate,
             // this system will replicate the inputs of a client to other clients
             // so that a client can predict other clients
             replicate_inputs.after(MainSet::EmitEvents),
         );
+
         // spawn player entities once they connect
         app.add_systems(Update, handle_connections);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
@@ -90,6 +92,7 @@ fn init(mut commands: Commands) {
             ..default()
         }),
     );
+
     // the balls are server-authoritative
     const NUM_BALLS: usize = 6;
     for i in 0..NUM_BALLS {
@@ -100,7 +103,10 @@ fn init(mut commands: Commands) {
 }
 
 /// Read inputs and move players
-pub(crate) fn player_movement(mut q: Query<ApplyInputsQuery, With<Player>>) {
+pub(crate) fn player_movement(
+    mut q: Query<ApplyInputsQuery, With<Player>>,
+    tick_manager: Res<TickManager>,
+) {
     for aiq in q.iter_mut() {
         shared_movement_behaviour(aiq);
     }
@@ -126,6 +132,7 @@ pub(crate) fn replicate_inputs(
     }
 }
 
+/// Whenever a new client connects, spawn their spaceship
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
     mut commands: Commands,
@@ -164,7 +171,6 @@ pub(crate) fn handle_connections(
                 Position(Vec2::new(x, y)),
                 replicate,
                 PhysicsBundle::player_ship(),
-                // Rate of fire: 2 bullets per second
                 Weapon::new((FIXED_TIMESTEP_HZ / 5.0) as u16),
                 // We don't want to replicate the ActionState to the original client, since they are updating it with
                 // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,

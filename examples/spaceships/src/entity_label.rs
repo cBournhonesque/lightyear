@@ -3,7 +3,13 @@
 /// Label will track parent position, ignoring rotation.
 use bevy::prelude::*;
 use bevy_xpbd_2d::components::{Position, Rotation};
-use lightyear::client::interpolation::{plugin::InterpolationSet, VisualInterpolateStatus};
+use lightyear::{
+    client::{
+        interpolation::{plugin::InterpolationSet, VisualInterpolateStatus},
+        prediction::plugin::PredictionSet,
+    },
+    prelude::client::Correction,
+};
 
 #[derive(Resource, Clone)]
 pub struct EntityLabelConfig {
@@ -17,11 +23,6 @@ pub struct EntityLabelPlugin {
 impl Plugin for EntityLabelPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.config.clone());
-        // labels attached to entities should move in lockstep with visually interpolated position
-        app.add_systems(
-            PostUpdate,
-            position_labels.after(InterpolationSet::VisualInterpolation),
-        );
         app.add_systems(Update, (label_added, label_changed));
 
         app.add_systems(
@@ -59,22 +60,6 @@ impl Default for EntityLabel {
 /// Marker for labels that are children (with TextBundles) of entities with EntityLabel
 #[derive(Component)]
 pub struct EntityLabelChild;
-
-// runs in postupdate, so will see the visually-interpolated values for position and rotation.
-// use this to move the labels, so they don't stutter.
-fn position_labels(
-    q: Query<(
-        Entity,
-        &Position,
-        &Rotation,
-        &VisualInterpolateStatus<Position>,
-        &EntityLabel,
-    )>,
-) {
-    for (e, pos, rot, vis, label) in q.iter() {
-        // info!("{e:?} {pos:?} {vis:?}");
-    }
-}
 
 /// Add the child entity containing the Text2dBundle
 fn label_added(

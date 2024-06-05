@@ -127,8 +127,6 @@ pub fn shared_movement_behaviour(aiq: ApplyInputsQueryItem) {
         action,
     } = aiq;
 
-    // info!("pressed: {:?}", action.get_pressed());
-
     if action.pressed(&PlayerActions::Up) {
         ex_force
             .apply_force(rot.rotate(Vec2::Y * THRUSTER_POWER))
@@ -237,11 +235,11 @@ pub(crate) fn lifetime_despawner(
         if (tick_manager.tick() - ttl.origin_tick) > ttl.lifetime {
             // if ttl.origin_tick.wrapping_add(ttl.lifetime) > *tick_manager.tick() {
             if identity.is_server() {
-                info!("Despawning {e:?} without replication");
+                // info!("Despawning {e:?} without replication");
                 // commands.entity(e).despawn_without_replication(); // CRASH ?
                 commands.entity(e).remove::<server::Replicate>().despawn();
             } else {
-                info!("Despawning {e:?}");
+                // info!("Despawning {e:?}");
                 commands.entity(e).despawn_recursive();
             }
         }

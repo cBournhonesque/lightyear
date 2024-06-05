@@ -1,6 +1,6 @@
 MySettings(
-  input_delay_ticks: 3,
-  correction_ticks_factor: 1.5,
+  input_delay_ticks: 10,
+  correction_ticks_factor: 2,
   predict_all: true,
   show_confirmed: true,
   common: Settings(
@@ -10,9 +10,9 @@ MySettings(
             client_port: 0, // the OS will assign a random open port
             server_addr: "127.0.0.1",
             conditioner: Some(Conditioner(
-                latency_ms: 75,
-                jitter_ms: 10,
-                packet_loss: 0.02
+                latency_ms: 5,
+                jitter_ms: 1,
+                packet_loss: 0.005
             )),
             server_port: 5000,
             transport: WebTransport(
@@ -30,8 +30,8 @@ MySettings(
             // )
         ),
         server: ServerSettings(
-            headless: false,
-            inspector: true,
+            headless: true,
+            inspector: false,
             conditioner: None,
             transport: [
                 WebTransport(

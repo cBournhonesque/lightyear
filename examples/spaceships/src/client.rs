@@ -6,6 +6,7 @@ use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::Controlled;
+use lightyear::shared::tick_manager;
 
 use crate::protocol::*;
 use crate::shared;
@@ -33,7 +34,9 @@ impl Plugin for ExampleClientPlugin {
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(
             FixedUpdate,
-            (player_movement, shared::shared_player_firing).in_set(FixedSet::Main),
+            (player_movement, shared::shared_player_firing)
+                .chain()
+                .in_set(FixedSet::Main),
         );
         app.add_systems(
             Update,
@@ -148,7 +151,11 @@ fn handle_new_player(
 }
 
 // only apply movements to predicted entities
-fn player_movement(mut q: Query<ApplyInputsQuery, (With<Player>, With<Predicted>)>) {
+fn player_movement(
+    mut q: Query<ApplyInputsQuery, (With<Player>, With<Predicted>)>,
+    tick_manager: Res<TickManager>,
+    rollback: Res<Rollback>,
+) {
     for aiq in q.iter_mut() {
         shared_movement_behaviour(aiq);
     }
