@@ -58,7 +58,7 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                             (
                                 Component1(0.0),
                                 Replicate {
-                                    // group: ReplicationGroup::new_id(1),
+                                    group: ReplicationGroup::new_id(1),
                                     ..default()
                                 }
                             );
@@ -172,7 +172,16 @@ fn receive_float_insert(criterion: &mut Criterion) {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
                         let mut stepper = LocalBevyStepper::default();
-                        let entities = vec![(Component1(1.0), Replicate::default()); *n];
+                        let entities = vec![
+                            (
+                                Component1(1.0),
+                                Replicate {
+                                    group: ReplicationGroup::new_id(1),
+                                    ..default()
+                                }
+                            );
+                            *n
+                        ];
                         stepper.server_app.world.spawn_batch(entities);
 
                         // advance time by one frame
