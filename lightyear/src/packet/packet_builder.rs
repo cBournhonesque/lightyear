@@ -8,17 +8,13 @@ use tracing::{instrument, Level};
 
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageAck, SingleData};
-use crate::packet::packet::{Packet, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES};
+use crate::packet::packet::{Packet, FRAGMENT_SIZE};
 use crate::packet::packet_type::PacketType;
 use crate::prelude::Tick;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::serialize::varint::varint_len;
 use crate::serialize::{SerializationError, ToBytes};
-
-// enough to hold a biggest fragment + writing channel/message_id/etc.
-// pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
-pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize);
 
 pub type Payload = Vec<u8>;
 
@@ -616,7 +612,7 @@ mod tests {
         let channel_kind3 = ChannelKind::of::<Channel3>();
         let channel_id3 = channel_registry.get_net_from_kind(&channel_kind3).unwrap();
 
-        let num_big_bytes = (1.5 * MTU_PAYLOAD_BYTES as f32) as usize;
+        let num_big_bytes = (1.5 * FRAGMENT_SIZE as f32) as usize;
         let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
         let fragmenter = FragmentSender::new();
         let fragments = fragmenter

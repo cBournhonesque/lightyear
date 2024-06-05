@@ -18,8 +18,9 @@ use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
 use crate::connection::id::ClientId;
+use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::packet_builder::{Payload, RecvPayload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::prelude::server::{DisconnectEvent, RoomId, RoomManager};
 use crate::prelude::{
     Channel, ChannelKind, Message, PreSpawnedPlayerObject, ReplicationGroup, ShouldBePredicted,
@@ -96,7 +97,7 @@ impl ConnectionManager {
             delta_manager: DeltaManager::default(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
-            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
+            writer: Writer::with_capacity(MAX_PACKET_SIZE),
             replication_config,
             packet_config,
             ping_config,
@@ -441,7 +442,7 @@ impl Connection {
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
+            writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_rebroadcast: vec![],
         }
     }
