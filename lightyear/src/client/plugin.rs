@@ -67,6 +67,9 @@ impl PluginGroup for ClientPlugins {
         #[cfg(target_family = "wasm")]
         let builder = builder.add(crate::client::web::WebPlugin);
 
+        #[cfg(feature = "arena")]
+        let builder = builder.add(crate::shared::arena::ArenaPlugin);
+
         builder
     }
 }

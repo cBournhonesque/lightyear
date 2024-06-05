@@ -1,12 +1,12 @@
 //! General struct handling replication
-use std::iter::Extend;
-
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::Entity;
 use bevy::ptr::Ptr;
 use bevy::utils::{hashbrown, HashMap};
+#[cfg(feature = "arena")]
+use blink_alloc::SyncBlinkAlloc;
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, trace};
@@ -19,6 +19,7 @@ use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick};
 use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
+use crate::shared::arena::{ArenaEntityHashMap, ArenaVec};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
 #[cfg(test)]
@@ -56,8 +57,13 @@ pub(crate) struct ReplicationSender {
     pub(crate) updates_message_id_to_group_id: HashMap<MessageId, UpdateMessageMetadata>,
     /// Messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
-    pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
-    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<Bytes>>>,
+    pub pending_actions:
+        ArenaEntityHashMap<ReplicationGroupId, ArenaEntityHashMap<Entity, EntityActions>>,
+    pub pending_updates:
+        ArenaEntityHashMap<ReplicationGroupId, ArenaEntityHashMap<Entity, ArenaVec<Bytes>>>,
+    // Set of unique components for each entity, to avoid sending multiple updates/inserts for the same component
+    // pub pending_unique_components:
+    //     EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, HashSet<ComponentNetId>>>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 
@@ -91,13 +97,15 @@ impl ReplicationSender {
         send_updates_since_last_ack: bool,
         bandwidth_cap_enabled: bool,
     ) -> Self {
+        let allocator: &'static SyncBlinkAlloc =
+            unsafe { std::mem::transmute(&SyncBlinkAlloc::new()) };
         Self {
             // SEND
             updates_ack_receiver,
             updates_nack_receiver,
             updates_message_id_to_group_id: Default::default(),
-            pending_actions: EntityHashMap::default(),
-            pending_updates: EntityHashMap::default(),
+            pending_actions: ArenaEntityHashMap::with_hasher_in(EntityHash, allocator),
+            pending_updates: ArenaEntityHashMap::with_hasher_in(EntityHash, allocator),
             // pending_unique_components: EntityHashMap::default(),
             group_channels: Default::default(),
             send_updates_since_last_ack,
@@ -321,11 +329,15 @@ impl ReplicationSender {
     /// Returns true if we should send a message
     // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+        let alloc: *const SyncBlinkAlloc =
+            unsafe { std::mem::transmute(self.pending_actions.allocator()) };
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                std::mem::transmute(alloc)
+            }))
             .entry(entity)
-            .or_default()
+            .or_insert(EntityActions::new_in(unsafe { std::mem::transmute(alloc) }))
             .spawn = SpawnAction::Spawn;
     }
 
@@ -338,21 +350,29 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         remote_entity: Entity,
     ) {
+        let alloc: *const SyncBlinkAlloc =
+            unsafe { std::mem::transmute(self.pending_actions.allocator()) };
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                std::mem::transmute(alloc)
+            }))
             .entry(local_entity)
-            .or_default()
+            .or_insert(EntityActions::new_in(unsafe { std::mem::transmute(alloc) }))
             .spawn = SpawnAction::Reuse(remote_entity);
     }
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+        let alloc: *const SyncBlinkAlloc =
+            unsafe { std::mem::transmute(self.pending_actions.allocator()) };
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                std::mem::transmute(alloc)
+            }))
             .entry(entity)
-            .or_default()
+            .or_insert(EntityActions::new_in(unsafe { std::mem::transmute(alloc) }))
             .spawn = SpawnAction::Despawn;
     }
 
@@ -367,11 +387,15 @@ impl ReplicationSender {
         component: Bytes,
         bevy_tick: BevyTick,
     ) {
+        let alloc: *const SyncBlinkAlloc =
+            unsafe { std::mem::transmute(self.pending_actions.allocator()) };
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                std::mem::transmute(alloc)
+            }))
             .entry(entity)
-            .or_default()
+            .or_insert(EntityActions::new_in(unsafe { std::mem::transmute(alloc) }))
             .insert
             .push(component);
     }
@@ -383,12 +407,16 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         kind: ComponentNetId,
     ) {
+        let alloc: *const SyncBlinkAlloc =
+            unsafe { std::mem::transmute(self.pending_actions.allocator()) };
         // TODO: is the pending_unique_components even necessary? how could we even happen multiple inserts/updates for the same component?
         self.pending_actions
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                std::mem::transmute(alloc)
+            }))
             .entry(entity)
-            .or_default()
+            .or_insert(EntityActions::new_in(unsafe { std::mem::transmute(alloc) }))
             .remove
             .push(kind);
     }
@@ -400,11 +428,17 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         raw_data: Bytes,
     ) {
+        let alloc: *const SyncBlinkAlloc =
+            unsafe { std::mem::transmute(self.pending_actions.allocator()) };
         self.pending_updates
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                std::mem::transmute(alloc)
+            }))
             .entry(entity)
-            .or_default()
+            .or_insert(ArenaVec::with_capacity_in(1, unsafe {
+                std::mem::transmute(alloc)
+            }))
             .push(raw_data);
     }
 
@@ -422,6 +456,8 @@ impl ReplicationSender {
         delta_manager: &mut DeltaManager,
         tick: Tick,
     ) {
+        let alloc: *const SyncBlinkAlloc =
+            unsafe { std::mem::transmute(self.pending_actions.allocator()) };
         let group_channel = self.group_channels.entry(group_id).or_default();
         // Get the latest acked tick for this replication group
         let raw_data = group_channel
@@ -454,11 +490,16 @@ impl ReplicationSender {
                 writer.to_bytes()
             });
         trace!(?kind, "Inserting pending update!");
+        // TODO: theoretically `arena` could be replaced with `self.pending_updates.allocator()`
         self.pending_updates
             .entry(group_id)
-            .or_default()
+            .or_insert(ArenaEntityHashMap::with_hasher_in(EntityHash, unsafe {
+                std::mem::transmute(alloc)
+            }))
             .entry(entity)
-            .or_default()
+            .or_insert(ArenaVec::with_capacity_in(1, unsafe {
+                std::mem::transmute(alloc)
+            }))
             .push(raw_data);
     }
 
@@ -469,6 +510,8 @@ impl ReplicationSender {
         bevy_tick: BevyTick,
     ) -> Vec<(EntityActionsMessage, f32)> {
         // ) -> impl Iterator<Item = (EntityActionsMessage, f32)> + Captures<&()> {
+        let alloc: *const SyncBlinkAlloc =
+            unsafe { std::mem::transmute(self.pending_actions.allocator()) };
         self.pending_actions
             .drain()
             .map(|(group_id, mut actions)| {
@@ -479,7 +522,7 @@ impl ReplicationSender {
                     for (entity, components) in updates {
                         actions
                             .entry(entity)
-                            .or_default()
+                            .or_insert(EntityActions::new_in(unsafe { std::mem::transmute(alloc) }))
                             .updates
                             .extend(components);
                     }
@@ -523,6 +566,8 @@ impl ReplicationSender {
         writer: &mut Writer,
         message_manager: &mut MessageManager,
     ) -> Result<(), PacketError> {
+        let alloc: *const SyncBlinkAlloc =
+            unsafe { std::mem::transmute(self.pending_actions.allocator()) };
         self.pending_actions
             .drain()
             .try_for_each(|(group_id, mut actions)| {
@@ -533,7 +578,7 @@ impl ReplicationSender {
                     for (entity, components) in updates {
                         actions
                             .entry(entity)
-                            .or_default()
+                            .or_insert(EntityActions::new_in(unsafe { std::mem::transmute(alloc) }))
                             .updates
                             .extend(components);
                     }
@@ -612,6 +657,8 @@ impl ReplicationSender {
                 priority,
             )
         })
+
+        // }
         // TODO: also return for each message a list of the components that have delta-compression data?
     }
 
@@ -678,6 +725,11 @@ impl ReplicationSender {
             })
         // TODO: also return for each message a list of the components that have delta-compression data?
     }
+
+    pub(crate) fn prepare_buffers(&mut self, allocator: &'static SyncBlinkAlloc) {
+        self.pending_actions = ArenaEntityHashMap::with_hasher_in(EntityHash, allocator);
+        self.pending_updates = ArenaEntityHashMap::with_hasher_in(EntityHash, allocator);
+    }
 }
 
 /// Channel to keep track of sending replication messages for a given Group
@@ -727,6 +779,7 @@ impl Default for GroupChannel {
     }
 }
 
+#[cfg(feature = "metrics")]
 #[cfg(test)]
 mod tests {
     use crate::prelude::server::Replicate;

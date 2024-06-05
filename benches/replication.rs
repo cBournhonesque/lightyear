@@ -57,10 +57,11 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                         let entities = vec![
                             (
                                 Component1(0.0),
-                                Replicate {
-                                    group: ReplicationGroup::new_id(1),
-                                    ..default()
-                                }
+                                Replicate::default(),
+                                // Replicate {
+                                //     group: ReplicationGroup::new_id(1),
+                                //     ..default()
+                                // }
                             );
                             *n
                         ];

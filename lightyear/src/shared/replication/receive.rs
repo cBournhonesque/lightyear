@@ -1004,6 +1004,7 @@ impl GroupChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::arena::{ArenaManager, ArenaVec};
     use crate::shared::replication::EntityActions;
 
     /// Test that the UpdatesIterator works correctly, when we want to iterate through
@@ -1315,6 +1316,7 @@ mod tests {
         let local_entity = world.spawn_empty().id();
         let component_registry = ComponentRegistry::default();
         let mut events = ConnectionEvents::default();
+        let allocator = ArenaManager::default().get();
         let replication = EntityActionsMessage {
             group_id: ReplicationGroupId(0),
             sequence_id: MessageId(0),
@@ -1322,9 +1324,9 @@ mod tests {
                 remote_entity,
                 EntityActions {
                     spawn: SpawnAction::Reuse(local_entity),
-                    insert: vec![],
-                    remove: Default::default(),
-                    updates: vec![],
+                    insert: ArenaVec::new_in(allocator),
+                    remove: ArenaVec::new_in(allocator),
+                    updates: ArenaVec::new_in(allocator),
                 },
             )],
         };

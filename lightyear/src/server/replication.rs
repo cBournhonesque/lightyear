@@ -57,6 +57,7 @@ pub(crate) mod send {
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
+    use crate::shared::arena::ArenaManager;
     use crate::shared::replication::components::{
         Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
         ShouldBeInterpolated,
@@ -114,7 +115,7 @@ pub(crate) mod send {
                     //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
                     //  It is ok to run it every frame because it creates at most one message per despawn
                     // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-                    handle_replicating_remove
+                    (handle_replicating_remove, prepare_buffers)
                         .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
                     // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
                     //  be careful that newly_connected_client is cleared every send_interval, not every frame.
@@ -282,6 +283,16 @@ pub(crate) mod send {
         pub(crate) replication_clients_cache: Vec<ClientId>,
     }
 
+    /// Prepare buffers using the arena
+    pub(crate) fn prepare_buffers(
+        arena: Res<ArenaManager>,
+        mut connection_manager: ResMut<ConnectionManager>,
+    ) {
+        for connection in connection_manager.connections.values_mut() {
+            connection.replication_sender.prepare_buffers(arena.get())
+        }
+    }
+
     /// For every entity that removes their ReplicationTarget component but are not despawned, remove the component
     /// from our replicate cache (so that the entity's despawns are no longer replicated)
     pub(crate) fn handle_replicating_remove(
@@ -439,7 +450,7 @@ pub(crate) mod send {
                         client_id,
                         component_registry.as_ref(),
                         &ShouldBePredicted,
-                        system_ticks.this_run()
+                        system_ticks.this_run(),
                     )?;
                 }
                 if sync_target.interpolation.targets(&client_id) {
@@ -449,7 +460,7 @@ pub(crate) mod send {
                         client_id,
                         component_registry.as_ref(),
                         &ShouldBeInterpolated,
-                        system_ticks.this_run()
+                        system_ticks.this_run(),
                     )?;
                 }
 
@@ -529,7 +540,7 @@ pub(crate) mod send {
                         .prepare_entity_despawn(
                             entity,
                             group,
-                            target
+                            target,
                         )
                         .inspect_err(|e| {
                             error!("error sending entity despawn: {:?}", e);
@@ -704,7 +715,7 @@ pub(crate) mod send {
                                 insert_target,
                                 delta_compression,
                                 tick,
-                                system_bevy_ticks.this_run()
+                                system_bevy_ticks.this_run(),
                             )
                             .inspect_err(|e| {
                                 error!("error sending component insert: {:?}", e);

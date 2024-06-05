@@ -61,6 +61,7 @@ pub(crate) mod send {
     };
     use crate::protocol::component::ComponentKind;
 
+    use crate::shared::arena::ArenaManager;
     use crate::shared::replication::components::{DeltaCompression, DespawnTracker, Replicating};
 
     use crate::serialize::writer::Writer;
@@ -104,7 +105,7 @@ pub(crate) mod send {
                         //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
                         //  It is ok to run it every frame because it creates at most one message per despawn
                         // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-                        handle_replicating_remove
+                        (handle_replicating_remove, prepare_buffers)
                             .in_set(InternalReplicationSet::<ClientMarker>::BeforeBuffer),
                         send_entity_spawn
                             .in_set(InternalReplicationSet::<ClientMarker>::BufferEntityUpdates),
@@ -168,6 +169,13 @@ pub(crate) mod send {
     #[derive(PartialEq, Debug)]
     pub(crate) struct ReplicateCache {
         pub(crate) replication_group: ReplicationGroup,
+    }
+
+    pub(crate) fn prepare_buffers(
+        arena: Res<ArenaManager>,
+        mut connection: ResMut<ConnectionManager>,
+    ) {
+        connection.replication_sender.prepare_buffers(arena.get());
     }
 
     /// For every entity that removes their ReplicationTarget component but are not despawned, remove the component

@@ -4,6 +4,7 @@ use std::hash::Hash;
 
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource};
+use blink_alloc::SyncBlinkAlloc;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 
@@ -16,6 +17,7 @@ use crate::serialize::reader::Reader;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
+use crate::shared::arena::ArenaVec;
 use crate::shared::events::connection::{
     ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterEntityDespawnEvent, IterEntitySpawnEvent,
@@ -64,9 +66,20 @@ impl ToBytes for Entity {
 pub struct EntityActions {
     pub(crate) spawn: SpawnAction,
     // TODO: maybe do HashMap<NetId, RawData>? for example for ShouldReuseTarget
-    pub(crate) insert: Vec<Bytes>,
-    pub(crate) remove: Vec<ComponentNetId>,
-    pub(crate) updates: Vec<Bytes>,
+    pub(crate) insert: ArenaVec<Bytes>,
+    pub(crate) remove: ArenaVec<ComponentNetId>,
+    pub(crate) updates: ArenaVec<Bytes>,
+}
+
+impl EntityActions {
+    pub fn new_in(allocator: &'static SyncBlinkAlloc) -> Self {
+        Self {
+            spawn: SpawnAction::None,
+            insert: ArenaVec::new_in(allocator),
+            remove: ArenaVec::new_in(allocator),
+            updates: ArenaVec::new_in(allocator),
+        }
+    }
 }
 
 impl ToBytes for EntityActions {
@@ -88,9 +101,9 @@ impl ToBytes for EntityActions {
     {
         Ok(Self {
             spawn: SpawnAction::from_bytes(buffer)?,
-            insert: Vec::from_bytes(buffer)?,
-            remove: Vec::from_bytes(buffer)?,
-            updates: Vec::from_bytes(buffer)?,
+            insert: ArenaVec::from_bytes(buffer)?,
+            remove: ArenaVec::from_bytes(buffer)?,
+            updates: ArenaVec::from_bytes(buffer)?,
         })
     }
 }
@@ -141,17 +154,6 @@ impl ToBytes for SpawnAction {
     }
 }
 
-impl Default for EntityActions {
-    fn default() -> Self {
-        Self {
-            spawn: SpawnAction::None,
-            insert: Vec::new(),
-            remove: Vec::new(),
-            updates: Vec::new(),
-        }
-    }
-}
-
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
 /// All the entity actions (Spawn/despawn/inserts/removals) for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
@@ -194,7 +196,7 @@ pub struct EntityUpdatesMessage {
     /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
     last_action_tick: Option<Tick>,
     /// Updates containing the full component data
-    pub(crate) updates: Vec<(Entity, Vec<Bytes>)>,
+    pub(crate) updates: Vec<(Entity, ArenaVec<Bytes>)>,
     // /// Updates containing diffs with a previous value
     // #[bitcode(with_serde)]
     // diff_updates: Vec<(Entity, Vec<RawData>)>,
@@ -219,7 +221,7 @@ impl ToBytes for EntityUpdatesMessage {
         Ok(Self {
             group_id: ReplicationGroupId::from_bytes(buffer)?,
             last_action_tick: Option::<Tick>::from_bytes(buffer)?,
-            updates: Vec::<(Entity, Vec<Bytes>)>::from_bytes(buffer)?,
+            updates: Vec::<(Entity, ArenaVec<Bytes>)>::from_bytes(buffer)?,
         })
     }
 }
