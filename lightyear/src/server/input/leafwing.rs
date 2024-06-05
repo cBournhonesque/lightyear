@@ -4,22 +4,14 @@ use std::ops::DerefMut;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::client::components::Confirmed;
-use crate::client::config::ClientConfig;
-use crate::client::prediction::Predicted;
-use crate::connection::client::NetClient;
-use crate::inputs::leafwing::input_buffer::{
-    ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputTarget,
-};
+use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputTarget};
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
-use crate::prelude::client::is_in_rollback;
 use crate::prelude::server::MessageEvent;
-use crate::prelude::{client, is_started, MessageRegistry, Mode, SharedConfig, TickManager};
+use crate::prelude::{is_started, MessageRegistry, Mode, TickManager};
 use crate::protocol::message::MessageKind;
-use crate::protocol::registry::NetId;
+use crate::serialize::reader::Reader;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
-use crate::shared::replication::components::PrePredicted;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
@@ -128,7 +120,7 @@ fn receive_input_message<A: LeafwingUserAction>(
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
-                let mut reader = connection.reader_pool.start_read(&message_bytes);
+                let mut reader = Reader::from(message_bytes);
                 match message_registry.deserialize::<InputMessage<A>>(
                     &mut reader,
                     &mut connection
@@ -172,11 +164,11 @@ fn receive_input_message<A: LeafwingUserAction>(
 
                         // rebroadcast
                         if target != NetworkTarget::None {
-                            if let Ok(message_bytes) =
+                            if let Ok(()) =
                                 message_registry.serialize(&message, &mut connection_manager.writer)
                             {
                                 connection.messages_to_rebroadcast.push((
-                                    message_bytes,
+                                    reader.consume(),
                                     target,
                                     channel_kind,
                                 ));
@@ -188,7 +180,6 @@ fn receive_input_message<A: LeafwingUserAction>(
                         error!(?e, "could not deserialize leafwing input message");
                     }
                 }
-                connection.reader_pool.attach(reader);
             }
         }
     }
@@ -232,7 +223,7 @@ mod tests {
     use bevy::utils::Duration;
     use leafwing_input_manager::prelude::ActionState;
 
-    use crate::inputs::leafwing::input_buffer::ActionDiff;
+    use crate::inputs::leafwing::input_buffer::{ActionDiff, InputBuffer};
     use crate::prelude::client;
     use crate::prelude::client::{
         InterpolationConfig, LeafwingInputConfig, PredictionConfig, SyncConfig,

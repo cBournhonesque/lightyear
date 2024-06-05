@@ -10,7 +10,6 @@ use crate::transport::websocket::server::{WebSocketServerSocket, WebSocketServer
 use crate::transport::webtransport::server::{
     WebTransportServerSocket, WebTransportServerSocketBuilder,
 };
-use crate::transport::Transport;
 use enum_dispatch::enum_dispatch;
 
 #[enum_dispatch]

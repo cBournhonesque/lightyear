@@ -1,17 +1,14 @@
 use bevy::app::App;
-use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Resource, TypePath};
-use bevy::reflect::Reflect;
-use serde::Deserialize;
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings};
+use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings, PongChannel};
 use crate::channel::builder::{
     ChannelContainer, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
 };
 use crate::prelude::{
-    ChannelDirection, ChannelMode, DefaultUnorderedUnreliableChannel, Message, ReliableSettings,
+    ChannelDirection, ChannelMode, DefaultUnorderedUnreliableChannel, ReliableSettings,
 };
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 
@@ -90,6 +87,12 @@ impl ChannelRegistry {
             priority: 10.0,
         });
         registry.add_channel::<PingChannel>(ChannelSettings {
+            mode: ChannelMode::SequencedUnreliable,
+            direction: ChannelDirection::Bidirectional,
+            // we always want to include the ping in the packet
+            priority: 1000.0,
+        });
+        registry.add_channel::<PongChannel>(ChannelSettings {
             mode: ChannelMode::SequencedUnreliable,
             direction: ChannelDirection::Bidirectional,
             // we always want to include the ping in the packet
@@ -189,7 +192,7 @@ mod tests {
     use bevy::prelude::{default, TypePath};
     use lightyear_macros::ChannelInternal;
 
-    use crate::channel::builder::{ChannelDirection, ChannelMode, ChannelSettings};
+    use crate::channel::builder::{ChannelMode, ChannelSettings};
 
     use super::*;
 

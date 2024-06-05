@@ -33,8 +33,9 @@
 // - in PreUpdate, we restore the component value to the previous tick values
 
 use bevy::prelude::*;
+use bevy::transform::TransformSystem::TransformPropagate;
 
-use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::components::SyncComponent;
 use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::prelude::{ComponentRegistry, TickManager, TimeManager};
 
@@ -66,7 +67,10 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
             FixedPostUpdate,
             InterpolationSet::UpdateVisualInterpolationState,
         );
-        app.configure_sets(PostUpdate, InterpolationSet::VisualInterpolation);
+        app.configure_sets(
+            PostUpdate,
+            InterpolationSet::VisualInterpolation.before(TransformPropagate),
+        );
 
         // SYSTEMS
         app.add_systems(

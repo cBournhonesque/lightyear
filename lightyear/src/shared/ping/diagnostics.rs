@@ -3,8 +3,6 @@
 use crate::shared::ping::manager::PingManager;
 use bevy::app::{App, Plugin};
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
-use bevy::prelude::{IntoSystemConfigs, Res};
-use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
 /// Plugin to compute some network diagnostics related to pings

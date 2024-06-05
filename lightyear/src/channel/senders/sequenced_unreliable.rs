@@ -5,10 +5,8 @@ use crossbeam_channel::{Receiver, Sender};
 
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{
-    FragmentData, MessageAck, MessageData, MessageId, SendMessage, SingleData,
-};
-use crate::prelude::Tick;
+use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
+use crate::serialize::SerializationError;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -46,12 +44,16 @@ impl ChannelSend for SequencedUnreliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
+    fn buffer_send(
+        &mut self,
+        message: Bytes,
+        priority: f32,
+    ) -> Result<Option<MessageId>, SerializationError> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self
                 .fragment_sender
-                .build_fragments(message_id, None, message)
+                .build_fragments(message_id, None, message)?
             {
                 self.fragmented_messages_to_send.push_back(SendMessage {
                     data: MessageData::Fragment(fragment),
@@ -66,7 +68,7 @@ impl ChannelSend for SequencedUnreliableSender {
             });
         }
         self.next_send_message_id += 1;
-        Some(message_id)
+        Ok(Some(message_id))
     }
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets

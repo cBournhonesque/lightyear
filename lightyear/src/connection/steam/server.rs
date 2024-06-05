@@ -1,26 +1,21 @@
-use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::{
     ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, NetServer,
 };
-use crate::packet::packet_builder::Payload;
+use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::LinkConditionerConfig;
-use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::io::Io;
-use crate::transport::LOCAL_SOCKET;
 use bevy::utils::HashMap;
+use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use steamworks::networking_sockets::{ListenSocket, NetConnection};
-use steamworks::networking_types::{
-    ListenSocketEvent, NetConnectionEnd, NetworkingConfigEntry, NetworkingConfigValue, SendFlags,
-};
-use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SingleClient, SteamError};
+use steamworks::networking_types::{ListenSocketEvent, NetConnectionEnd, SendFlags};
+use steamworks::{ClientManager, ServerMode, SteamError};
 use tracing::{error, info};
 
-use super::get_networking_options;
 use super::steamworks_client::SteamworksClient;
 
 #[derive(Debug, Clone)]
@@ -79,8 +74,7 @@ pub struct Server {
     config: SteamConfig,
     listen_socket: Option<ListenSocket<ClientManager>>,
     connections: HashMap<ClientId, NetConnection<ClientManager>>,
-    packet_queue: VecDeque<(Payload, ClientId)>,
-    buffer_pool: BufferPool,
+    packet_queue: VecDeque<(RecvPayload, ClientId)>,
     new_connections: Vec<ClientId>,
     new_disconnections: Vec<ClientId>,
     conditioner: Option<LinkConditionerConfig>,
@@ -117,7 +111,6 @@ impl Server {
             listen_socket: None,
             connections: HashMap::new(),
             packet_queue: VecDeque::new(),
-            buffer_pool: BufferPool::default(),
             new_connections: Vec::new(),
             new_disconnections: Vec::new(),
             conditioner,
@@ -139,7 +132,7 @@ impl NetServer for Server {
                 let server_addr = SocketAddr::new(server_ip.into(), game_port);
                 self.listen_socket = Some(
                     self.steamworks_client
-                        .read()
+                        .try_read()
                         .expect("could not get steamworks client")
                         .get_client()
                         .networking_sockets()
@@ -150,7 +143,7 @@ impl NetServer for Server {
             SocketConfig::P2P { virtual_port } => {
                 self.listen_socket = Some(
                     self.steamworks_client
-                        .read()
+                        .try_read()
                         .expect("could not get steamworks client")
                         .get_client()
                         .networking_sockets()
@@ -194,7 +187,7 @@ impl NetServer for Server {
 
     fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
         self.steamworks_client
-            .write()
+            .try_write()
             .expect("could not get steamworks client")
             .get_single()
             .run_callbacks();
@@ -271,9 +264,8 @@ impl NetServer for Server {
                 // let packet = Packet::decode(&mut reader).context("could not decode packet")?;
                 // // return the buffer to the pool
                 // self.buffer_pool.attach(reader);
-                let mut buf = vec![0u8; message.data().len()];
-                buf.copy_from_slice(message.data());
-                self.packet_queue.push_back((buf, *client_id));
+                let payload = RecvPayload::copy_from_slice(message.data());
+                self.packet_queue.push_back((payload, *client_id));
             }
             // TODO: is this necessary since I disabled nagle?
             connection.flush_messages()?
@@ -283,7 +275,7 @@ impl NetServer for Server {
         Ok(())
     }
 
-    fn recv(&mut self) -> Option<(Payload, ClientId)> {
+    fn recv(&mut self) -> Option<(RecvPayload, ClientId)> {
         self.packet_queue.pop_front()
     }
 

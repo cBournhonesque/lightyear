@@ -6,9 +6,43 @@
 //! deallocated all at once.
 
 use crate::prelude::MainSet;
-use crate::shared::sets::{InternalReplicationSet, ServerMarker};
+use crate::serialize::reader::Reader;
+use crate::serialize::varint::varint_len;
+use crate::serialize::{SerializationError, ToBytes};
+use bevy::ecs::entity::EntityHash;
 use bevy::prelude::*;
 use blink_alloc::SyncBlinkAlloc;
+use byteorder::{ReadBytesExt, WriteBytesExt};
+
+pub type ArenaEntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash, &'static SyncBlinkAlloc>;
+pub type ArenaVec<T> = allocator_api2::vec::Vec<T, &'static SyncBlinkAlloc>;
+
+impl<M: ToBytes> ToBytes for ArenaVec<M> {
+    fn len(&self) -> usize {
+        varint_len(self.len() as u64) + self.iter().map(ToBytes::len).sum::<usize>()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_u64::<byteorder::NetworkEndian>(self.len() as u64)?;
+        self.iter().try_for_each(|item| item.to_bytes(buffer))?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let len = buffer.read_u64::<byteorder::NetworkEndian>()? as usize;
+        // TODO: if we know the MIN_LEN we can preallocate
+
+        let mut vec = Vec::with_capacity(len);
+        for _ in 0..len {
+            vec.push(M::from_bytes(buffer)?);
+        }
+        // NOTE: we don't need the allocator anymore upong deserializing! just use the global alloc
+        Ok(unsafe { std::mem::transmute(vec) })
+    }
+}
 
 #[derive(Default)]
 pub struct ArenaPlugin;

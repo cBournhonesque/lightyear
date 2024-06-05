@@ -6,7 +6,6 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
-use crate::prelude::Tick;
 use crate::shared::replication::components::ShouldBeInterpolated;
 
 /// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added

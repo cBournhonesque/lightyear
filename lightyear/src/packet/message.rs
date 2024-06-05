@@ -1,21 +1,14 @@
 /// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
 use std::fmt::Debug;
-use std::io::Seek;
 
-use bevy::ecs::entity::MapEntities;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use bytes::{BufMut, Bytes};
+use bytes::Bytes;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::packet::message;
-use bitcode::encoding::{Fixed, Gamma};
-
-use crate::packet::packet::FRAGMENT_SIZE;
-use crate::protocol::{BitSerializable, EventContext};
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
-use crate::serialize::writer::WriteBuffer;
+use crate::protocol::EventContext;
+use crate::serialize::reader::Reader;
+use crate::serialize::varint::varint_len;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
@@ -28,8 +21,8 @@ wrapping_id!(MessageId);
 ///
 /// Every type that can be sent over the network must implement this trait.
 ///
-pub trait Message: EventContext + BitSerializable + DeserializeOwned + Serialize {}
-impl<T: EventContext + BitSerializable + DeserializeOwned + Serialize> Message for T {}
+pub trait Message: EventContext + DeserializeOwned + Serialize {}
+impl<T: EventContext + DeserializeOwned + Serialize> Message for T {}
 
 pub type FragmentIndex = u8;
 
@@ -138,12 +131,13 @@ impl ToBytes for SingleData {
         } else {
             buffer.write_u8(0)?;
         }
-        buffer.write_varint(self.bytes.len() as u64)?;
-        buffer.write_all(self.bytes.as_ref())?;
+        self.bytes.to_bytes(buffer)?;
+        // buffer.write_varint(self.bytes.len() as u64)?;
+        // buffer.write_all(self.bytes.as_ref())?;
         Ok(())
     }
 
-    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
@@ -152,13 +146,10 @@ impl ToBytes for SingleData {
         } else {
             None
         };
-        let len = buffer.read_varint()? as usize;
-        let mut bytes = vec![0; len];
-        buffer.read_exact(&mut bytes)?;
-        Ok(Self {
-            id,
-            bytes: Bytes::from(bytes),
-        })
+        let bytes = Bytes::from_bytes(buffer)?;
+        // let len = buffer.read_varint()? as usize;
+        // let bytes = buffer.split_len(len);
+        Ok(Self { id, bytes })
     }
 }
 
@@ -187,25 +178,28 @@ impl ToBytes for FragmentData {
         buffer.write_u16::<NetworkEndian>(self.message_id.0)?;
         buffer.write_u8(self.fragment_id)?;
         buffer.write_u8(self.num_fragments)?;
-        buffer.write_varint(self.bytes.len() as u64)?;
-        buffer.write_all(self.bytes.as_ref())?;
+        self.bytes.to_bytes(buffer)?;
+        // buffer.write_varint(self.bytes.len() as u64)?;
+        // buffer.write_all(self.bytes.as_ref())?;
         Ok(())
     }
 
-    fn from_bytes<T: ReadBytesExt + Seek>(buffer: &mut T) -> Result<Self, SerializationError>
+    /// We get the FragmentData as a subslice of the original Bytes. O(1) operation.
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
         let message_id = MessageId(buffer.read_u16::<NetworkEndian>()?);
         let fragment_id = buffer.read_u8()?;
         let num_fragments = buffer.read_u8()?;
-        let mut bytes = vec![0; buffer.read_varint()? as usize];
-        buffer.read_exact(&mut bytes)?;
+        let bytes = Bytes::from_bytes(buffer)?;
+        // let len = buffer.read_varint()? as usize;
+        // let bytes = buffer.split_len(len);
         Ok(Self {
             message_id,
             fragment_id,
             num_fragments,
-            bytes: Bytes::from(bytes),
+            bytes,
         })
     }
 }
@@ -219,7 +213,6 @@ impl FragmentData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
 
     #[test]
     fn test_to_bytes_single_data() {
@@ -230,7 +223,7 @@ mod tests {
 
             assert_eq!(writer.len(), data.len());
 
-            let mut reader = Cursor::new(writer);
+            let mut reader = writer.into();
             let decoded = SingleData::from_bytes(&mut reader).unwrap();
             assert_eq!(decoded, data);
         }
@@ -241,7 +234,7 @@ mod tests {
 
             assert_eq!(writer.len(), data.len());
 
-            let mut reader = Cursor::new(writer);
+            let mut reader = writer.into();
             let decoded = SingleData::from_bytes(&mut reader).unwrap();
             assert_eq!(decoded, data);
         }
@@ -261,7 +254,7 @@ mod tests {
 
         assert_eq!(writer.len(), data.len());
 
-        let mut reader = Cursor::new(writer);
+        let mut reader = writer.into();
         let decoded = FragmentData::from_bytes(&mut reader).unwrap();
         assert_eq!(decoded, data);
     }

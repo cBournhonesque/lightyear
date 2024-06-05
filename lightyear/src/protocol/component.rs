@@ -1,54 +1,30 @@
-use bevy::app::PreUpdate;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::{Add, Mul};
 
-use bevy::prelude::{
-    App, Component, DetectChangesMut, Entity, EntityMapper, EntityWorldMut, IntoSystemConfigs,
-    Resource, TypePath, World,
-};
+use bevy::prelude::{App, Component, EntityWorldMut, Resource, TypePath};
 use bevy::ptr::Ptr;
-use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
-use cfg_if::cfg_if;
 
-use bitcode::encoding::Fixed;
-use bitcode::Encode;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, trace};
 
-use crate::client::components::{ComponentSyncMode, SyncMetadata};
+use crate::client::components::ComponentSyncMode;
 use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::prediction::plugin::add_prediction_systems;
 use crate::prelude::client::SyncComponent;
-use crate::prelude::server::{ServerConfig, ServerPlugins};
-use crate::prelude::{
-    client, server, AppMessageExt, ChannelDirection, Message, MessageRegistry,
-    PreSpawnedPlayerObject, RemoteEntityMap, ReplicateResourceMetadata, Tick,
-};
+use crate::prelude::server::ServerConfig;
+use crate::prelude::{ChannelDirection, Message, Tick};
 use crate::protocol::delta::ErasedDeltaFns;
-use crate::protocol::message::{MessageKind, MessageRegistration, MessageType};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::ErasedSerializeFns;
-use crate::protocol::{BitSerializable, EventContext};
-use crate::serialize::bitcode::reader::BitcodeReader;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
-use crate::shared::events::connection::{
-    ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-};
-use crate::shared::replication::components::ShouldBePredicted;
-use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
+use crate::serialize::reader::Reader;
+use crate::serialize::SerializationError;
+use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::delta::{DeltaMessage, Diffable};
 use crate::shared::replication::entity_map::EntityMap;
-use crate::shared::replication::ReplicationSend;
-use crate::shared::sets::InternalMainSet;
 
 pub type ComponentNetId = NetId;
 
@@ -64,8 +40,8 @@ pub enum ComponentError {
     MissingDeltaFns,
     #[error("delta compression error: {0}")]
     DeltaCompressionError(String),
-    #[error(transparent)]
-    Bitcode(#[from] bitcode::Error),
+    #[error("component error: {0}")]
+    SerializationError(#[from] SerializationError),
 }
 
 /// A [`Resource`] that will keep track of all the [`Components`](Component) that can be replicated.
@@ -96,7 +72,7 @@ pub enum ComponentError {
 /// There are some cases where you might want to define additional behaviour for a component.
 ///
 /// #### Entity Mapping
-/// If the component contains [`Entities`](Entity), you need to specify how those entities
+/// If the component contains [`Entities`](bevy::prelude::Entity), you need to specify how those entities
 /// will be mapped from the remote world to the local world.
 ///
 /// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
@@ -201,7 +177,7 @@ pub struct InterpolationMetadata {
 type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
 type RawWriteFn = fn(
     &ComponentRegistry,
-    &mut BitcodeReader,
+    &mut Reader,
     ComponentNetId,
     Tick,
     &mut EntityWorldMut,
@@ -276,6 +252,9 @@ impl ComponentRegistry {
 
 mod serialize {
     use super::*;
+    use crate::serialize::reader::Reader;
+    use crate::serialize::writer::Writer;
+    use crate::serialize::ToBytes;
 
     impl ComponentRegistry {
         pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
@@ -299,48 +278,47 @@ mod serialize {
         pub(crate) fn serialize<C: 'static>(
             &self,
             component: &C,
-            writer: &mut BitcodeWriter,
-        ) -> Result<RawData, ComponentError> {
+            writer: &mut Writer,
+        ) -> Result<(), ComponentError> {
             let kind = ComponentKind::of::<C>();
             let erased_fns = self
                 .serialize_fns_map
                 .get(&kind)
                 .ok_or(ComponentError::MissingSerializationFns)?;
             let net_id = self.kind_map.net_id(&kind).unwrap();
-            writer.start_write();
-            writer.encode(net_id, Fixed)?;
+
+            net_id.to_bytes(writer)?;
             // SAFETY: the ErasedFns corresponds to type C
             unsafe {
                 erased_fns.serialize(component, writer)?;
             }
-            Ok(writer.finish_write().to_vec())
+            Ok(())
         }
 
         /// SAFETY: the Ptr must correspond to the correct ComponentKind
         pub(crate) fn erased_serialize(
             &self,
             component: Ptr,
-            writer: &mut BitcodeWriter,
+            writer: &mut Writer,
             kind: ComponentKind,
-        ) -> Result<RawData, ComponentError> {
+        ) -> Result<(), ComponentError> {
             let erased_fns = self
                 .serialize_fns_map
                 .get(&kind)
                 .ok_or(ComponentError::MissingSerializationFns)?;
             let net_id = self.kind_map.net_id(&kind).unwrap();
-            writer.start_write();
-            writer.encode(net_id, Fixed)?;
+            net_id.to_bytes(writer)?;
             // SAFETY: the ErasedSerializeFns corresponds to type C
             unsafe {
                 (erased_fns.serialize)(component, writer)?;
             }
-            Ok(writer.finish_write().to_vec())
+            Ok(())
         }
 
         /// Deserialize only the component value (the ComponentNetId has already been read)
         pub(crate) fn raw_deserialize<C: 'static>(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             net_id: ComponentNetId,
             entity_map: &mut EntityMap,
         ) -> Result<C, ComponentError> {
@@ -358,10 +336,10 @@ mod serialize {
 
         pub(crate) fn deserialize<C: Component>(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             entity_map: &mut EntityMap,
         ) -> Result<C, ComponentError> {
-            let net_id = reader.decode::<ComponentNetId>(Fixed)?;
+            let net_id = NetId::from_bytes(reader).map_err(SerializationError::from)?;
             self.raw_deserialize(reader, net_id, entity_map)
         }
 
@@ -508,6 +486,8 @@ mod interpolation {
 
 mod replication {
     use super::*;
+    use crate::serialize::reader::Reader;
+    use crate::serialize::ToBytes;
 
     impl ComponentRegistry {
         pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self) {
@@ -526,13 +506,13 @@ mod replication {
         /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
         pub(crate) fn raw_write(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             entity_world_mut: &mut EntityWorldMut,
             tick: Tick,
             entity_map: &mut EntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
-            let net_id = reader.decode::<ComponentNetId>(Fixed)?;
+            let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
             let kind = self
                 .kind_map
                 .kind(net_id)
@@ -554,7 +534,7 @@ mod replication {
 
         pub(crate) fn write<C: Component + PartialEq>(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
@@ -602,9 +582,10 @@ mod replication {
 
 mod delta {
     use super::*;
-    use crate::prelude::client::ConfirmedHistory;
+
     use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
-    use bevy::ptr::PtrMut;
+
+    use crate::serialize::writer::Writer;
     use std::ptr::NonNull;
 
     impl ComponentRegistry {
@@ -662,45 +643,45 @@ mod delta {
             start_tick: Tick,
             start: Ptr,
             new: Ptr,
-            writer: &mut BitcodeWriter,
+            writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
-        ) -> Result<RawData, ComponentError> {
+        ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
                 .ok_or(ComponentError::MissingDeltaFns)?;
 
             let delta = (delta_fns.diff)(start_tick, start, new);
-            let raw_data = self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind);
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
             // drop the delta message
             (delta_fns.drop_delta_message)(delta);
-            raw_data
+            Ok(())
         }
 
         /// SAFETY: The Ptrs must correspond to the correct ComponentKind
         pub(crate) unsafe fn serialize_diff_from_base_value(
             &self,
             component_data: Ptr,
-            writer: &mut BitcodeWriter,
+            writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
-        ) -> Result<RawData, ComponentError> {
+        ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
                 .ok_or(ComponentError::MissingDeltaFns)?;
             let delta = (delta_fns.diff_from_base)(component_data);
-            let raw_data = self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind);
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
             // drop the delta message
             (delta_fns.drop_delta_message)(delta);
-            raw_data
+            Ok(())
         }
 
         /// Deserialize the DeltaMessage<C::Delta> and apply it to the component
         pub(crate) fn write_delta<C: Component + PartialEq + Diffable>(
             &self,
-            reader: &mut BitcodeReader,
+            reader: &mut Reader,
             net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,

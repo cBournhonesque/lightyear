@@ -7,7 +7,7 @@ use crate::client::interpolation::Interpolated;
 use crate::client::prediction::Predicted;
 use crate::connection::client::NetClient;
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{is_started, PrePredicted, SharedConfig};
+use crate::prelude::{is_started, PrePredicted};
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::prediction::compute_hash;
@@ -63,12 +63,10 @@ pub(crate) mod send {
         ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
-    use crate::shared::replication::{systems, ReplicationSend};
+    use crate::shared::replication::ReplicationSend;
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
-    use bevy::ptr::{Ptr, UnsafeCellDeref};
-    use blink_alloc::SyncBlinkAlloc;
-    use std::ops::Deref;
+    use bevy::ptr::Ptr;
 
     #[derive(Default)]
     pub struct ServerReplicationSendPlugin {
@@ -354,7 +352,6 @@ pub(crate) mod send {
     /// - adds ControlledBy, ShouldBePredicted, ShouldBeInterpolated component
     /// - handles TargetEntity if it's a Preexisting entity
     pub(crate) fn send_entity_spawn(
-        arena: Res<ArenaManager>,
         component_registry: Res<ComponentRegistry>,
         query: Query<(
             Entity,
@@ -442,7 +439,7 @@ pub(crate) mod send {
             let _ = sender.apply_replication(target).try_for_each(|client_id| {
                 // let the client know that this entity is controlled by them
                 if controlled_by.targets(&client_id) {
-                    sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled, system_ticks.this_run(), arena.get())?;
+                    sender.prepare_typed_component_insert(entity, group_id, client_id, component_registry.as_ref(), &Controlled, system_ticks.this_run())?;
                 }
                 // if we need to do prediction/interpolation, send a marker component to indicate that to the client
                 if sync_target.prediction.targets(&client_id) {
@@ -454,7 +451,6 @@ pub(crate) mod send {
                         component_registry.as_ref(),
                         &ShouldBePredicted,
                         system_ticks.this_run(),
-                        arena.get()
                     )?;
                 }
                 if sync_target.interpolation.targets(&client_id) {
@@ -465,7 +461,6 @@ pub(crate) mod send {
                         component_registry.as_ref(),
                         &ShouldBeInterpolated,
                         system_ticks.this_run(),
-                        arena.get()
                     )?;
                 }
 
@@ -474,11 +469,10 @@ pub(crate) mod send {
                         entity,
                         group_id,
                         *remote_entity,
-                        arena.get(),
                     );
                 } else {
                     sender.connection_mut(client_id)?.replication_sender
-                        .prepare_entity_spawn(entity, group_id, arena.get());
+                        .prepare_entity_spawn(entity, group_id);
                 }
 
                 // also set the priority for the group when we spawn it
@@ -496,7 +490,6 @@ pub(crate) mod send {
     /// 2) the replication target was updated and the client is no longer in the ReplicationTarget
     /// 3) the entity was despawned
     pub(crate) fn send_entity_despawn(
-        arena: Res<ArenaManager>,
         query: Query<(
             Entity,
             Ref<ReplicationTarget>,
@@ -548,7 +541,6 @@ pub(crate) mod send {
                             entity,
                             group,
                             target,
-                            arena.get()
                         )
                         .inspect_err(|e| {
                             error!("error sending entity despawn: {:?}", e);
@@ -581,7 +573,6 @@ pub(crate) mod send {
                         entity,
                         &replicate_cache.replication_group,
                         network_target,
-                        arena.get(),
                     )
                     // TODO: bubble up errors to user via ConnectionEvents?
                     .inspect_err(|e| {
@@ -604,7 +595,6 @@ pub(crate) mod send {
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
     pub(crate) fn send_component_update<C: Component>(
-        arena: Res<ArenaManager>,
         tick_manager: Res<TickManager>,
         registry: Res<ComponentRegistry>,
         query: Query<
@@ -726,7 +716,6 @@ pub(crate) mod send {
                                 delta_compression,
                                 tick,
                                 system_bevy_ticks.this_run(),
-                                arena.get()
                             )
                             .inspect_err(|e| {
                                 error!("error sending component insert: {:?}", e);
@@ -745,7 +734,6 @@ pub(crate) mod send {
                                 system_bevy_ticks.this_run(),
                                 tick,
                                 delta_compression,
-                                arena.get()
                             )
                             .inspect_err(|e| {
                                 error!("error sending component update: {:?}", e);
@@ -757,7 +745,6 @@ pub(crate) mod send {
 
     /// This system sends updates for all components that were removed
     pub(crate) fn send_component_removed<C: Component>(
-        arena: Res<ArenaManager>,
         registry: Res<ComponentRegistry>,
         // only remove the component for entities that are being actively replicated
         query: Query<
@@ -815,7 +802,7 @@ pub(crate) mod send {
                 }
                 let group_id = group.group_id(Some(entity));
                 debug!(?entity, ?kind, "Sending RemoveComponent");
-                let _ = sender.prepare_component_remove(entity, kind, group, target, arena.get());
+                let _ = sender.prepare_component_remove(entity, kind, group, target);
             }
         })
     }
@@ -864,7 +851,7 @@ pub(crate) mod send {
         use crate::client::events::ComponentUpdateEvent;
         use crate::prelude::client::Confirmed;
         use crate::prelude::server::{ControlledBy, NetConfig, Replicate, VisibilityManager};
-        use crate::prelude::{client, server, LinkConditionerConfig, Replicated};
+        use crate::prelude::{client, LinkConditionerConfig, Replicated};
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
         use crate::shared::replication::delta::DeltaComponentHistory;
@@ -899,7 +886,7 @@ pub(crate) mod send {
                 .server_app
                 .world
                 .entity_mut(server_entity)
-                .insert(server::Replicate {
+                .insert(Replicate {
                     sync: SyncTarget {
                         prediction: NetworkTarget::All,
                         interpolation: NetworkTarget::All,
@@ -940,6 +927,22 @@ pub(crate) mod send {
         }
 
         #[test]
+        fn test_multi_entity_spawn() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            stepper
+                .server_app
+                .world
+                .spawn_batch(vec![Replicate::default(); 2]);
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the entities were spawned
+            assert_eq!(stepper.client_app.world.entities().len(), 2);
+        }
+
+        #[test]
         fn test_entity_spawn_visibility() {
             let mut stepper = MultiBevyStepper::default();
 
@@ -947,7 +950,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     ..default()
                 })
@@ -1003,7 +1006,7 @@ pub(crate) mod send {
                 .server_app
                 .world
                 .spawn((
-                    server::Replicate::default(),
+                    Replicate::default(),
                     TargetEntity::Preexisting(client_entity),
                 ))
                 .id();
@@ -1040,7 +1043,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     target: ReplicationTarget {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
                     },
@@ -1087,11 +1090,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper
-                .server_app
-                .world
-                .spawn(server::Replicate::default())
-                .id();
+            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1124,7 +1123,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     ..default()
                 })
@@ -1173,7 +1172,7 @@ pub(crate) mod send {
             let server_entity_1 = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     group: ReplicationGroup::new_id(1),
                     ..default()
@@ -1182,7 +1181,7 @@ pub(crate) mod send {
             let server_entity_2 = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     group: ReplicationGroup::new_id(1),
                     ..default()
@@ -1255,7 +1254,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world
-                .spawn(server::Replicate {
+                .spawn(Replicate {
                     target: ReplicationTarget {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
                     },
@@ -1294,11 +1293,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper
-                .server_app
-                .world
-                .spawn(server::Replicate::default())
-                .id();
+            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
@@ -1337,11 +1332,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper
-                .server_app
-                .world
-                .spawn(server::Replicate::default())
-                .id();
+            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
@@ -2414,7 +2405,7 @@ pub(crate) mod send {
                 stepper
                     .server_app
                     .world
-                    .resource::<server::ConnectionManager>()
+                    .resource::<ConnectionManager>()
                     .replicate_component_cache
                     .get(&server_entity)
                     .expect("ReplicateCache missing"),
@@ -2556,8 +2547,8 @@ pub(crate) mod send {
 
 pub(crate) mod commands {
     use crate::server::connection::ConnectionManager;
-    use crate::shared::replication::ReplicationSend;
-    use bevy::ecs::system::{Command, EntityCommands};
+
+    use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {
@@ -2585,7 +2576,7 @@ pub(crate) mod commands {
         use crate::client::sync::SyncConfig;
         use crate::prelude::client::{InterpolationConfig, PredictionConfig};
         use crate::prelude::server::Replicate;
-        use crate::prelude::{server, LinkConditionerConfig, SharedConfig, TickConfig};
+        use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, Step};
 

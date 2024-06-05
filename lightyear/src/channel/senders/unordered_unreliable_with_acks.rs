@@ -6,9 +6,8 @@ use crossbeam_channel::{Receiver, Sender};
 use crate::channel::senders::fragment_ack_receiver::FragmentAckReceiver;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{
-    FragmentData, MessageAck, MessageData, MessageId, SendMessage, SingleData,
-};
+use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
+use crate::serialize::SerializationError;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::{TimeManager, WrappedTime};
@@ -63,12 +62,16 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
+    fn buffer_send(
+        &mut self,
+        message: Bytes,
+        priority: f32,
+    ) -> Result<Option<MessageId>, SerializationError> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message);
+                .build_fragments(message_id, None, message)?;
             self.fragment_ack_receiver
                 .add_new_fragment_to_wait_for(message_id, fragments.len());
             for fragment in fragments {
@@ -85,7 +88,7 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
             });
         }
         self.next_send_message_id += 1;
-        Some(message_id)
+        Ok(Some(message_id))
     }
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets to be sent
@@ -166,7 +169,10 @@ mod tests {
         let receiver = sender.subscribe_acks();
 
         // single message
-        let message_id = sender.buffer_send(Bytes::from("hello"), 1.0).unwrap();
+        let message_id = sender
+            .buffer_send(Bytes::from("hello"), 1.0)
+            .unwrap()
+            .unwrap();
         assert_eq!(message_id, MessageId(0));
         assert_eq!(sender.next_send_message_id, MessageId(1));
 
@@ -180,7 +186,7 @@ mod tests {
         // fragment message
         const NUM_BYTES: usize = (FRAGMENT_SIZE as f32 * 1.5) as usize;
         let bytes = Bytes::from(vec![0; NUM_BYTES]);
-        let message_id = sender.buffer_send(bytes, 1.0).unwrap();
+        let message_id = sender.buffer_send(bytes, 1.0).unwrap().unwrap();
         assert_eq!(message_id, MessageId(1));
         let mut expected = FragmentAckReceiver::new();
         expected.add_new_fragment_to_wait_for(message_id, 2);

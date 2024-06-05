@@ -4,9 +4,6 @@ use bevy::prelude::*;
 use bevy::utils::HashMap;
 
 use crate::connection::id::ClientId;
-#[cfg(feature = "leafwing")]
-use crate::inputs::leafwing::LeafwingUserAction;
-use crate::packet::message::Message;
 use crate::prelude::ComponentRegistry;
 use crate::server::connection::ConnectionManager;
 use crate::shared::events::connection::{
@@ -245,7 +242,7 @@ pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, Cl
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{ChannelDirection, Tick};
+    use crate::prelude::Tick;
     use crate::protocol::channel::ChannelKind;
     use crate::tests::protocol::{Channel1, Channel2, Component1, Component2, Message1};
 

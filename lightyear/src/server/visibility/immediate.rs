@@ -23,7 +23,6 @@ fn my_system(
 */
 use crate::prelude::server::ConnectionManager;
 use crate::prelude::{is_started, ClientId};
-use crate::server::visibility::room::{RoomManager, RoomSystemSets};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
 use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::*;
@@ -99,9 +98,9 @@ impl VisibilityManager {
 
 pub(super) mod systems {
     use super::*;
-    use crate::prelude::server::DisconnectEvent;
+
     use crate::prelude::VisibilityMode;
-    use crate::shared::replication::ReplicationSend;
+
     use bevy::prelude::DetectChanges;
 
     // NOTE: this might not be needed because we drain the event cache every Send update

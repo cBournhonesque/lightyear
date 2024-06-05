@@ -1,17 +1,16 @@
 #![cfg(not(target_family = "wasm"))]
 //! WebTransport client implementation.
-use async_channel::Receiver;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_compat::Compat;
-use bevy::tasks::{futures_lite, IoTaskPool, TaskPool};
+use bevy::tasks::IoTaskPool;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 use wtransport;
 use wtransport::datagram::Datagram;
-use wtransport::error::{ConnectingError, ConnectionError};
+use wtransport::error::ConnectingError;
 use wtransport::ClientConfig;
 
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};

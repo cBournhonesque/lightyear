@@ -3,14 +3,14 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, ResMut,
-    With, Without,
+    Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, With,
+    Without,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, trace};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::shared::tick_manager::Tick;
@@ -291,6 +291,7 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::client::RollbackState;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
     use crate::utils::ready_buffer::ItemWithReadyKey;

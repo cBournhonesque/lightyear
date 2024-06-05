@@ -1,19 +1,18 @@
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 use enum_dispatch::enum_dispatch;
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::fmt::Debug;
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{server::SteamConfig, steamworks_client::SteamworksClient};
-use crate::packet::packet::Packet;
-use crate::packet::packet_builder::Payload;
-use crate::prelude::client::ClientTransport;
+use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::server::ServerTransport;
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::prelude::LinkConditionerConfig;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::Io;
@@ -72,7 +71,7 @@ pub trait NetServer: Send + Sync {
     fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError>;
 
     /// Receive a packet from one of the connected clients
-    fn recv(&mut self) -> Option<(Payload, ClientId)>;
+    fn recv(&mut self) -> Option<(RecvPayload, ClientId)>;
 
     /// Send a packet to one of the connected clients
     fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<(), ConnectionError>;

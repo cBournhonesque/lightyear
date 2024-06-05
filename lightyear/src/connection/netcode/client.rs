@@ -1,21 +1,16 @@
-use bevy::utils::Duration;
-use std::net::{IpAddr, Ipv4Addr};
 use std::{collections::VecDeque, net::SocketAddr};
 
 use bevy::prelude::Resource;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 
 use crate::client::io::Io;
 use crate::connection::client::{
     ConnectionError, ConnectionState, DisconnectReason, IoConfig, NetClient,
 };
 use crate::connection::id;
-use crate::packet::packet_builder::Payload;
-use crate::prelude::client::NetworkingState;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::reader::ReadBuffer;
+use crate::packet::packet_builder::RecvPayload;
 use crate::transport::io::IoState;
-use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
+use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
 use crate::utils::pool::Pool;
 
 use super::{
@@ -197,7 +192,7 @@ pub struct NetcodeClient<Ctx = ()> {
     replay_protection: ReplayProtection,
     should_disconnect: bool,
     should_disconnect_state: ClientState,
-    packet_queue: VecDeque<Payload>,
+    packet_queue: VecDeque<RecvPayload>,
     buffer_pool: Pool<Vec<u8>>,
     cfg: ClientConfig<Ctx>,
 }
@@ -424,9 +419,7 @@ impl<Ctx> NetcodeClient<Ctx> {
                 // let buf = self.buffer_pool.pull(|| vec![0u8; pkt.buf.len()]);
                 // TODO: COPY THE PAYLOAD INTO A BUFFER FROM THE POOL! and we allocate buffers to the pool
                 //  outside of the hotpath? we could have a static pool of buffers?
-                let mut buf = vec![0u8; pkt.buf.len()];
-                buf.copy_from_slice(pkt.buf);
-
+                let buf = bytes::Bytes::copy_from_slice(pkt.buf);
                 // TODO: control the size/memory of the packet queue?
                 self.packet_queue.push_back(buf);
             }
@@ -599,7 +592,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     ///     thread::sleep(tick_rate);
     /// }
     /// ```
-    pub fn recv(&mut self) -> Option<Payload> {
+    pub fn recv(&mut self) -> Option<RecvPayload> {
         self.packet_queue.pop_front()
     }
 
@@ -711,7 +704,7 @@ pub(crate) mod connection {
             Ok(())
         }
 
-        fn recv(&mut self) -> Option<Payload> {
+        fn recv(&mut self) -> Option<RecvPayload> {
             self.client.recv()
         }
 

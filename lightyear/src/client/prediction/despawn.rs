@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use bevy::ecs::system::{Command, EntityCommands};
 use bevy::prelude::{
     Commands, Component, DespawnRecursiveExt, Entity, Query, Reflect, RemovedComponents, Res,
@@ -7,7 +5,7 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, trace};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;

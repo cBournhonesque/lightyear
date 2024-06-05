@@ -4,7 +4,6 @@ use bevy::utils::Duration;
 
 use crate::client::connection::ConnectionManager;
 use crate::client::sync::client_is_synced;
-use crate::prelude::SharedConfig;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -51,34 +50,24 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
-    use crate::client::interpolation::Interpolated;
-    use crate::client::prediction::Predicted;
+
     use crate::connection::client::ClientConnection;
-    use crate::connection::server::ServerConnections;
+
     use crate::prelude::client::NetClient;
-    use crate::prelude::server::{ControlledBy, ServerConfig, ServerReplicationSet};
+
     use crate::prelude::{
-        is_connected, is_host_server, ClientId, ComponentRegistry, DisabledComponent,
-        OverrideTargetComponent, PrePredicted, ReplicateHierarchy, ReplicateOnceComponent,
-        Replicated, ReplicationGroup, ShouldBePredicted, TargetEntity, TickManager, VisibilityMode,
+        is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy,
+        ReplicateOnceComponent, Replicated, ReplicationGroup, TargetEntity, TickManager,
     };
     use crate::protocol::component::ComponentKind;
-    use crate::serialize::RawData;
-    use crate::server::events::EntitySpawnEvent;
-    use crate::server::replication::send::SyncTarget;
-    use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
+
     use crate::shared::arena::ArenaManager;
-    use crate::shared::replication::components::{
-        Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationTarget,
-        ShouldBeInterpolated,
-    };
-    use crate::shared::replication::network_target::NetworkTarget;
-    use crate::shared::replication::{systems, ReplicationSend};
-    use crate::shared::sets::ServerMarker;
+    use crate::shared::replication::components::{DeltaCompression, DespawnTracker, Replicating};
+
+    use crate::serialize::writer::Writer;
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
-    use std::ops::DerefMut;
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {
@@ -150,7 +139,7 @@ pub(crate) mod send {
     /// ```
     ///
     /// The bundle is composed of several components:
-    /// - [`ReplicationTarget`] to specify if the entity should be replicated to the server or not
+    /// - [`ReplicateToServer`] to specify if the entity should be replicated to the server or not
     /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
     /// will be sent together in the same message.
     /// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
@@ -257,7 +246,6 @@ pub(crate) mod send {
     /// - handles TargetEntity if it's a Preexisting entity
     /// - setting the priority
     pub(crate) fn send_entity_spawn(
-        arena: Res<ArenaManager>,
         query: Query<
             (Entity, &ReplicationGroup, Option<&TargetEntity>),
             (With<Replicating>, Changed<ReplicateToServer>),
@@ -272,12 +260,11 @@ pub(crate) mod send {
                     entity,
                     group_id,
                     *remote_entity,
-                    arena.get(),
                 );
             } else {
                 sender
                     .replication_sender
-                    .prepare_entity_spawn(entity, group_id, arena.get());
+                    .prepare_entity_spawn(entity, group_id);
             }
             // TODO: should the priority be a component on the entity? but it should be shared between a group
             //  should a GroupChannel be a separate entity?
@@ -292,7 +279,6 @@ pub(crate) mod send {
     /// - an entity that had a DespawnTracker was despawned
     /// - an entity with Replicating had the ReplicationToServerTarget removed
     pub(crate) fn send_entity_despawn(
-        arena: Res<ArenaManager>,
         query: Query<(Entity, &ReplicationGroup), (With<Replicating>, Without<ReplicateToServer>)>,
         // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
         //  not just entities that had despawn tracker once
@@ -306,11 +292,9 @@ pub(crate) mod send {
                 ?entity,
                 "send entity despawn because ReplicationToServerTarget was removed"
             );
-            sender.replication_sender.prepare_entity_despawn(
-                entity,
-                group.group_id(Some(entity)),
-                arena.get(),
-            );
+            sender
+                .replication_sender
+                .prepare_entity_despawn(entity, group.group_id(Some(entity)));
         });
 
         // Despawn entities when the entity gets despawned on local world
@@ -324,7 +308,6 @@ pub(crate) mod send {
                 sender.replication_sender.prepare_entity_despawn(
                     entity,
                     replicate_cache.replication_group.group_id(Some(entity)),
-                    arena.get(),
                 );
             }
         }
@@ -338,7 +321,6 @@ pub(crate) mod send {
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
     pub(crate) fn send_component_update<C: Component>(
-        arena: Res<ArenaManager>,
         tick_manager: Res<TickManager>,
         registry: Res<ComponentRegistry>,
         query: Query<
@@ -392,26 +374,30 @@ pub(crate) mod send {
                 if insert || update {
                     let group_id = group.group_id(Some(entity));
                     let component_data = Ptr::from(component.as_ref());
-                    let writer = &mut connection.writer;
+                    let mut writer = Writer::default();
                     if insert {
-                        let raw_data = if delta_compression {
+                        if delta_compression {
                             // SAFETY: the component_data corresponds to the kind
                             unsafe {
                                 registry
-                                    .serialize_diff_from_base_value(component_data, writer, kind)
+                                    .serialize_diff_from_base_value(
+                                        component_data,
+                                        &mut writer,
+                                        kind,
+                                    )
                                     .expect("could not serialize delta")
                             }
                         } else {
                             registry
-                                .erased_serialize(component_data, writer, kind)
+                                .erased_serialize(component_data, &mut writer, kind)
                                 .expect("could not serialize component")
                         };
+                        let raw_data = writer.to_bytes();
                         connection.replication_sender.prepare_component_insert(
                             entity,
                             group_id,
                             raw_data,
                             system_bevy_ticks.this_run(),
-                            arena.get(),
                         );
                     } else {
                         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
@@ -441,15 +427,13 @@ pub(crate) mod send {
                             //     "Updating single component"
                             // );
                             if !delta_compression {
-                                let raw_data = registry
-                                    .erased_serialize(component_data, writer, kind)
+                                registry
+                                    .erased_serialize(component_data, &mut writer, kind)
                                     .expect("could not serialize component");
-                                connection.replication_sender.prepare_component_update(
-                                    entity,
-                                    group_id,
-                                    raw_data,
-                                    arena.get(),
-                                );
+                                let raw_data = writer.to_bytes();
+                                connection
+                                    .replication_sender
+                                    .prepare_component_update(entity, group_id, raw_data);
                             } else {
                                 connection
                                     .replication_sender
@@ -459,10 +443,9 @@ pub(crate) mod send {
                                         kind,
                                         component_data,
                                         &registry,
-                                        writer,
+                                        &mut writer,
                                         &mut connection.delta_manager,
                                         tick,
-                                        arena.get(),
                                     );
                             }
                         }
@@ -474,7 +457,6 @@ pub(crate) mod send {
 
     /// Send component remove
     pub(crate) fn send_component_removed<C: Component>(
-        arena: Res<ArenaManager>,
         registry: Res<ComponentRegistry>,
         // only remove the component for entities that are being actively replicated
         query: Query<
@@ -493,12 +475,9 @@ pub(crate) mod send {
                 }
                 let group_id = group.group_id(Some(entity));
                 trace!(?entity, kind = ?std::any::type_name::<C>(), "Sending RemoveComponent");
-                sender.replication_sender.prepare_component_remove(
-                    entity,
-                    group_id,
-                    kind,
-                    arena.get(),
-                );
+                sender
+                    .replication_sender
+                    .prepare_component_remove(entity, group_id, kind);
             }
         })
     }
@@ -563,8 +542,8 @@ pub(crate) mod send {
 
 pub(crate) mod commands {
     use crate::client::connection::ConnectionManager;
-    use crate::shared::replication::ReplicationSend;
-    use bevy::ecs::system::{Command, EntityCommands};
+
+    use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {

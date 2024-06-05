@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use tracing::trace;
 
-use crate::packet::message::{FragmentData, MessageId, SingleData};
+use crate::packet::message::{FragmentData, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::prelude::Tick;
 use crate::shared::time_manager::WrappedTime;
@@ -135,8 +135,9 @@ mod tests {
         let mut receiver = FragmentReceiver::new();
         let num_bytes = (FRAGMENT_SIZE as f32 * 1.5) as usize;
         let message_bytes = Bytes::from(vec![1u8; num_bytes]);
-        let fragments =
-            FragmentSender::new().build_fragments(MessageId(0), None, message_bytes.clone());
+        let fragments = FragmentSender::new()
+            .build_fragments(MessageId(0), None, message_bytes.clone())
+            .unwrap();
 
         assert_eq!(
             receiver.receive_fragment(fragments[0].clone(), Tick(0), None),

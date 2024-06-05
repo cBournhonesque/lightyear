@@ -14,19 +14,15 @@ use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer,
 };
-use crate::packet::packet_builder::Payload;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::reader::ReadBuffer;
+use crate::packet::packet_builder::RecvPayload;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
-use crate::transport::io::BaseIo;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender};
 
 use super::{
     bytes::Bytes,
     crypto::{self, Key},
     error::{Error, Result},
-    generate_key,
     packet::{
         ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
         RequestPacket, ResponsePacket,
@@ -129,10 +125,7 @@ struct ConnectionCache {
     replay_protection: HashMap<ClientId, ReplayProtection>,
 
     // packet queue for all clients
-    packet_queue: VecDeque<(Payload, ClientId)>,
-
-    // pool of buffers to re-use for decoding packets
-    buffer_pool: BufferPool,
+    packet_queue: VecDeque<(RecvPayload, ClientId)>,
 
     // corresponds to the server time
     time: f64,
@@ -145,7 +138,6 @@ impl ConnectionCache {
             client_id_map: HashMap::with_capacity(MAX_CLIENTS),
             replay_protection: HashMap::with_capacity(MAX_CLIENTS),
             packet_queue: VecDeque::with_capacity(MAX_CLIENTS * 2),
-            buffer_pool: BufferPool::default(),
             time: server_time,
         }
     }
@@ -509,8 +501,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                     // self.conn_cache.buffer_pool.attach(reader);
 
                     // TODO: use a pool of buffers to avoid re-allocation
-                    let mut buf = vec![0u8; packet.buf.len()];
-                    buf.copy_from_slice(packet.buf);
+                    let buf = bytes::Bytes::copy_from_slice(packet.buf);
                     self.conn_cache.packet_queue.push_back((buf, idx));
                 }
                 Ok(())
@@ -873,7 +864,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     ///    }
     ///    # break;
     /// }
-    pub fn recv(&mut self) -> Option<(Payload, ClientId)> {
+    pub fn recv(&mut self) -> Option<(RecvPayload, ClientId)> {
         self.conn_cache.packet_queue.pop_front()
     }
     /// Sends a packet to a client.
@@ -1110,7 +1101,7 @@ pub(crate) mod connection {
             Ok(())
         }
 
-        fn recv(&mut self) -> Option<(Payload, id::ClientId)> {
+        fn recv(&mut self) -> Option<(RecvPayload, id::ClientId)> {
             self.server
                 .recv()
                 .map(|(packet, id)| (packet, id::ClientId::Netcode(id)))

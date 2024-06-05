@@ -10,8 +10,7 @@ use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;
 use crate::connection::client::NetConfig;
-use crate::prelude::server::ServerConfig;
-use crate::shared::config::{Mode, SharedConfig};
+use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
 #[derive(Clone, Reflect)]

@@ -136,10 +136,10 @@ mod tests {
     use crate::client::networking::NetworkingState;
     use crate::connection::server::DeniedReason;
     use crate::prelude::ClientId;
-    use crate::shared::plugin::Identity::Server;
+
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::State;
-    use std::fmt::{Debug, Formatter};
+    use std::fmt::Debug;
     use std::sync::Arc;
 
     #[derive(Debug, Clone)]

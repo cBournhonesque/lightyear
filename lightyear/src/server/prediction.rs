@@ -1,7 +1,7 @@
 //! Handles logic related to prespawning entities
 
 use std::any::TypeId;
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::{Hash, Hasher};
 
 use crate::client::replication::send::ReplicateToServer;
 use bevy::ecs::component::Components;

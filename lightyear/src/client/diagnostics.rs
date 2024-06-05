@@ -1,13 +1,13 @@
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
-use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
-use bevy::ecs::system::Resource;
-use bevy::prelude::*;
+use bevy::app::{App, Plugin, PostUpdate};
+use bevy::diagnostic::Diagnostics;
+use bevy::prelude::{not, Condition, IntoSystemConfigs, Real, Res, ResMut, Time};
 use bevy::time::common_conditions::on_timer;
-use instant::Duration;
+use bevy::utils::Duration;
 
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{is_host_server, SharedConfig};
+use crate::prelude::is_host_server;
 use crate::shared::ping::diagnostics::PingDiagnosticsPlugin;
 use crate::shared::run_conditions::is_disconnected;
 use crate::transport::io::IoDiagnosticsPlugin;

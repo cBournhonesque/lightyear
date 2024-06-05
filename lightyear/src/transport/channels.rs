@@ -7,8 +7,6 @@ use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::info;
 
-use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
-use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::io::IoState;

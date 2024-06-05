@@ -1,14 +1,14 @@
 use bevy::utils::HashMap;
 use byteorder::NetworkEndian;
+use byteorder::ReadBytesExt;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
-use serde::{Deserialize, Serialize};
-use std::io::Seek;
 use tracing::trace;
 
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::packet::PacketStatsManager;
 use crate::prelude::TimeManager;
+use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
@@ -49,9 +49,7 @@ impl ToBytes for PacketHeader {
         Ok(())
     }
 
-    fn from_bytes<T: byteorder::ReadBytesExt + Seek>(
-        buffer: &mut T,
-    ) -> Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
@@ -350,13 +348,6 @@ impl ReceiveBuffer {
 // TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
-    use bitcode::encoding::Fixed;
-    use std::io::Cursor;
-
-    use crate::serialize::bitcode::reader::BitcodeReader;
-    use crate::serialize::bitcode::writer::BitcodeWriter;
-    use crate::serialize::reader::ReadBuffer;
-    use crate::serialize::writer::WriteBuffer;
     use crate::serialize::ToBytes;
 
     use super::*;
@@ -425,7 +416,7 @@ mod tests {
         header.to_bytes(&mut writer)?;
         assert_eq!(writer.len(), header.len());
 
-        let mut reader = Cursor::new(writer);
+        let mut reader = writer.into();
         let read_header = PacketHeader::from_bytes(&mut reader)?;
         assert_eq!(header, read_header);
         Ok(())

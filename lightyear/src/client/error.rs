@@ -1,5 +1,7 @@
 //! Errors that can happen on the client
 
+use crate::serialize::SerializationError;
+
 pub type Result<T> = std::result::Result<T, ClientError>;
 
 #[derive(thiserror::Error, Debug)]
@@ -9,7 +11,7 @@ pub enum ClientError {
     #[error(transparent)]
     Packet(#[from] crate::packet::error::PacketError),
     #[error(transparent)]
-    Bitcode(#[from] bitcode::Error),
+    Serialization(#[from] SerializationError),
     #[error(transparent)]
     MessageProtocolError(#[from] crate::protocol::message::MessageError),
     #[error(transparent)]

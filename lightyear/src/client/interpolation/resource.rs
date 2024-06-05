@@ -1,10 +1,7 @@
 //! Defines bevy resources needed for Interpolation
-use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::ComponentRegistry;
 use crate::protocol::component::ComponentError;
-use bevy::ecs::reflect::ReflectResource;
 use bevy::prelude::Resource;
-use bevy::reflect::Reflect;
 use std::cell::UnsafeCell;
 
 use crate::shared::replication::entity_map::InterpolatedEntityMap;

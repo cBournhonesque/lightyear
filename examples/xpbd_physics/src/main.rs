@@ -21,26 +21,26 @@ fn main() {
     let settings = read_settings::<MySettings>(settings_str);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    Apps::new(settings.common, cli)
-        // for this example, we will use input delay and a correction function
-        .update_lightyear_client_config(|config| {
-            config.prediction.input_delay_ticks = settings.input_delay_ticks;
-            config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
-        })
-        // add `ClientPlugins` and `ServerPlugins` plugin groups
-        .add_lightyear_plugins()
-        // add our plugins
-        .add_user_plugins(
-            ExampleClientPlugin,
-            ExampleServerPlugin {
-                predict_all: settings.predict_all,
-            },
-            SharedPlugin {
-                show_confirmed: settings.show_confirmed,
-            },
-        )
-        // run the app
-        .run();
+    let mut apps = Apps::new(settings.common, cli);
+    // for this example, we will use input delay and a correction function
+    apps.update_lightyear_client_config(|config| {
+        config.prediction.input_delay_ticks = settings.input_delay_ticks;
+        config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
+    })
+    // add `ClientPlugins` and `ServerPlugins` plugin groups
+    .add_lightyear_plugins()
+    // add our plugins
+    .add_user_plugins(
+        ExampleClientPlugin,
+        ExampleServerPlugin {
+            predict_all: settings.predict_all,
+        },
+        SharedPlugin {
+            show_confirmed: settings.show_confirmed,
+        },
+    );
+    // run the app
+    apps.run();
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -1,4 +1,5 @@
 //! The transport layer is responsible for sending and receiving raw byte arrays packets through the network.
+#![allow(unused_imports)]
 
 use std::net::SocketAddr;
 
@@ -11,9 +12,8 @@ use crate::client::io::transport::ClientTransportEnum;
 use crate::server::io::transport::ServerTransportEnum;
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
-use crate::transport::io::IoState;
-use crate::transport::local::{LocalChannel, LocalChannelBuilder};
-use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
+use crate::transport::local::LocalChannel;
+use crate::transport::udp::UdpSocket;
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]

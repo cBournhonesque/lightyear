@@ -1,23 +1,18 @@
 //! Logic related to delta compression (sending only the changes between two states, instead of the new state)
 
-use crate::client::components::SyncComponent;
 use crate::prelude::{ComponentRegistry, Message, Tick};
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::ReplicationGroupId;
-use crate::utils::ready_buffer::ReadyBuffer;
-use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
 use bevy::utils::HashMap;
-use bitcode::{Decode, Encode};
-use hashbrown::hash_map::Entry;
+
 use serde::{Deserialize, Serialize};
-use std::any::Any;
 use std::collections::BTreeMap;
 use std::ptr::NonNull;
 
-#[derive(Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {
     /// This delta is computed from a previous value
     Normal {
@@ -31,10 +26,9 @@ pub enum DeltaType {
 /// A message that contains a delta between two states (for serializing delta compression)
 // Need repr(C) to be able to cast the pointer to a u8 pointer
 #[repr(C)]
-#[derive(Encode, Decode, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DeltaMessage<M> {
     pub(crate) delta_type: DeltaType,
-    #[bitcode(with_serde)]
     pub(crate) delta: M,
 }
 

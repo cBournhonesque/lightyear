@@ -1,4 +1,3 @@
-use std::io::Seek;
 use std::{
     io::{self, Read, Write},
     mem::size_of,

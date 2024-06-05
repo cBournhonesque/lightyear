@@ -43,9 +43,9 @@ You will have to define your protocol in a shared module that is accessible to b
 since the protocol must be shared between them.
 
 There are several steps:
-- [Adding messages](MessageRegistry#adding-messages)
-- [Adding components](ComponentRegistry#adding-components)
-- [Adding channels](ChannelRegistry#adding-channels)
+- [Adding messages](prelude::MessageRegistry#adding-messages)
+- [Adding components](prelude::ComponentRegistry#adding-components)
+- [Adding channels](prelude::ChannelRegistry#adding-channels)
 - [Adding leafwing inputs](client::input::leafwing#adding-leafwing-inputs) or [Adding inputs](client::input::native#adding-a-new-input-type)
 
 ## Using lightyear
@@ -158,9 +158,13 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 }
 ```
 
+[`Replicated`]: prelude::Replicated
+[`ReplicationTarget`]: prelude::ReplicationTarget
+[`Replicating`]: prelude::Replicating
+[`SharedConfig`]: prelude::SharedConfig
  */
-#![allow(unused_imports)]
 #![allow(unused_variables)]
+#![allow(clippy::too_many_arguments)]
 #![allow(dead_code)]
 #![allow(clippy::type_complexity)]
 #![allow(rustdoc::private_intra_doc_links)]
@@ -295,8 +299,6 @@ pub mod prelude {
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     pub use crate::connection::steam::steamworks_client::SteamworksClient;
 }
-
-use prelude::*;
 
 pub mod channel;
 

@@ -45,7 +45,7 @@ use std::marker::PhantomData;
 use std::ops::DerefMut;
 
 use bevy::prelude::*;
-use bevy::utils::{HashMap, HashSet};
+use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use tracing::{error, trace};
@@ -56,21 +56,18 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::client::sync::{client_is_synced, SyncSet};
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::server::MessageEvent;
-use crate::prelude::{
-    is_host_server, MessageRegistry, Mode, NetworkTarget, SharedConfig, ShouldBePredicted, Tick,
-    TickManager,
-};
+use crate::prelude::{is_host_server, MessageRegistry, TickManager};
 use crate::protocol::message::MessageKind;
+use crate::serialize::reader::Reader;
 use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::{ClientMarker, FixedUpdateSet, InternalMainSet};
+use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
 /// Run condition to control most of the systems in the LeafwingInputPlugin
@@ -1037,7 +1034,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
 
     if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
         for message_bytes in message_list {
-            let mut reader = connection.reader_pool.start_read(&message_bytes);
+            let mut reader = Reader::from(message_bytes);
             match message_registry.deserialize::<InputMessage<A>>(
                 &mut reader,
                 &mut connection
@@ -1090,14 +1087,12 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                     error!(?e, "could not deserialize leafwing input message");
                 }
             }
-            connection.reader_pool.attach(reader);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bevy::asset::AsyncReadExt;
     use bevy::input::InputPlugin;
     use bevy::prelude::*;
     use bevy::utils::Duration;
@@ -1111,8 +1106,6 @@ mod tests {
     use crate::prelude::{client, LinkConditionerConfig, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-
-    use super::*;
 
     fn setup() -> (BevyStepper, Entity, Entity) {
         let frame_duration = Duration::from_millis(10);

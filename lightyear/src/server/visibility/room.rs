@@ -40,44 +40,27 @@ it just caches the room metadata to keep track of the visibility of entities.
 use bevy::app::App;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{
-    DetectChanges, Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate,
-    Query, RemovedComponents, Res, ResMut, Resource, SystemSet,
+    Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate,
+    RemovedComponents, ResMut, Resource, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
-use bitcode::{Decode, Encode};
+
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, trace};
+use tracing::trace;
 
 use crate::connection::id::ClientId;
 use crate::prelude::is_started;
-use crate::server::connection::ConnectionManager;
 
 use crate::server::visibility::immediate::{VisibilityManager, VisibilitySet};
 use crate::shared::replication::components::DespawnTracker;
-use crate::shared::replication::ReplicationSend;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
-use crate::shared::time_manager::is_server_ready_to_send;
-use crate::utils::wrapping_id::wrapping_id;
+use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 /// Id for a [`Room`], which is used to perform interest management.
-#[derive(
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    PartialEq,
-    Default,
-    Reflect,
-)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect)]
 pub struct RoomId(pub u64);
 
 impl From<Entity> for RoomId {

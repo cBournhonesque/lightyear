@@ -1,16 +1,10 @@
 use std::collections::{HashMap, VecDeque};
-use std::io::Cursor;
 
-use bevy::ptr::UnsafeCellDeref;
-use bevy::reflect::Reflect;
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
-use tracing::{error, info, trace};
+use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
-
-use bitcode::buffer::BufferTrait;
-use bitcode::word_buffer::WordBuffer;
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -22,22 +16,21 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::{
     FragmentData, MessageAck, MessageId, ReceiveMessage, SendMessage, SingleData,
 };
-use crate::packet::packet::{Packet, PacketId, MTU_PAYLOAD_BYTES};
-use crate::packet::packet_builder::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet::PacketId;
+use crate::packet::packet_builder::{PacketBuilder, Payload, RecvPayload};
 use crate::packet::packet_type::PacketType;
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
-use crate::prelude::Channel;
 use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::reader::ReadBuffer;
+use crate::serialize::reader::Reader;
 use crate::serialize::varint::VarIntReadExt;
-use crate::serialize::{RawData, ToBytes};
+use crate::serialize::ToBytes;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
+#[cfg(test)]
+use crate::utils::captures::Captures;
 
 // TODO: hard to split message manager into send/receive because the acks need both the send side and receive side
 //  maybe have a separate actor for acks?
@@ -124,7 +117,7 @@ impl MessageManager {
     /// Returns the message id associated with the message, if there is one
     pub fn buffer_send(
         &mut self,
-        message: Vec<u8>,
+        message: Bytes,
         channel_kind: ChannelKind,
     ) -> Result<Option<MessageId>, PacketError> {
         self.buffer_send_with_priority(message, channel_kind, DEFAULT_MESSAGE_PRIORITY)
@@ -144,7 +137,7 @@ impl MessageManager {
     /// Returns the message id associated with the message, if there is one
     pub fn buffer_send_with_priority(
         &mut self,
-        message: RawData,
+        message: Bytes,
         channel_kind: ChannelKind,
         priority: f32,
     ) -> Result<Option<MessageId>, PacketError> {
@@ -152,7 +145,7 @@ impl MessageManager {
             .channels
             .get_mut(&channel_kind)
             .ok_or(PacketError::ChannelNotFound)?;
-        Ok(channel.sender.buffer_send(message.into(), priority))
+        Ok(channel.sender.buffer_send(message, priority)?)
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
@@ -174,6 +167,7 @@ impl MessageManager {
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
                 let (single_data, fragment_data) = channel.sender.send_packet();
+
                 if !single_data.is_empty() || !fragment_data.is_empty() {
                     trace!(?channel_id, "send message with channel_id");
                     has_data_to_send = true;
@@ -277,13 +271,13 @@ impl MessageManager {
     /// Update the acks, and put the messages from the packets in internal buffers
     /// Returns the tick of the packet
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn recv_packet(&mut self, packet: Payload) -> Result<Tick, PacketError> {
-        let mut cursor = Cursor::new(&packet);
+    pub fn recv_packet(&mut self, packet: RecvPayload) -> Result<Tick, PacketError> {
+        trace!(?packet, "Received packet");
+        let mut cursor = Reader::from(packet);
 
         // Step 1. Parse the packet
         let header = PacketHeader::from_bytes(&mut cursor)?;
         let tick = header.tick;
-        trace!(?packet, "Received packet");
 
         // TODO: if it's fragmented, put it in a buffer? while we wait for all the parts to be ready?
         //  maybe the channel can handle the fragmentation?
@@ -359,21 +353,36 @@ impl MessageManager {
     ///
     /// EDIT: Actually, prioritization discards messages that are not sent, so maybe it is guaranteed that the tick
     /// is the remote send tick.
-    // TODO: avoid allocating this temporary map!
+    ///
+    /// Right now we cannot use this because we need to call a while loop inside the iterator...
+    /// We could have the read_message() return a Box<dyn Iterator>, but let's just copy-paste the code right now.
+    #[cfg(test)]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
+    pub(crate) fn read_messages(
+        &mut self,
+    ) -> impl Iterator<Item = (ChannelKind, (Tick, bytes::Bytes))> + Captures<&()> {
+        self.channels
+            .iter_mut()
+            .flat_map(move |(channel_kind, channel)| {
+                // TODO: this is broken, we need to call a read_message in a while loop !
+                channel.receiver.read_message().map(move |(tick, bytes)| {
+                    trace!(?channel_kind, "reading message: {:?}", bytes);
+                    // SAFETY: when we receive the message, we set the tick of the message to the header tick
+                    // so every message has a tick
+                    (*channel_kind, (tick, bytes))
+                })
+            })
+    }
+
+    #[cfg(test)]
+    pub fn collect_messages(
+        messages: impl Iterator<Item = (ChannelKind, (Tick, bytes::Bytes))>,
+    ) -> HashMap<ChannelKind, Vec<(Tick, bytes::Bytes)>> {
         let mut map = HashMap::new();
-        for (channel_kind, channel) in self.channels.iter_mut() {
-            let mut messages = vec![];
-            while let Some((tick, bytes)) = channel.receiver.read_message() {
-                trace!(?channel_kind, "reading message: {:?}", bytes);
-                // SAFETY: when we receive the message, we set the tick of the message to the header tick
-                // so every message has a tick
-                messages.push((tick, bytes));
-            }
-            if !messages.is_empty() {
-                map.insert(*channel_kind, messages);
-            }
+        for (channel_kind, (tick, bytes)) in messages {
+            map.entry(channel_kind)
+                .or_insert_with(Vec::new)
+                .push((tick, bytes));
         }
         map
     }
@@ -393,7 +402,7 @@ impl MessageManager {
 
     /// Get the ChannelSendStats of a given channel
     #[cfg(feature = "trace")]
-    pub fn channel_send_stats<C: Channel>(&self) -> Option<&ChannelSendStats> {
+    pub fn channel_send_stats<C: crate::prelude::Channel>(&self) -> Option<&ChannelSendStats> {
         self.channels
             .get(&ChannelKind::of::<C>())
             .map(|channel| &channel.sender_stats)
@@ -407,13 +416,12 @@ mod tests {
     use std::collections::HashMap;
 
     use bevy::prelude::default;
-    use bevy::utils::HashSet;
 
     use crate::packet::message::MessageId;
     use crate::packet::packet::FRAGMENT_SIZE;
     use crate::packet::priority_manager::PriorityConfig;
     use crate::prelude::*;
-    use crate::serialize::bitcode::reader::BitcodeReader;
+
     use crate::tests::protocol::*;
 
     use super::*;
@@ -447,7 +455,7 @@ mod tests {
         let (mut client_message_manager, mut server_message_manager) = setup();
 
         // client: buffer send messages, and then send
-        let message = vec![0, 1];
+        let message: Bytes = vec![0, 1].into();
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -469,20 +477,23 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
-            server_message_manager.recv_packet(payload)?;
+            server_message_manager.recv_packet(payload.into())?;
         }
-        let mut data = server_message_manager.read_messages();
+        let it = server_message_manager.read_messages();
+        let data = MessageManager::collect_messages(it);
+
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
-            &vec![(Tick(0), message.clone().into())]
+            &vec![(Tick(0), message.clone())]
         );
         assert_eq!(
             data.get(&channel_kind_2).unwrap(),
-            &vec![(Tick(0), message.clone().into())]
+            &vec![(Tick(0), message.clone())]
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io
-        data = server_message_manager.read_messages();
+        let it = server_message_manager.read_messages();
+        let data = MessageManager::collect_messages(it);
         assert!(data.is_empty());
 
         // Check the state of the packet headers
@@ -505,7 +516,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for payload in payloads {
-            client_message_manager.recv_packet(payload)?;
+            client_message_manager.recv_packet(payload.into())?;
         }
 
         // Check that reliability works correctly
@@ -524,7 +535,7 @@ mod tests {
         // client: buffer send messages, and then send
         const MESSAGE_SIZE: usize = (1.5 * FRAGMENT_SIZE as f32) as usize;
 
-        let message = [0; MESSAGE_SIZE].to_vec();
+        let message = Bytes::copy_from_slice(&[0; MESSAGE_SIZE]);
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -559,20 +570,22 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
-            server_message_manager.recv_packet(payload)?;
+            server_message_manager.recv_packet(payload.into())?;
         }
-        let mut data = server_message_manager.read_messages();
+        let it = server_message_manager.read_messages();
+        let data = MessageManager::collect_messages(it);
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
-            &vec![(Tick(0), message.clone().into())]
+            &vec![(Tick(0), message.clone())]
         );
         assert_eq!(
             data.get(&channel_kind_2).unwrap(),
-            &vec![(Tick(0), message.clone().into())]
+            &vec![(Tick(0), message.clone())]
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io
-        data = server_message_manager.read_messages();
+        let it = server_message_manager.read_messages();
+        let data = MessageManager::collect_messages(it);
         assert!(data.is_empty());
 
         // Check the state of the packet headers
@@ -592,12 +605,12 @@ mod tests {
         }
 
         // Server sends back a message
-        server_message_manager.buffer_send(vec![1], channel_kind_1)?;
+        server_message_manager.buffer_send(vec![1].into(), channel_kind_1)?;
         let payloads = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for payload in payloads {
-            client_message_manager.recv_packet(payload)?;
+            client_message_manager.recv_packet(payload.into())?;
         }
 
         // Check that reliability works correctly
@@ -620,7 +633,7 @@ mod tests {
             .subscribe_acks();
 
         let message_id = client_message_manager
-            .buffer_send(vec![0], Channel2::kind())?
+            .buffer_send(vec![0].into(), Channel2::kind())?
             .unwrap();
         assert_eq!(message_id, MessageId(0));
         let payloads = client_message_manager.send_packets(Tick(0))?;
@@ -640,16 +653,16 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for payload in payloads {
-            server_message_manager.recv_packet(payload)?;
+            server_message_manager.recv_packet(payload.into())?;
         }
 
         // Server sends back a message (to ack the message)
-        server_message_manager.buffer_send(vec![1], Channel2::kind())?;
+        server_message_manager.buffer_send(vec![1].into(), Channel2::kind())?;
         let payloads = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for payload in payloads {
-            client_message_manager.recv_packet(payload)?;
+            client_message_manager.recv_packet(payload.into())?;
         }
 
         assert_eq!(update_acks_tracker.try_recv().unwrap(), message_id);

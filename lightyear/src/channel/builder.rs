@@ -1,6 +1,4 @@
 //! This module contains the [`Channel`] trait
-use bevy::prelude::TypePath;
-use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 
 use lightyear_macros::ChannelInternal;
@@ -229,6 +227,11 @@ pub struct EntityUpdatesChannel;
 /// there is no point in getting older pings.
 #[derive(ChannelInternal)]
 pub struct PingChannel;
+
+/// Default channel to send pongs. This is a Sequenced Unreliable channel, because
+/// there is no point in getting older pongs.
+#[derive(ChannelInternal)]
+pub struct PongChannel;
 
 #[derive(ChannelInternal)]
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.

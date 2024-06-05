@@ -3,30 +3,26 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHashMap;
-use bevy::prelude::{Component, Entity, Resource};
-use bevy::reflect::Map;
-use bevy::utils::HashSet;
-use serde::{Deserialize, Serialize};
+use bevy::prelude::{Entity, Resource};
+use blink_alloc::SyncBlinkAlloc;
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use bytes::Bytes;
 
-use bitcode::{Decode, Encode};
-use network_target::NetworkTarget;
-
-use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{ReplicationGroup, Tick};
-use crate::protocol::component::{ComponentNetId, ComponentRegistry};
-use crate::protocol::registry::NetId;
+use crate::prelude::Tick;
+use crate::protocol::component::ComponentNetId;
 use crate::protocol::EventContext;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::reader::Reader;
+use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
+use crate::serialize::writer::Writer;
+use crate::serialize::{SerializationError, ToBytes};
+use crate::shared::arena::ArenaVec;
 use crate::shared::events::connection::{
     ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
-use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
+use crate::shared::replication::components::ReplicationGroupId;
 
 pub mod components;
 
@@ -40,73 +36,194 @@ pub(crate) mod resources;
 pub(crate) mod send;
 pub(crate) mod systems;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+/// Serialize Entity as two varints for the index and generation (because they will probably be low).
+/// Revisit this when relations comes out
+///
+/// TODO: optimize for the case where generation == 1, which should be most cases
+impl ToBytes for Entity {
+    fn len(&self) -> usize {
+        varint_len(self.index() as u64) + varint_len(self.generation() as u64)
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_varint(self.index() as u64)?;
+        buffer.write_varint(self.generation() as u64)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let index = buffer.read_varint()?;
+        let generation = buffer.read_varint()?;
+        let bits = generation << 32 | index;
+        Ok(Entity::from_bits(bits))
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct EntityActions {
     pub(crate) spawn: SpawnAction,
     // TODO: maybe do HashMap<NetId, RawData>? for example for ShouldReuseTarget
-    pub(crate) insert: Vec<RawData>,
-    #[bitcode(with_serde)]
-    // TODO: use a ComponentNetId instead of NetId?
-    pub(crate) remove: HashSet<NetId>,
-    pub(crate) updates: Vec<RawData>,
+    pub(crate) insert: ArenaVec<Bytes>,
+    pub(crate) remove: ArenaVec<ComponentNetId>,
+    pub(crate) updates: ArenaVec<Bytes>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+impl EntityActions {
+    pub fn new_in(allocator: &'static SyncBlinkAlloc) -> Self {
+        Self {
+            spawn: SpawnAction::None,
+            insert: ArenaVec::new_in(allocator),
+            remove: ArenaVec::new_in(allocator),
+            updates: ArenaVec::new_in(allocator),
+        }
+    }
+}
+
+impl ToBytes for EntityActions {
+    fn len(&self) -> usize {
+        self.spawn.len() + self.insert.len() + self.remove.len() + self.updates.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.spawn.to_bytes(buffer)?;
+        self.insert.to_bytes(buffer)?;
+        self.remove.to_bytes(buffer)?;
+        self.updates.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            spawn: SpawnAction::from_bytes(buffer)?,
+            insert: ArenaVec::from_bytes(buffer)?,
+            remove: ArenaVec::from_bytes(buffer)?,
+            updates: ArenaVec::from_bytes(buffer)?,
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) enum SpawnAction {
     None,
     Spawn,
     Despawn,
     // the u64 is the entity's bits (we cannot use Entity directly because it doesn't implement Encode/Decode)
-    Reuse(u64),
+    Reuse(Entity),
 }
 
-impl Default for EntityActions {
-    fn default() -> Self {
-        Self {
-            spawn: SpawnAction::None,
-            insert: Vec::new(),
-            remove: HashSet::new(),
-            updates: Vec::new(),
+impl ToBytes for SpawnAction {
+    fn len(&self) -> usize {
+        match &self {
+            SpawnAction::None => 1,
+            SpawnAction::Spawn => 1,
+            SpawnAction::Despawn => 1,
+            SpawnAction::Reuse(entity) => 1 + entity.len(),
+        }
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        match &self {
+            SpawnAction::None => buffer.write_u8(0)?,
+            SpawnAction::Spawn => buffer.write_u8(1)?,
+            SpawnAction::Despawn => buffer.write_u8(2)?,
+            SpawnAction::Reuse(entity) => {
+                buffer.write_u8(3)?;
+                entity.to_bytes(buffer)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        match buffer.read_u8()? {
+            0 => Ok(SpawnAction::None),
+            1 => Ok(SpawnAction::Spawn),
+            2 => Ok(SpawnAction::Despawn),
+            3 => Ok(SpawnAction::Reuse(Entity::from_bytes(buffer)?)),
+            _ => Err(SerializationError::InvalidPacketType),
         }
     }
 }
 
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub struct EntityActionMessage {
+/// All the entity actions (Spawn/despawn/inserts/removals) for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
+#[derive(Clone, PartialEq, Debug)]
+pub struct EntityActionsMessage {
     sequence_id: MessageId,
-    #[bitcode(with_serde)]
+    group_id: ReplicationGroupId,
+    // TODO: for better compression, we should use columnar storage
     // we use vec but the order of entities should not matter
     pub(crate) actions: Vec<(Entity, EntityActions)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+impl ToBytes for EntityActionsMessage {
+    fn len(&self) -> usize {
+        self.sequence_id.len() + self.group_id.len() + self.actions.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.sequence_id.to_bytes(buffer)?;
+        self.group_id.to_bytes(buffer)?;
+        self.actions.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError> {
+        Ok(Self {
+            sequence_id: MessageId::from_bytes(buffer)?,
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            actions: Vec::<(Entity, EntityActions)>::from_bytes(buffer)?,
+        })
+    }
+}
+
+/// All the component updates for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
+#[derive(Clone, PartialEq, Debug)]
 pub struct EntityUpdatesMessage {
+    pub(crate) group_id: ReplicationGroupId,
     /// The last tick for which we sent an EntityActionsMessage for this group
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
     /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
     last_action_tick: Option<Tick>,
     /// Updates containing the full component data
-    #[bitcode(with_serde)]
-    pub(crate) updates: Vec<(Entity, Vec<RawData>)>,
+    pub(crate) updates: Vec<(Entity, ArenaVec<Bytes>)>,
     // /// Updates containing diffs with a previous value
     // #[bitcode(with_serde)]
     // diff_updates: Vec<(Entity, Vec<RawData>)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub enum ReplicationMessageData {
-    /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
-    Actions(EntityActionMessage),
-    /// All the entity updates for a given group
-    Updates(EntityUpdatesMessage),
-}
+impl ToBytes for EntityUpdatesMessage {
+    fn len(&self) -> usize {
+        self.group_id.len() + self.last_action_tick.len() + self.updates.len()
+    }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub struct ReplicationMessage {
-    pub(crate) group_id: ReplicationGroupId,
-    pub(crate) data: ReplicationMessageData,
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.group_id.to_bytes(buffer)?;
+        self.last_action_tick.to_bytes(buffer)?;
+        self.updates.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            last_action_tick: Option::<Tick>::from_bytes(buffer)?,
+            updates: Vec::<(Entity, ArenaVec<Bytes>)>::from_bytes(buffer)?,
+        })
+    }
 }
 
 /// Trait for a service that participates in replication.
@@ -144,7 +261,7 @@ pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
 pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     type Error: std::error::Error;
     type ReplicateCache;
-    fn writer(&mut self) -> &mut BitcodeWriter;
+    fn writer(&mut self) -> &mut Writer;
 
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)

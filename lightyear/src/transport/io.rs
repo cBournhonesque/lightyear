@@ -1,22 +1,16 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
-use async_channel::Receiver;
 use std::fmt::{Debug, Formatter};
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
 use bevy::prelude::*;
 #[cfg(feature = "metrics")]
 use metrics;
-use tracing::info;
 
-use crate::transport::middleware::conditioner::{
-    ConditionedPacketReceiver, LinkConditioner, LinkConditionerConfig, PacketLinkConditioner,
-};
-use crate::transport::middleware::PacketReceiverWrapper;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender};
 
-use super::error::{Error, Result};
+use super::error::Result;
 use super::{BoxedReceiver, BoxedSender};
 
 /// Connected io layer that can send/receive bytes

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::server::ControlledBy;
-use crate::prelude::{Replicated, Replicating, ReplicationGroup, VisibilityMode};
+use crate::prelude::{Replicating, ReplicationGroup, VisibilityMode};
 use crate::server::replication::send::SyncTarget;
 use crate::shared::replication::components::{ReplicateHierarchy, ReplicationTarget};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};

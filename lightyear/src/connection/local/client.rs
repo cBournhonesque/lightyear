@@ -1,7 +1,6 @@
 use crate::client::io::Io;
-use crate::client::networking::NetworkingState;
 use crate::connection::client::{ConnectionError, ConnectionState, NetClient};
-use crate::packet::packet_builder::Payload;
+use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::ClientId;
 use crate::transport::LOCAL_SOCKET;
 use std::net::SocketAddr;
@@ -44,7 +43,7 @@ impl NetClient for Client {
         Ok(())
     }
 
-    fn recv(&mut self) -> Option<Payload> {
+    fn recv(&mut self) -> Option<RecvPayload> {
         None
     }
 

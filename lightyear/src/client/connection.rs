@@ -1,50 +1,43 @@
 //! Specify how a Client sends/receives messages with a Server
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::{EntityHashMap, MapEntities};
-use bevy::prelude::{Component, Entity, Local, Mut, Resource, World};
-use bevy::reflect::Reflect;
+use bevy::ecs::entity::EntityHashMap;
+use bevy::prelude::{Mut, Resource, World};
 use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
-use serde::Serialize;
-use tracing::{debug, error, info, trace, trace_span, warn};
+use tracing::{debug, trace, trace_span};
 
-use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
-use bitcode::encoding::Fixed;
+use crate::channel::builder::{
+    EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel,
+};
 
+use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::client::config::{PacketConfig, ReplicationConfig};
 use crate::client::error::ClientError;
 use crate::client::message::ClientMessage;
 use crate::client::replication::send::ReplicateCache;
 use crate::client::sync::SyncConfig;
-use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::packet::Packet;
-use crate::packet::packet_builder::{Payload, PACKET_BUFFER_CAPACITY};
-use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationGroup, TargetEntity};
+use crate::packet::packet_builder::{Payload, RecvPayload, PACKET_BUFFER_CAPACITY};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message};
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::{ComponentNetId, ComponentRegistry};
+use crate::protocol::component::ComponentRegistry;
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
-use crate::server::message::ServerMessage;
+use crate::serialize::reader::Reader;
+use crate::serialize::writer::Writer;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
-use crate::shared::ping::message::{Ping, Pong, SyncMessage};
-use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
+use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::{ReplicationMessage, ReplicationSend};
-use crate::shared::replication::{ReplicationMessageData, ReplicationPeer, ReplicationReceive};
-use crate::shared::sets::{ClientMarker, ServerMarker};
+use crate::shared::replication::{EntityActionsMessage, EntityUpdatesMessage, ReplicationSend};
+use crate::shared::replication::{ReplicationPeer, ReplicationReceive};
+use crate::shared::sets::ClientMarker;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -90,8 +83,7 @@ pub struct ConnectionManager {
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
-    pub(crate) writer: BitcodeWriter,
-    pub(crate) reader_pool: BufferPool,
+    pub(crate) writer: Writer,
     // TODO: maybe don't do any replication until connection is synced?
 }
 
@@ -147,14 +139,12 @@ impl ConnectionManager {
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
             received_messages: HashMap::default(),
-            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
-            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
-            reader_pool: BufferPool::new(1),
+            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
         }
     }
 
     #[doc(hidden)]
-    /// Whether or not the connection is synced with the server
+    /// Returns true if the connection is synced with the server
     pub fn is_synced(&self) -> bool {
         self.sync_manager.is_synced()
     }
@@ -187,20 +177,20 @@ impl ConnectionManager {
 
     fn send_ping(&mut self, ping: Ping) -> Result<(), ClientError> {
         trace!("Sending ping {:?}", ping);
-        self.writer.start_write();
-        ClientMessage::Ping(ping).encode(&mut self.writer)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(ping.len());
+        ping.to_bytes(&mut writer)?;
+        let message_bytes = writer.to_bytes();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
         Ok(())
     }
 
     fn send_pong(&mut self, pong: Pong) -> Result<(), ClientError> {
-        self.writer.start_write();
-        ClientMessage::Pong(pong).encode(&mut self.writer)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        let mut writer = Writer::with_capacity(pong.len());
+        pong.to_bytes(&mut writer)?;
+        let message_bytes = writer.to_bytes();
         self.message_manager
-            .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
+            .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
     }
 
@@ -224,13 +214,17 @@ impl ConnectionManager {
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
-        let message_bytes = self.message_registry.serialize(message, &mut self.writer)?;
+        // TODO: can we avoid allocating here, but instead re-use an existing buffer? i.e
+        //  fetch the buffer from a pool of writers. It comes back to the pool when the message is sent.
+        let mut writer = Writer::default();
+        self.message_registry.serialize(message, &mut writer)?;
+        let message_bytes = writer.to_bytes();
         self.buffer_message(message_bytes, channel_kind, target)
     }
 
     pub(crate) fn buffer_message(
         &mut self,
-        message: RawData,
+        message: Bytes,
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
@@ -240,11 +234,12 @@ impl ConnectionManager {
             .channel_registry
             .name(&channel)
             .ok_or::<ClientError>(MessageError::NotRegistered.into())?;
-        let message = ClientMessage::Message(message, target);
-        self.writer.start_write();
-        message.encode(&mut self.writer)?;
-        // TODO: doesn't this serialize the bytes twice?
-        let message_bytes = self.writer.finish_write().to_vec();
+        let message = ClientMessage { message, target };
+        // TODO: WE ARE ALLOCATING A SECOND TIME HERE, AVOID!
+        let mut writer = Writer::default();
+        message.to_bytes(&mut writer)?;
+        // TODO: doesn't this serialize the bytes twice? fix this..
+        let message_bytes = writer.to_bytes();
         // message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message_bytes, channel)?;
         Ok(())
@@ -264,40 +259,19 @@ impl ConnectionManager {
         //     return Ok(());
         // }
 
-        self.replication_sender
-            .finalize(tick, bevy_tick)
-            .into_iter()
-            .try_for_each(|(channel, group_id, message_data, priority)| {
-                let should_track_ack = matches!(message_data, ReplicationMessageData::Updates(_));
-                let channel_name = self
-                    .message_manager
-                    .channel_registry
-                    .name(&channel)
-                    .unwrap_or("unknown")
-                    .to_string();
-                let message = ClientMessage::Replication(ReplicationMessage {
-                    group_id,
-                    data: message_data,
-                });
-                self.writer.start_write();
-                message.encode(&mut self.writer)?;
-                // TODO: doesn't this serialize the bytes twice?
-                let message_bytes = self.writer.finish_write().to_vec();
-                trace!("Sending replication message: {:?}", message);
-                // message.emit_send_logs(&channel_name);
-                let message_id = self
-                    .message_manager
-                    .buffer_send_with_priority(message_bytes, channel, priority)?
-                    .expect("The EntityUpdatesChannel should always return a message_id");
-
-                // TODO: if should_track_ack OR bandwidth_cap is enabled
-                // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
-                if should_track_ack {
-                    self.replication_sender
-                        .buffer_replication_update_message(group_id, message_id, bevy_tick, tick);
-                }
-                Ok(())
-            })
+        self.replication_sender.send_actions_messages(
+            tick,
+            bevy_tick,
+            &mut self.writer,
+            &mut self.message_manager,
+        )?;
+        self.replication_sender.send_updates_messages(
+            tick,
+            bevy_tick,
+            &mut self.writer,
+            &mut self.message_manager,
+        )?;
+        Ok(())
     }
 
     /// Send packets that are ready to be sent
@@ -344,123 +318,100 @@ impl ConnectionManager {
         world: &mut World,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) {
+    ) -> Result<(), ClientError> {
         let _span = trace_span!("receive").entered();
         let message_registry = world.resource::<MessageRegistry>();
-        for (channel_kind, messages) in self.message_manager.read_messages() {
-            let channel_name = self
-                .message_manager
-                .channel_registry
-                .name(&channel_kind)
-                .unwrap_or("unknown");
-            let _span_channel = trace_span!("channel", channel = channel_name).entered();
+        self.message_manager
+            .channels
+            .iter_mut()
+            .try_for_each(|(channel_kind, channel)| {
+                while let Some((tick, single_data)) = channel.receiver.read_message() {
+                    // let channel_name = self
+                    //     .message_manager
+                    //     .channel_registry
+                    //     .name(&channel_kind)
+                    //     .unwrap_or("unknown");
+                    // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
-            if !messages.is_empty() {
-                trace!(?channel_name, "Received messages");
-                for (tick, single_data) in messages.into_iter() {
-                    // TODO: in this case, it looks like we might not need the pool?
-                    //  we can just have a single buffer, and keep re-using that buffer
-                    trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
-                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
-                    // TODO: maybe just decode a single bit to know if it's message vs replication?
-                    let message = ServerMessage::decode(&mut reader)
-                        .expect("Could not decode server message");
-                    // other message-handling logic
-                    match message {
-                        ServerMessage::Message(message) => {
-                            // reset the reader to read the inner bytes
-                            reader.reset_read(message.as_ref());
-                            let net_id = reader
-                                .decode::<NetId>(Fixed)
-                                .expect("could not decode MessageKind");
-                            match message_registry.message_type(net_id) {
-                                #[cfg(feature = "leafwing")]
-                                MessageType::LeafwingInput => {
-                                    self.received_leafwing_input_messages
-                                        .entry(net_id)
-                                        .or_default()
-                                        .push(message.into());
-                                }
-                                MessageType::NativeInput => {
-                                    todo!()
-                                }
-                                MessageType::Normal => {
-                                    self.received_messages
-                                        .entry(net_id)
-                                        .or_default()
-                                        .push(message.into());
-                                }
+                    trace!(?channel_kind, ?tick, ?single_data, "Received message");
+                    let mut reader = Reader::from(single_data);
+                    if *channel_kind == ChannelKind::of::<PingChannel>() {
+                        let ping = Ping::from_bytes(&mut reader)?;
+                        // prepare a pong in response (but do not send yet, because we need
+                        // to set the correct send time)
+                        self.ping_manager
+                            .buffer_pending_pong(&ping, time_manager.current_time());
+                    } else if *channel_kind == ChannelKind::of::<PongChannel>() {
+                        let pong = Pong::from_bytes(&mut reader)?;
+                        // process the pong
+                        self.ping_manager
+                            .process_pong(&pong, time_manager.current_time());
+                        // TODO: a bit dangerous because we want:
+                        // - real time when computing RTT
+                        // - virtual time when computing the generation
+                        // - maybe we should just send both in Pong message?
+                        // update the tick generation from the time + tick information
+                        self.sync_manager.server_pong_tick = tick;
+                        self.sync_manager.server_pong_generation = pong
+                            .pong_sent_time
+                            .tick_generation(tick_manager.config.tick_duration, tick);
+                        trace!(
+                            ?tick,
+                            generation = ?self.sync_manager.server_pong_generation,
+                            time = ?pong.pong_sent_time,
+                            "Updated server pong generation"
+                        )
+                    } else if *channel_kind == ChannelKind::of::<EntityActionsChannel>() {
+                        let actions = EntityActionsMessage::from_bytes(&mut reader)?;
+                        self.replication_receiver.recv_actions(actions, tick);
+                    } else if *channel_kind == ChannelKind::of::<EntityUpdatesChannel>() {
+                        let updates = EntityUpdatesMessage::from_bytes(&mut reader)?;
+                        self.replication_receiver.recv_updates(updates, tick);
+                    } else {
+                        // identify the type of message
+                        let net_id = NetId::from_bytes(&mut reader)?;
+                        let single_data = reader.consume();
+                        match message_registry.message_type(net_id) {
+                            #[cfg(feature = "leafwing")]
+                            MessageType::LeafwingInput => {
+                                self.received_leafwing_input_messages
+                                    .entry(net_id)
+                                    .or_default()
+                                    .push(single_data.into());
+                            }
+                            MessageType::NativeInput => {
+                                todo!()
+                            }
+                            MessageType::Normal => {
+                                self.received_messages
+                                    .entry(net_id)
+                                    .or_default()
+                                    .push(single_data);
                             }
                         }
-                        ServerMessage::Replication(replication) => {
-                            // buffer the replication message
-                            self.replication_receiver.recv_message(replication, tick);
-                        }
-                        ServerMessage::Ping(ping) => {
-                            // prepare a pong in response (but do not send yet, because we need
-                            // to set the correct send time)
-                            self.ping_manager
-                                .buffer_pending_pong(&ping, time_manager.current_time());
-                        }
-                        ServerMessage::Pong(pong) => {
-                            // process the pong
-                            self.ping_manager
-                                .process_pong(&pong, time_manager.current_time());
-                            // TODO: a bit dangerous because we want:
-                            // - real time when computing RTT
-                            // - virtual time when computing the generation
-                            // - maybe we should just send both in Pong message?
-                            // update the tick generation from the time + tick information
-                            self.sync_manager.server_pong_tick = tick;
-                            self.sync_manager.server_pong_generation = pong
-                                .pong_sent_time
-                                .tick_generation(tick_manager.config.tick_duration, tick);
-                            trace!(
-                                        ?tick,
-                                        generation = ?self.sync_manager.server_pong_generation,
-                                        time = ?pong.pong_sent_time,
-                                        "Updated server pong generation")
-                        }
                     }
-
-                    // return the buffer to the pool
-                    self.reader_pool.attach(reader);
                 }
-            }
-        }
+                Ok::<(), SerializationError>(())
+            })?;
 
-        // NOTE: we run this outside of is_empty() because we could have received an update for a future tick that we can
-        //  now apply. Also we can read from out buffers even if we didn't receive any messages.
-        //
-        // Check if we have any replication messages we can apply to the World (and emit events)
         if self.sync_manager.is_synced() {
-            for (group, replication_list) in
-                self.replication_receiver.read_messages(tick_manager.tick())
-            {
-                world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
-                    trace!(?group, ?replication_list, "read replication messages");
-                    replication_list
-                        .into_iter()
-                        .for_each(|(tick, replication)| {
-                            // TODO: we could include the server tick when this replication_message was sent.
-                            self.replication_receiver.apply_world(
-                                world,
-                                None,
-                                component_registry.as_ref(),
-                                tick,
-                                replication,
-                                group,
-                                &mut self.events,
-                            );
-                        });
-                })
-            }
+            world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
+                // Check if we have any replication messages we can apply to the World (and emit events)
+                self.replication_receiver.apply_world(
+                    world,
+                    None,
+                    component_registry.as_ref(),
+                    tick_manager.tick(),
+                    &mut self.events,
+                );
+            });
         }
+        Ok(())
     }
 
     pub(crate) fn recv_packet(
         &mut self,
-        packet: Payload,
+        packet: RecvPayload,
         tick_manager: &TickManager,
         component_registry: &ComponentRegistry,
     ) -> Result<(), ClientError> {
@@ -532,7 +483,7 @@ impl ReplicationSend for ConnectionManager {
     type Error = ClientError;
     type ReplicateCache = EntityHashMap<ReplicateCache>;
 
-    fn writer(&mut self) -> &mut BitcodeWriter {
+    fn writer(&mut self) -> &mut Writer {
         &mut self.writer
     }
 

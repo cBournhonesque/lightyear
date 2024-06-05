@@ -1,31 +1,32 @@
 //! Module to take a buffer of messages to send and build packets
 use byteorder::WriteBytesExt;
-use std::collections::{BTreeMap, VecDeque};
-use std::io::{Cursor, Write};
+use bytes::Bytes;
+use std::collections::VecDeque;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
-use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, SingleData};
 use crate::packet::packet::{Packet, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES};
 use crate::packet::packet_type::PacketType;
 use crate::prelude::Tick;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
 use crate::serialize::varint::varint_len;
-use crate::serialize::writer::WriteBuffer;
 use crate::serialize::{SerializationError, ToBytes};
-use crate::utils::pool::Reusable;
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.
 // pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
 pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize);
 
 pub type Payload = Vec<u8>;
+
+/// We use `Bytes` on the receive side because we want to be able to refer to sub-slices of the original
+/// packet without allocating.
+///
+/// e.g. we receive 1200 bytes from the network, we want to read parts of it (header, channel) but then
+/// store subslices in receiver channels without allocating.
+pub type RecvPayload = Bytes;
 
 /// `PacketBuilder` handles the process of creating a packet (writing the header and packing the
 /// messages into packets)
@@ -414,7 +415,7 @@ impl PacketBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, VecDeque};
+    use std::collections::VecDeque;
 
     use bevy::prelude::{default, TypePath};
     use bytes::Bytes;
@@ -474,7 +475,7 @@ mod tests {
         let fragment_data = vec![];
         let mut packets = manager.build_packets(Tick(0), single_data, fragment_data)?;
         assert_eq!(packets.len(), 1);
-        let mut packet = packets.pop().unwrap();
+        let packet = packets.pop().unwrap();
         assert_eq!(packet.message_acks, vec![]);
         let contents = packet.parse_packet_payload()?;
         assert_eq!(
@@ -575,7 +576,9 @@ mod tests {
         let num_big_bytes = (1.5 * MTU_PAYLOAD_BYTES as f32) as usize;
         let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
         let fragmenter = FragmentSender::new();
-        let fragments = fragmenter.build_fragments(MessageId(3), None, big_bytes.clone());
+        let fragments = fragmenter
+            .build_fragments(MessageId(3), None, big_bytes.clone())
+            .unwrap();
 
         let small_bytes = Bytes::from(vec![7u8; 10]);
         let small_message = SingleData::new(None, small_bytes.clone());
@@ -594,7 +597,7 @@ mod tests {
 
         let mut packets_queue: VecDeque<_> = packets.into();
         // 1st packet
-        let mut packet = packets_queue.pop_front().unwrap();
+        let packet = packets_queue.pop_front().unwrap();
         assert_eq!(
             packet.message_acks,
             vec![(
@@ -612,7 +615,7 @@ mod tests {
         );
 
         // 2nd packet
-        let mut packet = packets_queue.pop_front().unwrap();
+        let packet = packets_queue.pop_front().unwrap();
         assert_eq!(
             packet.message_acks,
             vec![(

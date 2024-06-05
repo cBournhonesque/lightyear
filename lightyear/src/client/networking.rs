@@ -2,14 +2,11 @@
 use std::ops::DerefMut;
 
 use async_channel::TryRecvError;
-use bevy::ecs::schedule::run_enter_schedule;
-use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
+use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
-use bevy::window::WindowOccluded;
 use tracing::{error, trace};
 
-use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent};
@@ -19,13 +16,10 @@ use crate::client::networking::utils::AppStateExt;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::client::sync::SyncSet;
-use crate::connection::client::{
-    ClientConnection, ConnectionState, DisconnectReason, NetClient, NetConfig,
-};
-use crate::connection::server::{IoConfig, ServerConnections};
+use crate::connection::client::{ClientConnection, ConnectionState, DisconnectReason, NetClient};
+use crate::connection::server::IoConfig;
 use crate::prelude::{
-    is_host_server, ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager,
-    TimeManager,
+    is_host_server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
@@ -186,7 +180,7 @@ pub(crate) fn receive(world: &mut World) {
                                                                 .unwrap();
                                                         }
                                                         // RECEIVE: receive packets from message managers
-                                                        connection.receive(world, time_manager.as_ref(), tick_manager.as_ref());
+                                                        let _ = connection.receive(world, time_manager.as_ref(), tick_manager.as_ref()).inspect_err(|e| error!("Error receiving packets: {}", e));
                                                     });
                                             });
                                         });
