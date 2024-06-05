@@ -2,6 +2,7 @@ use bytes::Bytes;
 
 use crate::packet::message::{FragmentData, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
+use crate::serialize::SerializationError;
 use crate::shared::tick_manager::Tick;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
@@ -21,16 +22,19 @@ impl FragmentSender {
         fragment_message_id: MessageId,
         tick: Option<Tick>,
         fragment_bytes: Bytes,
-    ) -> Vec<FragmentData> {
+    ) -> Result<Vec<FragmentData>, SerializationError> {
         if fragment_bytes.len() <= FRAGMENT_SIZE {
-            panic!(
+            unreachable!(
                 "Message size must be at least {} to need to be fragmented",
                 FRAGMENT_SIZE
             );
         }
         let chunks = fragment_bytes.chunks(self.fragment_size);
         let num_fragments = chunks.len();
-        chunks
+        if num_fragments > u8::MAX as usize {
+            return Err(SerializationError::MessageTooBig(fragment_bytes.len()));
+        }
+        Ok(chunks
             .enumerate()
             // TODO: ideally we don't clone here but we take ownership of the output of writer
             .map(|(fragment_index, chunk)| FragmentData {
@@ -40,7 +44,7 @@ impl FragmentSender {
                 num_fragments: num_fragments as u8,
                 bytes: fragment_bytes.slice_ref(chunk),
             })
-            .collect::<_>()
+            .collect::<_>())
     }
 }
 
@@ -54,6 +58,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_message_too_big() {
+        let bytes = Bytes::from(vec![0; FRAGMENT_SIZE * 300]);
+        let sender = FragmentSender::new();
+
+        let fragments = sender.build_fragments(MessageId(0), None, bytes.clone());
+        assert!(matches!(
+            fragments,
+            Err(SerializationError::MessageTooBig(_))
+        ),);
+    }
+
+    #[test]
     fn test_build_fragments() {
         let message_id = MessageId(0);
         const NUM_BYTES: usize = (FRAGMENT_SIZE as f32 * 2.5) as usize;
@@ -61,7 +77,9 @@ mod tests {
 
         let sender = FragmentSender::new();
 
-        let fragments = sender.build_fragments(message_id, None, bytes.clone());
+        let fragments = sender
+            .build_fragments(message_id, None, bytes.clone())
+            .unwrap();
         let expected_num_fragments = 3;
         assert_eq!(fragments.len(), expected_num_fragments);
         assert_eq!(

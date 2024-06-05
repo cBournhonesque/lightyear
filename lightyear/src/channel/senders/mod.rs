@@ -5,6 +5,7 @@ use crossbeam_channel::Receiver;
 use enum_dispatch::enum_dispatch;
 
 use crate::packet::message::{MessageAck, MessageId, SendMessage};
+use crate::serialize::SerializationError;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -35,7 +36,11 @@ pub trait ChannelSend {
     /// The priority of the message needs to be specified
     ///
     /// Returns the MessageId of the message that was queued, if there is one
-    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId>;
+    fn buffer_send(
+        &mut self,
+        message: Bytes,
+        priority: f32,
+    ) -> Result<Option<MessageId>, SerializationError>;
 
     /// Reads from the buffer of messages to send to prepare a list of Packets
     /// that can be sent over the network for this channel

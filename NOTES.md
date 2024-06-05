@@ -1,3 +1,14 @@
+- Replication serialization:
+  - to improve performance, we want to:
+    - entities that don't have SerializationGroup are considered part of SerializationGroup for the PLACEHOLDER entity (this should be ok since the PLACEHOLDER is never instantiated)
+    - we need to manually split the Updates messages for the PLACEHOLDER group into multiple packets if they are too big
+    - we include Option<ReplicationGroup> and use only 1 byte for the placeholder, or we could set it as a Channel, so that we use one 1 byte total! (channel ids use 1 byte up to 64 channels)
+    - we can only set priority on replication groups, still
+    - if an entity has a priority, then they need to use a replication group? i.e we recreate a replication group for them?
+    - to write the ActualMessage:
+      - serialize the message_id
+
+
 - Serialization strategy:
   - SEND:
     - we need to send individual messages early (because we don't want to clone the data, and we want to serialize only once even when sending to multiple clients), so we allocate a buffer for each message and serialize the data inside.
