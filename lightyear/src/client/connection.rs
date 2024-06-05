@@ -17,8 +17,9 @@ use crate::client::error::ClientError;
 use crate::client::message::ClientMessage;
 use crate::client::replication::send::ReplicateCache;
 use crate::client::sync::SyncConfig;
+use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::packet_builder::{Payload, RecvPayload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::prelude::{Channel, ChannelKind, ClientId, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
@@ -139,7 +140,7 @@ impl ConnectionManager {
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
             received_messages: HashMap::default(),
-            writer: Writer::with_capacity(PACKET_BUFFER_CAPACITY),
+            writer: Writer::with_capacity(MAX_PACKET_SIZE),
         }
     }
 

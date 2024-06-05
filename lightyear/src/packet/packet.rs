@@ -21,20 +21,12 @@ cfg_if::cfg_if!(
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
 
-/// Maximum number of bytes to write the header
-/// PacketType: 2 bits
-/// Rest: 10 bytes
+/// Number of bytes to write the header
 const HEADER_BYTES: usize = 11;
-/// The maximum of bytes that the payload of the packet can contain (excluding the header)
-/// remove 1 byte for byte alignment at the end
-// TODO: we removed 10 bytes at the end to take some margin, but we should understand why 1 does not work!
-pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 10;
 
 /// The maximum number of bytes for a message before it is fragmented
-/// The final size of the fragmented packet (channel_net_id: 2, fragment_id: 1, tick: 2, message_id: 2, num_fragments: 1, number of bytes in fragment: 4)
-/// must be lower than MTU_PAYLOAD_BYTES
-/// (might even be 13 in some situations?)
-pub(crate) const FRAGMENT_SIZE: usize = MTU_PAYLOAD_BYTES - 12;
+/// MAX_PACKET_SIZE - HEADER_BYTES - 1 (channel_net_id) - 4 (message_id/fragment_id/num_fragments) - 2 (num bytes in fragment)
+pub(crate) const FRAGMENT_SIZE: usize = MAX_PACKET_SIZE - HEADER_BYTES - 7;
 
 /// Data structure that will help us write the packet
 #[derive(Debug)]
