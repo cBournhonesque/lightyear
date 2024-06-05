@@ -35,12 +35,12 @@ impl<M: ToBytes> ToBytes for ArenaVec<M> {
         let len = buffer.read_u64::<byteorder::NetworkEndian>()? as usize;
         // TODO: if we know the MIN_LEN we can preallocate
 
-        let mut vec = Vec::with_capacity(len);
+        let mut vec = ArenaVec::with_capacity_in(len, ArenaManager::fake_alloc());
         for _ in 0..len {
             vec.push(M::from_bytes(buffer)?);
         }
-        // NOTE: we don't need the allocator anymore upong deserializing! just use the global alloc
-        Ok(unsafe { std::mem::transmute(vec) })
+        // NOTE: we don't need the allocator anymore upon deserializing! just use the global alloc
+        Ok(vec)
     }
 }
 
@@ -74,6 +74,13 @@ pub struct ArenaManager {
 impl ArenaManager {
     pub(crate) fn get(&self) -> &'static SyncBlinkAlloc {
         unsafe { std::mem::transmute(&self.allocator) }
+    }
+
+    /// In some situations we might need a fake allocator if we know we are not going to use it
+    /// at all
+    pub(crate) fn fake_alloc() -> &'static SyncBlinkAlloc {
+        let data = [0; 64];
+        unsafe { std::mem::transmute(&data) }
     }
 }
 
