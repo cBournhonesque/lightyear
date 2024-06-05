@@ -240,9 +240,17 @@ impl PacketBuilder {
             }
 
             let mut packet = self.current_packet.take().unwrap();
+
             // we need to call this to preassign the channel_id
             if !packet.can_fit_channel(*channel_id) {
-                unreachable!();
+                self.current_packet = Some(packet);
+                packets.push(self.finish_packet());
+                self.build_new_single_packet(current_tick)?;
+                packet = self.current_packet.take().unwrap();
+                if !packet.can_fit_channel(*channel_id) {
+                    // channel will always fit in a new packet
+                    unreachable!();
+                }
             }
             // number of messages for this channel that we will write
             // (we wait until we know the full number, because we want to write that)
