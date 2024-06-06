@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use crate::packet::message::{FragmentData, MessageId};
+use crate::packet::message::{FragmentData, FragmentIndex, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::serialize::SerializationError;
 use crate::shared::tick_manager::Tick;
@@ -40,8 +40,8 @@ impl FragmentSender {
             .map(|(fragment_index, chunk)| FragmentData {
                 message_id: fragment_message_id,
                 // tick,
-                fragment_id: fragment_index as u8,
-                num_fragments: num_fragments as u8,
+                fragment_id: fragment_index as FragmentIndex,
+                num_fragments: num_fragments as FragmentIndex,
                 bytes: fragment_bytes.slice_ref(chunk),
             })
             .collect::<_>())
@@ -87,7 +87,7 @@ mod tests {
             &FragmentData {
                 message_id,
                 fragment_id: 0,
-                num_fragments: expected_num_fragments as u8,
+                num_fragments: expected_num_fragments as FragmentIndex,
                 bytes: bytes.slice(0..FRAGMENT_SIZE),
             }
         );
@@ -96,7 +96,7 @@ mod tests {
             &FragmentData {
                 message_id,
                 fragment_id: 1,
-                num_fragments: expected_num_fragments as u8,
+                num_fragments: expected_num_fragments as FragmentIndex,
                 bytes: bytes.slice(FRAGMENT_SIZE..2 * FRAGMENT_SIZE),
             }
         );
@@ -106,7 +106,7 @@ mod tests {
                 message_id,
                 // tick: None,
                 fragment_id: 2,
-                num_fragments: expected_num_fragments as u8,
+                num_fragments: expected_num_fragments as FragmentIndex,
                 bytes: bytes.slice(2 * FRAGMENT_SIZE..),
             }
         );

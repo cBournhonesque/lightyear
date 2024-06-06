@@ -24,7 +24,11 @@ wrapping_id!(MessageId);
 pub trait Message: EventContext + DeserializeOwned + Serialize {}
 impl<T: EventContext + DeserializeOwned + Serialize> Message for T {}
 
+#[cfg(not(feature = "big_messages"))]
 pub type FragmentIndex = u8;
+
+#[cfg(feature = "big_messages")]
+pub type FragmentIndex = u16;
 
 /// Struct to keep track of which messages/slices have been received by the remote
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
@@ -171,13 +175,25 @@ pub struct FragmentData {
 
 impl ToBytes for FragmentData {
     fn len(&self) -> usize {
-        4 + self.bytes.len() + varint_len(self.bytes.len() as u64)
+        #[cfg(not(feature = "big_messages"))]
+        let extra_bytes = 4;
+        #[cfg(feature = "big_messages")]
+        let extra_bytes = 6;
+        extra_bytes + self.bytes.len() + varint_len(self.bytes.len() as u64)
     }
 
     fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
         buffer.write_u16::<NetworkEndian>(self.message_id.0)?;
+        #[cfg(not(feature = "big_messages"))]
         buffer.write_u8(self.fragment_id)?;
+        #[cfg(not(feature = "big_messages"))]
         buffer.write_u8(self.num_fragments)?;
+
+        #[cfg(feature = "big_messages")]
+        buffer.write_u16::<NetworkEndian>(self.fragment_id)?;
+        #[cfg(feature = "big_messages")]
+        buffer.write_u16::<NetworkEndian>(self.num_fragments)?;
+
         self.bytes.to_bytes(buffer)?;
         // buffer.write_varint(self.bytes.len() as u64)?;
         // buffer.write_all(self.bytes.as_ref())?;
@@ -190,8 +206,16 @@ impl ToBytes for FragmentData {
         Self: Sized,
     {
         let message_id = MessageId(buffer.read_u16::<NetworkEndian>()?);
+        #[cfg(not(feature = "big_messages"))]
         let fragment_id = buffer.read_u8()?;
+        #[cfg(not(feature = "big_messages"))]
         let num_fragments = buffer.read_u8()?;
+
+        #[cfg(feature = "big_messages")]
+        let fragment_id = buffer.read_u16::<NetworkEndian>()?;
+        #[cfg(feature = "big_messages")]
+        let num_fragments = buffer.read_u16::<NetworkEndian>()?;
+
         let bytes = Bytes::from_bytes(buffer)?;
         // let len = buffer.read_varint()? as usize;
         // let bytes = buffer.split_len(len);
