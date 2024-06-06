@@ -279,6 +279,7 @@ impl ConnectionManager {
         self.connections
             .iter_mut()
             .filter(|(id, _)| target.targets(id))
+            // NOTE: this clone is O(1), it just increments the reference count
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
     }
 
@@ -288,9 +289,8 @@ impl ConnectionManager {
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        let mut writer = Writer::default();
-        self.message_registry.serialize(message, &mut writer)?;
-        let message_bytes = writer.to_bytes();
+        self.message_registry.serialize(message, &mut self.writer)?;
+        let message_bytes = self.writer.split();
         self.buffer_message(message_bytes, channel_kind, target)
     }
 
@@ -361,9 +361,9 @@ impl ConnectionManager {
         let net_id = component_registry
             .get_net_id::<C>()
             .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
-        let mut writer = Writer::default();
-        component_registry.serialize(data, &mut writer)?;
-        let raw_data = writer.to_bytes();
+        // We store the Bytes in a hashmap, maybe more efficient to write the replication message directly?
+        component_registry.serialize(data, &mut self.writer)?;
+        let raw_data = self.writer.split();
         self.connection_mut(client_id)?
             .replication_sender
             .prepare_component_insert(entity, group_id, raw_data, bevy_tick);

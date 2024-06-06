@@ -215,11 +215,8 @@ impl ConnectionManager {
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
-        // TODO: can we avoid allocating here, but instead re-use an existing buffer? i.e
-        //  fetch the buffer from a pool of writers. It comes back to the pool when the message is sent.
-        let mut writer = Writer::default();
-        self.message_registry.serialize(message, &mut writer)?;
-        let message_bytes = writer.to_bytes();
+        self.message_registry.serialize(message, &mut self.writer)?;
+        let message_bytes = self.writer.split();
         self.buffer_message(message_bytes, channel_kind, target)
     }
 
@@ -235,12 +232,10 @@ impl ConnectionManager {
             .channel_registry
             .name(&channel)
             .ok_or::<ClientError>(MessageError::NotRegistered.into())?;
-        let message = ClientMessage { message, target };
-        // TODO: WE ARE ALLOCATING A SECOND TIME HERE, AVOID!
-        let mut writer = Writer::default();
-        message.to_bytes(&mut writer)?;
         // TODO: doesn't this serialize the bytes twice? fix this..
-        let message_bytes = writer.to_bytes();
+        let message = ClientMessage { message, target };
+        message.to_bytes(&mut self.writer)?;
+        let message_bytes = self.writer.split();
         // message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message_bytes, channel)?;
         Ok(())
