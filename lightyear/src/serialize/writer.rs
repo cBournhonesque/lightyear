@@ -1,8 +1,14 @@
-use crate::serialize::RawData;
-use bytes::Bytes;
-use std::io::{Cursor, Write};
+//! Writer that can reuse memory allocation
+//!
+//! See `<https://stackoverflow.com/questions/73725299/will-the-native-buffer-owned-by-bytesmut-keep-growing>`
+//! for more details.
+//!
+//! The idea is that we have one allocation under the [`BytesMut`], when we finish writing a message,
+//! we can split the message of as a separate [`Bytes`], but
+use bytes::{BufMut, Bytes, BytesMut};
+use std::io::Write;
 
-pub struct Writer(Cursor<RawData>);
+pub struct Writer(bytes::buf::Writer<BytesMut>);
 
 impl Write for Writer {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -22,21 +28,27 @@ impl Default for Writer {
 }
 impl Writer {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
-        Self(Cursor::new(Vec::with_capacity(capacity)))
+        Self(BytesMut::with_capacity(capacity).writer())
     }
 
+    // TODO: how do reduce capacity over time?
+    /// Split the current bytes written as a separate [`Bytes`].
+    /// Retains any additional capacity. O(1) operation.
+    pub(crate) fn split(&mut self) -> Bytes {
+        self.0.get_mut().split().freeze()
+    }
+
+    // TODO: normally there is no need to reset, because once all the messages that have been split
+    //  are dropped, the writer will move the current data to the front of the buffer to reuse memory
+    //  All the split bytes messages are dropped at Send for unreliable senders, but NOT for reliable
+    //  senders, think about what to do for that! Maybe do a clone there to drop the message?
     /// Reset the writer but keeps the underlying allocation
     pub(crate) fn reset(&mut self) {
-        self.0.set_position(0);
+        self.0.get_mut().clear();
     }
 
     /// Consume the writer to get the RawData
     pub(crate) fn to_bytes(self) -> Bytes {
         self.0.into_inner().into()
-    }
-
-    /// Consume the writer to get the RawData
-    pub(crate) fn to_vec(self) -> Vec<u8> {
-        self.0.into_inner()
     }
 }

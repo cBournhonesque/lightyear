@@ -433,25 +433,23 @@ impl ReplicationSender {
                     .data
                     .get_component_value(entity, ack_tick, kind, group_id)
                     .expect("we should have stored a component value for this tick");
-                let mut writer = Writer::default();
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
                     registry
-                        .serialize_diff(ack_tick, old_data, component_data, &mut writer, kind)
+                        .serialize_diff(ack_tick, old_data, component_data, writer, kind)
                         .expect("could not serialize delta")
                 }
-                writer.to_bytes()
+                writer.split()
             })
             .unwrap_or_else(|| {
-                let mut writer = Writer::default();
                 // SAFETY: the component_data is a pointer to a component that corresponds to kind
                 unsafe {
                     // compute a diff from the base value, and serialize that
                     registry
-                        .serialize_diff_from_base_value(component_data, &mut writer, kind)
+                        .serialize_diff_from_base_value(component_data, writer, kind)
                         .expect("could not serialize delta")
                 }
-                writer.to_bytes()
+                writer.split()
             });
         trace!(?kind, "Inserting pending update!");
         self.pending_updates
@@ -567,12 +565,8 @@ impl ReplicationSender {
                 // buffer the message in the MessageManager
 
                 // message.emit_send_logs("EntityActionsChannel");
-                let mut writer = Writer::default();
-                message
-                    .to_bytes(&mut writer)
-                    .map_err(SerializationError::from)?;
-                // TODO: doesn't this serialize the bytes twice?
-                let message_bytes = writer.to_bytes();
+                message.to_bytes(writer).map_err(SerializationError::from)?;
+                let message_bytes = writer.split();
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(
@@ -643,11 +637,8 @@ impl ReplicationSender {
                 };
 
                 // message.emit_send_logs("EntityUpdatesChannel");
-                let mut writer = Writer::default();
-                message
-                    .to_bytes(&mut writer)
-                    .map_err(SerializationError::from)?;
-                let message_bytes = writer.to_bytes();
+                message.to_bytes(writer).map_err(SerializationError::from)?;
+                let message_bytes = writer.split();
                 let message_id = message_manager
                     // TODO: use const type_id?
                     .buffer_send_with_priority(
