@@ -690,7 +690,6 @@ pub(crate) mod send {
                 };
                 if !insert_target.is_empty() || !update_target.is_empty() {
                     let component_data = Ptr::from(component.as_ref());
-                    let writer = sender.writer();
                     if !insert_target.is_empty() {
                         let _ = sender
                             .prepare_component_insert(

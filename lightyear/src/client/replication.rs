@@ -63,7 +63,6 @@ pub(crate) mod send {
 
     use crate::shared::replication::components::{DeltaCompression, DespawnTracker, Replicating};
 
-    use crate::serialize::writer::Writer;
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
@@ -366,25 +365,21 @@ pub(crate) mod send {
                 if insert || update {
                     let group_id = group.group_id(Some(entity));
                     let component_data = Ptr::from(component.as_ref());
-                    let mut writer = Writer::default();
+                    let writer = &mut connection.writer;
                     if insert {
                         if delta_compression {
                             // SAFETY: the component_data corresponds to the kind
                             unsafe {
                                 registry
-                                    .serialize_diff_from_base_value(
-                                        component_data,
-                                        &mut writer,
-                                        kind,
-                                    )
+                                    .serialize_diff_from_base_value(component_data, writer, kind)
                                     .expect("could not serialize delta")
                             }
                         } else {
                             registry
-                                .erased_serialize(component_data, &mut writer, kind)
+                                .erased_serialize(component_data, writer, kind)
                                 .expect("could not serialize component")
                         };
-                        let raw_data = writer.to_bytes();
+                        let raw_data = writer.split();
                         connection.replication_sender.prepare_component_insert(
                             entity,
                             group_id,
@@ -420,9 +415,9 @@ pub(crate) mod send {
                             // );
                             if !delta_compression {
                                 registry
-                                    .erased_serialize(component_data, &mut writer, kind)
+                                    .erased_serialize(component_data, writer, kind)
                                     .expect("could not serialize component");
-                                let raw_data = writer.to_bytes();
+                                let raw_data = writer.split();
                                 connection
                                     .replication_sender
                                     .prepare_component_update(entity, group_id, raw_data);
@@ -435,7 +430,7 @@ pub(crate) mod send {
                                         kind,
                                         component_data,
                                         &registry,
-                                        &mut writer,
+                                        writer,
                                         &mut connection.delta_manager,
                                         tick,
                                     );
