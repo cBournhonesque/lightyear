@@ -1,10 +1,11 @@
+use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::{Add, Mul};
 
-use bevy::prelude::{App, Component, EntityWorldMut, Resource, TypePath};
+use bevy::prelude::{App, Component, EntityWorldMut, Mut, Resource, TypePath, World};
 use bevy::ptr::Ptr;
 use bevy::utils::HashMap;
 
@@ -133,7 +134,7 @@ pub enum ComponentError {
 /// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct ComponentRegistry {
-    replication_map: HashMap<ComponentKind, ReplicationMetadata>,
+    pub(crate) replication_map: HashMap<ComponentKind, ReplicationMetadata>,
     interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
     prediction_map: HashMap<ComponentKind, PredictionMetadata>,
     serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
@@ -143,6 +144,11 @@ pub struct ComponentRegistry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
+    pub component_id: ComponentId,
+    pub delta_compression_id: ComponentId,
+    pub replicate_once_id: ComponentId,
+    pub override_target_id: ComponentId,
+    pub disabled_id: ComponentId,
     pub write: RawWriteFn,
     pub remove: Option<RawRemoveFn>,
 }
@@ -486,17 +492,25 @@ mod interpolation {
 
 mod replication {
     use super::*;
+    use crate::prelude::{
+        DeltaCompression, DisabledComponent, OverrideTargetComponent, ReplicateOnceComponent,
+    };
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
 
     impl ComponentRegistry {
-        pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self) {
+        pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self, world: &mut World) {
             let kind = ComponentKind::of::<C>();
             let write: RawWriteFn = Self::write::<C>;
             let remove: RawRemoveFn = Self::remove::<C>;
             self.replication_map.insert(
                 kind,
                 ReplicationMetadata {
+                    component_id: world.init_component::<C>(),
+                    delta_compression_id: world.init_component::<DeltaCompression<C>>(),
+                    replicate_once_id: world.init_component::<ReplicateOnceComponent<C>>(),
+                    override_target_id: world.init_component::<OverrideTargetComponent<C>>(),
+                    disabled_id: world.init_component::<DisabledComponent<C>>(),
                     write,
                     remove: Some(remove),
                 },
@@ -604,6 +618,12 @@ mod delta {
             self.replication_map.insert(
                 delta_kind,
                 ReplicationMetadata {
+                    // NOTE: we set these to 0 because they are never used for the DeltaMessage component
+                    component_id: ComponentId::new(0),
+                    delta_compression_id: ComponentId::new(0),
+                    replicate_once_id: ComponentId::new(0),
+                    override_target_id: ComponentId::new(0),
+                    disabled_id: ComponentId::new(0),
                     write,
                     remove: None,
                 },
@@ -953,12 +973,14 @@ impl AppComponentExt for App {
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C> {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
-        if !registry.is_registered::<C>() {
-            registry.register_component::<C>();
-        }
-        registry.set_replication_fns::<C>();
-        debug!("register component {}", std::any::type_name::<C>());
+        self.world
+            .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
+                if !registry.is_registered::<C>() {
+                    registry.register_component::<C>();
+                }
+                registry.set_replication_fns::<C>(world);
+                debug!("register component {}", std::any::type_name::<C>());
+            });
         register_component_send::<C>(self, direction);
         ComponentRegistration {
             app: self,
@@ -1038,7 +1060,7 @@ impl AppComponentExt for App {
 
 /// [`ComponentKind`] is an internal wrapper around the type of the component
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
-pub struct ComponentKind(TypeId);
+pub struct ComponentKind(pub(crate) TypeId);
 
 impl ComponentKind {
     pub fn of<C: 'static>() -> Self {
