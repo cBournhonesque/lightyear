@@ -514,7 +514,7 @@ pub(crate) mod send {
                             group_id,
                             component_kind,
                             component_data,
-                            &component_registry,
+                            component_registry,
                             writer,
                             &mut sender.delta_manager,
                             current_tick,

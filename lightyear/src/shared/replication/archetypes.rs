@@ -19,11 +19,11 @@ use bevy::{
 /// Cached information about all replicated archetypes.
 ///
 /// The generic component is the component that is used to identify if the archetype is used for Replication.
-/// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
+/// This is the [`ReplicateToServer`](crate::client::replication::send::ReplicateToServer) or [`ReplicationTarget`](crate::prelude::ReplicationTarget) component.
 /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
 pub(crate) struct ReplicatedArchetypes<C: Component> {
     /// ID of the component identifying if the archetype is used for Replication.
-    /// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
+    /// This is the [`ReplicateToServer`](crate::client::replication::send::ReplicateToServer) or [`ReplicationTarget`](crate::prelude::ReplicationTarget) component.
     /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
     replication_component_id: ComponentId,
     /// ID of the [`Replicating`] component, which indicates that the entity is being replicated.
@@ -127,7 +127,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
             archetype.components().for_each(|component| {
                 let info = unsafe { world.components().get_info(component).unwrap_unchecked() };
                 // if the component has a type_id (i.e. is a rust type)
-                if let Some(kind) = info.type_id().map(|t| ComponentKind(t)) {
+                if let Some(kind) = info.type_id().map(ComponentKind) {
                     // the component is not registered for replication in the ComponentProtocol
                     let Some(replication_metadata) = registry.replication_map.get(&kind) else {
                         trace!(
@@ -136,17 +136,6 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         );
                         return;
                     };
-                    // TODO: the identity can change! (a client can become a server, etc.)
-                    //  recompute all archetypes when the identity changes?
-                    //  Actually do we even need to do this now that we have ReplicateToServer and ReplicationTarget as separate components?
-                    if !should_replicate(world, replication_metadata.direction) {
-                        trace!(
-                            "not including {:?} because of channel direction {:?}",
-                            info.name(),
-                            replication_metadata.direction
-                        );
-                        return;
-                    }
                     trace!("including {:?} in replicated components", info.name());
 
                     // check per component metadata
@@ -167,7 +156,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
                     let override_target = archetype
                         .components()
                         .any(|c| c == replication_metadata.override_target_id)
-                        .then(|| replication_metadata.override_target_id);
+                        .then_some(replication_metadata.override_target_id);
 
                     let disabled = archetype
                         .components()
@@ -180,7 +169,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         replicate_once,
                         override_target,
                         id: component,
-                        kind: kind,
+                        kind,
                         storage_type,
                     });
                 }

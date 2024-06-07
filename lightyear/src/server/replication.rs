@@ -747,7 +747,7 @@ pub(crate) mod send {
         // TODO: maybe iterate through all the connected clients instead, to avoid allocations?
         // use the overriden target if present
         let target = override_target.map_or(&replication_target.target, |override_target| {
-            &override_target
+            override_target
         });
         let (insert_target, mut update_target): (NetworkTarget, NetworkTarget) = match visibility {
             Some(visibility) => {
