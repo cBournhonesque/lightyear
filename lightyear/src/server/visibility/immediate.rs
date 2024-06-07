@@ -317,20 +317,20 @@ mod tests {
     #[test]
     fn test_multiple_visibility_gain() {
         let mut app = App::new();
-        app.world.init_resource::<VisibilityManager>();
-        let entity1 = app.world.spawn(ReplicateVisibility::default()).id();
-        let entity2 = app.world.spawn(ReplicateVisibility::default()).id();
+        app.world_mut().init_resource::<VisibilityManager>();
+        let entity1 = app.world_mut().spawn(ReplicateVisibility::default()).id();
+        let entity2 = app.world_mut().spawn(ReplicateVisibility::default()).id();
         let client = ClientId::Netcode(1);
 
-        app.world
+        app.world_mut()
             .resource_mut::<VisibilityManager>()
             .gain_visibility(client, entity1);
-        app.world
+        app.world_mut()
             .resource_mut::<VisibilityManager>()
             .gain_visibility(client, entity2);
 
         assert_eq!(
-            app.world
+            app.world_mut()
                 .resource_mut::<VisibilityManager>()
                 .events
                 .gained
@@ -338,7 +338,7 @@ mod tests {
             1
         );
         assert_eq!(
-            app.world
+            app.world_mut()
                 .resource_mut::<VisibilityManager>()
                 .events
                 .gained
@@ -347,10 +347,10 @@ mod tests {
                 .len(),
             2
         );
-        app.world
+        app.world_mut()
             .run_system_once(systems::update_visibility_from_events);
         assert_eq!(
-            app.world
+            app.world_mut()
                 .resource_mut::<VisibilityManager>()
                 .events
                 .gained
@@ -358,7 +358,7 @@ mod tests {
             0
         );
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity1)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -368,7 +368,7 @@ mod tests {
             &ClientVisibility::Gained
         );
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity2)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -381,13 +381,13 @@ mod tests {
         // After we used the visibility events, check how they are updated for bookkeeping
         // - Lost -> removed from cache
         // - Gained -> Maintained
-        app.world
+        app.world_mut()
             .resource_mut::<VisibilityManager>()
             .lose_visibility(client, entity1);
-        app.world
+        app.world_mut()
             .run_system_once(systems::update_visibility_from_events);
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity1)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -397,7 +397,7 @@ mod tests {
             &ClientVisibility::Lost
         );
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity2)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -406,17 +406,17 @@ mod tests {
                 .unwrap(),
             &ClientVisibility::Gained
         );
-        app.world
+        app.world_mut()
             .run_system_once(systems::update_replicate_visibility);
         assert!(app
-            .world
+            .world()
             .entity(entity1)
             .get::<ReplicateVisibility>()
             .unwrap()
             .clients_cache
             .is_empty());
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity2)
                 .get::<ReplicateVisibility>()
                 .unwrap()

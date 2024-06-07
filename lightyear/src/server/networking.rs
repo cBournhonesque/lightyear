@@ -69,7 +69,7 @@ impl Plugin for ServerNetworkingPlugin {
         // STARTUP
         // create the server connection resources to avoid some systems panicking
         // TODO: remove this when possible?
-        app.world.run_system_once(rebuild_server_connections);
+        app.world_mut().run_system_once(rebuild_server_connections);
 
         // ON_START
         app.add_systems(OnEnter(NetworkingState::Started), on_start);
@@ -336,10 +336,10 @@ pub trait ServerCommands {
 
 impl ServerCommands for Commands<'_, '_> {
     fn start_server(&mut self) {
-        self.insert_resource(NextState::<NetworkingState>(Some(NetworkingState::Started)));
+        self.insert_resource(NextState::Pending(NetworkingState::Started));
     }
 
     fn stop_server(&mut self) {
-        self.insert_resource(NextState::<NetworkingState>(Some(NetworkingState::Stopped)));
+        self.insert_resource(NextState::Pending(NetworkingState::Stopped));
     }
 }

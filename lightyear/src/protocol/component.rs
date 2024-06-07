@@ -783,8 +783,8 @@ mod delta {
 }
 
 fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirection) {
-    let is_client = app.world.get_resource::<ClientConfig>().is_some();
-    let is_server = app.world.get_resource::<ServerConfig>().is_some();
+    let is_client = app.world().get_resource::<ClientConfig>().is_some();
+    let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
         ChannelDirection::ClientToServer => {
             if is_client {
@@ -875,7 +875,7 @@ impl<C> ComponentRegistration<'_, C> {
     where
         C: MapEntities + 'static,
     {
-        let mut registry = self.app.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
         registry.add_map_entities::<C>();
         self
     }
@@ -973,7 +973,7 @@ impl AppComponentExt for App {
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C> {
-        self.world
+        self.world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
                 if !registry.is_registered::<C>() {
                     registry.register_component::<C>();
@@ -989,29 +989,29 @@ impl AppComponentExt for App {
     }
 
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_prediction_mode::<C>(prediction_mode);
 
         // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_prediction_systems::<C>(self, prediction_mode);
         }
     }
 
     fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_linear_correction::<C>();
         // TODO: register correction systems only if correction is enabled?
     }
 
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_correction::<C>(correction_fn);
     }
 
     fn add_should_rollback_fn<C: SyncComponent>(&mut self, rollback_check: ShouldRollbackFn<C>) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_should_rollback::<C>(rollback_check);
     }
 
@@ -1019,20 +1019,20 @@ impl AppComponentExt for App {
         &mut self,
         interpolation_mode: ComponentSyncMode,
     ) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
         // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_prepare_interpolation_systems::<C>(self, interpolation_mode);
         }
     }
 
     fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
         // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_prepare_interpolation_systems::<C>(self, interpolation_mode);
             if interpolation_mode == ComponentSyncMode::Full {
@@ -1043,17 +1043,17 @@ impl AppComponentExt for App {
     }
 
     fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_linear_interpolation::<C>();
     }
 
     fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation::<C>(interpolation_fn);
     }
 
     fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_delta_compression::<C>();
     }
 }

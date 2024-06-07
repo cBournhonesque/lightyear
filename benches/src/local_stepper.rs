@@ -142,7 +142,7 @@ impl LocalBevyStepper {
             client_app.add_plugins((ClientPlugins::new(config), ProtocolPlugin));
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
-                .world
+                .world_mut()
                 .get_resource_mut::<Time<Real>>()
                 .unwrap()
                 .update_with_instant(now);
@@ -174,7 +174,7 @@ impl LocalBevyStepper {
 
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app
-            .world
+            .world_mut()
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
@@ -210,7 +210,7 @@ impl LocalBevyStepper {
         self.client_apps
             .get(&client_id)
             .unwrap()
-            .world
+            .world()
             .resource::<R>()
     }
 
@@ -218,29 +218,29 @@ impl LocalBevyStepper {
         self.client_apps
             .get_mut(&client_id)
             .unwrap()
-            .world
+            .world_mut()
             .resource_mut::<R>()
     }
 
     pub fn init(&mut self) {
         self.server_app.finish();
         self.server_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_apps.values_mut().for_each(|client_app| {
             client_app.finish();
             let _ = client_app
-                .world
+                .world_mut()
                 .run_system_once(|mut commands: Commands| commands.connect_client());
         });
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
-            if self
-                .client_apps
-                .values()
-                .all(|c| c.world.resource::<client::ConnectionManager>().is_synced())
-            {
+            if self.client_apps.values().all(|c| {
+                c.world()
+                    .resource::<client::ConnectionManager>()
+                    .is_synced()
+            }) {
                 return;
             }
             self.frame_step();

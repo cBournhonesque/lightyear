@@ -102,7 +102,7 @@ impl Plugin for ClientNetworkingPlugin {
         //  a ConnectionManager or a NetConfig at startup
         // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
         // that depend on these resources do not panic
-        app.world.run_system_once(rebuild_client_connection);
+        app.world_mut().run_system_once(rebuild_client_connection);
 
         // CONNECTING
         app.add_systems(OnEnter(NetworkingState::Connecting), connect);
@@ -487,23 +487,17 @@ pub trait ClientCommands {
 
 impl ClientCommands for Commands<'_, '_> {
     fn connect_client(&mut self) {
-        self.insert_resource(NextState::<NetworkingState>(Some(
-            NetworkingState::Connecting,
-        )));
+        self.insert_resource(NextState::Pending(NetworkingState::Connecting));
     }
 
     fn disconnect_client(&mut self) {
-        self.insert_resource(NextState::<NetworkingState>(Some(
-            NetworkingState::Disconnected,
-        )));
+        self.insert_resource(NextState::Pending(NetworkingState::Disconnected));
     }
 }
 
 mod utils {
-    use bevy::app::{App, StateTransition};
-    use bevy::prelude::{
-        apply_state_transition, FromWorld, NextState, State, StateTransitionEvent, States,
-    };
+    use bevy::app::App;
+    use bevy::prelude::{FromWorld, States};
 
     pub(super) trait AppStateExt {
         // Helper function that runs `init_state::<S>` without entering the state
@@ -513,12 +507,13 @@ mod utils {
 
     impl AppStateExt for App {
         fn init_state_without_entering<S: States + FromWorld>(&mut self) -> &mut Self {
-            if !self.world.contains_resource::<State<S>>() {
-                self.init_resource::<State<S>>()
-                    .init_resource::<NextState<S>>()
-                    .add_event::<StateTransitionEvent<S>>()
-                    .add_systems(StateTransition, apply_state_transition::<S>);
-            }
+            // TODO: re-add this
+            // if !self.world().contains_resource::<State<S>>() {
+            //     self.init_resource::<State<S>>()
+            //         .init_resource::<NextState<S>>()
+            //         .add_event::<StateTransitionEvent<S>>()
+            //         .add_systems(StateTransition, apply_state_transition::<S>);
+            // }
 
             // The OnEnter, OnExit, and OnTransition schedules are lazily initialized
             // (i.e. when the first system is added to them), and World::try_run_schedule is used to fail

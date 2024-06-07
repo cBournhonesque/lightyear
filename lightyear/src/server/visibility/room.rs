@@ -529,14 +529,14 @@ mod tests {
         let room_id = RoomId(0);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
 
         // Spawn an entity on server
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
@@ -544,7 +544,7 @@ mod tests {
             .id();
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(handle_replicating_add);
 
         stepper.frame_step();
@@ -553,19 +553,19 @@ mod tests {
         // Check room states
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .has_client_id(client_id, room_id));
 
         // Add the entity in the same room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .events
             .entity_enter_room
@@ -575,23 +575,23 @@ mod tests {
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<ReplicateVisibility>()
             .is_some());
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
 
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -604,13 +604,13 @@ mod tests {
         // Check room states
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .has_entity(server_entity, room_id));
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -623,14 +623,14 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Events<EntitySpawnEvent>>()
                 .len(),
             1
         );
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -640,12 +640,12 @@ mod tests {
         // Remove the entity from the room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_entity(server_entity, room_id);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .events
             .entity_leave_room
@@ -654,16 +654,16 @@ mod tests {
             .contains(&room_id));
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -674,7 +674,7 @@ mod tests {
         // after bookkeeping, the entity should not have any clients in its replication cache
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<ReplicateVisibility>()
             .unwrap()
@@ -686,7 +686,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Events<EntityDespawnEvent>>()
                 .len(),
             1
@@ -707,7 +707,7 @@ mod tests {
         // Spawn an entity on server
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
@@ -715,11 +715,11 @@ mod tests {
             .id();
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(handle_replicating_add);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
 
@@ -729,19 +729,19 @@ mod tests {
         // Check room states
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .has_entity(server_entity, room_id));
 
         // Add the client in the same room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .events
             .client_enter_room
@@ -751,16 +751,16 @@ mod tests {
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -773,13 +773,13 @@ mod tests {
         // Check room states
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .has_entity(server_entity, room_id));
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -792,14 +792,14 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Events<EntitySpawnEvent>>()
                 .len(),
             1
         );
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -809,12 +809,12 @@ mod tests {
         // Remove the client from the room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_client(client_id, room_id);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .events
             .client_leave_room
@@ -823,16 +823,16 @@ mod tests {
             .contains(&room_id));
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -843,7 +843,7 @@ mod tests {
         // after bookkeeping, the entity should not have any clients in its replication cache
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<ReplicateVisibility>()
             .unwrap()
@@ -855,7 +855,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Events<EntityDespawnEvent>>()
                 .len(),
             1
@@ -874,14 +874,14 @@ mod tests {
         let room_id = RoomId(0);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
 
         // Spawn an entity on server, in the same room
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
@@ -889,26 +889,26 @@ mod tests {
             .id();
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(add_replicate_visibility);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -920,7 +920,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -932,38 +932,38 @@ mod tests {
         // client leaves previous room and joins new room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_client(client_id, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, new_room_id);
         // entity leaves previous room and joins new room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_entity(server_entity, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -984,18 +984,18 @@ mod tests {
         let new_room_id = RoomId(1);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, new_room_id);
         // Spawn an entity on server, in room 1
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
@@ -1003,26 +1003,26 @@ mod tests {
             .id();
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(add_replicate_visibility);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -1034,7 +1034,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -1045,27 +1045,27 @@ mod tests {
         // entity leaves previous room and joins new room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_entity(server_entity, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -1086,13 +1086,13 @@ mod tests {
         let new_room_id = RoomId(1);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
         // Spawn an entity on server, in room 1
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 visibility: VisibilityMode::InterestManagement,
                 ..Default::default()
@@ -1100,31 +1100,31 @@ mod tests {
             .id();
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(add_replicate_visibility);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -1136,7 +1136,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()
@@ -1147,27 +1147,27 @@ mod tests {
         // client leaves previous room and joins new room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_client(client_id, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, new_room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_visibility_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_visibility_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ReplicateVisibility>()
                 .unwrap()

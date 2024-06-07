@@ -164,7 +164,7 @@ impl MultiBevyStepper {
         server_app.add_plugins((plugin, ProtocolPlugin));
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app
-            .world
+            .world_mut()
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
@@ -198,7 +198,7 @@ impl MultiBevyStepper {
             client_app.add_plugins((plugin, ProtocolPlugin));
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
-                .world
+                .world_mut()
                 .get_resource_mut::<Time<Real>>()
                 .unwrap()
                 .update_with_instant(now);
@@ -218,27 +218,27 @@ impl MultiBevyStepper {
     pub fn init(&mut self) {
         self.server_app.finish();
         self.server_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_app_1.finish();
         self.client_app_1
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
         self.client_app_2.finish();
         self.client_app_2
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self
                 .client_app_1
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .is_synced()
                 && self
                     .client_app_2
-                    .world
+                    .world()
                     .resource::<client::ConnectionManager>()
                     .is_synced()
             {

@@ -182,7 +182,7 @@ pub trait AppChannelExt {
 
 impl AppChannelExt for App {
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) {
-        let mut registry = self.world.resource_mut::<ChannelRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ChannelRegistry>();
         registry.add_channel::<C>(settings);
     }
 }

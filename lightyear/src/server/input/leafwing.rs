@@ -69,7 +69,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         );
 
         // TODO: register this in Plugin::finish by checking if the client plugin is already registered?
-        if app.world.resource::<ServerConfig>().shared.mode != Mode::HostServer {
+        if app.world().resource::<ServerConfig>().shared.mode != Mode::HostServer {
             // we don't want to add this plugin in HostServer mode because it's already added on the client side
             // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
             app.add_plugins(InputManagerPlugin::<A>::server());
@@ -293,7 +293,7 @@ mod tests {
         // create an entity on server
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((
                 ActionState::<LeafwingInput1>::default(),
                 Replicate::default(),
@@ -306,7 +306,7 @@ mod tests {
         // check that the server entity got a ActionDiffBuffer added to it
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<ActionDiffBuffer<LeafwingInput1>>()
             .is_some());
@@ -314,7 +314,7 @@ mod tests {
         // check that the entity is replicated
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -322,14 +322,14 @@ mod tests {
             .unwrap();
         assert!(stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<ActionState<LeafwingInput1>>()
             .is_some());
         // add an InputMap to the client entity
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(client_entity)
             .insert(InputMap::<LeafwingInput1>::new([(
                 LeafwingInput1::Jump,
@@ -339,7 +339,7 @@ mod tests {
         // check that the client entity got an InputBuffer added to it
         assert!(stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .is_some());
@@ -347,7 +347,7 @@ mod tests {
         // update the ActionState on the client by pressing on the button once
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyA);
         debug!("before press");
@@ -358,7 +358,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ActionDiffBuffer<LeafwingInput1>>()
                 .unwrap()
@@ -369,7 +369,7 @@ mod tests {
         );
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .release(KeyCode::KeyA);
         // TODO: how come I need to frame_step() twice to see the release action?
@@ -378,7 +378,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<ActionDiffBuffer<LeafwingInput1>>()
                 .unwrap()

@@ -648,18 +648,18 @@ mod tests {
 
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<TimeManager>()
             .set_current_time(new_time);
         stepper
             .server_app
-            .world
+            .world_Mut()
             .resource_mut::<TickManager>()
             .set_tick_to(new_tick);
 
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((Component1(0.0), Replicate::default()))
             .id();
 
@@ -669,12 +669,12 @@ mod tests {
         }
         stepper
             .server_app
-            .world
+            .world_mut()
             .entity_mut(server_entity)
             .insert(Component1(1.0));
         dbg!(&stepper.server_tick());
         dbg!(&stepper.client_tick());
-        dbg!(&stepper.server_app.world.get::<Component1>(server_entity));
+        dbg!(&stepper.server_app.world().get::<Component1>(server_entity));
 
         // make sure the client receives the replication message
         for i in 0..5 {
@@ -683,7 +683,7 @@ mod tests {
 
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -692,7 +692,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .get::<Component1>(client_entity)
                 .unwrap(),
             &Component1(1.0)

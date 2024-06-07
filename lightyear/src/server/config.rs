@@ -163,7 +163,12 @@ mod tests {
         stepper.stop();
 
         // add a hook to handle incoming connection request
-        for netconfig in &mut stepper.server_app.world.resource_mut::<ServerConfig>().net {
+        for netconfig in &mut stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<ServerConfig>()
+            .net
+        {
             // reject connections from the test client
             netconfig.set_connection_request_handler(Arc::new(CustomConnectionRequestHandler));
         }
@@ -175,7 +180,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<State<NetworkingState>>()
                 .get(),
             &NetworkingState::Disconnected

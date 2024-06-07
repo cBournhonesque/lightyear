@@ -76,7 +76,7 @@ pub(crate) mod send {
 
     impl Plugin for ServerReplicationSendPlugin {
         fn build(&self, app: &mut App) {
-            let config = app.world.resource::<ServerConfig>();
+            let config = app.world().resource::<ServerConfig>();
 
             app
                 // REFLECTION
@@ -1001,13 +1001,13 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper.server_app.world.spawn_empty().id();
+            let server_entity = stepper.server_app.world_mut().spawn_empty().id();
             stepper.frame_step();
             stepper.frame_step();
             // check that entity wasn't spawned
             assert!(stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1017,7 +1017,7 @@ pub(crate) mod send {
             // add replicate
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(Replicate {
                     sync: SyncTarget {
@@ -1036,7 +1036,7 @@ pub(crate) mod send {
             // check that the entity was spawned
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1045,7 +1045,7 @@ pub(crate) mod send {
             // check that prediction, interpolation, controlled was handled correctly
             let confirmed = stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity)
                 .get::<Confirmed>()
                 .expect("Confirmed component missing");
@@ -1053,7 +1053,7 @@ pub(crate) mod send {
             assert!(confirmed.interpolated.is_some());
             assert!(stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity)
                 .get::<Controlled>()
                 .is_some());
@@ -1066,13 +1066,13 @@ pub(crate) mod send {
             // spawn an entity on server
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn_batch(vec![Replicate::default(); 2]);
             stepper.frame_step();
             stepper.frame_step();
 
             // check that the entities were spawned
-            assert_eq!(stepper.client_app.world.entities().len(), 2);
+            assert_eq!(stepper.client_app.world().entities().len(), 2);
         }
 
         #[test]
@@ -1082,7 +1082,7 @@ pub(crate) mod send {
             // spawn an entity on server with visibility::InterestManagement
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     ..default()
@@ -1094,7 +1094,7 @@ pub(crate) mod send {
             // check that entity wasn't spawned
             assert!(stepper
                 .client_app_1
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1103,7 +1103,7 @@ pub(crate) mod send {
             // make entity visible
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .resource_mut::<VisibilityManager>()
                 .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity);
             stepper.frame_step();
@@ -1112,7 +1112,7 @@ pub(crate) mod send {
             // check that entity was spawned
             let client_entity = *stepper
                 .client_app_1
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1121,7 +1121,7 @@ pub(crate) mod send {
             // check that the entity was not spawned on the other client
             assert!(stepper
                 .client_app_2
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1133,11 +1133,11 @@ pub(crate) mod send {
         fn test_entity_spawn_preexisting_target() {
             let mut stepper = BevyStepper::default();
 
-            let client_entity = stepper.client_app.world.spawn_empty().id();
+            let client_entity = stepper.client_app.world_mut().spawn_empty().id();
             stepper.frame_step();
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate::default(),
                     TargetEntity::Preexisting(client_entity),
@@ -1150,7 +1150,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .resource::<client::ConnectionManager>()
                     .replication_receiver
                     .remote_entity_map
@@ -1160,10 +1160,10 @@ pub(crate) mod send {
             );
             assert!(stepper
                 .client_app
-                .world
+                .world()
                 .get::<Replicated>(client_entity)
                 .is_some());
-            assert_eq!(stepper.client_app.world.entities().len(), 1);
+            assert_eq!(stepper.client_app.world().entities().len(), 1);
         }
 
         /// Check that if we change the replication target on an entity that already has one
@@ -1175,7 +1175,7 @@ pub(crate) mod send {
             // spawn an entity on server to client 1
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn(Replicate {
                     target: ReplicationTarget {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
@@ -1188,7 +1188,7 @@ pub(crate) mod send {
 
             let client_entity_1 = *stepper
                 .client_app_1
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1198,7 +1198,7 @@ pub(crate) mod send {
             // update the replication target
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(ReplicationTarget {
                     target: NetworkTarget::All,
@@ -1209,7 +1209,7 @@ pub(crate) mod send {
             // check that the entity gets replicated to the other client
             stepper
                 .client_app_2
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1223,14 +1223,18 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(Replicate::default())
+                .id();
             stepper.frame_step();
             stepper.frame_step();
 
             // check that the entity was spawned
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1238,12 +1242,16 @@ pub(crate) mod send {
                 .expect("entity was not replicated to client");
 
             // despawn
-            stepper.server_app.world.despawn(server_entity);
+            stepper.server_app.world_mut().despawn(server_entity);
             stepper.frame_step();
             stepper.frame_step();
 
             // check that the entity was despawned
-            assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+            assert!(stepper
+                .client_app
+                .world()
+                .get_entity(client_entity)
+                .is_none());
         }
 
         /// Check that if interest management is used, a client losing visibility of an entity
@@ -1255,7 +1263,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     ..default()
@@ -1263,7 +1271,7 @@ pub(crate) mod send {
                 .id();
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .resource_mut::<VisibilityManager>()
                 .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
 
@@ -1273,7 +1281,7 @@ pub(crate) mod send {
             // check that the entity was spawned
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1283,14 +1291,18 @@ pub(crate) mod send {
             // lose visibility
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .resource_mut::<VisibilityManager>()
                 .lose_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
             stepper.frame_step();
             stepper.frame_step();
 
             // check that the entity was despawned
-            assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+            assert!(stepper
+                .client_app
+                .world()
+                .get_entity(client_entity)
+                .is_none());
         }
 
         /// Test that if an entity with visibility is despawned, the despawn-message is not sent
@@ -1304,7 +1316,7 @@ pub(crate) mod send {
             // can read the replication messages of the other client
             let server_entity_1 = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     group: ReplicationGroup::new_id(1),
@@ -1313,7 +1325,7 @@ pub(crate) mod send {
                 .id();
             let server_entity_2 = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     group: ReplicationGroup::new_id(1),
@@ -1322,7 +1334,7 @@ pub(crate) mod send {
                 .id();
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .resource_mut::<VisibilityManager>()
                 .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity_1)
                 .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_2), server_entity_2);
@@ -1332,7 +1344,7 @@ pub(crate) mod send {
             // check that the entity was spawned on each client
             let client_entity_1 = *stepper
                 .client_app_1
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1340,7 +1352,7 @@ pub(crate) mod send {
                 .expect("entity was not replicated to client 1");
             let client_entity_2 = *stepper
                 .client_app_2
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1351,28 +1363,28 @@ pub(crate) mod send {
             // so that replication messages for server_entity_1 could also be read by client 2
             stepper
                 .client_app_2
-                .world
+                .world_mut()
                 .resource_mut::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
                 .insert(server_entity_1, client_entity_2);
 
             // despawn the server_entity_1
-            stepper.server_app.world.despawn(server_entity_1);
+            stepper.server_app.world_mut().despawn(server_entity_1);
             stepper.frame_step();
             stepper.frame_step();
 
             // check that the entity was despawned on client 1
             assert!(stepper
                 .client_app_1
-                .world
+                .world()
                 .get_entity(client_entity_1)
                 .is_none());
 
             // check that the entity still exists on client 2
             assert!(stepper
                 .client_app_2
-                .world
+                .world()
                 .get_entity(client_entity_2)
                 .is_some());
         }
@@ -1386,7 +1398,7 @@ pub(crate) mod send {
             // spawn an entity on server to client 1
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn(Replicate {
                     target: ReplicationTarget {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
@@ -1399,7 +1411,7 @@ pub(crate) mod send {
 
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1409,7 +1421,7 @@ pub(crate) mod send {
             // update the replication target
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(ReplicationTarget {
                     target: NetworkTarget::None,
@@ -1418,7 +1430,11 @@ pub(crate) mod send {
             stepper.frame_step();
 
             // check that the entity was despawned
-            assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+            assert!(stepper
+                .client_app
+                .world()
+                .get_entity(client_entity)
+                .is_none());
         }
 
         #[test]
@@ -1426,12 +1442,16 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(Replicate::default())
+                .id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1441,7 +1461,7 @@ pub(crate) mod send {
             // add component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(Component1(1.0));
             stepper.frame_step();
@@ -1451,7 +1471,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -1465,12 +1485,16 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(Replicate::default())
+                .id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1480,7 +1504,7 @@ pub(crate) mod send {
             // add component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(Component6(vec![3, 4]));
             stepper.frame_step();
@@ -1490,7 +1514,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -1505,7 +1529,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate::default(),
                     Component6(vec![1, 2]),
@@ -1517,7 +1541,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1527,7 +1551,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -1536,7 +1560,7 @@ pub(crate) mod send {
             // check that the component value was stored in the delta manager cache
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .data
@@ -1556,7 +1580,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     ..default()
@@ -1564,14 +1588,14 @@ pub(crate) mod send {
                 .id();
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .resource_mut::<VisibilityManager>()
                 .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1581,7 +1605,7 @@ pub(crate) mod send {
             // add component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(Component1(1.0));
             stepper.frame_step();
@@ -1591,7 +1615,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -1606,7 +1630,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn(Replicate {
                     visibility: VisibilityMode::InterestManagement,
                     ..default()
@@ -1619,12 +1643,12 @@ pub(crate) mod send {
             // add component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(Component1(1.0));
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .resource_mut::<VisibilityManager>()
                 .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
             stepper.frame_step();
@@ -1632,7 +1656,7 @@ pub(crate) mod send {
 
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1642,7 +1666,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -1655,12 +1679,16 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(Replicate::default())
+                .id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1670,7 +1698,7 @@ pub(crate) mod send {
             // add component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert((Component1(1.0), DisabledComponent::<Component1>::default()));
             stepper.frame_step();
@@ -1679,7 +1707,7 @@ pub(crate) mod send {
             // check that the component was not replicated
             assert!(stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity)
                 .get::<Component1>()
                 .is_none());
@@ -1692,7 +1720,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate::default(),
                     Component1(1.0),
@@ -1705,7 +1733,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let client_entity_1 = *stepper
                 .client_app_1
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1713,7 +1741,7 @@ pub(crate) mod send {
                 .expect("entity was not replicated to client");
             let client_entity_2 = *stepper
                 .client_app_2
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1724,7 +1752,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app_1
-                    .world
+                    .world()
                     .entity(client_entity_1)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -1732,7 +1760,7 @@ pub(crate) mod send {
             );
             assert!(stepper
                 .client_app_2
-                .world
+                .world()
                 .entity(client_entity_2)
                 .get::<Component1>()
                 .is_none());
@@ -1747,7 +1775,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate {
                         // target is both
@@ -1764,7 +1792,7 @@ pub(crate) mod send {
             // entity is visible to both
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .resource_mut::<VisibilityManager>()
                 .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity)
                 .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_2), server_entity);
@@ -1772,7 +1800,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let client_entity_1 = *stepper
                 .client_app_1
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1780,7 +1808,7 @@ pub(crate) mod send {
                 .expect("entity was not replicated to client");
             let client_entity_2 = *stepper
                 .client_app_2
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1791,7 +1819,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app_1
-                    .world
+                    .world()
                     .entity(client_entity_1)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -1799,7 +1827,7 @@ pub(crate) mod send {
             );
             assert!(stepper
                 .client_app_2
-                .world
+                .world()
                 .entity(client_entity_2)
                 .get::<Component1>()
                 .is_none());
@@ -1812,14 +1840,14 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((Replicate::default(), Component1(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1829,7 +1857,7 @@ pub(crate) mod send {
             // update component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(Component1(2.0));
             stepper.frame_step();
@@ -1839,7 +1867,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -1854,7 +1882,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate::default(),
                     Component6(vec![1, 2]),
@@ -1867,7 +1895,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1877,7 +1905,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -1886,7 +1914,7 @@ pub(crate) mod send {
             // check that the component value was stored in the delta manager cache
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .data
@@ -1901,7 +1929,7 @@ pub(crate) mod send {
             // apply update
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<Component6>()
                 .unwrap()
@@ -1911,7 +1939,7 @@ pub(crate) mod send {
             // check that the delta manager has been updated correctly
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .data
@@ -1925,7 +1953,7 @@ pub(crate) mod send {
             assert_eq!(
                 *stepper
                     .server_app
-                    .world
+                    .world()
                     .resource::<ConnectionManager>()
                     .delta_manager
                     .acks
@@ -1941,7 +1969,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -1950,7 +1978,7 @@ pub(crate) mod send {
             // check that the component value for the update_tick was stored in the delta manager cache
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .data
@@ -1965,7 +1993,7 @@ pub(crate) mod send {
             // since all clients received the update for update_tick (so the insert_tick is no longer needed)
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .data
@@ -1979,7 +2007,7 @@ pub(crate) mod send {
             // check that there is no acks data for the update tick, since all clients received the update
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .acks
@@ -2004,7 +2032,7 @@ pub(crate) mod send {
             #[allow(irrefutable_let_patterns)]
             if let NetConfig::Netcode { io, .. } = stepper
                 .server_app
-                .world
+                .world_mut()
                 .resource_mut::<ServerConfig>()
                 .net
                 .first_mut()
@@ -2022,7 +2050,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate::default(),
                     Component6(vec![1, 2]),
@@ -2035,7 +2063,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -2045,7 +2073,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -2055,7 +2083,7 @@ pub(crate) mod send {
             // from the base value, aka [2, 3])
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<Component6>()
                 .unwrap()
@@ -2067,7 +2095,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .server_app
-                    .world
+                    .world()
                     .resource::<ConnectionManager>()
                     .delta_manager
                     .acks
@@ -2082,7 +2110,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -2092,7 +2120,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .server_app
-                    .world
+                    .world()
                     .resource::<ConnectionManager>()
                     .delta_manager
                     .acks
@@ -2108,7 +2136,7 @@ pub(crate) mod send {
             stepper.frame_step();
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .acks
@@ -2119,7 +2147,7 @@ pub(crate) mod send {
             // apply update (the update should be from the last acked value, aka [4])
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<Component6>()
                 .unwrap()
@@ -2130,7 +2158,7 @@ pub(crate) mod send {
             // apply another update (the update should still be from the last acked value, aka [4, 5])
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<Component6>()
                 .unwrap()
@@ -2140,7 +2168,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -2152,7 +2180,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -2175,7 +2203,7 @@ pub(crate) mod send {
             #[allow(irrefutable_let_patterns)]
             if let NetConfig::Netcode { io, .. } = stepper
                 .server_app
-                .world
+                .world_mut()
                 .resource_mut::<ServerConfig>()
                 .net
                 .first_mut()
@@ -2193,7 +2221,7 @@ pub(crate) mod send {
             // spawn an entity on server (diff = added 1)
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate::default(),
                     Component7(HashSet::from([1])),
@@ -2206,7 +2234,7 @@ pub(crate) mod send {
             // apply an update (diff = added 2 since we compute the diff FromBase)
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<Component7>()
                 .unwrap()
@@ -2220,7 +2248,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -2230,7 +2258,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component7>()
                     .expect("component missing"),
@@ -2239,7 +2267,7 @@ pub(crate) mod send {
             // check that the server received an ack
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .acks
@@ -2250,7 +2278,7 @@ pub(crate) mod send {
             // apply update (the update should be from the last acked value, aka add 3, remove 2)
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<Component7>()
                 .unwrap()
@@ -2260,7 +2288,7 @@ pub(crate) mod send {
             // apply another update (the update should still be from the last acked value, aka add 4, remove 2
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<Component7>()
                 .unwrap()
@@ -2270,7 +2298,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component7>()
                     .expect("component missing"),
@@ -2282,7 +2310,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component7>()
                     .expect("component missing"),
@@ -2292,7 +2320,7 @@ pub(crate) mod send {
             // (because we only purge when we receive a strictly more recent tick)
             assert!(stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity)
                 .get::<DeltaComponentHistory<Component7>>()
                 .expect("component missing")
@@ -2301,7 +2329,7 @@ pub(crate) mod send {
             // but it doesn't contain the component for the initial insert
             assert!(!stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity)
                 .get::<DeltaComponentHistory<Component7>>()
                 .expect("component missing")
@@ -2318,14 +2346,14 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((Replicate::default(), Component1(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -2335,7 +2363,7 @@ pub(crate) mod send {
             // remove the replication_target component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(Component1(2.0))
                 .remove::<ReplicationTarget>();
@@ -2346,7 +2374,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -2356,7 +2384,7 @@ pub(crate) mod send {
             // re-add the replication_target component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(ReplicationTarget::default());
             stepper.frame_step();
@@ -2365,7 +2393,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -2380,14 +2408,14 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((Replicate::default(), Component1(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -2397,7 +2425,7 @@ pub(crate) mod send {
             // add component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert((Component1(2.0), DisabledComponent::<Component1>::default()));
             stepper.frame_step();
@@ -2407,7 +2435,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -2422,7 +2450,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate::default(),
                     Component1(1.0),
@@ -2433,7 +2461,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -2443,7 +2471,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -2453,7 +2481,7 @@ pub(crate) mod send {
             // update component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(Component1(2.0));
             stepper.frame_step();
@@ -2463,7 +2491,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -2478,14 +2506,14 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((Replicate::default(), Component1(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -2494,7 +2522,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -2504,7 +2532,7 @@ pub(crate) mod send {
             // remove component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .remove::<Component1>();
             stepper.frame_step();
@@ -2513,7 +2541,7 @@ pub(crate) mod send {
             // check that the component was replicated
             assert!(stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity)
                 .get::<Component1>()
                 .is_none());
@@ -2523,13 +2551,17 @@ pub(crate) mod send {
         fn test_replicating_add() {
             let mut stepper = BevyStepper::default();
 
-            let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(Replicate::default())
+                .id();
             stepper.frame_step();
 
             // check that a DespawnTracker was added
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<DespawnTracker>()
                 .is_some());
@@ -2537,7 +2569,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .server_app
-                    .world
+                    .world()
                     .resource::<ConnectionManager>()
                     .replicate_component_cache
                     .get(&server_entity)
@@ -2559,7 +2591,7 @@ pub(crate) mod send {
 
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn(Replicate {
                     target: ReplicationTarget {
                         target: NetworkTarget::None,
@@ -2571,15 +2603,19 @@ pub(crate) mod send {
             stepper.frame_step();
 
             // set visibility to interest management
-            stepper.server_app.world.entity_mut(server_entity).insert((
-                VisibilityMode::InterestManagement,
-                ReplicationTarget {
-                    target: NetworkTarget::All,
-                },
-            ));
             stepper
                 .server_app
-                .world
+                .world_mut()
+                .entity_mut(server_entity)
+                .insert((
+                    VisibilityMode::InterestManagement,
+                    ReplicationTarget {
+                        target: NetworkTarget::All,
+                    },
+                ));
+            stepper
+                .server_app
+                .world_mut()
                 .resource_mut::<VisibilityManager>()
                 .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
 
@@ -2587,7 +2623,7 @@ pub(crate) mod send {
             stepper.frame_step();
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -2614,15 +2650,19 @@ pub(crate) mod send {
             );
 
             // spawn an entity on server
-            let server_entity = stepper.server_app.world.spawn(Component1(1.0)).id();
+            let server_entity = stepper.server_app.world_mut().spawn(Component1(1.0)).id();
             // spawn an entity on the client with the component value
-            let client_entity = stepper.client_app.world.spawn(Component1(1.0)).id();
+            let client_entity = stepper.client_app.world_mut().spawn(Component1(1.0)).id();
 
             // add replication with a pre-existing target
-            stepper.server_app.world.entity_mut(server_entity).insert((
-                Replicate::default(),
-                TargetEntity::Preexisting(client_entity),
-            ));
+            stepper
+                .server_app
+                .world_mut()
+                .entity_mut(server_entity)
+                .insert((
+                    Replicate::default(),
+                    TargetEntity::Preexisting(client_entity),
+                ));
 
             // check that we did not receive an ComponentUpdateEvent because the component was already equal
             // to the replicated value
@@ -2640,9 +2680,9 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper.server_app.world.spawn(Component1(2.0)).id();
+            let server_entity = stepper.server_app.world_mut().spawn(Component1(2.0)).id();
             // spawn an entity on the client with the component value
-            let client_entity = stepper.client_app.world.spawn(Component1(1.0)).id();
+            let client_entity = stepper.client_app.world_mut().spawn(Component1(1.0)).id();
 
             stepper.client_app.init_resource::<Counter>();
             stepper.client_app.add_systems(
@@ -2657,10 +2697,14 @@ pub(crate) mod send {
             );
 
             // add replication with a pre-existing target
-            stepper.server_app.world.entity_mut(server_entity).insert((
-                Replicate::default(),
-                TargetEntity::Preexisting(client_entity),
-            ));
+            stepper
+                .server_app
+                .world_mut()
+                .entity_mut(server_entity)
+                .insert((
+                    Replicate::default(),
+                    TargetEntity::Preexisting(client_entity),
+                ));
 
             // check that we did receive an ComponentUpdateEvent
             stepper.frame_step();
@@ -2668,7 +2712,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .get_resource::<Counter>()
                     .unwrap()
                     .0,
@@ -2744,61 +2788,61 @@ pub(crate) mod commands {
 
             let entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((Component1(1.0), Replicate::default()))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
             assert!(stepper
                 .client_app
-                .world
+                .world_mut()
                 .query::<&Component1>()
-                .get_single(&stepper.client_app.world)
+                .get_single(stepper.client_app.world())
                 .is_ok());
 
             // if we remove the Replicate component, and then despawn the entity
             // the despawn still gets replicated
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(entity)
                 .remove::<Replicate>();
-            stepper.server_app.world.entity_mut(entity).despawn();
+            stepper.server_app.world_mut().entity_mut(entity).despawn();
             stepper.frame_step();
             stepper.frame_step();
 
             assert!(stepper
                 .client_app
-                .world
+                .world_mut()
                 .query::<&Component1>()
-                .get_single(&stepper.client_app.world)
+                .get_single(stepper.client_app.world())
                 .is_err());
 
             // spawn a new entity
             let entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((Component1(1.0), Replicate::default()))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
             assert!(stepper
                 .client_app
-                .world
+                .world_mut()
                 .query::<&Component1>()
-                .get_single(&stepper.client_app.world)
+                .get_single(stepper.client_app.world())
                 .is_ok());
 
             // apply the command to remove replicate
-            despawn_without_replication(entity, &mut stepper.server_app.world);
+            despawn_without_replication(entity, &mut stepper.server_app.world_mut());
             stepper.frame_step();
             stepper.frame_step();
             // now the despawn should not have been replicated
             assert!(stepper
                 .client_app
-                .world
+                .world_mut()
                 .query::<&Component1>()
-                .get_single(&stepper.client_app.world)
+                .get_single(stepper.client_app.world())
                 .is_ok());
         }
     }

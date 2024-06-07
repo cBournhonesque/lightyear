@@ -802,7 +802,7 @@ mod tests {
             () => {
                 stepper
                     .server_app
-                    .world
+                    .world()
                     .resource::<ConnectionManager>()
                     .connections
                     .get(&ClientId::Netcode(TEST_CLIENT_ID))
@@ -812,7 +812,7 @@ mod tests {
         }
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((Component1(1.0), Replicate::default()))
             .id();
         stepper.frame_step();
@@ -820,7 +820,7 @@ mod tests {
         // send an update
         stepper
             .server_app
-            .world
+            .world_mut()
             .entity_mut(server_entity)
             .get_mut::<Component1>()
             .unwrap()

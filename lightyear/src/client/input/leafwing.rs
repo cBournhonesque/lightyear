@@ -1151,7 +1151,7 @@ mod tests {
         // create an entity on server
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((
                 ActionState::<LeafwingInput1>::default(),
                 Replicate::default(),
@@ -1164,7 +1164,7 @@ mod tests {
         // check that the server entity got a ActionDiffBuffer added to it
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<ActionDiffBuffer<LeafwingInput1>>()
             .is_some());
@@ -1172,7 +1172,7 @@ mod tests {
         // check that the entity is replicated, including the ActionState component
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -1180,7 +1180,7 @@ mod tests {
             .unwrap();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(client_entity)
             .insert(InputMap::<LeafwingInput1>::new([(
                 LeafwingInput1::Jump,
@@ -1188,7 +1188,7 @@ mod tests {
             )]));
         assert!(stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<ActionState<LeafwingInput1>>()
             .is_some());
@@ -1203,7 +1203,7 @@ mod tests {
         // press the jump button on the client
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyA);
         stepper.frame_step();
@@ -1211,7 +1211,7 @@ mod tests {
         // listen to the ActionDiff event
         let action_diff_events = stepper
             .client_app
-            .world
+            .world_mut()
             .get_resource_mut::<Events<ActionDiffEvent<LeafwingInput1>>>()
             .unwrap();
         for event in action_diff_events.get_reader().read(&action_diff_events) {

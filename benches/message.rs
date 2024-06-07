@@ -41,7 +41,7 @@ fn send_receive_simple_messages_to_one_client(criterion: &mut Criterion) {
                         for _ in 0..*n {
                             let _ = stepper
                                 .server_app
-                                .world
+                                .world()
                                 .resource_mut::<server::ConnectionManager>()
                                 .send_message::<Channel1, _>(client_id, &Message2(1))
                                 .inspect_err(|e| error!("error: {e:?}"));
@@ -52,7 +52,7 @@ fn send_receive_simple_messages_to_one_client(criterion: &mut Criterion) {
                         //         .client_apps
                         //         .get_mut(&client_id)
                         //         .unwrap()
-                        //         .world
+                        //         .world_mut()
                         //         .resource_mut::<Events<client::MessageEvent<Message2>>>()
                         //         .drain()
                         //         .map(|e| e.message)

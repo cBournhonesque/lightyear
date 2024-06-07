@@ -488,16 +488,16 @@ mod tests {
         // check default compute hash, with multiple entities sharing the same tick
         stepper
             .client_app
-            .world
+            .world_mut()
             .spawn((Component1(1.0), PreSpawnedPlayerObject::default()));
         stepper
             .client_app
-            .world
+            .world_mut()
             .spawn((Component1(1.0), PreSpawnedPlayerObject::default()));
         stepper.frame_step();
 
-        let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
-        let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
+        let current_tick = stepper.client_app.world().resource::<TickManager>().tick();
+        let prediction_manager = stepper.client_app.world().resource::<PredictionManager>();
         let expected_hash: u64 = 6598339966483644418;
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,
@@ -518,7 +518,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(Entity::from_raw(0))
                 .get::<PredictionHistory<Component1>>()
                 .unwrap()

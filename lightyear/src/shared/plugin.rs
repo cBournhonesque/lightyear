@@ -140,6 +140,6 @@ impl Plugin for SharedPlugin {
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
         // check that the protocol was built correctly
-        app.world.resource::<ComponentRegistry>().check();
+        app.world().resource::<ComponentRegistry>().check();
     }
 }

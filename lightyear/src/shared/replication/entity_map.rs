@@ -135,7 +135,7 @@ mod tests {
         // Create an entity on server
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((Component1(0.0), Replicate::default()))
             .id();
         // we need to step twice because we run client before server
@@ -145,7 +145,7 @@ mod tests {
         // Check that the entity is replicated to client
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -154,7 +154,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity)
                 .get::<Component1>()
                 .unwrap(),
@@ -164,7 +164,7 @@ mod tests {
         // Create an entity with a component that needs to be mapped
         let server_entity_2 = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((Component4(server_entity), Replicate::default()))
             .id();
         stepper.frame_step();
@@ -173,7 +173,7 @@ mod tests {
         // Check that this entity was replicated correctly, and that the component got mapped
         let client_entity_2 = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -183,7 +183,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity_2)
                 .get::<Component4>()
                 .unwrap(),

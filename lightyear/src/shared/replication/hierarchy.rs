@@ -218,16 +218,16 @@ mod tests {
 
     fn setup_hierarchy() -> (BevyStepper, Entity, Entity, Entity) {
         let mut stepper = BevyStepper::default();
-        let child = stepper.server_app.world.spawn(Component3(0.0)).id();
+        let child = stepper.server_app.world_mut().spawn(Component3(0.0)).id();
         let parent = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Component2(0.0))
             .add_child(child)
             .id();
         let grandparent = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Component1(0.0))
             .add_child(parent)
             .id();
@@ -247,12 +247,12 @@ mod tests {
         };
         stepper
             .server_app
-            .world
+            .world_mut()
             .entity_mut(parent)
             .insert((replicate.clone(), ParentSync::default()));
         stepper
             .server_app
-            .world
+            .world_mut()
             .entity_mut(grandparent)
             .insert(replicate.clone());
         stepper.frame_step();
@@ -261,29 +261,33 @@ mod tests {
         // check that the parent got replicated, along with the hierarchy information
         let client_grandparent = stepper
             .client_app
-            .world
+            .world_mut()
             .query_filtered::<Entity, With<Component1>>()
-            .get_single(&stepper.client_app.world)
+            .get_single(&stepper.client_app.world())
             .unwrap();
         let (client_parent, client_parent_sync, client_parent_component) = stepper
             .client_app
-            .world
+            .world_mut()
             .query_filtered::<(Entity, &ParentSync, &Parent), With<Component2>>()
-            .get_single(&stepper.client_app.world)
+            .get_single(stepper.client_app.world())
             .unwrap();
 
         assert_eq!(client_parent_sync.0, Some(client_grandparent));
         assert_eq!(*client_parent_component.deref(), client_grandparent);
 
         // remove the hierarchy on the sender side
-        stepper.server_app.world.entity_mut(parent).remove_parent();
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(parent)
+            .remove_parent();
         stepper.frame_step();
         stepper.frame_step();
         // 1. make sure that parent sync has been updated on the sender side
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(parent)
                 .get::<ParentSync>(),
             Some(&ParentSync(None))
@@ -293,7 +297,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(client_parent)
                 .get::<ParentSync>(),
             Some(&ParentSync(None))
@@ -301,14 +305,14 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(client_parent)
                 .get::<Parent>(),
             None,
         );
         assert!(stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(client_grandparent)
             .get::<Children>()
             .is_none());
@@ -323,7 +327,7 @@ mod tests {
 
         stepper
             .server_app
-            .world
+            .world_mut()
             .entity_mut(grandparent)
             .insert(Replicate::default());
 
@@ -333,28 +337,28 @@ mod tests {
         // 1. check that the parent and child have been replicated
         let client_grandparent = stepper
             .client_app
-            .world
+            .world_mut()
             .query_filtered::<Entity, With<Component1>>()
-            .get_single(&stepper.client_app.world)
+            .get_single(stepper.client_app.world())
             .unwrap();
         let client_parent = stepper
             .client_app
-            .world
+            .world_mut()
             .query_filtered::<Entity, With<Component2>>()
-            .get_single(&stepper.client_app.world)
+            .get_single(stepper.client_app.world())
             .unwrap();
         let client_child = stepper
             .client_app
-            .world
+            .world_mut()
             .query_filtered::<Entity, With<Component3>>()
-            .get_single(&stepper.client_app.world)
+            .get_single(stepper.client_app.world())
             .unwrap();
 
         // 2. check that the hierarchies have been replicated
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(client_parent)
                 .get::<Parent>()
                 .unwrap()
@@ -364,7 +368,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(client_child)
                 .get::<Parent>()
                 .unwrap()
@@ -376,7 +380,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(parent)
                 .get::<ReplicationGroup>(),
             Some(&ReplicationGroup::new_id(grandparent.to_bits()))
@@ -384,7 +388,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(child)
                 .get::<ReplicationGroup>(),
             Some(&ReplicationGroup::new_id(grandparent.to_bits()))

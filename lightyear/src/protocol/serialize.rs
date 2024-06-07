@@ -127,9 +127,9 @@ impl AppSerializeExt for App {
     // TODO: or have a single SerializeRegistry?
     // TODO: or should we just have add_message_map_entities and add_component_map_entities?
     fn add_map_entities<M: MapEntities + 'static>(&mut self) {
-        let mut registry = self.world.resource_mut::<MessageRegistry>();
+        let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
         registry.try_add_map_entities::<M>();
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.try_add_map_entities::<M>();
     }
 }

@@ -44,8 +44,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         // We still need to replicate the ActionState to the client
         app.register_component::<ActionState<A>>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Simple);
-        let is_client = app.world.get_resource::<ClientConfig>().is_some();
-        let is_server = app.world.get_resource::<ServerConfig>().is_some();
+        let is_client = app.world().get_resource::<ClientConfig>().is_some();
+        let is_server = app.world().get_resource::<ServerConfig>().is_some();
         if is_client {
             app.add_plugins(
                 crate::client::input::leafwing::LeafwingInputPlugin::<A>::new(self.config),

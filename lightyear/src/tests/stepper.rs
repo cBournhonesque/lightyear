@@ -154,12 +154,12 @@ impl BevyStepper {
         // Initialize Real time (needed only for the first TimeSystem run)
         let now = bevy::utils::Instant::now();
         client_app
-            .world
+            .world_mut()
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
         server_app
-            .world
+            .world_mut()
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
@@ -174,7 +174,7 @@ impl BevyStepper {
     }
 
     pub(crate) fn interpolation_tick(&mut self) -> Tick {
-        self.client_app.world.resource_scope(
+        self.client_app.world_mut().resource_scope(
             |world: &mut World, manager: Mut<client::ConnectionManager>| {
                 manager
                     .sync_manager
@@ -184,26 +184,26 @@ impl BevyStepper {
     }
 
     pub(crate) fn client_tick(&self) -> Tick {
-        self.client_app.world.resource::<TickManager>().tick()
+        self.client_app.world().resource::<TickManager>().tick()
     }
     pub(crate) fn server_tick(&self) -> Tick {
-        self.server_app.world.resource::<TickManager>().tick()
+        self.server_app.world().resource::<TickManager>().tick()
     }
     pub(crate) fn init(&mut self) {
         self.server_app.finish();
         self.server_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_app.finish();
         self.client_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .is_synced()
             {
@@ -215,17 +215,17 @@ impl BevyStepper {
 
     pub(crate) fn start(&mut self) {
         self.server_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .is_synced()
             {
@@ -237,10 +237,10 @@ impl BevyStepper {
 
     pub(crate) fn stop(&mut self) {
         self.server_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.stop_server());
         self.client_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.disconnect_client());
 
         // Advance the world to let the disconnection process complete

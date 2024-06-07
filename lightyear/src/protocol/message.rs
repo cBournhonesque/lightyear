@@ -101,8 +101,8 @@ pub struct MessageRegistry {
 }
 
 fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection) {
-    let is_client = app.world.get_resource::<ClientConfig>().is_some();
-    let is_server = app.world.get_resource::<ServerConfig>().is_some();
+    let is_client = app.world().get_resource::<ClientConfig>().is_some();
+    let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
         ChannelDirection::ClientToServer => {
             if is_server {
@@ -122,8 +122,8 @@ fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection)
 }
 
 fn register_resource_send<R: Resource + Message>(app: &mut App, direction: ChannelDirection) {
-    let is_client = app.world.get_resource::<ClientConfig>().is_some();
-    let is_server = app.world.get_resource::<ServerConfig>().is_some();
+    let is_client = app.world().get_resource::<ClientConfig>().is_some();
+    let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
         ChannelDirection::ClientToServer => {
             if is_client {
@@ -192,7 +192,7 @@ impl<M> MessageRegistration<'_, M> {
     where
         M: MapEntities + 'static,
     {
-        let mut registry = self.app.world.resource_mut::<MessageRegistry>();
+        let mut registry = self.app.world_mut().resource_mut::<MessageRegistry>();
         registry.add_map_entities::<M>();
         self
     }
@@ -213,7 +213,7 @@ impl AppMessageInternalExt for App {
         direction: ChannelDirection,
         message_type: MessageType,
     ) -> MessageRegistration<'_, M> {
-        let mut registry = self.world.resource_mut::<MessageRegistry>();
+        let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
         if !registry.is_registered::<M>() {
             registry.add_message::<M>(message_type);
         }

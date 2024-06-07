@@ -49,12 +49,12 @@ fn test_sync_after_tick_wrap() {
     let new_time = WrappedTime::from_duration(tick_duration * (new_tick.0 as u32));
     stepper
         .server_app
-        .world
+        .world_mut()
         .resource_mut::<TimeManager>()
         .set_current_time(new_time);
     stepper
         .server_app
-        .world
+        .world_mut()
         .resource_mut::<TickManager>()
         .set_tick_to(new_tick);
 
@@ -66,7 +66,7 @@ fn test_sync_after_tick_wrap() {
 
     let server_entity = stepper
         .server_app
-        .world
+        .world_mut()
         .spawn((Component1(0.0), Replicate::default()))
         .id();
 
@@ -78,7 +78,7 @@ fn test_sync_after_tick_wrap() {
     dbg!(&stepper.client_tick());
     stepper
         .server_app
-        .world
+        .world_mut()
         .entity_mut(server_entity)
         .insert(Component1(1.0));
 
@@ -89,7 +89,7 @@ fn test_sync_after_tick_wrap() {
 
     let client_entity = *stepper
         .client_app
-        .world
+        .world()
         .resource::<client::ConnectionManager>()
         .replication_receiver
         .remote_entity_map
@@ -98,7 +98,7 @@ fn test_sync_after_tick_wrap() {
     assert_eq!(
         stepper
             .client_app
-            .world
+            .world()
             .get::<Component1>(client_entity)
             .unwrap(),
         &Component1(1.0)
@@ -135,12 +135,12 @@ fn test_sync_after_tick_half_wrap() {
     let new_time = WrappedTime::from_duration(tick_duration * (new_tick.0 as u32));
     stepper
         .server_app
-        .world
+        .world_mut()
         .resource_mut::<TimeManager>()
         .set_current_time(new_time);
     stepper
         .server_app
-        .world
+        .world_mut()
         .resource_mut::<TickManager>()
         .set_tick_to(new_tick);
 
@@ -151,7 +151,7 @@ fn test_sync_after_tick_half_wrap() {
 
     let server_entity = stepper
         .server_app
-        .world
+        .world_mut()
         .spawn((Component1(0.0), Replicate::default()))
         .id();
 
@@ -160,14 +160,14 @@ fn test_sync_after_tick_half_wrap() {
     }
     stepper
         .server_app
-        .world
+        .world_mut()
         .entity_mut(server_entity)
         .insert(Component1(1.0));
     // dbg!(&stepper.server_tick());
     // dbg!(&stepper.client_tick());
     let server_value = stepper
         .server_app
-        .world
+        .world()
         .get::<Component1>(server_entity)
         .unwrap();
 
@@ -178,7 +178,7 @@ fn test_sync_after_tick_half_wrap() {
 
     let client_entity = *stepper
         .client_app
-        .world
+        .world()
         .resource::<client::ConnectionManager>()
         .replication_receiver
         .remote_entity_map
@@ -187,7 +187,7 @@ fn test_sync_after_tick_half_wrap() {
     assert_eq!(
         stepper
             .client_app
-            .world
+            .world()
             .get::<Component1>(client_entity)
             .unwrap(),
         &Component1(1.0)
