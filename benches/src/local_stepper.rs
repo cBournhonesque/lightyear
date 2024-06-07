@@ -118,7 +118,7 @@ impl LocalBevyStepper {
             let mut client_app = App::new();
             client_app.add_plugins((
                 MinimalPlugins,
-                // #[cfg(feature = "bevy/trace_tracy")]
+                #[cfg(feature = "bevy/trace_tracy")]
                 LogPlugin::default(),
             ));
             let auth = Authentication::Manual {
@@ -157,7 +157,7 @@ impl LocalBevyStepper {
         let mut server_app = App::new();
         server_app.add_plugins((
             MinimalPlugins,
-            // #[cfg(feature = "bevy/trace_tracy")]
+            #[cfg(feature = "bevy/trace_tracy")]
             LogPlugin::default(),
         ));
         let config = ServerConfig {

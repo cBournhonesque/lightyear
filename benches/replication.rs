@@ -20,6 +20,7 @@ use lightyear::prelude::{ClientId, SharedConfig, TickConfig};
 use lightyear::server::input::native::InputBuffers;
 use lightyear::shared::replication::network_target::NetworkTarget;
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
+use lightyear_benches::profiler::FlamegraphProfiler;
 use lightyear_benches::protocol::*;
 use std::time::Instant;
 
@@ -28,8 +29,9 @@ use lightyear::channel::builder::EntityActionsChannel;
 use lightyear::server::connection::ConnectionManager;
 
 criterion_group!(
-    replication_benches,
-    send_float_insert_one_client,
+    name = replication_benches;
+    config = Criterion::default().with_profiler(FlamegraphProfiler::new(3000));
+    targets = send_float_insert_one_client,
     send_float_update_one_client,
     receive_float_insert,
     receive_float_update,
@@ -38,7 +40,7 @@ criterion_group!(
 criterion_main!(replication_benches);
 
 // const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
-const NUM_ENTITIES: &[usize] = &[10000];
+const NUM_ENTITIES: &[usize] = &[1000];
 
 /// Replicating N entity spawn from server to channel, with a local io
 fn send_float_insert_one_client(criterion: &mut Criterion) {
