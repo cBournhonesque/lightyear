@@ -13,6 +13,7 @@ categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+pprof = { version = "0.13.0", features = ["flamegraph", "frame-pointer"] }
 lightyear = { path = "../lightyear" }
 criterion = { version = "0.5", features = ["html_reports"] }
 crossbeam-channel = "0.5.10"
@@ -24,6 +25,10 @@ bitcode = "0.6.0-beta.1"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 lz4_flex = { version = "0.11.2", default-features = false }
+
+[[bin]]
+name = "replication_profiling"
+path = "replication_profiling.rs"
 
 
 [[bench]]

@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-  "lightyear",
-  "macros",
-  # internal
-  "benches",
-  "examples/*",
+    "lightyear",
+    "macros",
+    # internal
+    "benches",
+    "examples/*",
 ]
 default-members = ["lightyear"]
 exclude = ["examples/certificates"]
