@@ -1,5 +1,4 @@
 //! Defines client-specific configuration options
-use bevy::ecs::reflect::ReflectResource;
 use bevy::prelude::Resource;
 use bevy::reflect::Reflect;
 use governor::Quota;
@@ -129,7 +128,7 @@ pub struct ReplicationConfig {
 /// time that the client tries to connect. This can be useful to change some configuration values at runtime.
 /// For example, you can update the server address dynamically to choose which server to connect to.
 #[derive(Resource, Clone, Default, Reflect)]
-#[reflect(Resource, from_reflect = false)]
+#[reflect(from_reflect = false)]
 pub struct ClientConfig {
     pub shared: SharedConfig,
     pub packet: PacketConfig,

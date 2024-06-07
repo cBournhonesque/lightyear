@@ -691,7 +691,11 @@ mod tests {
                 .len(),
             1
         );
-        assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_entity)
+            .is_none());
     }
 
     #[test]
@@ -860,7 +864,11 @@ mod tests {
                 .len(),
             1
         );
-        assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_entity)
+            .is_none());
     }
 
     /// The client is in a room with the entity

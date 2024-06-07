@@ -653,7 +653,7 @@ mod tests {
             .set_current_time(new_time);
         stepper
             .server_app
-            .world_Mut()
+            .world_mut()
             .resource_mut::<TickManager>()
             .set_tick_to(new_tick);
 
