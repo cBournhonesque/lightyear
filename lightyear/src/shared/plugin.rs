@@ -42,6 +42,31 @@ pub enum Identity {
     HostServer,
 }
 
+impl Identity {
+    pub(crate) fn get_from_world(world: &World) -> Self {
+        let Some(config) = world.get_resource::<ClientConfig>() else {
+            return Identity::Server;
+        };
+        if matches!(config.shared.mode, Mode::HostServer)
+            && world
+                .get_resource::<ServerConnections>()
+                .as_ref()
+                .map_or(false, |server| server.is_listening())
+        {
+            Identity::HostServer
+        } else {
+            Identity::Client
+        }
+    }
+
+    pub fn is_client(&self) -> bool {
+        self == &Identity::Client
+    }
+    pub fn is_server(&self) -> bool {
+        self == &Identity::Server || self == &Identity::HostServer
+    }
+}
+
 impl<'w, 's> NetworkIdentity<'w, 's> {
     pub fn identity(&self) -> Identity {
         let Some(config) = &self.client_config else {
@@ -59,10 +84,10 @@ impl<'w, 's> NetworkIdentity<'w, 's> {
         }
     }
     pub fn is_client(&self) -> bool {
-        self.identity() == Identity::Client
+        self.identity().is_client()
     }
     pub fn is_server(&self) -> bool {
-        self.identity() == Identity::Server || self.identity() == Identity::HostServer
+        self.identity().is_server()
     }
 }
 

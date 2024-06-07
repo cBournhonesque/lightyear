@@ -50,6 +50,7 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
+    use bevy::ecs::component::ComponentTicks;
 
     use crate::connection::client::ClientConnection;
 
@@ -57,12 +58,13 @@ pub(crate) mod send {
 
     use crate::prelude::{
         is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy,
-        ReplicateOnceComponent, Replicated, ReplicationGroup, TargetEntity, TickManager,
+        Replicated, ReplicationGroup, TargetEntity, Tick, TickManager,
     };
     use crate::protocol::component::ComponentKind;
 
-    use crate::shared::replication::components::{DeltaCompression, DespawnTracker, Replicating};
+    use crate::shared::replication::components::{DespawnTracker, Replicating, ReplicationGroupId};
 
+    use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
@@ -105,8 +107,9 @@ pub(crate) mod send {
                         // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
                         handle_replicating_remove
                             .in_set(InternalReplicationSet::<ClientMarker>::BeforeBuffer),
-                        send_entity_spawn
-                            .in_set(InternalReplicationSet::<ClientMarker>::BufferEntityUpdates),
+                        replicate
+                            .in_set(InternalReplicationSet::<ClientMarker>::BufferEntityUpdates)
+                            .in_set(InternalReplicationSet::<ClientMarker>::BufferComponentUpdates),
                         send_entity_despawn.in_set(
                             InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals,
                         ),
@@ -232,38 +235,137 @@ pub(crate) mod send {
         }
     }
 
+    pub(crate) fn replicate(
+        tick_manager: Res<TickManager>,
+        component_registry: Res<ComponentRegistry>,
+        mut replicated_archetypes: Local<ReplicatedArchetypes<ReplicateToServer>>,
+        system_ticks: SystemChangeTick,
+        mut set: ParamSet<(&World, ResMut<ConnectionManager>)>,
+    ) {
+        // 1. update the list of replicated archetypes
+        replicated_archetypes.update(set.p0(), &component_registry);
+
+        let mut sender = std::mem::take(&mut *set.p1());
+        let world = set.p0();
+
+        // 2. go through all the archetypes that should be replicated
+        for replicated_archetype in replicated_archetypes.archetypes.iter() {
+            // SAFETY: update() makes sure that we have a valid archetype
+            let archetype = unsafe {
+                world
+                    .archetypes()
+                    .get(replicated_archetype.id)
+                    .unwrap_unchecked()
+            };
+            let table = unsafe {
+                world
+                    .storages()
+                    .tables
+                    .get(archetype.table_id())
+                    .unwrap_unchecked()
+            };
+
+            // a. add all entity despawns from entities that were despawned locally
+            // (done in a separate system)
+            // replicate_entity_local_despawn(&mut despawn_removed, &mut set.p1());
+
+            // 3. go through all entities of that archetype
+            for entity in archetype.entities() {
+                let entity_ref = world.entity(entity.id());
+                // SAFETY: we know that the entity has the ReplicationTarget component
+                // because the archetype is in replicated_archetypes
+                let replication_target_ticks = unsafe {
+                    entity_ref
+                        .get_change_ticks::<ReplicateToServer>()
+                        .unwrap_unchecked()
+                };
+                let replication_is_changed = replication_target_ticks
+                    .is_changed(system_ticks.last_run(), system_ticks.this_run());
+                let group = entity_ref.get::<ReplicationGroup>();
+                let group_id = group.map_or(ReplicationGroupId::default(), |g| {
+                    g.group_id(Some(entity.id()))
+                });
+                let priority = group.map_or(1.0, |g| g.priority());
+                let target_entity = entity_ref.get::<TargetEntity>();
+
+                // b. add entity despawns from ReplicateToServer component being removed
+                // replicate_entity_despawn(
+                //     entity.id(),
+                //     group_id,
+                //     &replication_target,
+                //     visibility,
+                //     &mut sender,
+                // );
+
+                // c. add entity spawns
+                if replication_is_changed {
+                    replicate_entity_spawn(
+                        entity.id(),
+                        group_id,
+                        priority,
+                        target_entity,
+                        &mut sender,
+                    );
+                }
+
+                // d. all components that were added or changed
+                for replicated_component in replicated_archetype.components.iter() {
+                    let (data, component_ticks) = unsafe {
+                        get_erased_component(
+                            table,
+                            &world.storages().sparse_sets,
+                            entity,
+                            replicated_component.storage_type,
+                            replicated_component.id,
+                        )
+                    };
+                    replicate_component_update(
+                        tick_manager.tick(),
+                        &component_registry,
+                        entity.id(),
+                        replicated_component.kind,
+                        data,
+                        component_ticks,
+                        replication_is_changed,
+                        group_id,
+                        replicated_component.delta_compression,
+                        replicated_component.replicate_once,
+                        &system_ticks,
+                        &mut sender,
+                    );
+                }
+            }
+        }
+
+        // restore the ConnectionManager
+        *set.p1() = sender;
+    }
+
     /// Send entity spawn replication messages to server when the ReplicationTarget component is added
     /// Also handles:
     /// - handles TargetEntity if it's a Preexisting entity
     /// - setting the priority
-    pub(crate) fn send_entity_spawn(
-        query: Query<
-            (Entity, &ReplicationGroup, Option<&TargetEntity>),
-            (With<Replicating>, Changed<ReplicateToServer>),
-        >,
-        mut sender: ResMut<ConnectionManager>,
+    pub(crate) fn replicate_entity_spawn(
+        entity: Entity,
+        group_id: ReplicationGroupId,
+        priority: f32,
+        target_entity: Option<&TargetEntity>,
+        sender: &mut ConnectionManager,
     ) {
-        query.iter().for_each(|(entity, group, target_entity)| {
-            trace!(?entity, "Prepare entity spawn to server");
-            let group_id = group.group_id(Some(entity));
-            if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
-                sender.replication_sender.prepare_entity_spawn_reuse(
-                    entity,
-                    group_id,
-                    *remote_entity,
-                );
-            } else {
-                sender
-                    .replication_sender
-                    .prepare_entity_spawn(entity, group_id);
-            }
-            // TODO: should the priority be a component on the entity? but it should be shared between a group
-            //  should a GroupChannel be a separate entity?
-            // also set the priority for the group when we spawn it
+        trace!(?entity, "Prepare entity spawn to server");
+        if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
             sender
                 .replication_sender
-                .update_base_priority(group_id, group.priority());
-        });
+                .prepare_entity_spawn_reuse(entity, group_id, *remote_entity);
+        } else {
+            sender
+                .replication_sender
+                .prepare_entity_spawn(entity, group_id);
+        }
+        // also set the priority for the group when we spawn it
+        sender
+            .replication_sender
+            .update_base_priority(group_id, priority);
     }
 
     /// Send entity despawn if:
@@ -311,135 +413,116 @@ pub(crate) mod send {
     /// - last time we sent an update for that group which got acked.
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
-    pub(crate) fn send_component_update<C: Component>(
-        tick_manager: Res<TickManager>,
-        registry: Res<ComponentRegistry>,
-        query: Query<
-            (
-                Entity,
-                Ref<C>,
-                Ref<ReplicateToServer>,
-                &ReplicationGroup,
-                Has<DeltaCompression<C>>,
-                Has<DisabledComponent<C>>,
-                Has<ReplicateOnceComponent<C>>,
-            ),
-            With<Replicating>,
-        >,
-        system_bevy_ticks: SystemChangeTick,
-        mut connection: ResMut<ConnectionManager>,
+    fn replicate_component_update(
+        current_tick: Tick,
+        component_registry: &ComponentRegistry,
+        entity: Entity,
+        component_kind: ComponentKind,
+        component_data: Ptr,
+        component_ticks: ComponentTicks,
+        replication_target_is_changed: bool,
+        group_id: ReplicationGroupId,
+        delta_compression: bool,
+        replicate_once: bool,
+        system_ticks: &SystemChangeTick,
+        sender: &mut ConnectionManager,
     ) {
-        let tick = tick_manager.tick();
-        let kind = ComponentKind::of::<C>();
-        // enable split borrows
-        let connection = &mut *connection;
-        query.iter().for_each(
-            |(entity, component, target, group, delta_compression, disabled, replicate_once)| {
-                // do not replicate components that are disabled
-                if disabled {
-                    return;
-                }
-                let (mut insert, mut update) = (false, false);
+        let (mut insert, mut update) = (false, false);
 
-                // send a component_insert for components that were newly added
-                // or if we start replicating the entity
-                // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
-                //  ReplicateToServer components to `changed` on connection so that we replicate existing entities to
-                //  the server
-                if component.is_added() || target.is_changed() {
-                    trace!("component is added or replication_target is added");
-                    insert = true;
-                } else {
-                    // do not send updates for these components, only inserts/removes
-                    if replicate_once {
-                        trace!(?entity,
-                        "not replicating updates for {:?} because it is marked as replicate_once",
-                        kind
-                    );
-                        return;
+        // send a component_insert for components that were newly added
+        // or if we start replicating the entity
+        // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
+        //  ReplicateToServer components to `changed` when the client first connects so that we replicate existing entities to the server
+        if component_ticks.is_added(system_ticks.last_run(), system_ticks.this_run())
+            || replication_target_is_changed
+        {
+            trace!("component is added or replication_target is added");
+            insert = true;
+        } else {
+            // do not send updates for these components, only inserts/removes
+            if replicate_once {
+                trace!(
+                    ?entity,
+                    "not replicating updates for {:?} because it is marked as replicate_once",
+                    component_kind
+                );
+                return;
+            }
+            // otherwise send an update for all components that changed since the
+            // last update we have ack-ed
+            update = true;
+        }
+        if insert || update {
+            let writer = &mut sender.writer;
+            if insert {
+                if delta_compression {
+                    // SAFETY: the component_data corresponds to the kind
+                    unsafe {
+                        component_registry
+                            .serialize_diff_from_base_value(component_data, writer, component_kind)
+                            .expect("could not serialize delta")
                     }
-                    // otherwise send an update for all components that changed since the
-                    // last update we have ack-ed
-                    update = true;
-                }
-                if insert || update {
-                    let group_id = group.group_id(Some(entity));
-                    let component_data = Ptr::from(component.as_ref());
-                    let writer = &mut connection.writer;
-                    if insert {
-                        if delta_compression {
-                            // SAFETY: the component_data corresponds to the kind
-                            unsafe {
-                                registry
-                                    .serialize_diff_from_base_value(component_data, writer, kind)
-                                    .expect("could not serialize delta")
-                            }
-                        } else {
-                            registry
-                                .erased_serialize(component_data, writer, kind)
-                                .expect("could not serialize component")
-                        };
+                } else {
+                    component_registry
+                        .erased_serialize(component_data, writer, component_kind)
+                        .expect("could not serialize component")
+                };
+                let raw_data = writer.split();
+                sender.replication_sender.prepare_component_insert(
+                    entity,
+                    group_id,
+                    raw_data,
+                    system_ticks.this_run(),
+                );
+            } else {
+                let send_tick = sender
+                    .replication_sender
+                    .group_channels
+                    .entry(group_id)
+                    .or_default()
+                    .send_tick;
+
+                // send the update for all changes newer than the last send bevy tick for the group
+                if send_tick.map_or(true, |c| {
+                    component_ticks
+                        .last_changed_tick()
+                        .is_newer_than(c, system_ticks.this_run())
+                }) {
+                    trace!(
+                        change_tick = ?component_ticks.last_changed_tick(),
+                        ?send_tick,
+                        current_tick = ?system_ticks.this_run(),
+                        "prepare entity update changed check"
+                    );
+                    // trace!(
+                    //     ?entity,
+                    //     component = ?kind,
+                    //     tick = ?self.tick_manager.tick(),
+                    //     "Updating single component"
+                    // );
+                    if !delta_compression {
+                        component_registry
+                            .erased_serialize(component_data, writer, component_kind)
+                            .expect("could not serialize component");
                         let raw_data = writer.split();
-                        connection.replication_sender.prepare_component_insert(
+                        sender
+                            .replication_sender
+                            .prepare_component_update(entity, group_id, raw_data);
+                    } else {
+                        sender.replication_sender.prepare_delta_component_update(
                             entity,
                             group_id,
-                            raw_data,
-                            system_bevy_ticks.this_run(),
+                            component_kind,
+                            component_data,
+                            component_registry,
+                            writer,
+                            &mut sender.delta_manager,
+                            current_tick,
                         );
-                    } else {
-                        // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-                        let send_tick = connection
-                            .replication_sender
-                            .group_channels
-                            .entry(group_id)
-                            .or_default()
-                            .send_tick;
-
-                        // send the update for all changes newer than the last ack bevy tick for the group
-                        if send_tick.map_or(true, |c| {
-                            component
-                                .last_changed()
-                                .is_newer_than(c, system_bevy_ticks.this_run())
-                        }) {
-                            trace!(
-                                change_tick = ?component.last_changed(),
-                                ?send_tick,
-                                current_tick = ?system_bevy_ticks.this_run(),
-                                "prepare entity update changed check"
-                            );
-                            // trace!(
-                            //     ?entity,
-                            //     component = ?kind,
-                            //     tick = ?self.tick_manager.tick(),
-                            //     "Updating single component"
-                            // );
-                            if !delta_compression {
-                                registry
-                                    .erased_serialize(component_data, writer, kind)
-                                    .expect("could not serialize component");
-                                let raw_data = writer.split();
-                                connection
-                                    .replication_sender
-                                    .prepare_component_update(entity, group_id, raw_data);
-                            } else {
-                                connection
-                                    .replication_sender
-                                    .prepare_delta_component_update(
-                                        entity,
-                                        group_id,
-                                        kind,
-                                        component_data,
-                                        &registry,
-                                        writer,
-                                        &mut connection.delta_manager,
-                                        tick,
-                                    );
-                            }
-                        }
                     }
                 }
-            },
-        );
+            }
+        }
     }
 
     /// Send component remove
@@ -478,21 +561,22 @@ pub(crate) mod send {
                 //  It is ok to run it every frame because it creates at most one message per despawn
                 send_component_removed::<C>
                     .in_set(InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals),
-                // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
-                //  and use up all the bandwidth
-                send_component_update::<C>
-                    .in_set(InternalReplicationSet::<ClientMarker>::BufferComponentUpdates),
             ),
         );
     }
 
     #[cfg(test)]
     mod tests {
-        use crate::prelude::{client, server, ClientId};
+        use crate::client::replication::send::ReplicateToServer;
+        use crate::prelude::client::Replicate;
+        use crate::prelude::{
+            server, ClientId, DisabledComponent, ReplicateOnceComponent, Replicated, TargetEntity,
+        };
+        use crate::tests::protocol::Component1;
         use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
 
         #[test]
-        fn test_entity_spawn_client_to_server() {
+        fn test_entity_spawn() {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server with visibility::All
@@ -505,7 +589,7 @@ pub(crate) mod send {
                 .client_app
                 .world
                 .entity_mut(client_entity)
-                .insert(client::Replicate::default());
+                .insert(Replicate::default());
             // TODO: we need to run a couple frames because the server doesn't read the client's updates
             //  because they are from the future
             for _ in 0..10 {
@@ -523,6 +607,433 @@ pub(crate) mod send {
                 .remote_entity_map
                 .get_local(client_entity)
                 .expect("entity was not replicated to server");
+        }
+
+        #[test]
+        fn test_multi_entity_spawn() {
+            let mut stepper = BevyStepper::default();
+            let server_entities = stepper.server_app.world.entities().len();
+
+            // spawn an entity on server
+            stepper
+                .client_app
+                .world
+                .spawn_batch(vec![Replicate::default(); 2]);
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entities were spawned
+            assert_eq!(
+                stepper.server_app.world.entities().len(),
+                server_entities + 2
+            );
+        }
+
+        #[test]
+        fn test_entity_spawn_preexisting_target() {
+            let mut stepper = BevyStepper::default();
+
+            let server_entity = stepper.server_app.world.spawn_empty().id();
+            stepper.frame_step();
+            let client_entity = stepper
+                .client_app
+                .world
+                .spawn((
+                    Replicate::default(),
+                    TargetEntity::Preexisting(server_entity),
+                ))
+                .id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was replicated on the server entity
+            assert_eq!(
+                stepper
+                    .server_app
+                    .world
+                    .resource::<server::ConnectionManager>()
+                    .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                    .unwrap()
+                    .replication_receiver
+                    .remote_entity_map
+                    .get_local(client_entity)
+                    .unwrap(),
+                &server_entity
+            );
+            assert!(stepper
+                .server_app
+                .world
+                .get::<Replicated>(server_entity)
+                .is_some());
+        }
+
+        /// Check that if we remove ReplicationToServer
+        /// the entity gets despawned on the server
+        #[test]
+        fn test_entity_spawn_replication_target_update() {
+            let mut stepper = BevyStepper::default();
+
+            let client_entity = stepper.client_app.world.spawn_empty().id();
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // add replicate
+            stepper
+                .client_app
+                .world
+                .entity_mut(client_entity)
+                .insert(Replicate::default());
+            // TODO: we need to run a couple frames because the server doesn't read the client's updates
+            //  because they are from the future
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_entity = *stepper
+                .server_app
+                .world
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .expect("client connection missing")
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_entity)
+                .expect("entity was not replicated to server");
+
+            // remove the ReplicateToServer component
+            stepper
+                .client_app
+                .world
+                .entity_mut(client_entity)
+                .remove::<ReplicateToServer>();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+            assert!(stepper.server_app.world.get_entity(server_entity).is_none());
+        }
+
+        #[test]
+        fn test_entity_despawn() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on client
+            let client_entity = stepper.client_app.world.spawn(Replicate::default()).id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_entity = *stepper
+                .server_app
+                .world
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_entity)
+                .expect("entity was not replicated to client");
+
+            // despawn
+            stepper.client_app.world.despawn(client_entity);
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was despawned
+            assert!(stepper.server_app.world.get_entity(server_entity).is_none());
+        }
+
+        #[test]
+        fn test_component_insert() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on client
+            let client_entity = stepper.client_app.world.spawn(Replicate::default()).id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_entity = *stepper
+                .server_app
+                .world
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_entity)
+                .expect("entity was not replicated to client");
+
+            // add component
+            stepper
+                .client_app
+                .world
+                .entity_mut(client_entity)
+                .insert(Component1(1.0));
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .server_app
+                    .world
+                    .entity(server_entity)
+                    .get::<Component1>()
+                    .expect("Component missing"),
+                &Component1(1.0)
+            )
+        }
+
+        #[test]
+        fn test_component_insert_disabled() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on client
+            let client_entity = stepper.client_app.world.spawn(Replicate::default()).id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_entity = *stepper
+                .server_app
+                .world
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_entity)
+                .expect("entity was not replicated to client");
+
+            // add component
+            stepper
+                .client_app
+                .world
+                .entity_mut(client_entity)
+                .insert((Component1(1.0), DisabledComponent::<Component1>::default()));
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the component was not  replicated
+            assert!(stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Component1>()
+                .is_none());
+        }
+
+        // TODO: check that component insert for a component that doesn't have ClientToServer is not replicated!
+
+        #[test]
+        fn test_component_update() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on client
+            let client_entity = stepper
+                .client_app
+                .world
+                .spawn((Replicate::default(), Component1(1.0)))
+                .id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_entity = *stepper
+                .server_app
+                .world
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_entity)
+                .expect("entity was not replicated to client");
+
+            // update component
+            stepper
+                .client_app
+                .world
+                .entity_mut(client_entity)
+                .insert(Component1(2.0));
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the component was updated
+            assert_eq!(
+                stepper
+                    .server_app
+                    .world
+                    .entity(server_entity)
+                    .get::<Component1>()
+                    .expect("Component missing"),
+                &Component1(2.0)
+            )
+        }
+
+        #[test]
+        fn test_component_update_disabled() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on client
+            let client_entity = stepper
+                .client_app
+                .world
+                .spawn((Replicate::default(), Component1(1.0)))
+                .id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_entity = *stepper
+                .server_app
+                .world
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_entity)
+                .expect("entity was not replicated to client");
+            assert_eq!(
+                stepper
+                    .server_app
+                    .world
+                    .entity(server_entity)
+                    .get::<Component1>()
+                    .expect("Component missing"),
+                &Component1(1.0)
+            );
+
+            // remove component
+            stepper
+                .client_app
+                .world
+                .entity_mut(client_entity)
+                .remove::<Component1>();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the component was removed
+            assert!(stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Component1>()
+                .is_none());
+        }
+
+        #[test]
+        fn test_component_update_replicate_once() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on client
+            let client_entity = stepper
+                .client_app
+                .world
+                .spawn((
+                    Replicate::default(),
+                    Component1(1.0),
+                    ReplicateOnceComponent::<Component1>::default(),
+                ))
+                .id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_entity = *stepper
+                .server_app
+                .world
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_entity)
+                .expect("entity was not replicated to client");
+
+            // update component
+            stepper
+                .client_app
+                .world
+                .entity_mut(client_entity)
+                .insert(Component1(2.0));
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the component was not updated
+            assert_eq!(
+                stepper
+                    .server_app
+                    .world
+                    .entity(server_entity)
+                    .get::<Component1>()
+                    .expect("Component missing"),
+                &Component1(1.0)
+            )
+        }
+
+        #[test]
+        fn test_component_remove() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on client
+            let client_entity = stepper
+                .client_app
+                .world
+                .spawn((Replicate::default(), Component1(1.0)))
+                .id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_entity = *stepper
+                .server_app
+                .world
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_entity)
+                .expect("entity was not replicated to client");
+
+            // update component
+            stepper
+                .client_app
+                .world
+                .entity_mut(client_entity)
+                .insert((Component1(2.0), DisabledComponent::<Component1>::default()));
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the component was not updated
+            assert_eq!(
+                stepper
+                    .server_app
+                    .world
+                    .entity(server_entity)
+                    .get::<Component1>()
+                    .expect("Component missing"),
+                &Component1(1.0)
+            )
         }
     }
 }

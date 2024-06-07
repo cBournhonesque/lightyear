@@ -43,7 +43,7 @@ use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
-use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
+use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
@@ -79,6 +79,19 @@ pub struct ConnectionManager {
     replication_config: ReplicationConfig,
     packet_config: PacketConfig,
     ping_config: PingConfig,
+}
+
+// This is useful in cases where we need to temporarily store a fake ConnectionManager
+impl Default for ConnectionManager {
+    fn default() -> Self {
+        Self::new(
+            MessageRegistry::default(),
+            ChannelRegistry::default(),
+            ReplicationConfig::default(),
+            PacketConfig::default(),
+            PingConfig::default(),
+        )
+    }
 }
 
 impl ConnectionManager {
@@ -675,10 +688,9 @@ impl ConnectionManager {
     pub(crate) fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        group: &ReplicationGroup,
+        group_id: ReplicationGroupId,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        let group_id = group.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // trace!(
             //     ?entity,
@@ -725,16 +737,14 @@ impl ConnectionManager {
         kind: ComponentKind,
         component_data: Ptr,
         component_registry: &ComponentRegistry,
-        replication_target: &ReplicationTarget,
         prediction_target: Option<&NetworkTarget>,
-        group: &ReplicationGroup,
+        group_id: ReplicationGroupId,
         target: NetworkTarget,
         delta_compression: bool,
         tick: Tick,
         bevy_tick: BevyTick,
     ) -> Result<(), ServerError> {
         // TODO: first check that the target is not empty!
-        let group_id = group.group_id(Some(entity));
 
         // TODO: think about this. this feels a bit clumsy
         // TODO: this might not be required anymore since we separated ShouldBePredicted from PrePredicted
@@ -813,7 +823,7 @@ impl ConnectionManager {
         kind: ComponentKind,
         component: Ptr,
         registry: &ComponentRegistry,
-        group: &ReplicationGroup,
+        group_id: ReplicationGroupId,
         target: NetworkTarget,
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
@@ -827,8 +837,6 @@ impl ConnectionManager {
             ?system_current_tick,
             "Prepare entity update"
         );
-
-        let group_id = group.group_id(Some(entity));
         let mut raw_data: Bytes = Bytes::new();
         if !delta_compression {
             // we serialize once and re-use the result for all clients

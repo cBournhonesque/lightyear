@@ -859,7 +859,7 @@ impl GroupChannel {
 
             // safety: we know by this point that the entity exists
             let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
-                error!("cannot find entity");
+                error!(?entity, "cannot find entity");
                 continue;
             };
 

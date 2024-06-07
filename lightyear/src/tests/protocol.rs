@@ -164,7 +164,7 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<MyInput>::default());
         // components
-        app.register_component::<Component1>(ChannelDirection::ServerToClient)
+        app.register_component::<Component1>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation(ComponentSyncMode::Full)
             .add_linear_interpolation_fn();
