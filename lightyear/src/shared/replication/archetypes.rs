@@ -1,8 +1,8 @@
 //! Keep track of the archetypes that should be replicated
 use std::mem;
 
-use crate::prelude::ComponentRegistry;
-use crate::protocol::component::{ComponentKind, ComponentNetId};
+use crate::prelude::{ComponentRegistry, Replicating};
+use crate::protocol::component::ComponentKind;
 use bevy::ecs::archetype::ArchetypeEntity;
 use bevy::ecs::component::{ComponentTicks, StorageType};
 use bevy::ecs::storage::{SparseSets, Table};
@@ -25,6 +25,9 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     /// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
     /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
     replication_component_id: ComponentId,
+    /// ID of the [`Replicating`] component, which indicates that the entity is being replicated.
+    /// If this component is not present, we pause all replication (inserts/updates/spawns)
+    replicating_component_id: ComponentId,
     /// Highest processed archetype ID.
     generation: ArchetypeGeneration,
 
@@ -37,6 +40,7 @@ impl<C: Component> FromWorld for ReplicatedArchetypes<C> {
     fn from_world(world: &mut World) -> Self {
         Self {
             replication_component_id: world.init_component::<C>(),
+            replicating_component_id: world.init_component::<Replicating>(),
             generation: ArchetypeGeneration::initial(),
             archetypes: Vec::new(),
             marker: std::marker::PhantomData,
@@ -94,17 +98,19 @@ impl<C: Component> ReplicatedArchetypes<C> {
     pub(crate) fn update(&mut self, world: &World, registry: &ComponentRegistry) {
         let old_generation = mem::replace(&mut self.generation, world.archetypes().generation());
 
-        let kinds = registry.kind_map.kind_map.keys().collect::<Vec<_>>();
-
         // iterate through the newly added archetypes
         for archetype in world.archetypes()[old_generation..]
             .iter()
-            .filter(|archetype| archetype.contains(self.replication_component_id))
+            .filter(|archetype| {
+                archetype.contains(self.replication_component_id)
+                    && archetype.contains(self.replicating_component_id)
+            })
         {
             let mut replicated_archetype = ReplicatedArchetype {
                 id: archetype.id(),
                 components: Vec::new(),
             };
+            // TODO: pause inserts/updates if Replicating is not present on the entity!
             // add all components of the archetype that are present in the ComponentRegistry, and:
             // - ignore component if the component is disabled (DisabledComponent<C>) is present
             // - check if delta-compression is enabled

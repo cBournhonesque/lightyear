@@ -51,16 +51,16 @@ pub(crate) mod send {
     use super::*;
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent,
-        ReplicateHierarchy, ReplicateOnceComponent, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, Tick, TickManager, VisibilityMode,
+        ReplicateHierarchy, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager,
+        VisibilityMode,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
     use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
     use crate::shared::replication::components::{
-        Controlled, DeltaCompression, DespawnTracker, Replicating, ReplicationGroupId,
-        ReplicationTarget, ShouldBeInterpolated,
+        Controlled, DespawnTracker, Replicating, ReplicationGroupId, ReplicationTarget,
+        ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
@@ -120,7 +120,9 @@ pub(crate) mod send {
                         .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
                     // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
                     //  be careful that newly_connected_client is cleared every send_interval, not every frame.
-                    replicate.in_set(InternalReplicationSet::<ServerMarker>::BufferEntityUpdates),
+                    replicate
+                        .in_set(InternalReplicationSet::<ServerMarker>::BufferEntityUpdates)
+                        .in_set(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates),
                     replicate_entity_local_despawn
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferDespawnsAndRemovals),
                     (handle_replicating_add, handle_replication_target_update)
@@ -358,7 +360,6 @@ pub(crate) mod send {
                     .get(replicated_archetype.id)
                     .unwrap_unchecked()
             };
-            // SAFETY: table obtained from this archetype.
             let table = unsafe {
                 world
                     .storages()
@@ -368,6 +369,7 @@ pub(crate) mod send {
             };
 
             // a. add all entity despawns from entities that were despawned locally
+            // (done in a separate system)
             // replicate_entity_local_despawn(&mut despawn_removed, &mut set.p1());
 
             // 3. go through all entities of that archetype
@@ -376,12 +378,30 @@ pub(crate) mod send {
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
                 let replication_target =
-                    unsafe { entity_ref.get_ref::<ReplicationTarget>().unwrap_unchecked() };
+                    unsafe { entity_ref.get::<ReplicationTarget>().unwrap_unchecked() };
+                let replication_target_ticks = unsafe {
+                    entity_ref
+                        .get_change_ticks::<ReplicationTarget>()
+                        .unwrap_unchecked()
+                };
+                let (added_tick, changed_tick) = (
+                    replication_target_ticks.added_tick(),
+                    replication_target_ticks.last_changed_tick(),
+                );
+                // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
+                // so create the ref manually
+                let replication_target = Ref::new(
+                    replication_target,
+                    &added_tick,
+                    &changed_tick,
+                    system_ticks.last_run(),
+                    system_ticks.this_run(),
+                );
                 let group = entity_ref.get::<ReplicationGroup>();
                 let group_id = group.map_or(ReplicationGroupId::default(), |g| {
                     g.group_id(Some(entity.id()))
                 });
-                let priority = group.map_or(0.0, |g| g.priority());
+                let priority = group.map_or(1.0, |g| g.priority());
                 let visibility = entity_ref.get::<ReplicateVisibility>();
                 let sync_target = entity_ref.get::<SyncTarget>();
                 let target_entity = entity_ref.get::<TargetEntity>();
@@ -515,6 +535,7 @@ pub(crate) mod send {
                 // only try to replicate if the replicate component was just added
                 if replication_target.is_added() {
                     trace!(?entity, "send entity spawn");
+                    // TODO: avoid this clone!
                     target = replication_target.target.clone();
                 } else if replication_target.is_changed() {
                     target = replication_target.target.clone();
@@ -728,7 +749,7 @@ pub(crate) mod send {
         let target = override_target.map_or(&replication_target.target, |override_target| {
             &override_target
         });
-        let (insert_target, update_target): (NetworkTarget, NetworkTarget) = match visibility {
+        let (insert_target, mut update_target): (NetworkTarget, NetworkTarget) = match visibility {
             Some(visibility) => {
                 let mut insert_clients = vec![];
                 let mut update_clients = vec![];
@@ -803,11 +824,14 @@ pub(crate) mod send {
                     let mut new_connected_target = NetworkTarget::Only(new_connected_clients);
                     new_connected_target.intersection(target);
                     debug!(?entity, target = ?new_connected_target, "Replicate to newly connected clients");
-                    update_target.union(&new_connected_target);
+                    insert_target.union(&new_connected_target);
                 }
                 (insert_target, update_target)
             }
         };
+
+        // do not send a component as both update and insert
+        update_target.exclude(&insert_target);
 
         if !insert_target.is_empty() || !update_target.is_empty() {
             if !insert_target.is_empty() {
@@ -958,7 +982,9 @@ pub(crate) mod send {
         use crate::client::events::ComponentUpdateEvent;
         use crate::prelude::client::Confirmed;
         use crate::prelude::server::{ControlledBy, NetConfig, Replicate, VisibilityManager};
-        use crate::prelude::{client, LinkConditionerConfig, Replicated};
+        use crate::prelude::{
+            client, DeltaCompression, LinkConditionerConfig, ReplicateOnceComponent, Replicated,
+        };
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
         use crate::shared::replication::delta::DeltaComponentHistory;
@@ -1800,7 +1826,7 @@ pub(crate) mod send {
                 .get_local(server_entity)
                 .expect("entity was not replicated to client");
 
-            // add component
+            // update component
             stepper
                 .server_app
                 .world

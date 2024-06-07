@@ -20,6 +20,7 @@ use crate::client::sync::SyncConfig;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
+use crate::packet::priority_manager::PriorityConfig;
 use crate::prelude::{Channel, ChannelKind, ClientId, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
@@ -86,6 +87,40 @@ pub struct ConnectionManager {
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
     pub(crate) writer: Writer,
     // TODO: maybe don't do any replication until connection is synced?
+}
+
+// NOTE: useful when we sometimes need to create a temporary fake ConnectionManager
+impl Default for ConnectionManager {
+    fn default() -> Self {
+        let replication_sender = ReplicationSender::new(
+            crossbeam_channel::unbounded().1,
+            crossbeam_channel::unbounded().1,
+            crossbeam_channel::unbounded().1,
+            false,
+            false,
+        );
+        let replication_receiver = ReplicationReceiver::new();
+        Self {
+            component_registry: ComponentRegistry::default(),
+            message_registry: MessageRegistry::default(),
+            message_manager: MessageManager::new(
+                &ChannelRegistry::default(),
+                0.0,
+                PriorityConfig::default(),
+            ),
+            delta_manager: DeltaManager::default(),
+            replication_sender,
+            replication_receiver,
+            ping_manager: PingManager::new(PingConfig::default()),
+            sync_manager: SyncManager::new(SyncConfig::default(), 0),
+            replicate_component_cache: EntityHashMap::default(),
+            events: ConnectionEvents::default(),
+            #[cfg(feature = "leafwing")]
+            received_leafwing_input_messages: HashMap::default(),
+            received_messages: HashMap::default(),
+            writer: Writer::with_capacity(0),
+        }
+    }
 }
 
 impl ConnectionManager {
