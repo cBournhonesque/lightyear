@@ -1,8 +1,9 @@
 //! Keep track of the archetypes that should be replicated
 use std::mem;
 
-use crate::prelude::{ComponentRegistry, Replicating};
+use crate::prelude::{ChannelDirection, ComponentRegistry, Replicating};
 use crate::protocol::component::ComponentKind;
+use crate::shared::plugin::Identity;
 use bevy::ecs::archetype::ArchetypeEntity;
 use bevy::ecs::component::{ComponentTicks, StorageType};
 use bevy::ecs::storage::{SparseSets, Table};
@@ -34,6 +35,15 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     /// Archetypes marked as replicated.
     pub(crate) archetypes: Vec<ReplicatedArchetype>,
     marker: std::marker::PhantomData<C>,
+}
+
+fn should_replicate(world: &World, direction: ChannelDirection) -> bool {
+    let identity = Identity::get_from_world(world);
+    match direction {
+        ChannelDirection::ClientToServer => identity.is_client(),
+        ChannelDirection::ServerToClient => identity.is_server(),
+        ChannelDirection::Bidirectional => true,
+    }
 }
 
 impl<C: Component> FromWorld for ReplicatedArchetypes<C> {
@@ -118,47 +128,50 @@ impl<C: Component> ReplicatedArchetypes<C> {
                 let info = unsafe { world.components().get_info(component).unwrap_unchecked() };
                 // if the component has a type_id (i.e. is a rust type)
                 if let Some(kind) = info.type_id().map(|t| ComponentKind(t)) {
-                    // the component is not registered in the ComponentProtocol
-                    if registry.kind_map.net_id(&kind).is_none() {
+                    // the component is not registered for replication in the ComponentProtocol
+                    let Some(replication_metadata) = registry.replication_map.get(&kind) else {
+                        trace!(
+                            "not including {:?} because it is not registered for replication",
+                            info.name()
+                        );
+                        return;
+                    };
+                    // TODO: the identity can change! (a client can become a server, etc.)
+                    //  recompute all archetypes when the identity changes?
+                    //  Actually do we even need to do this now that we have ReplicateToServer and ReplicationTarget as separate components?
+                    if !should_replicate(world, replication_metadata.direction) {
+                        trace!(
+                            "not including {:?} because of channel direction {:?}",
+                            info.name(),
+                            replication_metadata.direction
+                        );
                         return;
                     }
+                    trace!("including {:?} in replicated components", info.name());
 
                     // check per component metadata
-                    let disabled = registry.replication_map.get(&kind).map_or(false, |info| {
-                        archetype.components().any(|c| c == info.disabled_id)
-                    });
+                    let disabled = archetype
+                        .components()
+                        .any(|c| c == replication_metadata.disabled_id);
                     // we do not replicate the component
                     if disabled {
                         return;
                     }
                     // TODO: should we store the components in a hashmap for faster lookup?
-                    let delta_compression =
-                        registry.replication_map.get(&kind).map_or(false, |info| {
-                            archetype
-                                .components()
-                                .any(|c| c == info.delta_compression_id)
-                        });
-                    let replicate_once =
-                        registry.replication_map.get(&kind).map_or(false, |info| {
-                            archetype.components().any(|c| c == info.replicate_once_id)
-                        });
-                    let override_target = registry
-                        .replication_map
-                        .get(&kind)
-                        .map_or(false, |info| {
-                            archetype.components().any(|c| c == info.override_target_id)
-                        })
-                        .then(|| {
-                            registry
-                                .replication_map
-                                .get(&kind)
-                                .unwrap()
-                                .override_target_id
-                        });
+                    let delta_compression = archetype
+                        .components()
+                        .any(|c| c == replication_metadata.delta_compression_id);
+                    let replicate_once = archetype
+                        .components()
+                        .any(|c| c == replication_metadata.replicate_once_id);
+                    let override_target = archetype
+                        .components()
+                        .any(|c| c == replication_metadata.override_target_id)
+                        .then(|| replication_metadata.override_target_id);
 
-                    let disabled = registry.replication_map.get(&kind).map_or(false, |info| {
-                        archetype.components().any(|c| c == info.disabled_id)
-                    });
+                    let disabled = archetype
+                        .components()
+                        .any(|c| c == replication_metadata.disabled_id);
                     // SAFETY: component ID obtained from this archetype.
                     let storage_type =
                         unsafe { archetype.get_storage_type(component).unwrap_unchecked() };

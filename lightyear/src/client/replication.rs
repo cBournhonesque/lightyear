@@ -274,26 +274,13 @@ pub(crate) mod send {
                 let entity_ref = world.entity(entity.id());
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
-                let replication_target =
-                    unsafe { entity_ref.get::<ReplicateToServer>().unwrap_unchecked() };
                 let replication_target_ticks = unsafe {
                     entity_ref
                         .get_change_ticks::<ReplicateToServer>()
                         .unwrap_unchecked()
                 };
-                let (added_tick, changed_tick) = (
-                    replication_target_ticks.added_tick(),
-                    replication_target_ticks.last_changed_tick(),
-                );
-                // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
-                // so create the ref manually
-                let replication_target = Ref::new(
-                    replication_target,
-                    &added_tick,
-                    &changed_tick,
-                    system_ticks.last_run(),
-                    system_ticks.this_run(),
-                );
+                let replication_is_changed = replication_target_ticks
+                    .is_changed(system_ticks.last_run(), system_ticks.this_run());
                 let group = entity_ref.get::<ReplicationGroup>();
                 let group_id = group.map_or(ReplicationGroupId::default(), |g| {
                     g.group_id(Some(entity.id()))
@@ -311,7 +298,7 @@ pub(crate) mod send {
                 // );
 
                 // c. add entity spawns
-                if replication_target.is_changed() {
+                if replication_is_changed {
                     replicate_entity_spawn(
                         entity.id(),
                         group_id,
@@ -339,7 +326,7 @@ pub(crate) mod send {
                         replicated_component.kind,
                         data,
                         component_ticks,
-                        &replication_target,
+                        replication_is_changed,
                         group_id,
                         replicated_component.delta_compression,
                         replicated_component.replicate_once,
@@ -433,7 +420,7 @@ pub(crate) mod send {
         component_kind: ComponentKind,
         component_data: Ptr,
         component_ticks: ComponentTicks,
-        replication_target: &Ref<ReplicateToServer>,
+        replication_target_is_changed: bool,
         group_id: ReplicationGroupId,
         delta_compression: bool,
         replicate_once: bool,
@@ -447,7 +434,7 @@ pub(crate) mod send {
         // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
         //  ReplicateToServer components to `changed` when the client first connects so that we replicate existing entities to the server
         if component_ticks.is_added(system_ticks.last_run(), system_ticks.this_run())
-            || replication_target.is_changed()
+            || replication_target_is_changed
         {
             trace!("component is added or replication_target is added");
             insert = true;

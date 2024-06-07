@@ -144,6 +144,7 @@ pub struct ComponentRegistry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
+    pub direction: ChannelDirection,
     pub component_id: ComponentId,
     pub delta_compression_id: ComponentId,
     pub replicate_once_id: ComponentId,
@@ -499,13 +500,18 @@ mod replication {
     use crate::serialize::ToBytes;
 
     impl ComponentRegistry {
-        pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self, world: &mut World) {
+        pub(crate) fn set_replication_fns<C: Component + PartialEq>(
+            &mut self,
+            world: &mut World,
+            direction: ChannelDirection,
+        ) {
             let kind = ComponentKind::of::<C>();
             let write: RawWriteFn = Self::write::<C>;
             let remove: RawRemoveFn = Self::remove::<C>;
             self.replication_map.insert(
                 kind,
                 ReplicationMetadata {
+                    direction,
                     component_id: world.init_component::<C>(),
                     delta_compression_id: world.init_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.init_component::<ReplicateOnceComponent<C>>(),
@@ -615,9 +621,11 @@ mod delta {
             // (since the serialized message will contain the delta component's net_id)
             // update the write function to use the delta compression logic
             let write: RawWriteFn = Self::write_delta::<C>;
+            let direction = self.replication_map.get(&kind).unwrap().direction;
             self.replication_map.insert(
                 delta_kind,
                 ReplicationMetadata {
+                    direction,
                     // NOTE: we set these to 0 because they are never used for the DeltaMessage component
                     component_id: ComponentId::new(0),
                     delta_compression_id: ComponentId::new(0),
@@ -978,7 +986,7 @@ impl AppComponentExt for App {
                 if !registry.is_registered::<C>() {
                     registry.register_component::<C>();
                 }
-                registry.set_replication_fns::<C>(world);
+                registry.set_replication_fns::<C>(world, direction);
                 debug!("register component {}", std::any::type_name::<C>());
             });
         register_component_send::<C>(self, direction);
