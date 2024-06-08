@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
+use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::Duration;
 use bevy::MinimalPlugins;
@@ -102,7 +103,7 @@ impl BevyStepper {
 
         // Setup server
         let mut server_app = App::new();
-        server_app.add_plugins(MinimalPlugins.build());
+        server_app.add_plugins((MinimalPlugins, StatesPlugin));
         let net_config = server::NetConfig::Netcode {
             config: NetcodeConfig::default()
                 .with_protocol_id(protocol_id)
@@ -124,7 +125,7 @@ impl BevyStepper {
 
         // Setup client
         let mut client_app = App::new();
-        client_app.add_plugins(MinimalPlugins.build());
+        client_app.add_plugins((MinimalPlugins, StatesPlugin));
         let net_config = client::NetConfig::Netcode {
             auth: Authentication::Manual {
                 server_addr: addr,

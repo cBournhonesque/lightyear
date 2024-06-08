@@ -11,6 +11,7 @@ use bevy::prelude::{
     default, App, Commands, Mut, Plugin, PluginGroup, Real, Resource, TaskPoolOptions,
     TaskPoolPlugin, Time,
 };
+use bevy::state::app::StatesPlugin;
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::HashMap;
@@ -118,6 +119,7 @@ impl LocalBevyStepper {
             let mut client_app = App::new();
             client_app.add_plugins((
                 MinimalPlugins,
+                StatesPlugin,
                 #[cfg(feature = "bevy/trace_tracy")]
                 LogPlugin::default(),
             ));
@@ -157,6 +159,7 @@ impl LocalBevyStepper {
         let mut server_app = App::new();
         server_app.add_plugins((
             MinimalPlugins,
+            StatesPlugin,
             #[cfg(feature = "bevy/trace_tracy")]
             LogPlugin::default(),
         ));

@@ -5,6 +5,7 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::{
     default, App, Commands, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time,
 };
+use bevy::state::app::StatesPlugin;
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::Duration;
@@ -129,20 +130,7 @@ impl MultiBevyStepper {
 
         // build server with two distinct transports
         let mut server_app = App::new();
-        server_app.add_plugins(
-            MinimalPlugins
-                .set(TaskPoolPlugin {
-                    task_pool_options: TaskPoolOptions {
-                        compute: TaskPoolThreadAssignmentPolicy {
-                            min_threads: available_parallelism(),
-                            max_threads: std::usize::MAX,
-                            percent: 1.0,
-                        },
-                        ..default()
-                    },
-                })
-                .build(),
-        );
+        server_app.add_plugins((MinimalPlugins, StatesPlugin));
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(protocol_id)
             .with_key(private_key);
@@ -171,20 +159,7 @@ impl MultiBevyStepper {
 
         let build_client = |net_config: NetConfig| -> App {
             let mut client_app = App::new();
-            client_app.add_plugins(
-                MinimalPlugins
-                    .set(TaskPoolPlugin {
-                        task_pool_options: TaskPoolOptions {
-                            compute: TaskPoolThreadAssignmentPolicy {
-                                min_threads: available_parallelism(),
-                                max_threads: std::usize::MAX,
-                                percent: 1.0,
-                            },
-                            ..default()
-                        },
-                    })
-                    .build(),
-            );
+            client_app.add_plugins((MinimalPlugins, StatesPlugin));
 
             let config = ClientConfig {
                 shared: shared_config.clone(),

@@ -263,7 +263,7 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<Entity, With<Component1>>()
-            .get_single(&stepper.client_app.world())
+            .get_single(stepper.client_app.world())
             .unwrap();
         let (client_parent, client_parent_sync, client_parent_component) = stepper
             .client_app

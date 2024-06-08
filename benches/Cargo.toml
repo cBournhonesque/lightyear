@@ -17,7 +17,8 @@ pprof = { version = "0.13.0", features = ["flamegraph", "frame-pointer"] }
 lightyear = { path = "../lightyear" }
 criterion = { version = "0.5", features = ["html_reports"] }
 crossbeam-channel = "0.5.10"
-bevy = { version = "0.13", features = ["bevy_core_pipeline"] }
+bevy = { version = "0.14.0-rc.2", default-features = true, features = ["bevy_core_pipeline", "multi_threaded", "bevy_state"] }
+bevy_ecs = { version = "0.14.0-rc.2", features = ["serde"] }
 divan = "0.1.14"
 serde = { version = "1.0.188", features = ["derive"] }
 

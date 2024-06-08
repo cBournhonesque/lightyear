@@ -12,7 +12,6 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent};
 use crate::client::interpolation::Interpolated;
 use crate::client::io::ClientIoEvent;
-use crate::client::networking::utils::AppStateExt;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::client::sync::SyncSet;
@@ -498,7 +497,7 @@ impl ClientCommands for Commands<'_, '_> {
 
 mod utils {
     use bevy::app::App;
-    use bevy::prelude::{AppExtStates, FromWorld, States};
+    use bevy::prelude::{FromWorld, States};
 
     pub(super) trait AppStateExt {
         // Helper function that runs `init_state::<S>` without entering the state

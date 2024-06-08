@@ -9,6 +9,7 @@ use std::str::FromStr;
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use bevy::state::app::StatesPlugin;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
@@ -283,8 +284,12 @@ impl Apps {
     /// Start running the apps.
     pub fn run(self) {
         match self {
-            Apps::Client { mut app, .. } => app.run(),
-            Apps::Server { mut app, .. } => app.run(),
+            Apps::Client { mut app, .. } => {
+                app.run();
+            }
+            Apps::Server { mut app, .. } => {
+                app.run();
+            }
             Apps::ClientAndServer {
                 mut client_app,
                 mut server_app,
@@ -309,7 +314,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
         level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: None,
+        ..default()
     }));
     if settings.client.inspector {
         app.add_plugins(WorldInspectorPlugin::new());
@@ -332,12 +337,12 @@ fn server_app(
     if !settings.server.headless {
         app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
     } else {
-        app.add_plugins(MinimalPlugins);
+        app.add_plugins((MinimalPlugins, StatesPlugin));
     }
     app.add_plugins(LogPlugin {
         level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: Some(add_log_layer),
+        ..default()
     });
 
     if settings.server.inspector {
@@ -369,7 +374,7 @@ fn combined_app(
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
         level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: Some(add_log_layer),
+        ..default()
     }));
     if settings.client.inspector {
         app.add_plugins(WorldInspectorPlugin::new());

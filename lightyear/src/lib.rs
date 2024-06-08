@@ -22,14 +22,14 @@ fn run_client_app() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ClientPlugins::new(ClientConfig::default()))
-        .run()
+        .run();
 }
 
 fn run_server_app() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ServerPlugins::new(ServerConfig::default()))
-        .run()
+        .run();
 }
 ```
 In general, you will have to modify some parts of the [`ClientConfig`](prelude::client::ClientConfig) and [`ServerConfig`](prelude::server::ServerConfig) to fit your game.

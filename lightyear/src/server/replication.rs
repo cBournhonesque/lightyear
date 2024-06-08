@@ -2834,7 +2834,7 @@ pub(crate) mod commands {
                 .is_ok());
 
             // apply the command to remove replicate
-            despawn_without_replication(entity, &mut stepper.server_app.world_mut());
+            despawn_without_replication(entity, stepper.server_app.world_mut());
             stepper.frame_step();
             stepper.frame_step();
             // now the despawn should not have been replicated
