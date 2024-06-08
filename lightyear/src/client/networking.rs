@@ -41,7 +41,8 @@ impl Plugin for ClientNetworkingPlugin {
             .register_type::<HostServerMetadata>()
             .register_type::<IoConfig>()
             // STATE
-            .init_state_without_entering::<NetworkingState>()
+            .insert_state(NetworkingState::Disconnected)
+            // .init_state_without_entering::<NetworkingState>()
             // RESOURCE
             .init_resource::<HostServerMetadata>()
             // SYSTEM SETS
@@ -497,7 +498,7 @@ impl ClientCommands for Commands<'_, '_> {
 
 mod utils {
     use bevy::app::App;
-    use bevy::prelude::{FromWorld, States};
+    use bevy::prelude::{AppExtStates, FromWorld, States};
 
     pub(super) trait AppStateExt {
         // Helper function that runs `init_state::<S>` without entering the state
@@ -507,6 +508,7 @@ mod utils {
 
     impl AppStateExt for App {
         fn init_state_without_entering<S: States + FromWorld>(&mut self) -> &mut Self {
+            // self.insert_::<S>();
             // TODO: re-add this
             // if !self.world().contains_resource::<State<S>>() {
             //     self.init_resource::<State<S>>()
