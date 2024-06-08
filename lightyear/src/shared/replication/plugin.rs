@@ -49,6 +49,7 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
+    use crate::prelude::{Replicating, ReplicationGroup, TimeManager};
 
     pub(crate) struct ReplicationSendPlugin<R> {
         clean_interval: Duration,
@@ -60,6 +61,33 @@ pub(crate) mod send {
                 // TODO: find a better constant for the clean interval?
                 clean_interval: tick_interval * (i16::MAX as u32 / 3),
                 _marker: std::marker::PhantomData,
+            }
+        }
+
+        /// Tick the internal timers of all replication groups.
+        fn tick_replication_group_timers(
+            time_manager: Res<TimeManager>,
+            mut replication_groups: Query<&mut ReplicationGroup, With<Replicating>>,
+        ) {
+            for mut replication_group in replication_groups.iter_mut() {
+                if let Some(send_frequency) = &mut replication_group.send_frequency {
+                    send_frequency.tick(time_manager.delta());
+                    if send_frequency.finished() {
+                        replication_group.should_send = true;
+                    }
+                }
+            }
+        }
+
+        /// After we buffer updates, reset all the `should_send` to false
+        /// for the replication groups that have a `send_frequency`
+        fn update_replication_group_should_send(
+            mut replication_groups: Query<&mut ReplicationGroup, With<Replicating>>,
+        ) {
+            for mut replication_group in replication_groups.iter_mut() {
+                if replication_group.send_frequency.is_some() {
+                    replication_group.should_send = false;
+                }
             }
         }
     }
@@ -124,6 +152,16 @@ pub(crate) mod send {
                 ),
             );
             // SYSTEMS
+            app.add_systems(
+                PostUpdate,
+                (
+                    ReplicationSendPlugin::<R>::tick_replication_group_timers
+                        .in_set(InternalReplicationSet::<R::SetMarker>::BeforeBuffer),
+                    ReplicationSendPlugin::<R>::update_replication_group_should_send
+                        // note that this runs every send_interval
+                        .in_set(InternalReplicationSet::<R::SetMarker>::AfterBuffer),
+                ),
+            );
             app.add_systems(
                 Last,
                 systems::send_cleanup::<R>.run_if(on_timer(self.clean_interval)),

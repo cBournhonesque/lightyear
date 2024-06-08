@@ -328,7 +328,7 @@ pub(crate) mod send {
             commands.entity(entity).insert(DespawnTracker);
             let despawn_metadata = ReplicateCache {
                 replication_target: replication_target.target.clone(),
-                replication_group: *group,
+                replication_group: group.clone(),
                 visibility_mode: *visibility_mode,
                 replication_clients_cache: vec![],
             };
@@ -375,6 +375,19 @@ pub(crate) mod send {
             // 3. go through all entities of that archetype
             for entity in archetype.entities() {
                 let entity_ref = world.entity(entity.id());
+                let group = entity_ref.get::<ReplicationGroup>();
+                // If the group is not set to send, skip this entity
+                if group.is_some_and(|g| !g.should_send) {
+                    continue;
+                }
+                let group_id = group.map_or(ReplicationGroupId::default(), |g| {
+                    g.group_id(Some(entity.id()))
+                });
+                let priority = group.map_or(1.0, |g| g.priority());
+                let visibility = entity_ref.get::<ReplicateVisibility>();
+                let sync_target = entity_ref.get::<SyncTarget>();
+                let target_entity = entity_ref.get::<TargetEntity>();
+                let controlled_by = entity_ref.get::<ControlledBy>();
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
                 let replication_target =
@@ -397,15 +410,6 @@ pub(crate) mod send {
                     system_ticks.last_run(),
                     system_ticks.this_run(),
                 );
-                let group = entity_ref.get::<ReplicationGroup>();
-                let group_id = group.map_or(ReplicationGroupId::default(), |g| {
-                    g.group_id(Some(entity.id()))
-                });
-                let priority = group.map_or(1.0, |g| g.priority());
-                let visibility = entity_ref.get::<ReplicateVisibility>();
-                let sync_target = entity_ref.get::<SyncTarget>();
-                let target_entity = entity_ref.get::<TargetEntity>();
-                let controlled_by = entity_ref.get::<ControlledBy>();
 
                 // b. add entity despawns from visibility or target change
                 replicate_entity_despawn(
@@ -1836,6 +1840,68 @@ pub(crate) mod send {
             stepper.frame_step();
 
             // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component1>()
+                    .expect("component missing"),
+                &Component1(2.0)
+            );
+        }
+
+        #[test]
+        fn test_component_update_send_frequency() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world
+                .spawn((
+                    Replicate {
+                        // replicate every 4 ticks
+                        group: ReplicationGroup::new_from_entity()
+                            .set_send_frequency(Duration::from_millis(40)),
+                        ..default()
+                    },
+                    Component1(1.0),
+                ))
+                .id();
+            stepper.frame_step();
+            stepper.frame_step();
+            let client_entity = *stepper
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+
+            // update component
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .insert(Component1(2.0));
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the component was not updated (because it had been only three ticks)
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component1>()
+                    .expect("component missing"),
+                &Component1(1.0)
+            );
+            // it has been 4 ticks, the component was updated
+            stepper.frame_step();
+            // check that the component was not updated (because it had been only two ticks)
             assert_eq!(
                 stepper
                     .client_app
