@@ -213,6 +213,7 @@ pub mod prelude {
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
     pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::replication::network_target::NetworkTarget;
+    pub use crate::shared::replication::plugin::ReplicationConfig;
     pub use crate::shared::replication::resources::{
         ReplicateResourceExt, ReplicateResourceMetadata, StopReplicateResourceExt,
     };

@@ -2,7 +2,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
@@ -265,23 +264,6 @@ pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
     fn new_connected_clients(&self) -> Vec<ClientId>;
-
-    /// Get the replication cache
-    fn replication_cache(&mut self) -> &mut Self::ReplicateCache;
-
-    /// Any operation that needs to happen before we can send the replication messages
-    /// (for example collecting the individual single component updates into a single message,
-    ///
-    /// Similarly, we want to collect all ComponentInsert and ComponentRemove into a single message.
-    /// Why? Because if we create separate message for each ComponentInsert (for example when the entity gets spawned)
-    /// Then those 2 component inserts might be stored in different packets, and arrive at different times because of jitter
-    ///
-    /// But the receiving systems might expect both components to be present at the same time.
-    fn buffer_replication_messages(
-        &mut self,
-        tick: Tick,
-        bevy_tick: BevyTick,
-    ) -> Result<(), Self::Error>;
 
     /// Do some regular cleanup on the internals of replication
     /// - account for tick wrapping by resetting some internal ticks for each replication group

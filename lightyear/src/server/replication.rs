@@ -54,7 +54,7 @@ pub(crate) mod send {
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent,
         ReplicateHierarchy, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager,
-        VisibilityMode,
+        TimeManager, VisibilityMode,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
@@ -132,7 +132,11 @@ pub(crate) mod send {
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates),
                     replicate_entity_local_despawn
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferDespawnsAndRemovals),
-                    (handle_replicating_add, handle_replication_target_update)
+                    (
+                        handle_replicating_add,
+                        handle_replication_target_update,
+                        buffer_replication_messages,
+                    )
                         .in_set(InternalReplicationSet::<ServerMarker>::AfterBuffer),
                 ),
             );
@@ -236,6 +240,24 @@ pub(crate) mod send {
         /// How should the hierarchy of the entity (parents/children) be replicated?
         pub hierarchy: ReplicateHierarchy,
         pub marker: Replicating,
+    }
+
+    /// Buffer the replication messages into channels
+    fn buffer_replication_messages(
+        change_tick: SystemChangeTick,
+        mut connection_manager: ResMut<ConnectionManager>,
+        tick_manager: Res<TickManager>,
+        time_manager: Res<TimeManager>,
+    ) {
+        connection_manager
+            .buffer_replication_messages(
+                tick_manager.tick(),
+                change_tick.this_run(),
+                time_manager.as_ref(),
+            )
+            .unwrap_or_else(|e| {
+                error!("Error preparing replicate send: {}", e);
+            });
     }
 
     /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities

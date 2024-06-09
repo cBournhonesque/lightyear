@@ -23,7 +23,8 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::prelude::server::{DisconnectEvent, RoomId, RoomManager};
 use crate::prelude::{
-    Channel, ChannelKind, Message, PreSpawnedPlayerObject, ReplicationGroup, ShouldBePredicted,
+    Channel, ChannelKind, Message, PreSpawnedPlayerObject, ReplicationConfig, ReplicationGroup,
+    ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{
@@ -34,7 +35,7 @@ use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
-use crate::server::config::{PacketConfig, ReplicationConfig};
+use crate::server::config::PacketConfig;
 use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
 use crate::server::replication::send::ReplicateCache;
@@ -315,11 +316,12 @@ impl ConnectionManager {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
+        time_manager: &TimeManager,
     ) -> Result<(), ServerError> {
         let _span = info_span!("buffer_replication_messages").entered();
         self.connections
             .values_mut()
-            .try_for_each(move |c| c.buffer_replication_messages(tick, bevy_tick))
+            .try_for_each(move |c| c.buffer_replication_messages(tick, bevy_tick, time_manager))
     }
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
@@ -439,7 +441,7 @@ impl Connection {
             update_acks_receiver,
             update_nacks_receiver,
             replication_update_send_receiver,
-            replication_config.send_updates_since_last_ack,
+            replication_config,
             bandwidth_cap_enabled,
         );
         let replication_receiver = ReplicationReceiver::new();
@@ -494,7 +496,9 @@ impl Connection {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
+        time_manager: &TimeManager,
     ) -> Result<(), ServerError> {
+        self.replication_sender.accumulate_priority(time_manager);
         self.replication_sender.send_actions_messages(
             tick,
             bevy_tick,
@@ -953,19 +957,6 @@ impl ReplicationSend for ConnectionManager {
 
     fn new_connected_clients(&self) -> Vec<ClientId> {
         self.new_clients.clone()
-    }
-
-    fn replication_cache(&mut self) -> &mut Self::ReplicateCache {
-        &mut self.replicate_component_cache
-    }
-
-    /// Buffer the replication messages
-    fn buffer_replication_messages(
-        &mut self,
-        tick: Tick,
-        bevy_tick: BevyTick,
-    ) -> Result<(), ServerError> {
-        self.buffer_replication_messages(tick, bevy_tick)
     }
 
     fn cleanup(&mut self, tick: Tick) {

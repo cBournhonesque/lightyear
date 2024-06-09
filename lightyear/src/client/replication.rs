@@ -58,7 +58,7 @@ pub(crate) mod send {
 
     use crate::prelude::{
         is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy,
-        Replicated, ReplicationGroup, TargetEntity, Tick, TickManager,
+        Replicated, ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
 
@@ -120,7 +120,7 @@ pub(crate) mod send {
                         send_entity_despawn.in_set(
                             InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals,
                         ),
-                        handle_replicating_add
+                        (handle_replicating_add, buffer_replication_messages)
                             .in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
                         add_replicated_component_host_server.run_if(is_host_server),
                     ),
@@ -177,6 +177,24 @@ pub(crate) mod send {
     #[derive(PartialEq, Debug)]
     pub(crate) struct ReplicateCache {
         pub(crate) replication_group: ReplicationGroup,
+    }
+
+    /// Buffer the replication messages into channels
+    fn buffer_replication_messages(
+        change_tick: SystemChangeTick,
+        mut connection_manager: ResMut<ConnectionManager>,
+        tick_manager: Res<TickManager>,
+        time_manager: Res<TimeManager>,
+    ) {
+        connection_manager
+            .buffer_replication_messages(
+                tick_manager.tick(),
+                change_tick.this_run(),
+                time_manager.as_ref(),
+            )
+            .unwrap_or_else(|e| {
+                error!("Error preparing replicate send: {}", e);
+            });
     }
 
     /// For every entity that removes their ReplicationTarget component but are not despawned, remove the component

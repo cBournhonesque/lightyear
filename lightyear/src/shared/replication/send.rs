@@ -1,4 +1,5 @@
 //! General struct handling replication
+use bevy::utils::Duration;
 use std::iter::Extend;
 
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
@@ -15,12 +16,13 @@ use tracing::{instrument, Level};
 
 use crate::packet::message::MessageId;
 use crate::packet::message_manager::MessageManager;
-use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick};
+use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick, TimeManager};
 use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
+use crate::shared::replication::plugin::ReplicationConfig;
 #[cfg(test)]
 use crate::utils::captures::Captures;
 
@@ -68,18 +70,7 @@ pub(crate) struct ReplicationSender {
     /// We update the `send_tick` only when the message was actually sent.
     pub message_send_receiver: Receiver<MessageId>,
 
-    /// By default, we will send all component updates since the last time we sent an update for a given entity.
-    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
-    /// we won't be sending anything since the component wasn't updated after that.
-    ///
-    /// This helps save bandwidth, but can cause the client to have delayed eventual consistency in the
-    /// case of packet loss.
-    ///
-    /// If this is set to true, we will instead send all updates since the last time we received an ACK from the client.
-    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
-    /// we will send the update again even if the component wasn't updated, because we still haven't
-    /// received an ACK from the client.
-    send_updates_since_last_ack: bool,
+    replication_config: ReplicationConfig,
     bandwidth_cap_enabled: bool,
 }
 
@@ -88,7 +79,7 @@ impl ReplicationSender {
         updates_ack_receiver: Receiver<MessageId>,
         updates_nack_receiver: Receiver<MessageId>,
         message_send_receiver: Receiver<MessageId>,
-        send_updates_since_last_ack: bool,
+        replication_config: ReplicationConfig,
         bandwidth_cap_enabled: bool,
     ) -> Self {
         Self {
@@ -100,7 +91,7 @@ impl ReplicationSender {
             pending_updates: EntityHashMap::default(),
             // pending_unique_components: EntityHashMap::default(),
             group_channels: Default::default(),
-            send_updates_since_last_ack,
+            replication_config,
             // PRIORITY
             message_send_receiver,
             bandwidth_cap_enabled,
@@ -139,7 +130,7 @@ impl ReplicationSender {
     /// We will send all updates that happened after this bevy tick.
     pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId) -> Option<BevyTick> {
         self.group_channels.get(&group_id).and_then(|channel| {
-            if self.send_updates_since_last_ack {
+            if self.replication_config.send_updates_since_last_ack {
                 channel.ack_bevy_tick
             } else {
                 channel.send_tick
@@ -215,7 +206,7 @@ impl ReplicationSender {
                         "successfully sent message for replication group! Resetting priority"
                     );
                     channel.send_tick = Some(*bevy_tick);
-                    channel.accumulated_priority = Some(0.0);
+                    channel.accumulated_priority = 0.0;
                 } else {
                     error!(?message_id, ?group_id, "Received a send message-id notification but the corresponding group channel does not exist");
                 }
@@ -225,15 +216,6 @@ impl ReplicationSender {
                 );
             }
         }
-
-        // then accumulate the priority for all replication groups
-        self.group_channels.values_mut().for_each(|channel| {
-            channel.accumulated_priority = channel
-                .accumulated_priority
-                .map_or(Some(channel.base_priority), |acc| {
-                    Some(acc + channel.base_priority)
-                });
-        });
     }
 
     // TODO: call this in a system after receive?
@@ -305,12 +287,10 @@ impl ReplicationSender {
 impl ReplicationSender {
     /// Update the base priority for a given group
     pub(crate) fn update_base_priority(&mut self, group_id: ReplicationGroupId, priority: f32) {
-        let channel = self.group_channels.entry(group_id).or_default();
-        channel.base_priority = priority;
-        // if we already have an accumulated priority, don't override it
-        if channel.accumulated_priority.is_none() {
-            channel.accumulated_priority = Some(priority);
-        }
+        self.group_channels
+            .entry(group_id)
+            .or_default()
+            .base_priority = priority;
     }
 
     // TODO: how can I emit metrics here that contain the channel kind?
@@ -490,9 +470,7 @@ impl ReplicationSender {
                 // This is ok to do even if we don't get an actual send notification because EntityActions messages are
                 // guaranteed to be sent at some point. (since the actions channel is reliable)
                 channel.send_tick = Some(bevy_tick);
-                let priority = channel
-                    .accumulated_priority
-                    .unwrap_or(channel.base_priority);
+                let priority = channel.accumulated_priority;
                 let message_id = channel.actions_next_send_message_id;
                 channel.actions_next_send_message_id += 1;
                 channel.last_action_tick = Some(tick);
@@ -509,6 +487,21 @@ impl ReplicationSender {
                 message
             })
             .collect()
+    }
+
+    /// Before sending replication messages, we accumulate the priority for all replication groups.
+    ///
+    /// (the priority starts at 0.0, and is accumulated for each group based on the base priority of the group)
+    pub(crate) fn accumulate_priority(&mut self, time_manager: &TimeManager) {
+        let priority_multiplier = if self.replication_config.send_interval == Duration::default() {
+            1.0
+        } else {
+            (self.replication_config.send_interval.as_nanos() / time_manager.delta().as_nanos())
+                as f32
+        };
+        self.group_channels.values_mut().for_each(|channel| {
+            channel.accumulated_priority += channel.base_priority * priority_multiplier;
+        });
     }
 
     /// Prepare the [`EntityActionsMessage`] messages to send.
@@ -544,9 +537,7 @@ impl ReplicationSender {
                 // This is ok to do even if we don't get an actual send notification because EntityActions messages are
                 // guaranteed to be sent at some point. (since the actions channel is reliable)
                 channel.send_tick = Some(bevy_tick);
-                let priority = channel
-                    .accumulated_priority
-                    .unwrap_or(channel.base_priority);
+                let priority = channel.accumulated_priority;
                 let message_id = channel.actions_next_send_message_id;
                 channel.actions_next_send_message_id += 1;
                 channel.last_action_tick = Some(tick);
@@ -590,9 +581,7 @@ impl ReplicationSender {
         self.pending_updates.drain().map(|(group_id, updates)| {
             trace!(?group_id, "pending updates: {:?}", updates);
             let channel = self.group_channels.entry(group_id).or_default();
-            let priority = channel
-                .accumulated_priority
-                .unwrap_or(channel.base_priority);
+            let priority = channel.accumulated_priority;
             (
                 EntityUpdatesMessage {
                     group_id,
@@ -623,9 +612,7 @@ impl ReplicationSender {
             .try_for_each(|(group_id, updates)| {
                 trace!(?group_id, "pending updates: {:?}", updates);
                 let channel = self.group_channels.entry(group_id).or_default();
-                let priority = channel
-                    .accumulated_priority
-                    .unwrap_or(channel.base_priority);
+                let priority = channel.accumulated_priority;
                 let message = EntityUpdatesMessage {
                     group_id,
                     // TODO: as an optimization, we can use `last_action_tick = tick` to signify
@@ -700,7 +687,7 @@ pub struct GroupChannel {
     /// The priority to send the replication group.
     /// This will be reset to base_priority every time we send network updates, unless we couldn't send a message
     /// for this group because of the bandwidth cap, in which case it will be accumulated.
-    pub accumulated_priority: Option<f32>,
+    pub accumulated_priority: f32,
     pub base_priority: f32,
 }
 
@@ -712,7 +699,7 @@ impl Default for GroupChannel {
             ack_bevy_tick: None,
             ack_tick: None,
             last_action_tick: None,
-            accumulated_priority: None,
+            accumulated_priority: 0.0,
             base_priority: 1.0,
         }
     }
@@ -859,7 +846,13 @@ mod tests {
         let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
         let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
         let (tx_send, rx_send) = crossbeam_channel::unbounded();
-        let mut sender = ReplicationSender::new(rx_ack, rx_nack, rx_send, false, false);
+        let mut sender = ReplicationSender::new(
+            rx_ack,
+            rx_nack,
+            rx_send,
+            ReplicationConfig::default(),
+            false,
+        );
         let group_1 = ReplicationGroupId(0);
         sender
             .group_channels
@@ -952,7 +945,8 @@ mod tests {
         let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
         let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
         let (tx_send, rx_send) = crossbeam_channel::unbounded();
-        let mut sender = ReplicationSender::new(rx_ack, rx_nack, rx_send, false, true);
+        let mut sender =
+            ReplicationSender::new(rx_ack, rx_nack, rx_send, ReplicationConfig::default(), true);
         let group_1 = ReplicationGroupId(0);
         sender
             .group_channels
@@ -999,7 +993,13 @@ mod tests {
         let (tx_ack, rx_ack) = crossbeam_channel::unbounded();
         let (tx_nack, rx_nack) = crossbeam_channel::unbounded();
         let (tx_send, rx_send) = crossbeam_channel::unbounded();
-        let mut manager = ReplicationSender::new(rx_ack, rx_nack, rx_send, false, false);
+        let mut manager = ReplicationSender::new(
+            rx_ack,
+            rx_nack,
+            rx_send,
+            ReplicationConfig::default(),
+            false,
+        );
 
         let entity_1 = Entity::from_raw(0);
         let entity_2 = Entity::from_raw(1);
@@ -1081,7 +1081,7 @@ mod tests {
                     last_action_tick: Some(Tick(3)),
                     updates: vec![(entity_3, vec![raw_4])],
                 },
-                1.0
+                0.0
             )
         );
         assert_eq!(

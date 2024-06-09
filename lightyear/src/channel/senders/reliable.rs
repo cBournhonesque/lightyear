@@ -69,6 +69,9 @@ pub struct ReliableSender {
     current_time: WrappedTime,
     /// Internal timer to determine if the channel is ready to send messages
     timer: Option<Timer>,
+    /// Factor that makes sure that the priority accumulates at the same right even the channel
+    /// sends messages infrequently
+    priority_multiplier: f32,
 }
 
 impl ReliableSender {
@@ -91,6 +94,7 @@ impl ReliableSender {
             current_rtt: Duration::default(),
             current_time: WrappedTime::default(),
             timer,
+            priority_multiplier: 1.0,
         }
     }
 }
@@ -101,6 +105,8 @@ impl ChannelSend for ReliableSender {
         self.current_rtt = ping_manager.rtt();
         if let Some(timer) = &mut self.timer {
             timer.tick(time_manager.delta());
+            self.priority_multiplier =
+                (timer.duration().as_nanos() / time_manager.delta().as_nanos()) as f32;
         }
     }
 
@@ -173,7 +179,7 @@ impl ChannelSend for ReliableSender {
         for (message_id, unacked_message_with_priority) in self.unacked_messages.iter_mut() {
             // accumulate the priority for all messages (including the ones that were just added, since we set the accumulated priority to 0.0)
             unacked_message_with_priority.accumulated_priority +=
-                unacked_message_with_priority.base_priority;
+                unacked_message_with_priority.base_priority * self.priority_multiplier;
             trace!(
                 "Accumulating priority for reliable message {:?} to {:?}",
                 message_id,

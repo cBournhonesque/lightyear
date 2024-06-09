@@ -12,7 +12,7 @@ use crate::channel::builder::{
 
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::client::config::{PacketConfig, ReplicationConfig};
+use crate::client::config::PacketConfig;
 use crate::client::error::ClientError;
 use crate::client::message::ClientMessage;
 use crate::client::replication::send::ReplicateCache;
@@ -21,7 +21,7 @@ use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::packet::priority_manager::PriorityConfig;
-use crate::prelude::{Channel, ChannelKind, ClientId, Message};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
@@ -96,7 +96,7 @@ impl Default for ConnectionManager {
             crossbeam_channel::unbounded().1,
             crossbeam_channel::unbounded().1,
             crossbeam_channel::unbounded().1,
-            false,
+            ReplicationConfig::default(),
             false,
         );
         let replication_receiver = ReplicationReceiver::new();
@@ -157,7 +157,7 @@ impl ConnectionManager {
             update_acks_receiver,
             update_nacks_receiver,
             replication_update_send_receiver,
-            replication_config.send_updates_since_last_ack,
+            replication_config,
             bandwidth_cap_enabled,
         );
         let replication_receiver = ReplicationReceiver::new();
@@ -280,6 +280,7 @@ impl ConnectionManager {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
+        time_manager: &TimeManager,
     ) -> Result<(), ClientError> {
         // NOTE: this doesn't work too well because then duplicate actions/updates are accumulated before the connection is synced
         // if !self.sync_manager.is_synced() {
@@ -290,6 +291,7 @@ impl ConnectionManager {
         //     return Ok(());
         // }
 
+        self.replication_sender.accumulate_priority(time_manager);
         self.replication_sender.send_actions_messages(
             tick,
             bevy_tick,
@@ -519,18 +521,6 @@ impl ReplicationSend for ConnectionManager {
         vec![]
     }
 
-    fn replication_cache(&mut self) -> &mut Self::ReplicateCache {
-        &mut self.replicate_component_cache
-    }
-
-    fn buffer_replication_messages(
-        &mut self,
-        tick: Tick,
-        bevy_tick: BevyTick,
-    ) -> Result<(), ClientError> {
-        let _span = trace_span!("buffer_replication_messages").entered();
-        self.buffer_replication_messages(tick, bevy_tick)
-    }
     fn cleanup(&mut self, tick: Tick) {
         debug!("Running replication clean");
         self.replication_sender.cleanup(tick);
