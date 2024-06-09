@@ -59,11 +59,13 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::client::sync::{client_is_synced, SyncSet};
-use crate::inputs::leafwing::input_buffer::{
-    ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
-};
+use crate::inputs::leafwing::action_diff::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
+use crate::inputs::leafwing::input_buffer::InputBuffer;
+use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, MessageRegistry, TickManager};
+use crate::prelude::{
+    is_host_server, ChannelKind, ChannelRegistry, InputMessage, MessageRegistry, TickManager,
+};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::shared::replication::components::PrePredicted;
@@ -154,13 +156,19 @@ fn is_input_delay(config: Res<ClientConfig>) -> bool {
 
 impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
 // FLOW WITH INPUT DELAY
-// - pre-update: run leafwing to update ActionState
-//   this is the action-state for tick T + delay
-
+// - pre-update: run leafwing to update the current ActionState, which is the action-state for tick T + delay
+// - fixed-pre-update:
+//   - we write the current action-diffs to the buffer for tick T + d (for sending messages to server)
+//   - we write the current action-state to the buffer for tick T + d (for rollbacks)
+//   - get the action-state for tick T from the buffer
 // - fixed-update:
-//   - ONLY IF INPUT-DELAY IS NON ZERO. store the action-state in the buffer for tick T + delay
-//   - generate the action-diffs for tick T + delay (using the ActionState)
-//   - ONLY IF INPUT-DELAY IS NON ZERO. restore the action-state from the buffer for tick T
+//   - we use the action-state for tick T (that we got from the buffer)
+// - fixed-post-update:
+//   - we fetch the action-state for tick T + d from the buffer and set it on the ActionState
+//     (so that it's ready for the next frame's PreUpdate, or for the next FixedPreUpdate)
+// - update:
+//   - the ActionState is not usable in Update, because we have the ActionState for tick T + d
+// TODO: will need to generate diffs in FixedPreUpdate schedule once it's fixed in leafwing
 {
     fn build(&self, app: &mut App) {
         // PLUGINS
@@ -196,7 +204,6 @@ impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
         );
         app.configure_sets(
             PostUpdate,
-            // we send inputs only every send_interval
             (
                 SyncSet,
                 // handle tick events from sync before sending the message
@@ -571,10 +578,10 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
     // }
 }
 
-/// Read the action-diffs and store them in the ActionDiffBuffer.
+/// Read the action-diffs and store them in the ActionDiffBuffer at tick T + delay.
 /// That buffer will be used to write an InputMessage containing the last few ActionDiffs to the server.
 ///
-/// NOTE: we have an ActionState buffer used for rollbacks,
+/// NOTE: we have an ActionState InputBuffer used for rollbacks,
 /// and an ActionDiff buffer used for sending diffs to the server.
 ///
 /// maybe instead of an entire ActionState buffer, we can just store the oldest ActionState, and re-use the diffs
@@ -653,6 +660,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
         (
             Entity,
             &ActionDiffBuffer<A>,
+            &InputBuffer<A>,
             Option<&Predicted>,
             Option<&PrePredicted>,
         ),
@@ -679,7 +687,9 @@ fn prepare_input_message<A: LeafwingUserAction>(
     let redundancy = config.input.packet_redundancy;
     let message_len = redundancy * num_tick;
     let mut message = InputMessage::<A>::new(tick);
-    for (entity, action_diff_buffer, predicted, pre_predicted) in action_diff_buffer_query.iter() {
+    for (entity, action_diff_buffer, input_buffer, predicted, pre_predicted) in
+        action_diff_buffer_query.iter()
+    {
         debug!(
             ?tick,
             ?entity,
@@ -706,11 +716,11 @@ fn prepare_input_message<A: LeafwingUserAction>(
 
             // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server, when
             // receiving the message. It's possible because the server received the PrePredicted entity before)
-            action_diff_buffer.add_to_message(
-                &mut message,
-                tick,
-                message_len,
+            message.add_inputs(
+                num_tick,
                 InputTarget::PrePredictedEntity(entity),
+                action_diff_buffer,
+                input_buffer,
             );
         } else {
             // 1. if the entity is confirmed, we need to convert the entity to the server's entity
@@ -723,11 +733,11 @@ fn prepare_input_message<A: LeafwingUserAction>(
                     .copied()
                 {
                     debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
-                    action_diff_buffer.add_to_message(
-                        &mut message,
-                        tick,
-                        message_len,
+                    message.add_inputs(
+                        num_tick,
                         InputTarget::Entity(server_entity),
+                        action_diff_buffer,
+                        input_buffer,
                     );
                 }
             } else {
@@ -1048,7 +1058,8 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
             ) {
                 Ok(message) => {
                     debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-                    for (target, diffs) in &message.diffs {
+                    // TODO: fix this
+                    for (target, _, diffs) in &message.diffs {
                         // - the input target has already been set to the server entity in the InputMessage
                         // - it has been mapped to a client-entity on the client during deserialization
                         //   ONLY if it's PrePredicted (look at the MapEntities implementation)
@@ -1097,14 +1108,13 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use bevy::input::InputPlugin;
-    use bevy::prelude::*;
     use bevy::utils::Duration;
     use leafwing_input_manager::action_state::ActionState;
     use leafwing_input_manager::input_map::InputMap;
 
     use crate::client::sync::SyncConfig;
-    use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
     use crate::prelude::server::Replicate;
     use crate::prelude::{client, LinkConditionerConfig, SharedConfig, TickConfig};

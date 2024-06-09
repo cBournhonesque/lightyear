@@ -1,13 +1,14 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
+use crate::inputs::leafwing::action_diff::ActionDiffBuffer;
+use crate::inputs::leafwing::input_message::InputTarget;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputTarget};
-use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
+use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::server::MessageEvent;
-use crate::prelude::{is_started, MessageRegistry, Mode, TickManager};
+use crate::prelude::{is_started, InputMessage, MessageRegistry, Mode, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::server::config::ServerConfig;
@@ -130,7 +131,8 @@ fn receive_input_message<A: LeafwingUserAction>(
                 ) {
                     Ok(message) => {
                         debug!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-                        for (target, diffs) in &message.diffs {
+                        // TODO: UPDATE THIS
+                        for (target, _, diffs) in &message.diffs {
                             match target {
                                 // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
                                 // (which is possible because the server received the entity)
@@ -219,11 +221,13 @@ fn update_action_state<A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::inputs::leafwing::action_diff::ActionDiff;
+    use crate::inputs::leafwing::input_buffer::InputBuffer;
     use bevy::input::InputPlugin;
     use bevy::utils::Duration;
     use leafwing_input_manager::prelude::ActionState;
 
-    use crate::inputs::leafwing::input_buffer::{ActionDiff, InputBuffer};
     use crate::prelude::client;
     use crate::prelude::client::{
         InterpolationConfig, LeafwingInputConfig, PredictionConfig, SyncConfig,
@@ -232,8 +236,6 @@ mod tests {
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-
-    use super::*;
 
     #[test]
     fn test_leafwing_inputs() {

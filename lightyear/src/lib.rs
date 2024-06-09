@@ -191,7 +191,7 @@ pub mod prelude {
     pub use crate::connection::id::ClientId;
     pub use crate::connection::netcode::{generate_key, ConnectToken, Key};
     #[cfg(feature = "leafwing")]
-    pub use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
+    pub use crate::inputs::leafwing::{input_message::InputMessage, LeafwingUserAction};
     pub use crate::inputs::native::UserAction;
     pub use crate::packet::error::PacketError;
     pub use crate::packet::message::Message;
