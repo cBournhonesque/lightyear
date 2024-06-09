@@ -11,8 +11,6 @@ pub const FIXED_TIMESTEP_HZ: f64 = 64.0;
 /// The [`SharedConfig`] must be shared between the `ClientConfig` and `ServerConfig`
 pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
-        // send an update every frame
-        client_send_interval: Duration::default(),
         // send an update every 100ms
         server_send_interval: Duration::from_millis(100),
         tick: TickConfig {

@@ -15,13 +15,13 @@ use clap::{Parser, ValueEnum};
 use lightyear::prelude::client::ClientConfig;
 use lightyear::prelude::*;
 use lightyear::prelude::{client, server};
-use lightyear::server::config::ServerConfig;
+use lightyear::server::config::{ReplicationConfig, ServerConfig};
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 use serde::{Deserialize, Serialize};
 
 use crate::settings::*;
-use crate::shared::shared_config;
+use crate::shared::{shared_config, SERVER_REPLICATION_INTERVAL};
 
 /// CLI options to create an [`App`]
 #[derive(Parser, PartialEq, Debug)]
@@ -353,6 +353,10 @@ fn server_app(
     let server_config = ServerConfig {
         shared: shared_config(Mode::Separate),
         net: net_configs,
+        replication: ReplicationConfig {
+            send_interval: SERVER_REPLICATION_INTERVAL,
+            ..default()
+        },
         ..default()
     };
     (app, server_config)
@@ -384,6 +388,10 @@ fn combined_app(
     let server_config = ServerConfig {
         shared: shared_config(Mode::HostServer),
         net: net_configs,
+        replication: ReplicationConfig {
+            send_interval: SERVER_REPLICATION_INTERVAL,
+            ..default()
+        },
         ..default()
     };
 

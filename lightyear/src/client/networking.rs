@@ -233,7 +233,8 @@ pub(crate) fn sync_update(
         tick_manager.deref_mut(),
         &connection.ping_manager,
         &config.interpolation.delay,
-        config.shared.server_send_interval,
+        // TODO: how to adjust this for replication groups that have a custom send_interval?
+        config.shared.server_replication_send_interval,
     ) {
         tick_events.send(tick_event);
     }

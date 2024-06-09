@@ -137,7 +137,11 @@ pub(crate) mod send {
                     // only send messages if the timer has finished
                     InternalReplicationSet::<R::SetMarker>::SendMessages.run_if(
                         |timer: Res<SendIntervalTimer<R>>| {
-                            !timer.timer.as_ref().is_some_and(|t| t.finished())
+                            if let Some(timer) = &timer.timer {
+                                timer.finished()
+                            } else {
+                                true
+                            }
                         },
                     ),
                     (
