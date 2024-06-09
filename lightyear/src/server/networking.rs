@@ -247,10 +247,6 @@ pub(crate) fn send(
         .unwrap_or_else(|e: ServerError| {
             error!("Error sending packets: {}", e);
         });
-
-    // clear the list of newly connected clients
-    // (cannot just use the ConnectionEvent because it is cleared after each frame)
-    connection_manager.new_clients.clear();
 }
 
 /// Bevy [`State`] representing the networking state of the server.

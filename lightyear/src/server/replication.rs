@@ -258,6 +258,11 @@ pub(crate) mod send {
             .unwrap_or_else(|e| {
                 error!("Error preparing replicate send: {}", e);
             });
+        // TODO: how to handle this for replication groups that update less frequently?
+        //  only component updates should update less frequently, but entity spawns/removals
+        //  should be sent with the same frequency!
+        // clear the list of newly connected clients
+        connection_manager.new_clients.clear();
     }
 
     /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities
@@ -405,10 +410,7 @@ pub(crate) mod send {
             for entity in archetype.entities() {
                 let entity_ref = world.entity(entity.id());
                 let group = entity_ref.get::<ReplicationGroup>();
-                // If the group is not set to send, skip this entity
-                if group.is_some_and(|g| !g.should_send) {
-                    continue;
-                }
+
                 let group_id = group.map_or(ReplicationGroupId::default(), |g| {
                     g.group_id(Some(entity.id()))
                 });
@@ -463,6 +465,11 @@ pub(crate) mod send {
                     &mut sender,
                     &system_ticks,
                 );
+
+                // If the group is not set to send, skip sending updates for this entity
+                if group.is_some_and(|g| !g.should_send) {
+                    continue;
+                }
 
                 // d. all components that were added or changed
                 for replicated_component in replicated_archetype.components.iter() {
