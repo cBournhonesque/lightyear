@@ -29,25 +29,32 @@ pub struct UnorderedUnreliableSender {
     /// List of senders that want to be notified when a message is lost
     nack_senders: Vec<Sender<MessageId>>,
     /// Internal timer to determine if the channel is ready to send messages
-    timer: Timer,
+    timer: Option<Timer>,
 }
 
 impl UnorderedUnreliableSender {
     pub(crate) fn new(send_frequency: Duration) -> Self {
+        let timer = if send_frequency == Duration::default() {
+            None
+        } else {
+            Some(Timer::new(send_frequency, TimerMode::Repeating))
+        };
         Self {
             single_messages_to_send: VecDeque::new(),
             fragmented_messages_to_send: VecDeque::new(),
             next_send_fragmented_message_id: MessageId::default(),
             fragment_sender: FragmentSender::new(),
             nack_senders: vec![],
-            timer: Timer::new(send_frequency, TimerMode::Repeating),
+            timer,
         }
     }
 }
 
 impl ChannelSend for UnorderedUnreliableSender {
     fn update(&mut self, time_manager: &TimeManager, _: &PingManager, _: &TickManager) {
-        self.timer.tick(time_manager.delta());
+        if let Some(timer) = &mut self.timer {
+            timer.tick(time_manager.delta());
+        }
     }
 
     /// Add a new message to the buffer of messages to be sent.
@@ -82,7 +89,7 @@ impl ChannelSend for UnorderedUnreliableSender {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets to be sent
     fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
-        if self.timer.duration() != Duration::default() && !self.timer.finished() {
+        if self.timer.as_ref().is_some_and(|t| !t.finished()) {
             return (VecDeque::new(), VecDeque::new());
         }
         (

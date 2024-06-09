@@ -71,7 +71,7 @@ pub(crate) mod send {
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {
-        pub clean_interval: Duration,
+        pub tick_interval: Duration,
     }
 
     impl Plugin for ClientReplicationSendPlugin {
@@ -87,7 +87,7 @@ pub(crate) mod send {
                 .register_type::<Replicate>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
-                    self.clean_interval,
+                    self.tick_interval,
                     send_interval,
                 ))
                 // SETS

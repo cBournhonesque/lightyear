@@ -60,9 +60,7 @@ impl PluginGroup for ClientPlugins {
             .add(ClientNetworkingPlugin)
             .add(ClientDiagnosticsPlugin::default())
             .add(ClientReplicationReceivePlugin { tick_interval })
-            .add(ClientReplicationSendPlugin {
-                clean_interval: tick_interval,
-            })
+            .add(ClientReplicationSendPlugin { tick_interval })
             .add(PredictionPlugin)
             .add(InterpolationPlugin::new(interpolation_config));
 

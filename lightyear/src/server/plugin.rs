@@ -59,9 +59,7 @@ impl PluginGroup for ServerPlugins {
             .add(RoomPlugin)
             .add(ClientsMetadataPlugin)
             .add(ServerReplicationReceivePlugin { tick_interval })
-            .add(ServerReplicationSendPlugin {
-                clean_interval: tick_interval,
-            })
+            .add(ServerReplicationSendPlugin { tick_interval })
     }
 }
 

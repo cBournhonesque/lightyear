@@ -59,7 +59,7 @@ pub(crate) mod send {
 
     #[derive(Resource, Debug)]
     pub(crate) struct SendIntervalTimer<R: Send + Sync + 'static> {
-        pub(crate) timer: Timer,
+        pub(crate) timer: Option<Timer>,
         _marker: std::marker::PhantomData<R>,
     }
 
@@ -78,7 +78,9 @@ pub(crate) mod send {
             time_manager: Res<TimeManager>,
             mut timer: ResMut<SendIntervalTimer<R>>,
         ) {
-            timer.timer.tick(time_manager.delta());
+            if let Some(timer) = &mut timer.timer {
+                timer.tick(time_manager.delta());
+            }
         }
 
         /// Tick the internal timers of all replication groups.
@@ -120,7 +122,11 @@ pub(crate) mod send {
 
             // RESOURCES
             app.insert_resource(SendIntervalTimer::<R> {
-                timer: Timer::new(self.send_interval, TimerMode::Repeating),
+                timer: if self.send_interval == Duration::default() {
+                    None
+                } else {
+                    Some(Timer::new(self.send_interval, TimerMode::Repeating))
+                },
                 _marker: std::marker::PhantomData,
             });
 
@@ -129,8 +135,11 @@ pub(crate) mod send {
                 PostUpdate,
                 (
                     // only send messages if the timer has finished
-                    InternalReplicationSet::<R::SetMarker>::SendMessages
-                        .run_if(|timer: Res<SendIntervalTimer<R>>| timer.timer.finished()),
+                    InternalReplicationSet::<R::SetMarker>::SendMessages.run_if(
+                        |timer: Res<SendIntervalTimer<R>>| {
+                            !timer.timer.as_ref().is_some_and(|t| t.finished())
+                        },
+                    ),
                     (
                         InternalReplicationSet::<R::SetMarker>::BeforeBuffer,
                         InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,

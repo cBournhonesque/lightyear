@@ -68,11 +68,16 @@ pub struct ReliableSender {
     current_rtt: Duration,
     current_time: WrappedTime,
     /// Internal timer to determine if the channel is ready to send messages
-    timer: Timer,
+    timer: Option<Timer>,
 }
 
 impl ReliableSender {
     pub fn new(reliable_settings: ReliableSettings, send_frequency: Duration) -> Self {
+        let timer = if send_frequency == Duration::default() {
+            None
+        } else {
+            Some(Timer::new(send_frequency, TimerMode::Repeating))
+        };
         Self {
             reliable_settings,
             unacked_messages: Default::default(),
@@ -85,7 +90,7 @@ impl ReliableSender {
             nack_senders: vec![],
             current_rtt: Duration::default(),
             current_time: WrappedTime::default(),
-            timer: Timer::new(send_frequency, TimerMode::Repeating),
+            timer,
         }
     }
 }
@@ -94,7 +99,9 @@ impl ChannelSend for ReliableSender {
     fn update(&mut self, time_manager: &TimeManager, ping_manager: &PingManager, _: &TickManager) {
         self.current_time = time_manager.current_time();
         self.current_rtt = ping_manager.rtt();
-        self.timer.tick(time_manager.delta());
+        if let Some(timer) = &mut self.timer {
+            timer.tick(time_manager.delta());
+        }
     }
 
     /// Add a new message to the buffer of messages to be sent.
@@ -142,7 +149,7 @@ impl ChannelSend for ReliableSender {
     /// to be sent
     /// The messages to be sent need to have been collected prior to this point.
     fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
-        if self.timer.duration() != Duration::default() && !self.timer.finished() {
+        if self.timer.as_ref().is_some_and(|t| !t.finished()) {
             return (VecDeque::new(), VecDeque::new());
         }
 
