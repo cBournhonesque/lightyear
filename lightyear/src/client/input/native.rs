@@ -172,7 +172,6 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                         // no need to send input messages via io if we are in host-server mode
                         client_is_synced.and_then(not(is_host_server)),
                     ),
-                InternalMainSet::<ClientMarker>::SendPackets,
             )
                 .chain(),
         );

@@ -3,6 +3,7 @@ use bevy::prelude::{Reflect, Resource};
 use governor::Quota;
 use nonzero_ext::nonzero;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::connection::netcode::{Key, PRIVATE_KEY_BYTES};
 use crate::connection::server::{
@@ -111,6 +112,10 @@ pub struct ReplicationConfig {
     /// we will send the update again even if the component wasn't updated, because we still haven't
     /// received an ACK from the client.
     pub send_updates_since_last_ack: bool,
+    /// How often we send replication updates.
+    ///
+    /// Set to `Duration::default()` to send updates every frame.
+    pub send_interval: Duration,
 }
 
 /// Configuration for the server plugin.

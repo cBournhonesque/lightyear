@@ -311,31 +311,28 @@ impl ConnectionManager {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Result<Vec<Payload>, ClientError> {
-        // update the ping manager with the actual send time
         // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
-        if time_manager.is_client_ready_to_send() {
-            // maybe send pings
-            // same thing, we want the correct send time for the ping
-            // (and not have the delay between when we prepare the ping and when we send the packet)
-            if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
-                self.send_ping(ping)?;
-            }
-
-            // prepare the pong messages with the correct send time
-            self.ping_manager
-                .take_pending_pongs()
-                .into_iter()
-                .try_for_each(|mut pong| {
-                    // TODO: should we send real time or virtual time here?
-                    //  probably real time if we just want to estimate RTT?
-                    // update the send time of the pong
-                    pong.pong_sent_time = time_manager.current_time();
-                    self.send_pong(pong)?;
-                    Ok::<(), ClientError>(())
-                })?;
+        // maybe send pings
+        // same thing, we want the correct send time for the ping
+        // (and not have the delay between when we prepare the ping and when we send the packet)
+        if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
+            self.send_ping(ping)?;
         }
+
+        // prepare the pong messages with the correct send time
+        self.ping_manager
+            .take_pending_pongs()
+            .into_iter()
+            .try_for_each(|mut pong| {
+                // TODO: should we send real time or virtual time here?
+                //  probably real time if we just want to estimate RTT?
+                // update the send time of the pong
+                pong.pong_sent_time = time_manager.current_time();
+                self.send_pong(pong)?;
+                Ok::<(), ClientError>(())
+            })?;
         let payloads = self.message_manager.send_packets(tick_manager.tick());
 
         // update the replication sender about which messages were actually sent, and accumulate priority

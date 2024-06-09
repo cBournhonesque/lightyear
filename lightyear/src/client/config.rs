@@ -2,6 +2,7 @@
 use bevy::ecs::reflect::ReflectResource;
 use bevy::prelude::Resource;
 use bevy::reflect::Reflect;
+use bevy::utils::Duration;
 use governor::Quota;
 use nonzero_ext::nonzero;
 
@@ -105,6 +106,10 @@ pub struct ReplicationConfig {
     /// we will send the update again even if the component wasn't updated, because we still haven't
     /// received an ACK from the client.
     pub send_updates_since_last_ack: bool,
+    /// How often we send replication updates.
+    ///
+    /// Set to `Duration::default()` to send updates every frame.
+    pub send_interval: Duration,
 }
 
 /// The configuration object that lets you create a `ClientPlugin` with the desired settings.

@@ -185,7 +185,7 @@ pub mod prelude {
 
     pub use crate::channel::builder::{
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
-        DefaultUnorderedUnreliableChannel, InputChannel, ReliableSettings,
+        InputChannel, ReliableSettings,
     };
     pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
     pub use crate::connection::id::ClientId;

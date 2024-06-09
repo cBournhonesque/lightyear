@@ -1,3 +1,5 @@
+use bevy::prelude::{Timer, TimerMode};
+use bevy::utils::Duration;
 use std::collections::VecDeque;
 
 use bytes::Bytes;
@@ -36,10 +38,12 @@ pub struct UnorderedUnreliableWithAcksSender {
     /// was acked
     fragment_ack_receiver: FragmentAckReceiver,
     current_time: WrappedTime,
+    /// Internal timer to determine if the channel is ready to send messages
+    timer: Timer,
 }
 
 impl UnorderedUnreliableWithAcksSender {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(send_frequency: Duration) -> Self {
         Self {
             single_messages_to_send: VecDeque::new(),
             fragmented_messages_to_send: VecDeque::new(),
@@ -49,6 +53,7 @@ impl UnorderedUnreliableWithAcksSender {
             nack_senders: Vec::new(),
             fragment_ack_receiver: FragmentAckReceiver::new(),
             current_time: WrappedTime::default(),
+            timer: Timer::new(send_frequency, TimerMode::Repeating),
         }
     }
 }
@@ -58,6 +63,7 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
         self.current_time = time_manager.current_time();
         self.fragment_ack_receiver
             .cleanup(self.current_time - DISCARD_AFTER);
+        self.timer.tick(time_manager.delta());
     }
 
     /// Add a new message to the buffer of messages to be sent.
@@ -93,6 +99,9 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets to be sent
     fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
+        if self.timer.duration() != Duration::default() && !self.timer.finished() {
+            return (VecDeque::new(), VecDeque::new());
+        }
         (
             std::mem::take(&mut self.single_messages_to_send),
             std::mem::take(&mut self.fragmented_messages_to_send),
@@ -102,9 +111,6 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
         //     packet_manager.pack_messages_within_channel(messages_to_send);
         // self.messages_to_send = remaining_messages_to_send;
     }
-
-    // not necessary for an unreliable sender (all the buffered messages can be sent)
-    fn collect_messages_to_send(&mut self) {}
 
     /// Notify any subscribers that a message was acked
     fn receive_ack(&mut self, ack: &MessageAck) {
@@ -126,10 +132,6 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
                 }
             },
         );
-    }
-
-    fn has_messages_to_send(&self) -> bool {
-        !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()
     }
 
     /// Create a new receiver that will receive a message id when a message is acked
@@ -163,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_receive_ack() {
-        let mut sender = UnorderedUnreliableWithAcksSender::new();
+        let mut sender = UnorderedUnreliableWithAcksSender::new(Duration::default());
 
         // create subscriber
         let receiver = sender.subscribe_acks();

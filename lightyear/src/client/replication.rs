@@ -54,7 +54,7 @@ pub(crate) mod send {
 
     use crate::connection::client::ClientConnection;
 
-    use crate::prelude::client::NetClient;
+    use crate::prelude::client::{ClientConfig, NetClient};
 
     use crate::prelude::{
         is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy,
@@ -71,17 +71,24 @@ pub(crate) mod send {
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {
-        pub tick_interval: Duration,
+        pub clean_interval: Duration,
     }
 
     impl Plugin for ClientReplicationSendPlugin {
         fn build(&self, app: &mut App) {
+            let send_interval = app
+                .world
+                .resource::<ClientConfig>()
+                .replication
+                .send_interval;
+
             app
                 // REFLECTION
                 .register_type::<Replicate>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
-                    self.tick_interval,
+                    self.clean_interval,
+                    send_interval,
                 ))
                 // SETS
                 .configure_sets(

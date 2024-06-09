@@ -539,27 +539,24 @@ impl Connection {
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
 
-        // no need to check if `time_manager.is_server_ready_to_send()` since we only send packets when we are ready to send
-        if time_manager.is_server_ready_to_send() {
-            // maybe send pings
-            // same thing, we want the correct send time for the ping
-            // (and not have the delay between when we prepare the ping and when we send the packet)
-            if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
-                self.send_ping(ping)?;
-            }
-
-            // prepare the pong messages with the correct send time
-            self.ping_manager
-                .take_pending_pongs()
-                .into_iter()
-                .try_for_each(|mut pong| {
-                    trace!("Sending pong {:?}", pong);
-                    // update the send time of the pong
-                    pong.pong_sent_time = time_manager.current_time();
-                    self.send_pong(pong)?;
-                    Ok::<(), ServerError>(())
-                })?;
+        // maybe send pings
+        // same thing, we want the correct send time for the ping
+        // (and not have the delay between when we prepare the ping and when we send the packet)
+        if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
+            self.send_ping(ping)?;
         }
+
+        // prepare the pong messages with the correct send time
+        self.ping_manager
+            .take_pending_pongs()
+            .into_iter()
+            .try_for_each(|mut pong| {
+                trace!("Sending pong {:?}", pong);
+                // update the send time of the pong
+                pong.pong_sent_time = time_manager.current_time();
+                self.send_pong(pong)?;
+                Ok::<(), ServerError>(())
+            })?;
         let payloads = self.message_manager.send_packets(tick_manager.tick())?;
 
         // update the replication sender about which messages were actually sent, and accumulate priority

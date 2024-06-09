@@ -46,16 +46,8 @@ pub trait ChannelSend {
     /// that can be sent over the network for this channel
     fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>);
 
-    /// Collect the list of messages that need to be sent
-    /// Either because they have never been sent, or because they need to be resent (for reliability)
-    /// Needs to be called before [`ReliableSender::send_packet`](reliable::ReliableSender::send_packet)
-    fn collect_messages_to_send(&mut self);
-
     /// Called when we receive acknowledgement that a Message has been received
     fn receive_ack(&mut self, message_ack: &MessageAck);
-
-    /// Returns true if there are messages in the buffer that are ready to be sent
-    fn has_messages_to_send(&self) -> bool;
 
     /// Create a new receiver that will receive a message id when a sent message is acked
     fn subscribe_acks(&mut self) -> Receiver<MessageId>;

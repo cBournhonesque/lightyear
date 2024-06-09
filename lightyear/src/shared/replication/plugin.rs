@@ -52,16 +52,33 @@ pub(crate) mod send {
     use crate::prelude::{Replicating, ReplicationGroup, TimeManager};
 
     pub(crate) struct ReplicationSendPlugin<R> {
+        send_interval: Duration,
         clean_interval: Duration,
         _marker: std::marker::PhantomData<R>,
     }
-    impl<R> ReplicationSendPlugin<R> {
-        pub(crate) fn new(tick_interval: Duration) -> Self {
+
+    #[derive(Resource, Debug)]
+    pub(crate) struct SendIntervalTimer<R: Send + Sync + 'static> {
+        pub(crate) timer: Timer,
+        _marker: std::marker::PhantomData<R>,
+    }
+
+    impl<R: Send + Sync + 'static> ReplicationSendPlugin<R> {
+        pub(crate) fn new(tick_interval: Duration, send_interval: Duration) -> Self {
             Self {
+                send_interval,
                 // TODO: find a better constant for the clean interval?
                 clean_interval: tick_interval * (i16::MAX as u32 / 3),
                 _marker: std::marker::PhantomData,
             }
+        }
+
+        /// Tick the timer that controls when we buffer replication updates
+        fn tick_send_interval_timer(
+            time_manager: Res<TimeManager>,
+            mut timer: ResMut<SendIntervalTimer<R>>,
+        ) {
+            timer.timer.tick(time_manager.delta());
         }
 
         /// Tick the internal timers of all replication groups.
@@ -101,17 +118,19 @@ pub(crate) mod send {
             app.add_plugins(ResourceSendPlugin::<R>::default())
                 .add_plugins(HierarchySendPlugin::<R>::default());
 
+            // RESOURCES
+            app.insert_resource(SendIntervalTimer::<R> {
+                timer: Timer::new(self.send_interval, TimerMode::Repeating),
+                _marker: std::marker::PhantomData,
+            });
+
             // SETS
             app.configure_sets(
                 PostUpdate,
                 (
-                    InternalMainSet::<R::SetMarker>::SendPackets.in_set(MainSet::SendPackets),
-                    InternalMainSet::<R::SetMarker>::Send.in_set(MainSet::Send),
-                ),
-            );
-            app.configure_sets(
-                PostUpdate,
-                (
+                    // only send messages if the timer has finished
+                    InternalReplicationSet::<R::SetMarker>::SendMessages
+                        .run_if(|timer: Res<SendIntervalTimer<R>>| timer.timer.finished()),
                     (
                         InternalReplicationSet::<R::SetMarker>::BeforeBuffer,
                         InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
@@ -135,7 +154,7 @@ pub(crate) mod send {
                         // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                         InternalReplicationSet::<R::SetMarker>::AfterBuffer,
                     )
-                        .in_set(InternalMainSet::<R::SetMarker>::Send),
+                        .in_set(InternalReplicationSet::<R::SetMarker>::SendMessages),
                     (
                         (
                             (
@@ -146,12 +165,16 @@ pub(crate) mod send {
                                 .chain(),
                             InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         ),
-                        InternalMainSet::<R::SetMarker>::SendPackets,
+                        InternalMainSet::<R::SetMarker>::Send,
                     )
                         .chain(),
                 ),
             );
             // SYSTEMS
+            app.add_systems(
+                PreUpdate,
+                ReplicationSendPlugin::<R>::tick_send_interval_timer.after(MainSet::Receive),
+            );
             app.add_systems(
                 PostUpdate,
                 (

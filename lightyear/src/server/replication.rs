@@ -71,19 +71,24 @@ pub(crate) mod send {
 
     #[derive(Default)]
     pub struct ServerReplicationSendPlugin {
-        pub tick_interval: Duration,
+        pub clean_interval: Duration,
     }
 
     impl Plugin for ServerReplicationSendPlugin {
         fn build(&self, app: &mut App) {
-            let config = app.world.resource::<ServerConfig>();
+            let send_interval = app
+                .world
+                .resource::<ServerConfig>()
+                .replication
+                .send_interval;
 
             app
                 // REFLECTION
                 .register_type::<Replicate>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
-                    self.tick_interval,
+                    self.clean_interval,
+                    send_interval,
                 ))
                 // SYSTEM SETS
                 .configure_sets(

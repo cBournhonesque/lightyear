@@ -164,15 +164,12 @@ impl MessageManager {
                 .channel_registry
                 .get_net_from_kind(channel_kind)
                 .ok_or(PacketError::ChannelNotFound)?;
-            channel.sender.collect_messages_to_send();
-            if channel.sender.has_messages_to_send() {
-                let (single_data, fragment_data) = channel.sender.send_packet();
+            let (single_data, fragment_data) = channel.sender.send_packet();
 
-                if !single_data.is_empty() || !fragment_data.is_empty() {
-                    trace!(?channel_id, "send message with channel_id");
-                    has_data_to_send = true;
-                }
+            if !single_data.is_empty() || !fragment_data.is_empty() {
+                trace!(?channel_id, "send message with channel_id");
                 data_to_send.push((*channel_id, (single_data, fragment_data)));
+                has_data_to_send = true;
             }
         }
         // return early if there are no messages to send

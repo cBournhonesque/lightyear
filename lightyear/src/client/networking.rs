@@ -28,7 +28,6 @@ use crate::shared::replication::components::Replicated;
 use crate::shared::run_conditions;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
-use crate::shared::time_manager::is_client_ready_to_send;
 use crate::transport::io::IoState;
 
 #[derive(Default)]
@@ -60,20 +59,10 @@ impl Plugin for ClientNetworkingPlugin {
                 // we don't send packets every frame, but on a timer instead
                 (
                     SyncSet,
-                    InternalMainSet::<ClientMarker>::Send
-                        .in_set(MainSet::Send)
-                        .run_if(is_client_ready_to_send),
+                    InternalMainSet::<ClientMarker>::Send.in_set(MainSet::Send),
                 )
                     .run_if(not(is_host_server.or_else(run_conditions::is_disconnected)))
                     .chain(),
-            )
-            .configure_sets(
-                PostUpdate,
-                // send packets is when we call the actual `send` system, it's inside
-                // the `Send` system-sets so that we can run it less frequently than every frame
-                InternalMainSet::<ClientMarker>::SendPackets
-                    .in_set(InternalMainSet::<ClientMarker>::Send)
-                    .in_set(MainSet::SendPackets),
             )
             // SYSTEMS
             .add_systems(
@@ -91,7 +80,7 @@ impl Plugin for ClientNetworkingPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    send.in_set(InternalMainSet::<ClientMarker>::SendPackets),
+                    send.in_set(InternalMainSet::<ClientMarker>::Send),
                     // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
                     sync_update.in_set(SyncSet),
                 ),

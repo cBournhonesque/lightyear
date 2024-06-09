@@ -35,6 +35,9 @@ pub(crate) enum InternalReplicationSet<M> {
     Buffer,
     /// System that handles the update of an existing replication component
     AfterBuffer,
+    /// SystemSet where we actually buffer the replication messages.
+    /// Runs every send_interval, not every frame
+    SendMessages,
     /// SystemSet that encompasses all send replication systems
     All,
     _Marker(std::marker::PhantomData<M>),
@@ -52,11 +55,9 @@ pub(crate) enum InternalMainSet<M> {
     /// Runs in `PreUpdate`, after `Receive`
     EmitEvents,
 
-    /// Systems that send data (buffer any data to be sent, and send any buffered packets)
+    /// SystemSet where we actually send packets over the network.
     ///
-    /// Runs in `PostUpdate`.
-    SendPackets,
-    /// System to encompass all send-related systems. Runs only every send_interval
+    /// Runs in `PostUpdate`
     Send,
     _Marker(std::marker::PhantomData<M>),
 }
@@ -72,11 +73,10 @@ pub enum MainSet {
     /// Runs in `PreUpdate`, after `Receive`
     EmitEvents,
 
-    /// Systems that send data (buffer any data to be sent, and send any buffered packets)
+    /// SystemSet where we actually send packets over the network.
+    /// Runs every frame.
     ///
-    /// Runs in `PostUpdate`.
-    SendPackets,
-    /// System to encompass all send-related systems. Runs only every send_interval
+    /// Runs in `PostUpdate`
     Send,
 }
 
