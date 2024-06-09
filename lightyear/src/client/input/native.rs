@@ -166,12 +166,11 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                     client_is_synced.and_then(not(is_host_server)),
                 ),
                 // we send inputs only every send_interval
-                InputSystemSet::SendInputMessage
-                    .in_set(InternalMainSet::<ClientMarker>::Send)
-                    .run_if(
-                        // no need to send input messages via io if we are in host-server mode
-                        client_is_synced.and_then(not(is_host_server)),
-                    ),
+                InputSystemSet::SendInputMessage.run_if(
+                    // no need to send input messages via io if we are in host-server mode
+                    client_is_synced.and_then(not(is_host_server)),
+                ),
+                InternalMainSet::<ClientMarker>::Send,
             )
                 .chain(),
         );

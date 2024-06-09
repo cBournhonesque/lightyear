@@ -9,7 +9,7 @@ pub struct ServerMarker;
 
 /// System sets related to Replication
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum InternalReplicationSet<M> {
+pub enum InternalReplicationSet<M> {
     // RECEIVE
     /// System that copies the resource data from the entity to the resource in the receiving world
     ReceiveResourceUpdates,
@@ -41,6 +41,7 @@ pub(crate) enum InternalReplicationSet<M> {
     /// SystemSet that encompasses all send replication systems
     All,
     _Marker(std::marker::PhantomData<M>),
+    SendMessage,
 }
 
 /// Main SystemSets used by lightyear to receive and send data

@@ -21,6 +21,8 @@ pub enum ServerReplicationSet {
     ClientReplication,
 }
 
+pub type ReplicationSet = InternalReplicationSet<ServerMarker>;
+
 pub(crate) mod receive {
     use super::*;
 
@@ -138,7 +140,7 @@ pub(crate) mod send {
             app.add_systems(
                 PostUpdate,
                 add_prediction_interpolation_components
-                    .after(InternalMainSet::<ServerMarker>::Send)
+                    // .after(InternalMainSet::<ServerMarker>::SendMessages)
                     .run_if(is_host_server),
             );
         }

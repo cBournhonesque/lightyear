@@ -203,10 +203,9 @@ impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
                 InputSystemSet::ReceiveTickEvents
                     .run_if(should_run.clone().and_then(client_is_synced)),
                 InputSystemSet::SendInputMessage
-                    .run_if(should_run.clone().and_then(client_is_synced))
-                    .in_set(InternalMainSet::<ClientMarker>::Send),
+                    .run_if(should_run.clone().and_then(client_is_synced)),
                 InputSystemSet::CleanUp.run_if(should_run.clone().and_then(client_is_synced)),
-                InternalMainSet::<ClientMarker>::SendPackets,
+                InternalMainSet::<ClientMarker>::Send,
             )
                 .chain(),
         );

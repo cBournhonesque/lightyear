@@ -72,3 +72,17 @@ pub fn is_started(server: Option<Res<ServerConnections>>) -> bool {
 pub fn is_stopped(server: Option<Res<ServerConnections>>) -> bool {
     server.map_or(true, |s| !s.is_listening())
 }
+
+// /// Returns true if we are ready to buffer the server replication messages
+// pub fn is_server_replication_send_ready(
+//     timer: Option<Res<SendIntervalTimer<server::ConnectionManager>>>,
+// ) -> bool {
+//     timer.map_or(false, |t| t.timer.as_ref().map_or(true, |t| t.finished()))
+// }
+//
+// /// Returns true if we are ready to buffer the client replication messages
+// pub fn is_client_replication_send_ready(
+//     timer: Option<Res<SendIntervalTimer<client::ConnectionManager>>>,
+// ) -> bool {
+//     timer.map_or(false, |t| t.timer.as_ref().map_or(true, |t| t.finished()))
+// }

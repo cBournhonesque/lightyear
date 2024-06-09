@@ -288,7 +288,7 @@ pub mod prelude {
         pub use crate::server::replication::commands::DespawnReplicationCommandExt;
         pub use crate::server::replication::{
             send::{ControlledBy, Replicate, ServerFilter, SyncTarget, Visibility},
-            ServerReplicationSet,
+            ReplicationSet, ServerReplicationSet,
         };
         pub use crate::server::visibility::immediate::VisibilityManager;
         pub use crate::server::visibility::room::{RoomId, RoomManager};

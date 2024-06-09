@@ -31,8 +31,8 @@ impl Plugin for ExampleServerPlugin {
             (
                 handle_connections,
                 // we don't have to run interest management every tick, only every time
-                // the server is ready to send packets
-                interest_management.in_set(MainSet::Send),
+                // we are buffering replication messages
+                interest_management.in_set(ReplicationSet::SendMessages),
                 receive_message,
             ),
         );
