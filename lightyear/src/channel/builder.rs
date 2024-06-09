@@ -82,27 +82,27 @@ impl ChannelContainer {
         match settings.mode {
             ChannelMode::UnorderedUnreliableWithAcks => {
                 receiver = UnorderedUnreliableReceiver::new().into();
-                sender = UnorderedUnreliableWithAcksSender::new().into();
+                sender = UnorderedUnreliableWithAcksSender::new(settings.send_frequency).into();
             }
             ChannelMode::UnorderedUnreliable => {
                 receiver = UnorderedUnreliableReceiver::new().into();
-                sender = UnorderedUnreliableSender::new().into();
+                sender = UnorderedUnreliableSender::new(settings.send_frequency).into();
             }
             ChannelMode::SequencedUnreliable => {
                 receiver = SequencedUnreliableReceiver::new().into();
-                sender = SequencedUnreliableSender::new().into();
+                sender = SequencedUnreliableSender::new(settings.send_frequency).into();
             }
             ChannelMode::UnorderedReliable(reliable_settings) => {
                 receiver = UnorderedReliableReceiver::new().into();
-                sender = ReliableSender::new(reliable_settings).into();
+                sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
             }
             ChannelMode::SequencedReliable(reliable_settings) => {
                 receiver = SequencedReliableReceiver::new().into();
-                sender = ReliableSender::new(reliable_settings).into();
+                sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
             }
             ChannelMode::OrderedReliable(reliable_settings) => {
                 receiver = OrderedReliableReceiver::new().into();
-                sender = ReliableSender::new(reliable_settings).into();
+                sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
             }
         }
         Self {
@@ -119,6 +119,9 @@ impl ChannelContainer {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelSettings {
     pub mode: ChannelMode,
+    /// How often should we try to send messages on this channel.
+    /// Set to `Duration::default()` to send messages every frame if possible.
+    pub send_frequency: Duration,
     pub direction: ChannelDirection,
     /// Sets the priority of the channel. The final priority of a message will be `MessagePriority * ChannelPriority`
     pub priority: f32,
@@ -128,6 +131,7 @@ impl Default for ChannelSettings {
     fn default() -> Self {
         Self {
             mode: ChannelMode::UnorderedUnreliable,
+            send_frequency: Duration::default(),
             direction: ChannelDirection::Bidirectional,
             priority: 1.0,
         }
@@ -236,7 +240,3 @@ pub struct PongChannel;
 #[derive(ChannelInternal)]
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;
-
-/// Default Unordered Unreliable channel, to send messages as fast as possible without any ordering.
-#[derive(ChannelInternal)]
-pub struct DefaultUnorderedUnreliableChannel;

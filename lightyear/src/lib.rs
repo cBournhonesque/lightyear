@@ -185,7 +185,7 @@ pub mod prelude {
 
     pub use crate::channel::builder::{
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
-        DefaultUnorderedUnreliableChannel, InputChannel, ReliableSettings,
+        InputChannel, ReliableSettings,
     };
     pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
     pub use crate::connection::id::ClientId;
@@ -213,6 +213,7 @@ pub mod prelude {
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
     pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::replication::network_target::NetworkTarget;
+    pub use crate::shared::replication::plugin::ReplicationConfig;
     pub use crate::shared::replication::resources::{
         ReplicateResourceExt, ReplicateResourceMetadata, StopReplicateResourceExt,
     };
@@ -288,7 +289,7 @@ pub mod prelude {
         pub use crate::server::replication::commands::DespawnReplicationCommandExt;
         pub use crate::server::replication::{
             send::{ControlledBy, Replicate, ServerFilter, SyncTarget, Visibility},
-            ServerReplicationSet,
+            ReplicationSet, ServerReplicationSet,
         };
         pub use crate::server::visibility::immediate::VisibilityManager;
         pub use crate::server::visibility::room::{RoomId, RoomManager};

@@ -23,7 +23,7 @@ fn my_system(
 */
 use crate::prelude::server::ConnectionManager;
 use crate::prelude::{is_started, ClientId};
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
+use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
@@ -280,12 +280,12 @@ impl Plugin for VisibilityPlugin {
                 )
                     .run_if(is_started)
                     .chain(),
-                // the room systems can run every send_interval
+                // the visibility systems can run every send_interval
                 (
                     VisibilitySet::UpdateVisibility,
                     VisibilitySet::VisibilityCleanup,
                 )
-                    .in_set(InternalMainSet::<ServerMarker>::Send),
+                    .in_set(InternalReplicationSet::<ServerMarker>::SendMessages),
             ),
         );
         // SYSTEMS

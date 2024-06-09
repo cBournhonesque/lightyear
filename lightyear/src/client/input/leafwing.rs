@@ -63,7 +63,7 @@ use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{is_host_server, MessageRegistry, TickManager};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, MessageRegistry, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::shared::replication::components::PrePredicted;
@@ -203,10 +203,9 @@ impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
                 InputSystemSet::ReceiveTickEvents
                     .run_if(should_run.clone().and_then(client_is_synced)),
                 InputSystemSet::SendInputMessage
-                    .run_if(should_run.clone().and_then(client_is_synced))
-                    .in_set(InternalMainSet::<ClientMarker>::Send),
+                    .run_if(should_run.clone().and_then(client_is_synced)),
                 InputSystemSet::CleanUp.run_if(should_run.clone().and_then(client_is_synced)),
-                InternalMainSet::<ClientMarker>::SendPackets,
+                InternalMainSet::<ClientMarker>::Send,
             )
                 .chain(),
         );
@@ -646,6 +645,7 @@ fn clean_buffers<A: LeafwingUserAction>(
 /// Send a message to the server containing the ActionDiffs for the last few ticks
 fn prepare_input_message<A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager>,
+    channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     // global_action_diff_buffer: Option<Res<ActionDiffBuffer<A>>>,
@@ -665,13 +665,17 @@ fn prepare_input_message<A: LeafwingUserAction>(
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
+    let input_send_interval = channel_registry
+        .get_builder_from_kind(&ChannelKind::of::<InputChannel>())
+        .unwrap()
+        .settings
+        .send_frequency;
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
-    let num_tick: u16 = ((config.shared.client_send_interval.as_nanos()
-        / config.shared.tick.tick_duration.as_nanos())
-        + 1)
-    .try_into()
-    .unwrap();
+    let num_tick: u16 =
+        ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
+            .try_into()
+            .unwrap();
     let redundancy = config.input.packet_redundancy;
     let message_len = redundancy * num_tick;
     let mut message = InputMessage::<A>::new(tick);

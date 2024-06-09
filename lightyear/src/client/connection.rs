@@ -12,7 +12,7 @@ use crate::channel::builder::{
 
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::client::config::{PacketConfig, ReplicationConfig};
+use crate::client::config::PacketConfig;
 use crate::client::error::ClientError;
 use crate::client::message::ClientMessage;
 use crate::client::replication::send::ReplicateCache;
@@ -21,7 +21,7 @@ use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::packet::priority_manager::PriorityConfig;
-use crate::prelude::{Channel, ChannelKind, ClientId, Message};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
@@ -96,7 +96,7 @@ impl Default for ConnectionManager {
             crossbeam_channel::unbounded().1,
             crossbeam_channel::unbounded().1,
             crossbeam_channel::unbounded().1,
-            false,
+            ReplicationConfig::default(),
             false,
         );
         let replication_receiver = ReplicationReceiver::new();
@@ -157,7 +157,7 @@ impl ConnectionManager {
             update_acks_receiver,
             update_nacks_receiver,
             replication_update_send_receiver,
-            replication_config.send_updates_since_last_ack,
+            replication_config,
             bandwidth_cap_enabled,
         );
         let replication_receiver = ReplicationReceiver::new();
@@ -280,6 +280,7 @@ impl ConnectionManager {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
+        time_manager: &TimeManager,
     ) -> Result<(), ClientError> {
         // NOTE: this doesn't work too well because then duplicate actions/updates are accumulated before the connection is synced
         // if !self.sync_manager.is_synced() {
@@ -290,6 +291,7 @@ impl ConnectionManager {
         //     return Ok(());
         // }
 
+        self.replication_sender.accumulate_priority(time_manager);
         self.replication_sender.send_actions_messages(
             tick,
             bevy_tick,
@@ -311,31 +313,28 @@ impl ConnectionManager {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Result<Vec<Payload>, ClientError> {
-        // update the ping manager with the actual send time
         // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
-        if time_manager.is_client_ready_to_send() {
-            // maybe send pings
-            // same thing, we want the correct send time for the ping
-            // (and not have the delay between when we prepare the ping and when we send the packet)
-            if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
-                self.send_ping(ping)?;
-            }
-
-            // prepare the pong messages with the correct send time
-            self.ping_manager
-                .take_pending_pongs()
-                .into_iter()
-                .try_for_each(|mut pong| {
-                    // TODO: should we send real time or virtual time here?
-                    //  probably real time if we just want to estimate RTT?
-                    // update the send time of the pong
-                    pong.pong_sent_time = time_manager.current_time();
-                    self.send_pong(pong)?;
-                    Ok::<(), ClientError>(())
-                })?;
+        // maybe send pings
+        // same thing, we want the correct send time for the ping
+        // (and not have the delay between when we prepare the ping and when we send the packet)
+        if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
+            self.send_ping(ping)?;
         }
+
+        // prepare the pong messages with the correct send time
+        self.ping_manager
+            .take_pending_pongs()
+            .into_iter()
+            .try_for_each(|mut pong| {
+                // TODO: should we send real time or virtual time here?
+                //  probably real time if we just want to estimate RTT?
+                // update the send time of the pong
+                pong.pong_sent_time = time_manager.current_time();
+                self.send_pong(pong)?;
+                Ok::<(), ClientError>(())
+            })?;
         let payloads = self.message_manager.send_packets(tick_manager.tick());
 
         // update the replication sender about which messages were actually sent, and accumulate priority
@@ -522,18 +521,6 @@ impl ReplicationSend for ConnectionManager {
         vec![]
     }
 
-    fn replication_cache(&mut self) -> &mut Self::ReplicateCache {
-        &mut self.replicate_component_cache
-    }
-
-    fn buffer_replication_messages(
-        &mut self,
-        tick: Tick,
-        bevy_tick: BevyTick,
-    ) -> Result<(), ClientError> {
-        let _span = trace_span!("buffer_replication_messages").entered();
-        self.buffer_replication_messages(tick, bevy_tick)
-    }
     fn cleanup(&mut self, tick: Tick) {
         debug!("Running replication clean");
         self.replication_sender.cleanup(tick);

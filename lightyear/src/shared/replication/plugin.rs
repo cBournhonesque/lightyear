@@ -12,6 +12,26 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
+#[derive(Clone, Debug, Default, Reflect)]
+pub struct ReplicationConfig {
+    /// By default, we will send all component updates since the last time we sent an update for a given entity.
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we won't be sending anything since the component wasn't updated after that.
+    ///
+    /// This helps save bandwidth, but can cause the client to have delayed eventual consistency in the
+    /// case of packet loss.
+    ///
+    /// If this is set to true, we will instead send all updates since the last time we received an ACK from the client.
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we will send the update again even if the component wasn't updated, because we still haven't
+    /// received an ACK from the client.
+    pub send_updates_since_last_ack: bool,
+    /// How often we send replication updates.
+    ///
+    /// Set to `Duration::default()` to send updates every frame.
+    pub send_interval: Duration,
+}
+
 pub(crate) mod receive {
     use super::*;
     pub(crate) struct ReplicationReceivePlugin<R> {
@@ -52,15 +72,34 @@ pub(crate) mod send {
     use crate::prelude::{Replicating, ReplicationGroup, TimeManager};
 
     pub(crate) struct ReplicationSendPlugin<R> {
+        send_interval: Duration,
         clean_interval: Duration,
         _marker: std::marker::PhantomData<R>,
     }
-    impl<R> ReplicationSendPlugin<R> {
-        pub(crate) fn new(tick_interval: Duration) -> Self {
+
+    #[derive(Resource, Debug)]
+    pub(crate) struct SendIntervalTimer<R: Send + Sync + 'static> {
+        pub(crate) timer: Option<Timer>,
+        _marker: std::marker::PhantomData<R>,
+    }
+
+    impl<R: Send + Sync + 'static> ReplicationSendPlugin<R> {
+        pub(crate) fn new(tick_interval: Duration, send_interval: Duration) -> Self {
             Self {
+                send_interval,
                 // TODO: find a better constant for the clean interval?
                 clean_interval: tick_interval * (i16::MAX as u32 / 3),
                 _marker: std::marker::PhantomData,
+            }
+        }
+
+        /// Tick the timer that controls when we buffer replication updates
+        fn tick_send_interval_timer(
+            time_manager: Res<TimeManager>,
+            mut timer: ResMut<SendIntervalTimer<R>>,
+        ) {
+            if let Some(timer) = &mut timer.timer {
+                timer.tick(time_manager.delta());
             }
         }
 
@@ -101,17 +140,30 @@ pub(crate) mod send {
             app.add_plugins(ResourceSendPlugin::<R>::default())
                 .add_plugins(HierarchySendPlugin::<R>::default());
 
+            // RESOURCES
+            app.insert_resource(SendIntervalTimer::<R> {
+                timer: if self.send_interval == Duration::default() {
+                    None
+                } else {
+                    Some(Timer::new(self.send_interval, TimerMode::Repeating))
+                },
+                _marker: std::marker::PhantomData,
+            });
+
             // SETS
             app.configure_sets(
                 PostUpdate,
                 (
-                    InternalMainSet::<R::SetMarker>::SendPackets.in_set(MainSet::SendPackets),
-                    InternalMainSet::<R::SetMarker>::Send.in_set(MainSet::Send),
-                ),
-            );
-            app.configure_sets(
-                PostUpdate,
-                (
+                    // only send messages if the timer has finished
+                    InternalReplicationSet::<R::SetMarker>::SendMessages.run_if(
+                        |timer: Res<SendIntervalTimer<R>>| {
+                            if let Some(timer) = &timer.timer {
+                                timer.finished()
+                            } else {
+                                true
+                            }
+                        },
+                    ),
                     (
                         InternalReplicationSet::<R::SetMarker>::BeforeBuffer,
                         InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
@@ -135,7 +187,7 @@ pub(crate) mod send {
                         // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                         InternalReplicationSet::<R::SetMarker>::AfterBuffer,
                     )
-                        .in_set(InternalMainSet::<R::SetMarker>::Send),
+                        .in_set(InternalReplicationSet::<R::SetMarker>::SendMessages),
                     (
                         (
                             (
@@ -146,12 +198,16 @@ pub(crate) mod send {
                                 .chain(),
                             InternalReplicationSet::<R::SetMarker>::BufferResourceUpdates,
                         ),
-                        InternalMainSet::<R::SetMarker>::SendPackets,
+                        InternalMainSet::<R::SetMarker>::Send,
                     )
                         .chain(),
                 ),
             );
             // SYSTEMS
+            app.add_systems(
+                PreUpdate,
+                ReplicationSendPlugin::<R>::tick_send_interval_timer.after(MainSet::Receive),
+            );
             app.add_systems(
                 PostUpdate,
                 (
@@ -173,8 +229,8 @@ pub(crate) mod send {
 pub(crate) mod shared {
     use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
-        PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated, ReplicationGroup,
-        ReplicationTarget, ShouldBePredicted, TargetEntity, VisibilityMode,
+        PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated, ReplicationConfig,
+        ReplicationGroup, ReplicationTarget, ShouldBePredicted, TargetEntity, VisibilityMode,
     };
     use crate::shared::replication::components::{
         Controlled, Replicating, ReplicationGroupId, ReplicationGroupIdBuilder,
@@ -198,6 +254,7 @@ pub(crate) mod shared {
                 .register_type::<ReplicateHierarchy>()
                 .register_type::<ReplicationGroupIdBuilder>()
                 .register_type::<ReplicationGroup>()
+                .register_type::<ReplicationConfig>()
                 .register_type::<ReplicationGroupId>()
                 .register_type::<VisibilityMode>()
                 .register_type::<NetworkTarget>()

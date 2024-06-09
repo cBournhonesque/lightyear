@@ -21,7 +21,7 @@ use crate::client::replication::{
 };
 use crate::shared::plugin::SharedPlugin;
 
-use super::config::{ClientConfig, ReplicationConfig};
+use super::config::ClientConfig;
 
 /// A plugin group containing all the client plugins.
 ///
@@ -80,8 +80,6 @@ struct SetupPlugin {
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
         app
-            // REFLECTION
-            .register_type::<ReplicationConfig>()
             // RESOURCES //
             .insert_resource(self.config.clone());
 

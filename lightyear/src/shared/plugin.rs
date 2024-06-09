@@ -117,10 +117,7 @@ impl Plugin for SharedPlugin {
         app.add_plugins(TickManagerPlugin {
             config: self.config.tick.clone(),
         });
-        app.add_plugins(TimePlugin {
-            server_send_interval: self.config.server_send_interval,
-            client_send_interval: self.config.client_send_interval,
-        });
+        app.add_plugins(TimePlugin);
     }
 
     fn finish(&self, app: &mut App) {

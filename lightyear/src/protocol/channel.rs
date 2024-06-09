@@ -1,5 +1,6 @@
 use bevy::app::App;
 use bevy::prelude::{Resource, TypePath};
+use bevy::utils::Duration;
 use std::any::TypeId;
 use std::collections::HashMap;
 
@@ -7,9 +8,7 @@ use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings, PongChan
 use crate::channel::builder::{
     ChannelContainer, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
 };
-use crate::prelude::{
-    ChannelDirection, ChannelMode, DefaultUnorderedUnreliableChannel, ReliableSettings,
-};
+use crate::prelude::{ChannelDirection, ChannelMode, ReliableSettings};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 
 // TODO: derive Reflect once we reach bevy 0.14
@@ -77,36 +76,44 @@ impl ChannelRegistry {
         };
         registry.add_channel::<EntityUpdatesChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliableWithAcks,
+            // we do not send the send_frequency to `replication_interval` here
+            // because we want to make sure that the entity updates for tick T
+            // are sent on tick T, so we will set the `replication_interval`
+            // directly on the replication_sender
+            send_frequency: Duration::default(),
             direction: ChannelDirection::Bidirectional,
             priority: 1.0,
         });
         registry.add_channel::<EntityActionsChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             direction: ChannelDirection::Bidirectional,
+            // we do not send the send_frequency to `replication_interval` here
+            // because we want to make sure that the entity updates for tick T
+            // are sent on tick T, so we will set the `replication_interval`
+            // directly on the replication_sender
+            send_frequency: Duration::default(),
             // we want to send the entity actions as soon as possible
             priority: 10.0,
         });
         registry.add_channel::<PingChannel>(ChannelSettings {
             mode: ChannelMode::SequencedUnreliable,
             direction: ChannelDirection::Bidirectional,
+            send_frequency: Duration::default(),
             // we always want to include the ping in the packet
             priority: 1000.0,
         });
         registry.add_channel::<PongChannel>(ChannelSettings {
             mode: ChannelMode::SequencedUnreliable,
             direction: ChannelDirection::Bidirectional,
+            send_frequency: Duration::default(),
             // we always want to include the ping in the packet
             priority: 1000.0,
         });
         registry.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             direction: ChannelDirection::ClientToServer,
+            send_frequency: Duration::default(),
             priority: 3.0,
-        });
-        registry.add_channel::<DefaultUnorderedUnreliableChannel>(ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
-            priority: 1.0,
         });
         registry
     }

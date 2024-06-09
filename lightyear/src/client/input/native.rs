@@ -59,7 +59,7 @@ use crate::client::prediction::rollback::Rollback;
 use crate::client::sync::{client_is_synced, SyncSet};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
-use crate::prelude::{is_host_server, Tick, TickManager};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, Tick, TickManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
@@ -166,13 +166,11 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                     client_is_synced.and_then(not(is_host_server)),
                 ),
                 // we send inputs only every send_interval
-                InputSystemSet::SendInputMessage
-                    .in_set(InternalMainSet::<ClientMarker>::Send)
-                    .run_if(
-                        // no need to send input messages via io if we are in host-server mode
-                        client_is_synced.and_then(not(is_host_server)),
-                    ),
-                InternalMainSet::<ClientMarker>::SendPackets,
+                InputSystemSet::SendInputMessage.run_if(
+                    // no need to send input messages via io if we are in host-server mode
+                    client_is_synced.and_then(not(is_host_server)),
+                ),
+                InternalMainSet::<ClientMarker>::Send,
             )
                 .chain(),
         );
@@ -276,6 +274,7 @@ fn receive_tick_events<A: UserAction>(
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<A: UserAction>(
     connection: Option<ResMut<ConnectionManager>>,
+    channel_registry: Res<ChannelRegistry>,
     mut input_manager: ResMut<InputManager<A>>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
@@ -292,11 +291,15 @@ fn prepare_input_message<A: UserAction>(
     //  this system what the latest acked input tick is?
 
     // we send redundant inputs, so that if a packet is lost, we can still recover
-    let num_tick: u16 = ((config.shared.client_send_interval.as_nanos()
-        / config.shared.tick.tick_duration.as_nanos())
-        + 1)
-    .try_into()
-    .unwrap();
+    let input_send_interval = channel_registry
+        .get_builder_from_kind(&ChannelKind::of::<InputChannel>())
+        .unwrap()
+        .settings
+        .send_frequency;
+    let num_tick: u16 =
+        ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
+            .try_into()
+            .unwrap();
     let redundancy = config.input.packet_redundancy;
     // let redundancy = 3;
     let message_len = redundancy * num_tick;

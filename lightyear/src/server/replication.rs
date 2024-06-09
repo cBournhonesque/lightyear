@@ -21,6 +21,8 @@ pub enum ServerReplicationSet {
     ClientReplication,
 }
 
+pub type ReplicationSet = InternalReplicationSet<ServerMarker>;
+
 pub(crate) mod receive {
     use super::*;
 
@@ -52,7 +54,7 @@ pub(crate) mod send {
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent,
         ReplicateHierarchy, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager,
-        VisibilityMode,
+        TimeManager, VisibilityMode,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
@@ -76,7 +78,11 @@ pub(crate) mod send {
 
     impl Plugin for ServerReplicationSendPlugin {
         fn build(&self, app: &mut App) {
-            let config = app.world.resource::<ServerConfig>();
+            let send_interval = app
+                .world
+                .resource::<ServerConfig>()
+                .replication
+                .send_interval;
 
             app
                 // REFLECTION
@@ -84,6 +90,7 @@ pub(crate) mod send {
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
+                    send_interval,
                 ))
                 // SYSTEM SETS
                 .configure_sets(
@@ -125,7 +132,11 @@ pub(crate) mod send {
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates),
                     replicate_entity_local_despawn
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferDespawnsAndRemovals),
-                    (handle_replicating_add, handle_replication_target_update)
+                    (
+                        handle_replicating_add,
+                        handle_replication_target_update,
+                        buffer_replication_messages,
+                    )
                         .in_set(InternalReplicationSet::<ServerMarker>::AfterBuffer),
                 ),
             );
@@ -133,7 +144,7 @@ pub(crate) mod send {
             app.add_systems(
                 PostUpdate,
                 add_prediction_interpolation_components
-                    .after(InternalMainSet::<ServerMarker>::Send)
+                    // .after(InternalMainSet::<ServerMarker>::SendMessages)
                     .run_if(is_host_server),
             );
         }
@@ -229,6 +240,29 @@ pub(crate) mod send {
         /// How should the hierarchy of the entity (parents/children) be replicated?
         pub hierarchy: ReplicateHierarchy,
         pub marker: Replicating,
+    }
+
+    /// Buffer the replication messages into channels
+    fn buffer_replication_messages(
+        change_tick: SystemChangeTick,
+        mut connection_manager: ResMut<ConnectionManager>,
+        tick_manager: Res<TickManager>,
+        time_manager: Res<TimeManager>,
+    ) {
+        connection_manager
+            .buffer_replication_messages(
+                tick_manager.tick(),
+                change_tick.this_run(),
+                time_manager.as_ref(),
+            )
+            .unwrap_or_else(|e| {
+                error!("Error preparing replicate send: {}", e);
+            });
+        // TODO: how to handle this for replication groups that update less frequently?
+        //  only component updates should update less frequently, but entity spawns/removals
+        //  should be sent with the same frequency!
+        // clear the list of newly connected clients
+        connection_manager.new_clients.clear();
     }
 
     /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities
@@ -376,10 +410,7 @@ pub(crate) mod send {
             for entity in archetype.entities() {
                 let entity_ref = world.entity(entity.id());
                 let group = entity_ref.get::<ReplicationGroup>();
-                // If the group is not set to send, skip this entity
-                if group.is_some_and(|g| !g.should_send) {
-                    continue;
-                }
+
                 let group_id = group.map_or(ReplicationGroupId::default(), |g| {
                     g.group_id(Some(entity.id()))
                 });
@@ -434,6 +465,11 @@ pub(crate) mod send {
                     &mut sender,
                     &system_ticks,
                 );
+
+                // If the group is not set to send, skip sending updates for this entity
+                if group.is_some_and(|g| !g.should_send) {
+                    continue;
+                }
 
                 // d. all components that were added or changed
                 for replicated_component in replicated_archetype.components.iter() {

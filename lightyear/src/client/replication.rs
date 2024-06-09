@@ -54,11 +54,11 @@ pub(crate) mod send {
 
     use crate::connection::client::ClientConnection;
 
-    use crate::prelude::client::NetClient;
+    use crate::prelude::client::{ClientConfig, NetClient};
 
     use crate::prelude::{
         is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy,
-        Replicated, ReplicationGroup, TargetEntity, Tick, TickManager,
+        Replicated, ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
 
@@ -76,12 +76,19 @@ pub(crate) mod send {
 
     impl Plugin for ClientReplicationSendPlugin {
         fn build(&self, app: &mut App) {
+            let send_interval = app
+                .world
+                .resource::<ClientConfig>()
+                .replication
+                .send_interval;
+
             app
                 // REFLECTION
                 .register_type::<Replicate>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
+                    send_interval,
                 ))
                 // SETS
                 .configure_sets(
@@ -113,7 +120,7 @@ pub(crate) mod send {
                         send_entity_despawn.in_set(
                             InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals,
                         ),
-                        handle_replicating_add
+                        (handle_replicating_add, buffer_replication_messages)
                             .in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
                         add_replicated_component_host_server.run_if(is_host_server),
                     ),
@@ -170,6 +177,24 @@ pub(crate) mod send {
     #[derive(PartialEq, Debug)]
     pub(crate) struct ReplicateCache {
         pub(crate) replication_group: ReplicationGroup,
+    }
+
+    /// Buffer the replication messages into channels
+    fn buffer_replication_messages(
+        change_tick: SystemChangeTick,
+        mut connection_manager: ResMut<ConnectionManager>,
+        tick_manager: Res<TickManager>,
+        time_manager: Res<TimeManager>,
+    ) {
+        connection_manager
+            .buffer_replication_messages(
+                tick_manager.tick(),
+                change_tick.this_run(),
+                time_manager.as_ref(),
+            )
+            .unwrap_or_else(|e| {
+                error!("Error preparing replicate send: {}", e);
+            });
     }
 
     /// For every entity that removes their ReplicationTarget component but are not despawned, remove the component
@@ -273,10 +298,7 @@ pub(crate) mod send {
             for entity in archetype.entities() {
                 let entity_ref = world.entity(entity.id());
                 let group = entity_ref.get::<ReplicationGroup>();
-                // If the group is not set to send, skip this entity
-                if group.is_some_and(|g| !g.should_send) {
-                    continue;
-                }
+
                 let group_id = group.map_or(ReplicationGroupId::default(), |g| {
                     g.group_id(Some(entity.id()))
                 });
@@ -310,6 +332,11 @@ pub(crate) mod send {
                         target_entity,
                         &mut sender,
                     );
+                }
+
+                // If the group is not set to send, skip this entity
+                if group.is_some_and(|g| !g.should_send) {
+                    continue;
                 }
 
                 // d. all components that were added or changed
