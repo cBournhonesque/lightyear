@@ -17,7 +17,7 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
 lightyear_examples_common = { path = "../common" }
-bevy_egui = "0.25.0"
+bevy_egui = "0.27.1"
 egui_extras = "0.26.0"
 leafwing-input-manager = "0.13"
 lightyear = { path = "../../lightyear", features = [
