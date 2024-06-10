@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 
+use crate::inputs::leafwing::action_diff::ActionDiff;
 use bevy::prelude::{Component, Resource};
 use leafwing_input_manager::prelude::ActionState;
 use serde::{Deserialize, Serialize};
@@ -201,12 +202,34 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         }
         self.get(start_tick + (self.buffer.len() as i16 - 1))
     }
-}
 
-// TODO: update from message
+    /// Upon receiving an [`InputMessage`], update the InputBuffer with the all the inputs
+    /// included in the message.
+    pub(crate) fn update_from_message(
+        &mut self,
+        end_tick: Tick,
+        start_value: &ActionState<T>,
+        diffs: &Vec<Vec<ActionDiff<T>>>,
+    ) {
+        let start_tick = end_tick - diffs.len() as u16;
+        self.set(start_tick, start_value);
+
+        let mut value = start_value.clone();
+        for (delta, diffs_for_tick) in diffs.iter().enumerate() {
+            let tick = start_tick + Tick(1 + delta as u16);
+            for diff in diffs_for_tick {
+                // TODO: also handle timings!
+                diff.apply(&mut value);
+            }
+            self.set(tick, &value);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
+    use crate::inputs::leafwing::input_message::InputTarget;
+    use crate::prelude::InputMessage;
     use bevy::prelude::Reflect;
     use leafwing_input_manager::Actionlike;
 
@@ -222,6 +245,61 @@ mod tests {
     #[test]
     fn test_get_set_pop() {
         let mut input_buffer = InputBuffer::default();
+
+        let mut a1 = ActionState::default();
+        a1.press(&Action::Jump);
+        a1.action_data_mut(&Action::Jump).unwrap().value = 0.0;
+        let mut a2 = ActionState::default();
+        a2.press(&Action::Jump);
+        a1.action_data_mut(&Action::Jump).unwrap().value = 1.0;
+        input_buffer.set(Tick(3), &a1);
+        input_buffer.set(Tick(6), &a2);
+        input_buffer.set(Tick(7), &a2);
+
+        assert_eq!(input_buffer.start_tick, Some(Tick(3)));
+        assert_eq!(input_buffer.buffer.len(), 5);
+
+        assert_eq!(input_buffer.get(Tick(3)), Some(&a1));
+        assert_eq!(input_buffer.get(Tick(4)), Some(&a1));
+        assert_eq!(input_buffer.get(Tick(5)), Some(&a1));
+        assert_eq!(input_buffer.get(Tick(6)), Some(&a2));
+        assert_eq!(input_buffer.get(Tick(8)), None);
+
+        assert_eq!(input_buffer.pop(Tick(4)), Some(a1.clone()));
+        assert_eq!(input_buffer.start_tick, Some(Tick(5)));
+        assert_eq!(input_buffer.buffer.len(), 3);
+
+        // the oldest element has been updated from `SameAsPrecedent` to `Data`
+        assert_eq!(
+            input_buffer.buffer.front().unwrap(),
+            &BufferItem::Data(a1.clone())
+        );
+        assert_eq!(input_buffer.pop(Tick(7)), Some(a2.clone()));
+        assert_eq!(input_buffer.start_tick, Some(Tick(8)));
+        assert_eq!(input_buffer.buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_update_from_message() {
+        let mut input_buffer = InputBuffer::default();
+        let input_message = InputMessage {
+            end_tick: Tick(20),
+            diffs: vec![(
+                InputTarget::Global,
+                ActionState::default(),
+                vec![
+                    vec![],
+                    vec![ActionDiff::Pressed {
+                        action: Action::Jump,
+                    }],
+                    vec![ActionDiff::Released {
+                        action: Action::Jump,
+                    }],
+                ],
+            )],
+        };
+
+        input_buffer.update_from_message()
 
         let mut a1 = ActionState::default();
         a1.press(&Action::Jump);

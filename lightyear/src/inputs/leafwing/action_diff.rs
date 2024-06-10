@@ -99,7 +99,9 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
     }
 }
 
-/// The `ActionDiffBuffer` stores the ActionDiff received from the client for each tick
+/// The `ActionDiffBuffer` stores the ActionDiff generated at each tick on the client.
+///
+/// It is used to send a more compact `InputMessage` to the server.
 #[derive(Resource, Component, Debug)]
 pub(crate) struct ActionDiffBuffer<A: LeafwingUserAction> {
     pub(crate) start_tick: Option<Tick>,
