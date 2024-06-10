@@ -30,5 +30,5 @@ bevy = { version = "0.13", features = ["bevy_core_pipeline"] }
 bevy_mod_picking = { version = "0.18.2", features = ["backend_bevy_ui"] }
 derive_more = { version = "0.99", features = ["add", "mul"] }
 rand = "0.8.1"
-metrics-exporter-prometheus = { version = "0.13.0", optional = true }
+metrics-exporter-prometheus = { version = "0.15.0", optional = true }
 bevy-inspector-egui = "0.24"
