@@ -43,7 +43,8 @@ impl ServerPlugins {
     pub fn new(config: ServerConfig) -> Self {
         if config.shared.server_replication_send_interval != config.replication.send_interval {
             error!(
-                "The config.shared.server_replication_send_interval is different from the config.replication.send_interval. This can cause issues. They should be set to the same value"
+                "The config.shared.server_replication_send_interval {:?} is different from the config.replication.send_interval {:?}. This can cause issues. They should be set to the same value",
+                config.shared.server_replication_send_interval, config.replication.send_interval
             );
         }
         Self { config }

@@ -1,7 +1,7 @@
 //! The client plugin.
 use crate::server::SERVER_ADDR;
 use crate::shared;
-use crate::shared::SharedPlugin;
+use crate::shared::{shared_config, SharedPlugin};
 use bevy::prelude::*;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -37,7 +37,7 @@ fn build_client_plugin() -> ClientPlugins {
     };
     let config = ClientConfig {
         // part of the config needs to be shared between the client and server
-        shared: SharedConfig::default(),
+        shared: shared_config(),
         net: net_config,
         ..default()
     };
