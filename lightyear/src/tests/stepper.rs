@@ -10,8 +10,8 @@ use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig,
-    LeafwingInputConfig, NetConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig, NetConfig,
+    PredictionConfig, SyncConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;

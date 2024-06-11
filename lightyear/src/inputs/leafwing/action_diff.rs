@@ -82,10 +82,10 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                         });
                     }
                 } else {
-                    unreachable!("ActionData should have been initialized");
+                    unreachable!("ActionData_before should have been initialized");
                 }
             } else {
-                unreachable!("ActionData should have been initialized");
+                unreachable!("ActionData_after should have been initialized");
             }
         }
         diffs

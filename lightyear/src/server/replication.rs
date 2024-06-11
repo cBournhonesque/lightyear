@@ -2820,7 +2820,6 @@ pub(crate) mod commands {
             let tick_duration = Duration::from_millis(10);
             let frame_duration = Duration::from_millis(10);
             let mut stepper = BevyStepper::default();
-            stepper.init();
 
             let entity = stepper
                 .server_app

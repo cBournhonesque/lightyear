@@ -396,7 +396,7 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
             .unwrap_or(&ActionState::<A>::default())
             .clone();
         let end_tick = input_buffer.end_tick();
-        error!(current_tick = ?tick_manager.tick(), ?end_tick, "restored delayed action state: {:?}", action_state.get_pressed());
+        debug!(current_tick = ?tick_manager.tick(), ?end_tick, "restored delayed action state: {:?}", action_state.get_pressed());
     }
     if let Some(mut action_state) = global_action_state {
         *action_state = global_input_buffer.get_last().unwrap().clone();
@@ -435,19 +435,18 @@ fn buffer_action_state<A: LeafwingUserAction>(
         );
         trace!(?entity, ?tick, "set action state in input buffer");
         input_buffer.set(tick, action_state);
-        error!(
+        // println!(
+        //     "Set ActionState {:?} for tick {:?} in buffer {}",
+        //     action_state.get_pressed(),
+        //     tick,
+        //     input_buffer.as_ref()
+        // );
+        debug!(
             ?entity,
             current_tick = ?tick_manager.tick(),
             buffer_tick = ?tick,
             "set action state in input buffer: {}",
             input_buffer.as_ref()
-        );
-        trace!(
-            ?entity,
-            ?tick,
-            "input buffer. Start tick {:?}, len: {:?}",
-            input_buffer.start_tick,
-            input_buffer.buffer.len()
         );
     }
     // if let Some(action_state) = global_action_state {
@@ -477,7 +476,7 @@ fn get_non_rollback_action_state<A: LeafwingUserAction>(
             .get(tick)
             .unwrap_or(&ActionState::<A>::default())
             .clone();
-        error!(
+        debug!(
             ?entity,
             ?tick,
             "fetched action state {:?} from input buffer: {}",
@@ -535,7 +534,7 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
             input_buffer
         );
         *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-        error!(
+        debug!(
             ?entity,
             ?tick,
             pressed = ?action_state.get_pressed(),
@@ -544,7 +543,7 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
         );
     }
     for (entity, mut action_state, input_buffer) in remote_player_query.iter_mut() {
-        error!(
+        debug!(
             ?tick,
             ?entity,
             ?input_buffer,
@@ -662,6 +661,10 @@ fn prepare_input_message<A: LeafwingUserAction>(
                     .copied()
                 {
                     debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
+                    // println!(
+                    //     "preparing input message using input_buffer: {}",
+                    //     input_buffer
+                    // );
                     message.add_inputs(num_tick, InputTarget::Entity(server_entity), input_buffer);
                 }
             } else {
@@ -679,7 +682,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     // if !message.is_empty() {
-    error!(?tick, ?num_tick, "sending input message: {}", message);
+    debug!(?tick, ?num_tick, "sending input message: {}", message);
     connection
         .send_message::<InputChannel, InputMessage<A>>(&message)
         .unwrap_or_else(|err| {
