@@ -2808,10 +2808,7 @@ pub(crate) mod commands {
     mod tests {
         use bevy::utils::Duration;
 
-        use crate::client::sync::SyncConfig;
-        use crate::prelude::client::{InterpolationConfig, PredictionConfig};
         use crate::prelude::server::Replicate;
-        use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, Step};
 
@@ -2822,26 +2819,7 @@ pub(crate) mod commands {
         fn test_despawn() {
             let tick_duration = Duration::from_millis(10);
             let frame_duration = Duration::from_millis(10);
-            let shared_config = SharedConfig {
-                tick: TickConfig::new(tick_duration),
-                ..Default::default()
-            };
-            let link_conditioner = LinkConditionerConfig {
-                incoming_latency: Duration::from_millis(0),
-                incoming_jitter: Duration::from_millis(0),
-                incoming_loss: 0.0,
-            };
-            let sync_config = SyncConfig::default().speedup_factor(1.0);
-            let prediction_config = PredictionConfig::default();
-            let interpolation_config = InterpolationConfig::default();
-            let mut stepper = BevyStepper::new(
-                shared_config,
-                sync_config,
-                prediction_config,
-                interpolation_config,
-                link_conditioner,
-                frame_duration,
-            );
+            let mut stepper = BevyStepper::default();
             stepper.init();
 
             let entity = stepper

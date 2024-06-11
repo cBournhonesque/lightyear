@@ -23,26 +23,8 @@ fn increment(mut query: Query<&mut Component1>, mut ev: EventReader<InputEvent<M
 /// is on a new tick generation
 #[test]
 fn test_sync_after_tick_wrap() {
-    let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
     let tick_duration = Duration::from_millis(10);
-    let shared_config = SharedConfig {
-        tick: TickConfig::new(tick_duration),
-        ..Default::default()
-    };
-    let link_conditioner = LinkConditionerConfig {
-        incoming_latency: Duration::from_millis(20),
-        incoming_jitter: Duration::from_millis(0),
-        incoming_loss: 0.0,
-    };
-    let mut stepper = BevyStepper::new(
-        shared_config,
-        SyncConfig::default(),
-        client::PredictionConfig::default(),
-        client::InterpolationConfig::default(),
-        link_conditioner,
-        frame_duration,
-    );
-    stepper.init();
+    let mut stepper = BevyStepper::default();
 
     // set time to end of wrapping
     let new_tick = Tick(u16::MAX - 100);
@@ -109,26 +91,8 @@ fn test_sync_after_tick_wrap() {
 /// is u16::MAX ticks ahead
 #[test]
 fn test_sync_after_tick_half_wrap() {
-    let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
     let tick_duration = Duration::from_millis(10);
-    let shared_config = SharedConfig {
-        tick: TickConfig::new(tick_duration),
-        ..Default::default()
-    };
-    let link_conditioner = LinkConditionerConfig {
-        incoming_latency: Duration::from_millis(20),
-        incoming_jitter: Duration::from_millis(0),
-        incoming_loss: 0.0,
-    };
-    let mut stepper = BevyStepper::new(
-        shared_config,
-        SyncConfig::default(),
-        client::PredictionConfig::default(),
-        client::InterpolationConfig::default(),
-        link_conditioner,
-        frame_duration,
-    );
-    stepper.init();
+    let mut stepper = BevyStepper::default();
 
     // set time to end of wrapping
     let new_tick = Tick(u16::MAX / 2 - 10);

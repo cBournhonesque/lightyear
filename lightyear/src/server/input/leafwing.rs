@@ -176,7 +176,7 @@ fn receive_input_message<A: LeafwingUserAction>(
     }
 }
 
-/// Read the ActionDiff for the current tick from the buffer, and use them to update the ActionState
+/// Read the InputState for the current tick from the buffer, and use them to update the ActionState
 fn update_action_state<A: LeafwingUserAction>(
     tick_manager: Res<TickManager>,
     // global_input_buffer: Res<InputBuffer<A>>,
@@ -195,25 +195,18 @@ fn update_action_state<A: LeafwingUserAction>(
             &action_state.get_pressed(),
         );
         *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-        debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update");
+        error!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inputs::leafwing::action_diff::ActionDiff;
     use crate::inputs::leafwing::input_buffer::InputBuffer;
-    use bevy::input::InputPlugin;
-    use bevy::utils::Duration;
     use leafwing_input_manager::prelude::ActionState;
 
     use crate::prelude::client;
-    use crate::prelude::client::{
-        InterpolationConfig, LeafwingInputConfig, PredictionConfig, SyncConfig,
-    };
     use crate::prelude::server::*;
-    use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
@@ -222,55 +215,7 @@ mod tests {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_max_level(tracing::Level::INFO)
         //     .init();
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default();
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
-        #[cfg(feature = "leafwing")]
-        {
-            // NOTE: the test doesn't work with send_diffs_only = True; maybe because leafwing's
-            //  tick-action uses Time<Real>?
-            let config = LeafwingInputConfig {
-                send_diffs_only: false,
-                ..default()
-            };
-            stepper
-                .client_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1> {
-                    config: config.clone(),
-                });
-            stepper
-                .client_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
-            stepper
-                .server_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1> {
-                    config: config.clone(),
-                });
-            stepper
-                .server_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
-        }
-        stepper.client_app.add_plugins(InputPlugin);
-        stepper.init();
+        let mut stepper = BevyStepper::default();
 
         // create an entity on server
         let server_entity = stepper
@@ -290,7 +235,7 @@ mod tests {
             .server_app
             .world
             .entity(server_entity)
-            .get::<ActionDiffBuffer<LeafwingInput1>>()
+            .get::<InputBuffer<LeafwingInput1>>()
             .is_some());
 
         // check that the entity is replicated
@@ -336,19 +281,24 @@ mod tests {
         stepper.frame_step();
         // client tick when we send the Jump action
         let client_tick = stepper.client_tick();
-        // we should have sent an InputMessage from client to server
-        assert_eq!(
-            stepper
-                .server_app
-                .world
-                .entity(server_entity)
-                .get::<ActionDiffBuffer<LeafwingInput1>>()
-                .unwrap()
-                .get(client_tick),
-            vec![ActionDiff::Pressed {
-                action: LeafwingInput1::Jump
-            }]
-        );
+        // we should have sent an InputMessage from client to server, and updated the input buffer
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap()
+            .get(client_tick)
+            .unwrap()
+            .pressed(&LeafwingInput1::Jump));
+        // the ActionState should also have been updated
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .pressed(&LeafwingInput1::Jump));
         stepper
             .client_app
             .world
@@ -357,17 +307,22 @@ mod tests {
         // TODO: how come I need to frame_step() twice to see the release action?
         debug!("before release");
         stepper.frame_step();
-        assert_eq!(
-            stepper
-                .server_app
-                .world
-                .entity(server_entity)
-                .get::<ActionDiffBuffer<LeafwingInput1>>()
-                .unwrap()
-                .get(client_tick + 1),
-            vec![ActionDiff::Released {
-                action: LeafwingInput1::Jump
-            }]
-        );
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap()
+            .get(client_tick + 1)
+            .unwrap()
+            .released(&LeafwingInput1::Jump));
+        // the ActionState should also have been updated
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .released(&LeafwingInput1::Jump));
     }
 }

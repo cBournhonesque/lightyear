@@ -128,7 +128,6 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
 mod tests {
     use crate::prelude::{Deserialize, Serialize};
     use bevy::prelude::Reflect;
-    use leafwing_input_manager::prelude::ActionState;
     use leafwing_input_manager::Actionlike;
 
     #[derive(

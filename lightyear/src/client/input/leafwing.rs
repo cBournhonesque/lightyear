@@ -108,11 +108,6 @@ pub struct LeafwingInputConfig<A> {
     // TODO: this seems unused now
     pub packet_redundancy: u16,
 
-    /// If true, we only send diffs on the tick they were generated. (i.e. we will send a key-press only once)
-    /// There is a risk that the packet arrives too late on the server and the server does not apply the diffs,
-    /// which would break the input handling on the server.
-    /// Turn this on if you want to optimize the bandwidth that the client sends to the server.
-    pub send_diffs_only: bool,
     // TODO: add an option where we send all diffs vs send only just-pressed diffs
     pub(crate) _marker: PhantomData<A>,
 }
@@ -121,8 +116,7 @@ impl<A> Default for LeafwingInputConfig<A> {
     fn default() -> Self {
         LeafwingInputConfig {
             // input_delay_ticks: 0,
-            packet_redundancy: 10,
-            send_diffs_only: true,
+            packet_redundancy: 4,
             _marker: PhantomData,
         }
     }
@@ -525,7 +519,7 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
     mut remote_player_query: Query<
-        (Entity, &mut ActionState<A>, &mut InputBuffer<A>),
+        (Entity, &mut ActionState<A>, &InputBuffer<A>),
         Without<InputMap<A>>,
     >,
     rollback: Res<Rollback>,
@@ -593,9 +587,10 @@ fn prepare_input_message<A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager>,
     channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,
+    input_config: Res<LeafwingInputConfig<A>>,
     tick_manager: Res<TickManager>,
     // global_action_diff_buffer: Option<Res<ActionDiffBuffer<A>>>,
-    action_diff_buffer_query: Query<
+    input_buffer_query: Query<
         (
             Entity,
             &InputBuffer<A>,
@@ -618,14 +613,13 @@ fn prepare_input_message<A: LeafwingUserAction>(
         .send_frequency;
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
-    let num_tick: u16 =
+    let mut num_tick: u16 =
         ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
             .try_into()
             .unwrap();
-    let redundancy = config.input.packet_redundancy;
-    let message_len = redundancy * num_tick;
+    num_tick = num_tick * input_config.packet_redundancy;
     let mut message = InputMessage::<A>::new(tick);
-    for (entity, input_buffer, predicted, pre_predicted) in action_diff_buffer_query.iter() {
+    for (entity, input_buffer, predicted, pre_predicted) in input_buffer_query.iter() {
         debug!(
             ?tick,
             ?entity,
@@ -684,19 +678,14 @@ fn prepare_input_message<A: LeafwingUserAction>(
     // all inputs are absent
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
-    if !message.is_empty() {
-        debug!(
-            action = ?A::short_type_path(),
-            ?tick,
-            "sending input message: {:?}",
-            message.diffs
-        );
-        connection
-            .send_message::<InputChannel, InputMessage<A>>(&message)
-            .unwrap_or_else(|err| {
-                error!("Error while sending input message: {:?}", err);
-            })
-    }
+    // if !message.is_empty() {
+    error!(?tick, ?num_tick, "sending input message: {}", message);
+    connection
+        .send_message::<InputChannel, InputMessage<A>>(&message)
+        .unwrap_or_else(|err| {
+            error!("Error while sending input message: {:?}", err);
+        })
+    // }
 
     // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
     // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
@@ -823,59 +812,37 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::input::InputPlugin;
-    use bevy::utils::Duration;
     use leafwing_input_manager::action_state::ActionState;
     use leafwing_input_manager::input_map::InputMap;
+    use std::time::Duration;
 
-    use crate::client::sync::SyncConfig;
-    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
+    use crate::prelude::client::PredictionConfig;
     use crate::prelude::server::Replicate;
-    use crate::prelude::{client, LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::prelude::{client, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
-    fn setup() -> (BevyStepper, Entity, Entity) {
+    fn build_stepper_with_input_delay(delay_ticks: u16) -> BevyStepper {
+        let frame_duration = Duration::from_millis(10);
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
             tick: TickConfig::new(tick_duration),
-            ..Default::default()
+            ..default()
         };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
+        let client_config = ClientConfig {
+            prediction: PredictionConfig {
+                input_delay_ticks: delay_ticks,
+                ..default()
+            },
+            ..default()
         };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default();
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
-        #[cfg(feature = "leafwing")]
-        {
-            stepper
-                .client_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1>::default());
-            stepper
-                .client_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
-            stepper
-                .server_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1>::default());
-            stepper
-                .server_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
-        }
-        stepper.client_app.add_plugins(InputPlugin);
+        let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
         stepper.init();
+        stepper
+    }
 
+    fn setup(stepper: &mut BevyStepper) -> (Entity, Entity) {
         // create an entity on server
         let server_entity = stepper
             .server_app
@@ -889,12 +856,12 @@ mod tests {
         stepper.frame_step();
         stepper.frame_step();
 
-        // check that the server entity got a ActionDiffBuffer added to it
+        // check that the server entity got a InputBuffer added to it
         assert!(stepper
             .server_app
             .world
             .entity(server_entity)
-            .get::<ActionDiffBuffer<LeafwingInput1>>()
+            .get::<InputBuffer<LeafwingInput1>>()
             .is_some());
 
         // check that the entity is replicated, including the ActionState component
@@ -921,6 +888,143 @@ mod tests {
             .get::<ActionState<LeafwingInput1>>()
             .is_some());
         stepper.frame_step();
-        (stepper, server_entity, client_entity)
+        (server_entity, client_entity)
+    }
+
+    /// Check that ActionStates are stored correctly in the InputBuffer
+    #[test]
+    fn test_buffer_inputs_no_delay() {
+        let mut stepper = BevyStepper::default();
+        let (server_entity, client_entity) = setup(&mut stepper);
+
+        // press on a key
+        stepper
+            .client_app
+            .world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyA);
+        stepper.frame_step();
+        let client_tick = stepper.client_tick();
+        let input_buffer = stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap();
+        // check that the action state got buffered
+        // (we cannot use JustPressed because we start by ticking the ActionState)
+        assert_eq!(
+            input_buffer.get(client_tick).unwrap().get_pressed(),
+            &[LeafwingInput1::Jump]
+        );
+
+        // test with another frame
+        stepper.frame_step();
+        let input_buffer = stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap();
+        assert_eq!(
+            input_buffer.get(client_tick + 1).unwrap().get_pressed(),
+            &[LeafwingInput1::Jump]
+        );
+
+        // try releasing the key
+        stepper
+            .client_app
+            .world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::KeyA);
+        stepper.frame_step();
+        let input_buffer = stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap();
+        assert!(input_buffer
+            .get(client_tick + 2)
+            .unwrap()
+            .get_pressed()
+            .is_empty());
+    }
+
+    /// Check that ActionStates are stored correctly in the InputBuffer
+    #[test]
+    fn test_buffer_inputs_with_delay() {
+        let mut stepper = build_stepper_with_input_delay(1);
+        let (server_entity, client_entity) = setup(&mut stepper);
+
+        // press on a key
+        stepper
+            .client_app
+            .world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyA);
+        stepper.frame_step();
+        let client_tick = stepper.client_tick();
+        // check that the action state got buffered without any press (because the input is delayed)
+        // (we cannot use JustPressed because we start by ticking the ActionState)
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap()
+            .get(client_tick)
+            .unwrap()
+            .get_pressed()
+            .is_empty());
+        // after FixedUpdate runs, the ActionState should be stayed to the delayed action
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .pressed(&LeafwingInput1::Jump));
+
+        // release the key
+        stepper
+            .client_app
+            .world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::KeyA);
+        // step another frame, this time we get the buffered input from earlier
+        stepper.frame_step();
+        let input_buffer = stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap();
+        assert_eq!(
+            input_buffer.get(client_tick + 1).unwrap().get_pressed(),
+            &[LeafwingInput1::Jump]
+        );
+        // the ActionState outside of FixedUpdate is the delayed one
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .get_pressed()
+            .is_empty());
+
+        stepper.frame_step();
+
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap()
+            .get(client_tick + 2)
+            .unwrap()
+            .get_pressed()
+            .is_empty());
     }
 }

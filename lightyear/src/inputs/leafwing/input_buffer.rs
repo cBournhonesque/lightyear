@@ -40,7 +40,7 @@ impl<A: LeafwingUserAction> std::fmt::Display for InputBuffer<A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ty = A::short_type_path();
 
-        let Some(mut tick) = self.start_tick.clone() else {
+        let Some(tick) = self.start_tick.clone() else {
             return write!(f, "EmptyInputBuffer");
         };
 
@@ -58,10 +58,11 @@ impl<A: LeafwingUserAction> std::fmt::Display for InputBuffer<A> {
             })
             .collect::<Vec<String>>()
             .join("");
-        write!(f, "InputBuffer<{:?}>:\n {:?}", ty, buffer_str)
+        write!(f, "InputBuffer<{:?}>:\n {}", ty, buffer_str)
     }
 }
 
+// TODO: is this actually useful?
 // We use this to avoid cloning values in the buffer too much
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub(crate) enum BufferItem<T> {
@@ -240,8 +241,6 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::inputs::leafwing::input_message::InputTarget;
-    use crate::prelude::InputMessage;
     use bevy::prelude::Reflect;
     use leafwing_input_manager::Actionlike;
 

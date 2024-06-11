@@ -5,6 +5,7 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
+use std::fmt::{Formatter, Write};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 /// We serialize the inputs by sending, for each entity:
@@ -17,6 +18,36 @@ pub struct InputMessage<A: Actionlike> {
     pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     pub(crate) diffs: Vec<(InputTarget, ActionState<A>, Vec<Vec<ActionDiff<A>>>)>,
+}
+
+impl<A: LeafwingUserAction> std::fmt::Display for InputMessage<A> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let ty = A::short_type_path();
+
+        if self.diffs.is_empty() {
+            return write!(f, "EmptyInputMessage");
+        }
+        let start_tick = self.end_tick - Tick(self.diffs[0].2.len() as u16);
+        let buffer_str = self
+            .diffs
+            .iter()
+            .map(|(entity, start_value, diffs_per_entity)| {
+                let mut str = format!("Entity: {:?}\n", entity);
+                let _ = writeln!(
+                    &mut str,
+                    "Tick: {start_tick:?}. StartValue: {:?}",
+                    start_value.get_pressed()
+                );
+                for (i, diffs) in diffs_per_entity.iter().enumerate() {
+                    let tick = start_tick + (i + 1) as i16;
+                    let _ = writeln!(&mut str, "Tick: {}, Diffs: {:?}", tick, diffs);
+                }
+                str
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+        write!(f, "InputMessage<{:?}>:\n {}", ty, buffer_str)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
