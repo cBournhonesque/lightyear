@@ -191,7 +191,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 }),
             };
             if should_rollback {
-                error!(
+                debug!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, current_tick
@@ -510,7 +510,7 @@ pub(crate) fn run_rollback(world: &mut World) {
 
     // run the physics fixed update schedule (which should contain ALL predicted/rollback components)
     for i in 0..num_rollback_ticks {
-        error!("Rollback tick: {:?}", current_rollback_tick + i);
+        debug!("Rollback tick: {:?}", current_rollback_tick + i);
         // TODO: if we are in rollback, there are some FixedUpdate systems that we don't want to re-run ??
         //  for example we only want to run the physics on non-confirmed entities
         world.run_schedule(FixedMain)

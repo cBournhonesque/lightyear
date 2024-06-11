@@ -63,14 +63,17 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                                 axis_pair: axis_pair_after.into(),
                             });
                         }
-                    }
-                    if action_data_before.value != action_data_after.value {
+                    } else if action_data_after.value != 1.0
+                        && action_data_after.value != 0.0
+                        && action_data_before.value != action_data_after.value
+                    {
                         diffs.push(ActionDiff::ValueChanged {
                             action: action.clone(),
                             value: action_data_after.value,
                         });
-                    }
-                    if action_data_after.state.pressed() && !action_data_before.state.pressed() {
+                    } else if action_data_after.state.pressed()
+                        && !action_data_before.state.pressed()
+                    {
                         diffs.push(ActionDiff::Pressed {
                             action: action.clone(),
                         });
@@ -82,7 +85,25 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                         });
                     }
                 } else {
-                    unreachable!("ActionData_before should have been initialized");
+                    if let Some(axis_pair_after) = action_data_after.axis_pair {
+                        diffs.push(ActionDiff::AxisPairChanged {
+                            action: action.clone(),
+                            axis_pair: axis_pair_after.into(),
+                        });
+                    } else if action_data_after.value != 1.0 {
+                        diffs.push(ActionDiff::ValueChanged {
+                            action: action.clone(),
+                            value: action_data_after.value,
+                        });
+                    } else if action_data_after.state.pressed() {
+                        diffs.push(ActionDiff::Pressed {
+                            action: action.clone(),
+                        });
+                    } else if !action_data_after.state.pressed() {
+                        diffs.push(ActionDiff::Released {
+                            action: action.clone(),
+                        });
+                    }
                 }
             } else {
                 unreachable!("ActionData_after should have been initialized");
