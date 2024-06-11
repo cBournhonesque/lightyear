@@ -28,7 +28,8 @@ use super::LeafwingUserAction;
 // NOTE: right now, for simplicity, we will send all the action-diffs for all entities in one single message.
 // TODO: can we just use History<ActionState> then? why do we need a special component?
 //  maybe because we want to send/store inputs even before we apply them
-/// The InputBuffer contains a history of the ActionState
+/// The InputBuffer contains a history of the ActionState for each tick between
+/// `start_tick` and `end_tick`. All ticks between `start_tick` and `end_tick` must be included in the buffer.
 // TODO: improve this data structure
 #[derive(Resource, Component, Debug)]
 pub(crate) struct InputBuffer<A: LeafwingUserAction> {
@@ -170,7 +171,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         }
     }
 
-    /// Get the ActionState for the given tick
+    /// Get the [`ActionState`] for the given tick
     pub(crate) fn get(&self, tick: Tick) -> Option<&ActionState<T>> {
         let Some(start_tick) = self.start_tick else {
             return None;
@@ -203,7 +204,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         self.get(start_tick + (self.buffer.len() as i16 - 1))
     }
 
-    /// Upon receiving an [`InputMessage`], update the InputBuffer with the all the inputs
+    /// Upon receiving an [`InputMessage`], update the InputBuffer with all the inputs
     /// included in the message.
     pub(crate) fn update_from_message(
         &mut self,
@@ -223,6 +224,12 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
             }
             self.set(tick, &value);
         }
+    }
+
+    /// Get the last tick in the buffer
+    pub(crate) fn end_tick(&self) -> Option<Tick> {
+        self.start_tick
+            .map(|start_tick| start_tick + (self.buffer.len() as i16 - 1))
     }
 }
 
@@ -245,61 +252,6 @@ mod tests {
     #[test]
     fn test_get_set_pop() {
         let mut input_buffer = InputBuffer::default();
-
-        let mut a1 = ActionState::default();
-        a1.press(&Action::Jump);
-        a1.action_data_mut(&Action::Jump).unwrap().value = 0.0;
-        let mut a2 = ActionState::default();
-        a2.press(&Action::Jump);
-        a1.action_data_mut(&Action::Jump).unwrap().value = 1.0;
-        input_buffer.set(Tick(3), &a1);
-        input_buffer.set(Tick(6), &a2);
-        input_buffer.set(Tick(7), &a2);
-
-        assert_eq!(input_buffer.start_tick, Some(Tick(3)));
-        assert_eq!(input_buffer.buffer.len(), 5);
-
-        assert_eq!(input_buffer.get(Tick(3)), Some(&a1));
-        assert_eq!(input_buffer.get(Tick(4)), Some(&a1));
-        assert_eq!(input_buffer.get(Tick(5)), Some(&a1));
-        assert_eq!(input_buffer.get(Tick(6)), Some(&a2));
-        assert_eq!(input_buffer.get(Tick(8)), None);
-
-        assert_eq!(input_buffer.pop(Tick(4)), Some(a1.clone()));
-        assert_eq!(input_buffer.start_tick, Some(Tick(5)));
-        assert_eq!(input_buffer.buffer.len(), 3);
-
-        // the oldest element has been updated from `SameAsPrecedent` to `Data`
-        assert_eq!(
-            input_buffer.buffer.front().unwrap(),
-            &BufferItem::Data(a1.clone())
-        );
-        assert_eq!(input_buffer.pop(Tick(7)), Some(a2.clone()));
-        assert_eq!(input_buffer.start_tick, Some(Tick(8)));
-        assert_eq!(input_buffer.buffer.len(), 0);
-    }
-
-    #[test]
-    fn test_update_from_message() {
-        let mut input_buffer = InputBuffer::default();
-        let input_message = InputMessage {
-            end_tick: Tick(20),
-            diffs: vec![(
-                InputTarget::Global,
-                ActionState::default(),
-                vec![
-                    vec![],
-                    vec![ActionDiff::Pressed {
-                        action: Action::Jump,
-                    }],
-                    vec![ActionDiff::Released {
-                        action: Action::Jump,
-                    }],
-                ],
-            )],
-        };
-
-        input_buffer.update_from_message()
 
         let mut a1 = ActionState::default();
         a1.press(&Action::Jump);

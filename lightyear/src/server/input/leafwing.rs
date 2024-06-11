@@ -1,7 +1,7 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
-use crate::inputs::leafwing::action_diff::ActionDiffBuffer;
+use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
@@ -78,34 +78,23 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     }
 }
 
-/// For each entity that has an action-state, insert an action-state-buffer
-/// that will store the value of the action-state for the last few ticks
-/// (we use a buffer because the client's inputs might arrive out of order)
+/// For each entity that has an action-state, insert an InputBuffer, to store
+/// the values of the ActionState for the ticks of the message
 fn add_action_diff_buffer<A: LeafwingUserAction>(
     mut commands: Commands,
-    action_state: Query<
-        Entity,
-        (
-            Added<ActionState<A>>,
-            Without<ActionDiffBuffer<A>>,
-            Without<InputMap<A>>,
-        ),
-    >,
+    action_state: Query<Entity, (Added<ActionState<A>>, Without<InputMap<A>>)>,
 ) {
     for entity in action_state.iter() {
-        commands
-            .entity(entity)
-            .insert(ActionDiffBuffer::<A>::default());
+        commands.entity(entity).insert(InputBuffer::<A>::default());
     }
 }
 
 /// Read the input messages from the server events to update the ActionDiffBuffers
 fn receive_input_message<A: LeafwingUserAction>(
-    // mut global: Option<ResMut<ActionDiffBuffer<A>>>,
     message_registry: Res<MessageRegistry>,
     mut connection_manager: ResMut<ConnectionManager>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
-    mut query: Query<&mut ActionDiffBuffer<A>>,
+    mut query: Query<&mut InputBuffer<A>>,
     mut events: EventWriter<MessageEvent<InputMessage<A>>>,
 ) {
     let kind = MessageKind::of::<InputMessage<A>>();
@@ -132,7 +121,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                     Ok(message) => {
                         debug!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
                         // TODO: UPDATE THIS
-                        for (target, _, diffs) in &message.diffs {
+                        for (target, start, diffs) in &message.diffs {
                             match target {
                                 // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
                                 // (which is possible because the server received the entity)
@@ -143,7 +132,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                     debug!("received input for entity: {:?}", entity);
                                     if let Ok(mut buffer) = query.get_mut(*entity) {
                                         debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
-                                        buffer.update_from_message(message.end_tick, diffs);
+                                        buffer.update_from_message(message.end_tick, start, diffs);
                                     } else {
                                         // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
                                         debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
@@ -192,29 +181,20 @@ fn update_action_state<A: LeafwingUserAction>(
     tick_manager: Res<TickManager>,
     // global_input_buffer: Res<InputBuffer<A>>,
     // global_action_state: Option<ResMut<ActionState<A>>>,
-    mut action_state_query: Query<(Entity, &mut ActionState<A>, &mut ActionDiffBuffer<A>)>,
+    mut action_state_query: Query<(Entity, &mut ActionState<A>, &mut InputBuffer<A>)>,
 ) {
     let tick = tick_manager.tick();
 
-    for (entity, mut action_state, mut action_diff_buffer) in action_state_query.iter_mut() {
+    for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
         // the state on the server is only updated from client inputs!
         trace!(
             ?tick,
             ?entity,
-            ?action_diff_buffer,
+            ?input_buffer,
             "action state: {:?}. Latest action diff buffer tick: {:?}",
             &action_state.get_pressed(),
-            action_diff_buffer.end_tick(),
         );
-        action_diff_buffer.pop(tick).into_iter().for_each(|diff| {
-            debug!(
-                ?tick,
-                ?entity,
-                "update action state using action diff: {:?}",
-                &diff
-            );
-            diff.apply(action_state.deref_mut());
-        });
+        *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
         debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update");
     }
 }
