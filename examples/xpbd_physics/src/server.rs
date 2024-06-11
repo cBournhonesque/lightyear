@@ -3,7 +3,6 @@ use bevy::utils::Duration;
 use bevy::utils::HashMap;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::inputs::leafwing::InputMessage;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -154,12 +153,6 @@ pub(crate) fn replicate_players(
             };
             e.insert((
                 replicate,
-                // We don't want to replicate the ActionState to the original client, since they are updating it with
-                // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-                // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-                OverrideTargetComponent::<ActionState<PlayerActions>>::new(
-                    NetworkTarget::AllExceptSingle(client_id),
-                ),
                 // if we receive a pre-predicted entity, only send the prepredicted component back
                 // to the original client
                 OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(client_id)),

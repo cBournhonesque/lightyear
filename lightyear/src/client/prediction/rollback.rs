@@ -510,6 +510,7 @@ pub(crate) fn run_rollback(world: &mut World) {
 
     // run the physics fixed update schedule (which should contain ALL predicted/rollback components)
     for i in 0..num_rollback_ticks {
+        debug!("Rollback tick: {:?}", current_rollback_tick + i);
         // TODO: if we are in rollback, there are some FixedUpdate systems that we don't want to re-run ??
         //  for example we only want to run the physics on non-confirmed entities
         world.run_schedule(FixedMain)
