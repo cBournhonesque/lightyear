@@ -3,7 +3,6 @@ use bevy::utils::Duration;
 use bevy::utils::HashMap;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::inputs::leafwing::InputMessage;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;

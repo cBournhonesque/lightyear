@@ -1,10 +1,8 @@
-use crate::prelude::{Deserialize, LeafwingUserAction, Serialize, Tick};
+use crate::prelude::{Deserialize, LeafwingUserAction, Serialize};
 use bevy::math::Vec2;
-use bevy::prelude::{Component, Entity, Event, Reflect, Resource};
-use bevy::utils::HashMap;
+use bevy::prelude::Reflect;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::axislike::DualAxisData;
-use std::collections::VecDeque;
 
 /// Stores presses and releases of buttons without timing information
 ///
@@ -124,4 +122,32 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
             }
         };
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::{Deserialize, Serialize};
+    use bevy::prelude::Reflect;
+    use leafwing_input_manager::prelude::ActionState;
+    use leafwing_input_manager::Actionlike;
+
+    #[derive(
+        Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,
+    )]
+    enum Action {
+        Jump,
+    }
+
+    // fn test_diff() {
+    //     let mut action_state = ActionState::new();
+    //     action_state.press(&Action::Jump);
+    //     action_state.action_data_mut(&Action::Jump).unwrap().value = 0.5;
+    //     let mut action_state2 = action_state.clone();
+    //     action_state2.action_data_mut(&Action::Jump).unwrap().value = 0.75;
+    //     let diff = ActionDiff::create(&action_state, &action_state2);
+    //     assert_eq!(diff.len(), 1);
+    //     let mut action_state3 = action_state.clone();
+    //     diff[0].apply(&mut action_state3);
+    //     assert_eq!(action_state2, action_state3);
+    // }
 }

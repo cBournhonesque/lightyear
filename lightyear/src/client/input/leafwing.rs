@@ -42,11 +42,8 @@
 //!
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::DerefMut;
 
 use bevy::prelude::*;
-use bevy::utils::HashMap;
-use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use tracing::{error, trace};
 
@@ -59,7 +56,6 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::client::sync::{client_is_synced, SyncSet};
-use crate::inputs::leafwing::action_diff::ActionDiff;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
@@ -390,6 +386,7 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<A: LeafwingUserAction>(
+    tick_manager: Res<TickManager>,
     global_input_buffer: Res<InputBuffer<A>>,
     global_action_state: Option<ResMut<ActionState<A>>>,
     mut action_state_query: Query<
@@ -404,7 +401,8 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
             .get_last()
             .unwrap_or(&ActionState::<A>::default())
             .clone();
-        trace!("restored delayed action state");
+        let end_tick = input_buffer.end_tick();
+        error!(current_tick = ?tick_manager.tick(), ?end_tick, "restored delayed action state: {:?}", action_state.get_pressed());
     }
     if let Some(mut action_state) = global_action_state {
         *action_state = global_input_buffer.get_last().unwrap().clone();
@@ -443,6 +441,13 @@ fn buffer_action_state<A: LeafwingUserAction>(
         );
         trace!(?entity, ?tick, "set action state in input buffer");
         input_buffer.set(tick, action_state);
+        error!(
+            ?entity,
+            current_tick = ?tick_manager.tick(),
+            buffer_tick = ?tick,
+            "set action state in input buffer: {}",
+            input_buffer.as_ref()
+        );
         trace!(
             ?entity,
             ?tick,
@@ -473,16 +478,17 @@ fn get_non_rollback_action_state<A: LeafwingUserAction>(
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
         // let state_is_empty = input_buffer.get(tick).is_none();
         // let input_buffer = input_buffer.buffer;
-        trace!(?entity, ?tick, "get action state. Buffer: {}", input_buffer);
+        // error!(?entity, ?tick, "get action state. Buffer: {}", input_buffer);
         *action_state = input_buffer
             .get(tick)
             .unwrap_or(&ActionState::<A>::default())
             .clone();
-        debug!(
+        error!(
             ?entity,
             ?tick,
-            "fetched action state from buffer: {:?}",
-            action_state.get_pressed()
+            "fetched action state {:?} from input buffer: {}",
+            action_state.get_pressed(),
+            input_buffer
         );
     }
     // if let Some(mut action_state) = global_action_state {
@@ -535,7 +541,7 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
             input_buffer
         );
         *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-        trace!(
+        error!(
             ?entity,
             ?tick,
             pressed = ?action_state.get_pressed(),
@@ -544,7 +550,7 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
         );
     }
     for (entity, mut action_state, input_buffer) in remote_player_query.iter_mut() {
-        trace!(
+        error!(
             ?tick,
             ?entity,
             ?input_buffer,

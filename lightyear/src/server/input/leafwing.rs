@@ -185,13 +185,13 @@ fn update_action_state<A: LeafwingUserAction>(
 ) {
     let tick = tick_manager.tick();
 
-    for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
+    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
         // the state on the server is only updated from client inputs!
         trace!(
             ?tick,
             ?entity,
             ?input_buffer,
-            "action state: {:?}. Latest action diff buffer tick: {:?}",
+            "action state pressed: {:?}",
             &action_state.get_pressed(),
         );
         *action_state = input_buffer.get(tick).cloned().unwrap_or_default();

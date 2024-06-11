@@ -39,21 +39,26 @@ pub(crate) struct InputBuffer<A: LeafwingUserAction> {
 impl<A: LeafwingUserAction> std::fmt::Display for InputBuffer<A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ty = A::short_type_path();
+
+        let Some(mut tick) = self.start_tick.clone() else {
+            return write!(f, "EmptyInputBuffer");
+        };
+
         let buffer_str = self
             .buffer
             .iter()
-            .map(|item| match item {
-                BufferItem::Absent => "Absent".to_string(),
-                BufferItem::SameAsPrecedent => "SameAsPrecedent".to_string(),
-                BufferItem::Data(data) => format!("{:?}", data.get_pressed()),
+            .enumerate()
+            .map(|(i, item)| {
+                let str = match item {
+                    BufferItem::Absent => "Absent".to_string(),
+                    BufferItem::SameAsPrecedent => "SameAsPrecedent".to_string(),
+                    BufferItem::Data(data) => format!("{:?}", data.get_pressed()),
+                };
+                format!("{:?}: {}\n", tick + i as i16, str)
             })
             .collect::<Vec<String>>()
-            .join(", ");
-        write!(
-            f,
-            "InputBuffer<{:?}> = Start tick: {:?}. Buffer: {:?}",
-            ty, self.start_tick, buffer_str
-        )
+            .join("");
+        write!(f, "InputBuffer<{:?}>:\n {:?}", ty, buffer_str)
     }
 }
 
