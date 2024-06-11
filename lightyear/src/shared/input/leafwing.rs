@@ -5,7 +5,6 @@ use leafwing_input_manager::prelude::ActionState;
 
 use crate::client::config::ClientConfig;
 use crate::client::input::leafwing::LeafwingInputConfig;
-use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::{AppComponentExt, ChannelDirection, InputMessage, LeafwingUserAction};
 use crate::protocol::message::AppMessageInternalExt;
 use crate::protocol::message::MessageType;
@@ -39,10 +38,11 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         // - server receiving pre-predicted entities
         // - client receiving other players' inputs
         .add_map_entities();
-        // TODO: how can we avoid this?
-        // We still need to replicate the ActionState to the client
-        app.register_component::<ActionState<A>>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Simple);
+
+        // Note: this is necessary because
+        // - so that the server entity has an ActionState on the server when the ActionState is added on the client
+        //   (we only replicate it once when ActionState is first added)
+        app.register_component::<ActionState<A>>(ChannelDirection::ClientToServer);
         let is_client = app.world.get_resource::<ClientConfig>().is_some();
         let is_server = app.world.get_resource::<ServerConfig>().is_some();
         if is_client {

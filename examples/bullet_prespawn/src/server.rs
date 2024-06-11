@@ -89,11 +89,6 @@ pub(crate) fn replicate_players(
             };
             e.insert((
                 replicate,
-                // We don't want to replicate the ActionState to the original client, since they are updating it with
-                // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-                // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-                // We also don't need the inputs of the other clients, because we are not predicting them
-                OverrideTargetComponent::<ActionState<PlayerActions>>::new(NetworkTarget::None),
                 // The PrePredicted component must be replicated only to the original client
                 OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(client_id)),
             ));

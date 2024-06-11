@@ -60,7 +60,8 @@ use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{
-    is_host_server, ChannelKind, ChannelRegistry, InputMessage, MessageRegistry, TickManager,
+    is_host_server, ChannelKind, ChannelRegistry, InputMessage, MessageRegistry,
+    ReplicateOnceComponent, TickManager,
 };
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
@@ -336,7 +337,7 @@ fn toggle_actions<A: LeafwingUserAction>(
     }
 }
 
-/// For each entity that has an action-state, insert an action-state-buffer
+/// For each entity that has an action-state, insert an input buffer.
 /// that will store the value of the action-state for the last few ticks
 fn add_action_state_buffer<A: LeafwingUserAction>(
     mut commands: Commands,
@@ -366,6 +367,8 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
         commands.entity(entity).insert((
             // input buffer needed to rollback to a previous ActionState
             InputBuffer::<A>::default(),
+            // make sure that the server entity has an ActionState component
+            ReplicateOnceComponent::<ActionState<A>>::default(),
         ));
     }
     for entity in remote_entities.iter() {
@@ -455,23 +458,22 @@ fn buffer_action_state<A: LeafwingUserAction>(
 }
 
 /// Retrieve the ActionState from the InputBuffer (if input_delay is enabled)
-// TODO: combine this with the rollback function
-// If we have input-delay, we need to set the ActionState for the current tick
-// using the value stored in the buffer
+///
+/// If we have input-delay, we need to set the ActionState for the current tick
+/// using the value stored in the buffer (since the local ActionState is for the delayed tick)
 fn get_non_rollback_action_state<A: LeafwingUserAction>(
     tick_manager: Res<TickManager>,
-    // global_input_buffer: Res<InputBuffer<A>>,
-    // global_action_state: Option<ResMut<ActionState<A>>>,
+    // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
+    // - local player: we need to get the input from the InputBuffer because of input delay
+    // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
+    //   as fast as possible (the inputs are broadcasted with no delay)
     mut action_state_query: Query<
         (Entity, &mut ActionState<A>, &InputBuffer<A>),
-        With<InputMap<A>>,
+        // With<InputMap<A>>,
     >,
 ) {
     let tick = tick_manager.tick();
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-        // let state_is_empty = input_buffer.get(tick).is_none();
-        // let input_buffer = input_buffer.buffer;
-        // error!(?entity, ?tick, "get action state. Buffer: {}", input_buffer);
         *action_state = input_buffer
             .get(tick)
             .unwrap_or(&ActionState::<A>::default())
@@ -479,17 +481,11 @@ fn get_non_rollback_action_state<A: LeafwingUserAction>(
         debug!(
             ?entity,
             ?tick,
-            "fetched action state {:?} from input buffer: {}",
+            "fetched non-rollback action state {:?} from input buffer: {}",
             action_state.get_pressed(),
             input_buffer
         );
     }
-    // if let Some(mut action_state) = global_action_state {
-    //     *action_state = global_input_buffer
-    //         .get(tick)
-    //         .unwrap_or(&ActionState::<A>::default())
-    //         .clone();
-    // }
 }
 
 /// During rollback, fetch the action-state from the InputBuffer for the corresponding tick and use that
@@ -511,8 +507,6 @@ fn get_non_rollback_action_state<A: LeafwingUserAction>(
 /// for the remote inputs that we can use to have a higher precision rollback.
 /// TODO: implement some decay for the rollback ActionState of other players?
 fn get_rollback_action_state<A: LeafwingUserAction>(
-    // global_input_buffer: Res<InputBuffer<A>>,
-    // global_action_state: Option<ResMut<ActionState<A>>>,
     mut player_action_state_query: Query<
         (Entity, &mut ActionState<A>, &InputBuffer<A>),
         With<InputMap<A>>,
@@ -527,12 +521,6 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
         .get_rollback_tick()
         .expect("we should be in rollback");
     for (entity, mut action_state, input_buffer) in player_action_state_query.iter_mut() {
-        trace!(
-            ?entity,
-            ?tick,
-            "get rollback action state. Buffer: {}",
-            input_buffer
-        );
         *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
         debug!(
             ?entity,
@@ -543,20 +531,16 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
         );
     }
     for (entity, mut action_state, input_buffer) in remote_player_query.iter_mut() {
+        // TODO: should we reuse the existing ActionState as an optimization?
+        *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
         debug!(
             ?tick,
             ?entity,
-            ?input_buffer,
-            "action state: {:?}. Latest action diff buffer tick: {:?}",
-            &action_state.get_pressed(),
-            input_buffer.end_tick(),
+            pressed = ?action_state.get_pressed(),
+            "Update action state for rollback of remote player using input_buffer: {}",
+            input_buffer
         );
-        // TODO: should we reuse the existing ActionState as an optimization?
-        *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
     }
-    // if let Some(mut action_state) = global_action_state {
-    //     *action_state = global_input_buffer.get(tick).cloned().unwrap_or_default();
-    // }
 }
 
 /// System that removes old entries from the ActionDiffBuffer and the InputBuffer
@@ -588,7 +572,6 @@ fn prepare_input_message<A: LeafwingUserAction>(
     config: Res<ClientConfig>,
     input_config: Res<LeafwingInputConfig<A>>,
     tick_manager: Res<TickManager>,
-    // global_action_diff_buffer: Option<Res<ActionDiffBuffer<A>>>,
     input_buffer_query: Query<
         (
             Entity,
@@ -674,14 +657,9 @@ fn prepare_input_message<A: LeafwingUserAction>(
         }
     }
 
-    // if let Some(action_diff_buffer) = global_action_diff_buffer {
-    //     action_diff_buffer.add_to_message(&mut message, tick, message_len, InputTarget::Global);
-    // }
-
     // all inputs are absent
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
-    // if !message.is_empty() {
     debug!(?tick, ?num_tick, "sending input message: {}", message);
     connection
         .send_message::<InputChannel, InputMessage<A>>(&message)
@@ -690,11 +668,10 @@ fn prepare_input_message<A: LeafwingUserAction>(
         })
     // }
 
-    // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
-    // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
-    //  maybe at interpolation_tick(), since it's before any latest server update we receive?
+    // NOTE: keep the older input values! because they might be needed when we rollback for client prediction
 }
 
+/// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<A: LeafwingUserAction>(
     mut tick_events: EventReader<TickEvent>,
     mut global_input_buffer: Option<ResMut<InputBuffer<A>>>,
@@ -726,19 +703,24 @@ fn receive_tick_events<A: LeafwingUserAction>(
     }
 }
 
-/// Read the InputMessages of other clients from the server to update the ActionDiffBuffers
-/// This is useful if we want to do prediction for other clients.
+/// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
+/// This is useful if we want to do client-prediction for remote players.
 ///
-/// The Predicted entity must have the ActionState component.
+/// If the InputBuffer/ActionState is missing, we will add it.
+///
 /// We will apply the diffs on the Predicted entity.
 fn receive_remote_player_input_messages<A: LeafwingUserAction>(
+    mut commands: Commands,
     tick_manager: Res<TickManager>,
     mut connection: ResMut<ConnectionManager>,
     prediction_manager: Res<PredictionManager>,
     message_registry: Res<MessageRegistry>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     confirmed_query: Query<&Confirmed, Without<InputMap<A>>>,
-    mut predicted_query: Query<&mut InputBuffer<A>, (Without<InputMap<A>>, With<Predicted>)>,
+    mut predicted_query: Query<
+        Option<&mut InputBuffer<A>>,
+        (Without<InputMap<A>>, With<Predicted>),
+    >,
 ) {
     let current_tick = tick_manager.tick();
     let kind = MessageKind::of::<InputMessage<A>>();
@@ -762,7 +744,6 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
             ) {
                 Ok(message) => {
                     debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-                    // TODO: fix this, very ugly
                     for (target, start, diffs) in &message.diffs {
                         // - the input target has already been set to the server entity in the InputMessage
                         // - it has been mapped to a client-entity on the client during deserialization
@@ -786,14 +767,28 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                             );
                             if let Ok(confirmed) = confirmed_query.get(*entity) {
                                 if let Some(predicted) = confirmed.predicted {
-                                    if let Ok(mut input_buffer) = predicted_query.get_mut(predicted)
-                                    {
+                                    if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
                                         debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
-                                        input_buffer.update_from_message(
-                                            message.end_tick,
-                                            start,
-                                            diffs,
-                                        );
+                                        if let Some(mut input_buffer) = input_buffer {
+                                            input_buffer.update_from_message(
+                                                message.end_tick,
+                                                start,
+                                                diffs,
+                                            );
+                                        } else {
+                                            // add the ActionState or InputBuffer if they are missing
+                                            let mut input_buffer = InputBuffer::<A>::default();
+                                            input_buffer.update_from_message(
+                                                message.end_tick,
+                                                start,
+                                                diffs,
+                                            );
+                                            // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
+                                            commands.entity(predicted).insert((
+                                                input_buffer,
+                                                ActionState::<A>::default(),
+                                            ));
+                                        }
                                     }
                                 }
                             } else {
