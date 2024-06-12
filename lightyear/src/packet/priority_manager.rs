@@ -14,6 +14,8 @@ use crate::prelude::{ChannelRegistry, Tick};
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 
+const BYPASS_QUOTA_PRIORITY: f32 = 100000.0;
+
 #[derive(Debug)]
 pub struct BufferedMessage {
     priority: f32,
@@ -170,7 +172,7 @@ impl PriorityManager {
 
         // sort from highest priority to lower
         all_messages.sort_by(|a, b| a.priority.partial_cmp(&b.priority).unwrap());
-        trace!(
+        debug!(
             "all messages to send, sorted by priority: {:?}",
             all_messages
         );
@@ -180,7 +182,6 @@ impl PriorityManager {
         let mut fragment_data: HashMap<ChannelId, VecDeque<FragmentData>> = HashMap::new();
         let mut bytes_used = 0;
         while let Some(buffered_message) = all_messages.pop() {
-            error!(channel=?buffered_message.channel_net_id, "Sending message with priority {:?}", buffered_message.priority);
             // we don't use the exact size of the message, but the size of the bytes
             // we will adjust for this later
             let message_bytes = buffered_message.data.len() as u32;
@@ -189,16 +190,21 @@ impl PriorityManager {
                 error!("the bandwidth does not have enough capacity for a message of this size!");
                 break;
             };
-            let Ok(()) = result else {
-                debug!("Bandwidth quota reached, no more messages can be sent this tick");
-                break;
-            };
+
+            // above BYPASS_QUOTA_PRIORITY, we still send the message
+            if buffered_message.priority < BYPASS_QUOTA_PRIORITY {
+                let Ok(()) = result else {
+                    debug!("Bandwidth quota reached, no more messages can be sent this tick");
+                    break;
+                };
+            }
+            trace!(channel=?buffered_message.channel_net_id, "Sending message with priority {:?}", buffered_message.priority);
 
             // keep track of the bytes we added to the rate limiter
             bytes_used += message_bytes;
 
             // notify the replication sender that the message was actually sent
-            if channel_registry.is_replication_channel(buffered_message.channel_net_id) {
+            if channel_registry.is_replication_update_channel(buffered_message.channel_net_id) {
                 // SAFETY: we are guaranteed in this situation to have a message id (because we use the unreliable with acks sender)
                 let message_id = buffered_message.data.message_id().unwrap();
                 for sender in self.replication_update_senders.iter() {
