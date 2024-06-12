@@ -16,6 +16,7 @@ use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
+use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
 use lightyear::shared::tick_manager;
 use lightyear::shared::tick_manager::Tick;
@@ -109,20 +110,20 @@ fn update_visual_components(
             Entity,
             &Player,
             &mut EntityLabel,
-            // &ActionDiffBuffer<PlayerActions>,
+            &InputBuffer<PlayerActions>,
         ),
         Changed<Player>,
     >,
     tick_manager: Res<TickManager>,
 ) {
-    // unknowable how many missing inputs we have for remote players as long as diffs are enabled
-    // since input messages only sent when a diff is non-empty, ie holding down a key doesn't send one input per tick.
-    // so you can't know if they haven't released the key, or that message is just late?
-    for (e, player, mut label) in q.iter_mut() {
-        let missing_inputs = 999;
-        // lightyear::utils::wrapping_id::wrapping_diff(tick_manager.tick().0, adb.end_tick().0);
+    for (e, player, mut label, input_buffer) in q.iter_mut() {
+        let missing_inputs = if let Some(end_tick) = input_buffer.end_tick() {
+            lightyear::utils::wrapping_id::wrapping_diff(tick_manager.tick().0, end_tick.0)
+        } else {
+            0
+        };
         label.sub_text = format!(
-            "{} (~{}) ms, inp: {missing_inputs}",
+            "{} (~{}) ms\ninp-buf: {missing_inputs}",
             player.rtt.as_millis(),
             player.jitter.as_millis()
         );
