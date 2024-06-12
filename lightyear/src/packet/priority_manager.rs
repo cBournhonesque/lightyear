@@ -180,7 +180,7 @@ impl PriorityManager {
         let mut fragment_data: HashMap<ChannelId, VecDeque<FragmentData>> = HashMap::new();
         let mut bytes_used = 0;
         while let Some(buffered_message) = all_messages.pop() {
-            trace!(channel=?buffered_message.channel_net_id, "Sending message with priority {:?}", buffered_message.priority);
+            error!(channel=?buffered_message.channel_net_id, "Sending message with priority {:?}", buffered_message.priority);
             // we don't use the exact size of the message, but the size of the bytes
             // we will adjust for this later
             let message_bytes = buffered_message.data.len() as u32;

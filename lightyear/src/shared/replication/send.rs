@@ -212,7 +212,7 @@ impl ReplicationSender {
                 }
             } else {
                 error!(?message_id,
-                    "Received an send message-id notification but we know the corresponding group id"
+                    "Received an send message-id notification but we don't know the corresponding group id"
                 );
             }
         }
@@ -547,7 +547,7 @@ impl ReplicationSender {
                     // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
                     actions: Vec::from_iter(actions),
                 };
-                debug!("final action messages to send: {:?}", message);
+                error!("final action messages to send: {:?}", message);
 
                 // TODO: we had to put this here because of the borrow checker, but it's not ideal,
                 //  the replication send should normally just an iterator of messages to send

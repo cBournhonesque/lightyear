@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashSet};
 use bevy::utils::Duration;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
-use tracing::trace;
+use tracing::{error, trace};
 
 use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
@@ -107,6 +107,10 @@ impl ChannelSend for ReliableSender {
             timer.tick(time_manager.delta());
             self.priority_multiplier =
                 (timer.duration().as_nanos() / time_manager.delta().as_nanos()) as f32;
+            error!(
+                ?timer,
+                "Priority multiplier for reliable sender channel: {:?}", self.priority_multiplier
+            );
         }
     }
 
@@ -180,10 +184,11 @@ impl ChannelSend for ReliableSender {
             // accumulate the priority for all messages (including the ones that were just added, since we set the accumulated priority to 0.0)
             unacked_message_with_priority.accumulated_priority +=
                 unacked_message_with_priority.base_priority * self.priority_multiplier;
-            trace!(
-                "Accumulating priority for reliable message {:?} to {:?}",
+            error!(
+                "Accumulating priority for reliable message {:?} to {:?}. Multiplier: {:?}",
                 message_id,
-                unacked_message_with_priority.accumulated_priority
+                unacked_message_with_priority.accumulated_priority,
+                self.priority_multiplier
             );
 
             match &mut unacked_message_with_priority.unacked_message {
