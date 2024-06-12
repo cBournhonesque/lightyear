@@ -21,22 +21,22 @@ bevy_egui = "0.25.0"
 egui_extras = "0.26.0"
 leafwing-input-manager = { git = "https://github.com/Leafwing-Studios/leafwing-input-manager.git", branch = "main" }
 lightyear = { path = "../../lightyear", features = [
-    "webtransport",
-    "websocket",
-    "leafwing",
-    "steam",
+  "webtransport",
+  "websocket",
+  "leafwing",
+  "steam",
 ] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"
 tracing-subscriber = "0.3.17"
 bevy = { version = "0.14.0-rc.2", features = [
-    "multi_threaded",
-    "bevy_state",
-    "serialize",
+  "multi_threaded",
+  "bevy_state",
+  "serialize",
 ] }
 bevy_ecs = { version = "0.14.0-rc.2", default-features = false, features = [
-    "serde",
+  "serde",
 ] }
 derive_more = { version = "0.99", features = ["add", "mul"] }
 rand = "0.8.1"
