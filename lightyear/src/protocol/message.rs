@@ -13,7 +13,7 @@ use crate::packet::message::Message;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::ChannelDirection;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
-use crate::protocol::serialize::ErasedSerializeFns;
+use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::ToBytes;
@@ -205,6 +205,15 @@ pub(crate) trait AppMessageInternalExt {
         direction: ChannelDirection,
         message_type: MessageType,
     ) -> MessageRegistration<'_, M>;
+
+    /// Function used internally to register a Message with a specific [`MessageType`]
+    /// and a custom [`SerializeFns`] implementation
+    fn add_message_internal_custom_serde<M: 'static>(
+        &mut self,
+        direction: ChannelDirection,
+        message_type: MessageType,
+        serialize_fns: SerializeFns<M>,
+    ) -> MessageRegistration<'_, M>;
 }
 
 impl AppMessageInternalExt for App {
@@ -224,6 +233,24 @@ impl AppMessageInternalExt for App {
             _marker: std::marker::PhantomData,
         }
     }
+
+    fn add_message_internal_custom_serde<M: 'static>(
+        &mut self,
+        direction: ChannelDirection,
+        message_type: MessageType,
+        serialize_fns: SerializeFns<M>,
+    ) -> MessageRegistration<'_, M> {
+        let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
+        if !registry.is_registered::<M>() {
+            registry.add_message_custom_serde::<M>(message_type, serialize_fns);
+        }
+        debug!("register message {}", std::any::type_name::<M>());
+        register_message_send::<M>(self, direction);
+        MessageRegistration {
+            app: self,
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 /// Add a message to the list of messages that can be sent
@@ -233,6 +260,16 @@ pub trait AppMessageExt {
     fn add_message<M: Message>(
         &mut self,
         direction: ChannelDirection,
+    ) -> MessageRegistration<'_, M>;
+
+    /// Registers the message in the Registry
+    ///
+    /// This message can now be sent over the network.
+    /// You need to provide your own SerializationFns for this message
+    fn add_message_custom_serde<M: 'static>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M>;
 
     /// Registers the resource in the Registry
@@ -246,6 +283,14 @@ impl AppMessageExt for App {
         direction: ChannelDirection,
     ) -> MessageRegistration<'_, M> {
         self.add_message_internal(direction, MessageType::Normal)
+    }
+
+    fn add_message_custom_serde<M: 'static>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<M>,
+    ) -> MessageRegistration<'_, M> {
+        self.add_message_internal_custom_serde(direction, MessageType::Normal, serialize_fns)
     }
 
     /// Register a resource to be automatically replicated over the network
@@ -275,6 +320,19 @@ impl MessageRegistry {
         self.typed_map.insert(message_kind, message_type);
     }
 
+    pub(crate) fn add_message_custom_serde<M: 'static>(
+        &mut self,
+        message_type: MessageType,
+        serialize_fns: SerializeFns<M>,
+    ) {
+        let message_kind = self.kind_map.add::<M>();
+        self.serialize_fns_map.insert(
+            message_kind,
+            ErasedSerializeFns::new_custom_serde::<M>(serialize_fns),
+        );
+        self.typed_map.insert(message_kind, message_type);
+    }
+
     pub(crate) fn try_add_map_entities<M: MapEntities + 'static>(&mut self) {
         let kind = MessageKind::of::<M>();
         if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
@@ -291,7 +349,7 @@ impl MessageRegistry {
         erased_fns.add_map_entities::<M>();
     }
 
-    pub(crate) fn serialize<M: Message>(
+    pub(crate) fn serialize<M: 'static>(
         &self,
         message: &M,
         writer: &mut Writer,
@@ -310,7 +368,7 @@ impl MessageRegistry {
         Ok(())
     }
 
-    pub(crate) fn deserialize<M: Message>(
+    pub(crate) fn deserialize<M: 'static>(
         &self,
         reader: &mut Reader,
         entity_map: &mut EntityMap,
