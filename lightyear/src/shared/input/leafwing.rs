@@ -30,7 +30,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         // leafwing messages have special handling so we register them as LeafwingInput
         // we still use `add_message_internal` because we want to emit events contain the message
         // so the user can inspect them and re-broadcast them to other players
-        app.add_message_internal::<InputMessage<A>>(
+        app.register_message_internal::<InputMessage<A>>(
             ChannelDirection::Bidirectional,
             MessageType::LeafwingInput,
         )

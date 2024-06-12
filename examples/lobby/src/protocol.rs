@@ -178,9 +178,9 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<StartGame>(ChannelDirection::Bidirectional);
-        app.add_message::<JoinLobby>(ChannelDirection::ClientToServer);
-        app.add_message::<ExitLobby>(ChannelDirection::ClientToServer);
+        app.register_message::<StartGame>(ChannelDirection::Bidirectional);
+        app.register_message::<JoinLobby>(ChannelDirection::ClientToServer);
+        app.register_message::<ExitLobby>(ChannelDirection::ClientToServer);
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components

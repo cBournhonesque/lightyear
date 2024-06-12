@@ -65,7 +65,7 @@ fn read_message<M: Message>(
 }
 
 /// Register a message that can be sent from server to client
-pub(crate) fn add_client_to_server_message<M: 'static>(app: &mut App) {
+pub(crate) fn add_client_to_server_message<M: Message>(app: &mut App) {
     app.add_event::<MessageEvent<M>>();
     app.add_systems(
         PreUpdate,

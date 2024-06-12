@@ -34,7 +34,7 @@ pub struct Message1(pub usize);
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         // Register your protocol, which is shared between client and server
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()

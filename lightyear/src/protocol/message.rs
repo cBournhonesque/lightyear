@@ -7,6 +7,8 @@ use crate::client::message::add_server_to_client_message;
 use crate::prelude::{client, server};
 use bevy::prelude::{App, Resource, TypePath};
 use bevy::utils::HashMap;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use tracing::{debug, error};
 
 use crate::packet::message::Message;
@@ -48,7 +50,7 @@ pub(crate) enum MessageType {
 ///
 /// ### Adding Messages
 ///
-/// You register messages by calling the [`add_message`](AppMessageExt::add_message) method directly on the App.
+/// You register messages by calling the [`add_message`](AppMessageExt::register_message) method directly on the App.
 /// You can provide a [`ChannelDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
 ///
 /// ```rust
@@ -60,7 +62,7 @@ pub(crate) enum MessageType {
 /// struct MyMessage;
 ///
 /// fn add_messages(app: &mut App) {
-///   app.add_message::<MyMessage>(ChannelDirection::Bidirectional);
+///   app.register_message::<MyMessage>(ChannelDirection::Bidirectional);
 /// }
 /// ```
 ///
@@ -89,7 +91,7 @@ pub(crate) enum MessageType {
 /// }
 ///
 /// fn add_messages(app: &mut App) {
-///   app.add_message::<MyMessage>(ChannelDirection::Bidirectional)
+///   app.register_message::<MyMessage>(ChannelDirection::Bidirectional)
 ///       .add_map_entities();
 /// }
 /// ```
@@ -200,7 +202,7 @@ impl<M> MessageRegistration<'_, M> {
 
 pub(crate) trait AppMessageInternalExt {
     /// Function used internally to register a Message with a specific [`MessageType`]
-    fn add_message_internal<M: Message>(
+    fn register_message_internal<M: Message + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
         message_type: MessageType,
@@ -208,7 +210,7 @@ pub(crate) trait AppMessageInternalExt {
 
     /// Function used internally to register a Message with a specific [`MessageType`]
     /// and a custom [`SerializeFns`] implementation
-    fn add_message_internal_custom_serde<M: 'static>(
+    fn register_message_internal_custom_serde<M: Message>(
         &mut self,
         direction: ChannelDirection,
         message_type: MessageType,
@@ -217,7 +219,7 @@ pub(crate) trait AppMessageInternalExt {
 }
 
 impl AppMessageInternalExt for App {
-    fn add_message_internal<M: Message>(
+    fn register_message_internal<M: Message + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
         message_type: MessageType,
@@ -234,7 +236,7 @@ impl AppMessageInternalExt for App {
         }
     }
 
-    fn add_message_internal_custom_serde<M: 'static>(
+    fn register_message_internal_custom_serde<M: Message>(
         &mut self,
         direction: ChannelDirection,
         message_type: MessageType,
@@ -257,7 +259,7 @@ impl AppMessageInternalExt for App {
 pub trait AppMessageExt {
     /// Registers the message in the Registry
     /// This message can now be sent over the network.
-    fn add_message<M: Message>(
+    fn register_message<M: Message + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
     ) -> MessageRegistration<'_, M>;
@@ -266,7 +268,7 @@ pub trait AppMessageExt {
     ///
     /// This message can now be sent over the network.
     /// You need to provide your own SerializationFns for this message
-    fn add_message_custom_serde<M: 'static>(
+    fn register_message_custom_serde<M: Message>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<M>,
@@ -274,29 +276,56 @@ pub trait AppMessageExt {
 
     /// Registers the resource in the Registry
     /// This resource can now be sent over the network.
-    fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection);
+    fn register_resource<R: Resource + Message + Serialize + DeserializeOwned>(
+        &mut self,
+        direction: ChannelDirection,
+    );
+
+    /// Registers the resource in the Registry
+    ///
+    /// This resource can now be sent over the network.
+    /// You need to provide your own SerializationFns for this message
+    fn register_resource_custom_serde<R: Resource + Message>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<R>,
+    );
 }
 
 impl AppMessageExt for App {
-    fn add_message<M: Message>(
+    fn register_message<M: Message + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
     ) -> MessageRegistration<'_, M> {
-        self.add_message_internal(direction, MessageType::Normal)
+        self.register_message_internal(direction, MessageType::Normal)
     }
 
-    fn add_message_custom_serde<M: 'static>(
+    fn register_message_custom_serde<M: Message>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M> {
-        self.add_message_internal_custom_serde(direction, MessageType::Normal, serialize_fns)
+        self.register_message_internal_custom_serde(direction, MessageType::Normal, serialize_fns)
     }
 
     /// Register a resource to be automatically replicated over the network
-    fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection) {
-        self.add_message::<R>(direction);
-        self.add_message::<DespawnResource<R>>(direction);
+    fn register_resource<R: Resource + Message + Serialize + DeserializeOwned>(
+        &mut self,
+        direction: ChannelDirection,
+    ) {
+        self.register_message::<R>(direction);
+        self.register_message::<DespawnResource<R>>(direction);
+        register_resource_send::<R>(self, direction)
+    }
+
+    /// Register a resource to be automatically replicated over the network
+    fn register_resource_custom_serde<R: Resource + Message>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<R>,
+    ) {
+        self.register_message_custom_serde::<R>(direction, serialize_fns);
+        self.register_message::<DespawnResource<R>>(direction);
         register_resource_send::<R>(self, direction)
     }
 }
@@ -313,14 +342,17 @@ impl MessageRegistry {
         self.kind_map.net_id(&MessageKind::of::<M>()).is_some()
     }
 
-    pub(crate) fn add_message<M: Message>(&mut self, message_type: MessageType) {
+    pub(crate) fn add_message<M: Message + Serialize + DeserializeOwned>(
+        &mut self,
+        message_type: MessageType,
+    ) {
         let message_kind = self.kind_map.add::<M>();
         self.serialize_fns_map
             .insert(message_kind, ErasedSerializeFns::new::<M>());
         self.typed_map.insert(message_kind, message_type);
     }
 
-    pub(crate) fn add_message_custom_serde<M: 'static>(
+    pub(crate) fn add_message_custom_serde<M: Message>(
         &mut self,
         message_type: MessageType,
         serialize_fns: SerializeFns<M>,
@@ -349,7 +381,7 @@ impl MessageRegistry {
         erased_fns.add_map_entities::<M>();
     }
 
-    pub(crate) fn serialize<M: 'static>(
+    pub(crate) fn serialize<M: Message>(
         &self,
         message: &M,
         writer: &mut Writer,
@@ -368,7 +400,7 @@ impl MessageRegistry {
         Ok(())
     }
 
-    pub(crate) fn deserialize<M: 'static>(
+    pub(crate) fn deserialize<M: Message>(
         &self,
         reader: &mut Reader,
         entity_map: &mut EntityMap,
@@ -408,7 +440,9 @@ impl From<TypeId> for MessageKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::protocol::Resource1;
+    use crate::tests::protocol::{
+        deserialize_resource2, serialize_resource2, Resource1, Resource2,
+    };
 
     #[test]
     fn test_serde() {
@@ -416,6 +450,29 @@ mod tests {
         registry.add_message::<Resource1>(MessageType::Normal);
 
         let message = Resource1(1.0);
+        let mut writer = Writer::default();
+        registry.serialize(&message, &mut writer).unwrap();
+        let data = writer.to_bytes();
+
+        let mut reader = Reader::from(data);
+        let read = registry
+            .deserialize(&mut reader, &mut EntityMap::default())
+            .unwrap();
+        assert_eq!(message, read);
+    }
+
+    #[test]
+    fn test_custom_serde() {
+        let mut registry = MessageRegistry::default();
+        registry.add_message_custom_serde::<Resource2>(
+            MessageType::Normal,
+            SerializeFns {
+                serialize: serialize_resource2,
+                deserialize: deserialize_resource2,
+            },
+        );
+
+        let message = Resource2(1.0);
         let mut writer = Writer::default();
         registry.serialize(&message, &mut writer).unwrap();
         let data = writer.to_bytes();

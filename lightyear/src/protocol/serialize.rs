@@ -4,6 +4,8 @@ use crate::shared::replication::entity_map::EntityMap;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::any::TypeId;
 
 /// Stores function pointers related to serialization and deserialization
@@ -13,6 +15,7 @@ pub struct ErasedSerializeFns {
     pub(crate) type_name: &'static str,
     // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
     pub serialize: unsafe fn(),
+    pub erased_serialize: ErasedSerializeFn,
     pub deserialize: unsafe fn(),
     pub map_entities: Option<ErasedMapEntitiesFn>,
 }
@@ -22,13 +25,28 @@ pub struct SerializeFns<M> {
     pub deserialize: DeserializeFn<M>,
 }
 
+type ErasedSerializeFn = unsafe fn(
+    erased_serialize_fn: &ErasedSerializeFns,
+    message: Ptr,
+    writer: &mut Writer,
+) -> Result<(), SerializationError>;
 type SerializeFn<M> = fn(message: &M, writer: &mut Writer) -> Result<(), SerializationError>;
 type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>;
 
 pub(crate) type ErasedMapEntitiesFn = unsafe fn(message: PtrMut, entity_map: &mut EntityMap);
 
+unsafe fn erased_serialize_fn<M: Message>(
+    erased_serialize_fn: &ErasedSerializeFns,
+    message: Ptr,
+    writer: &mut Writer,
+) -> Result<(), SerializationError> {
+    let typed_serialize_fns = erased_serialize_fn.typed::<M>();
+    let message = message.deref::<M>();
+    (typed_serialize_fns.serialize)(message, writer)
+}
+
 /// Default serialize function using bincode
-fn erased_serialize<M: Message>(
+fn default_serialize<M: Message + Serialize>(
     message: &M,
     buffer: &mut Writer,
 ) -> Result<(), SerializationError> {
@@ -37,7 +55,9 @@ fn erased_serialize<M: Message>(
 }
 
 /// Default deserialize function using bincode
-fn erased_deserialize<M: Message>(buffer: &mut Reader) -> Result<M, SerializationError> {
+fn default_deserialize<M: Message + DeserializeOwned>(
+    buffer: &mut Reader,
+) -> Result<M, SerializationError> {
     let data = bincode::serde::decode_from_std_read(buffer, bincode::config::standard())?;
     Ok(data)
 }
@@ -52,26 +72,28 @@ unsafe fn erased_map_entities<M: MapEntities + 'static>(
 }
 
 impl ErasedSerializeFns {
-    pub(crate) fn new<M: Message>() -> Self {
-        let erased_serialize: SerializeFn<M> = erased_serialize::<M>;
-        let erased_deserialize: DeserializeFn<M> = erased_deserialize::<M>;
+    pub(crate) fn new<M: Message + Serialize + DeserializeOwned>() -> Self {
+        let serialize_fns = SerializeFns {
+            serialize: default_serialize::<M>,
+            deserialize: default_deserialize::<M>,
+        };
         Self {
             type_id: TypeId::of::<M>(),
             type_name: std::any::type_name::<M>(),
-            serialize: unsafe { std::mem::transmute(erased_serialize) },
-            deserialize: unsafe { std::mem::transmute(erased_deserialize) },
+            erased_serialize: erased_serialize_fn::<M>,
+            serialize: unsafe { std::mem::transmute(serialize_fns.serialize) },
+            deserialize: unsafe { std::mem::transmute(serialize_fns.deserialize) },
             map_entities: None,
         }
     }
 
-    pub(crate) fn new_custom_serde<M: 'static>(serialize_fns: SerializeFns<M>) -> Self {
-        let serialize = serialize_fns.serialize;
-        let deserialize = serialize_fns.deserialize;
+    pub(crate) fn new_custom_serde<M: Message>(serialize_fns: SerializeFns<M>) -> Self {
         Self {
             type_id: TypeId::of::<M>(),
             type_name: std::any::type_name::<M>(),
-            serialize: unsafe { std::mem::transmute(serialize) },
-            deserialize: unsafe { std::mem::transmute(deserialize) },
+            erased_serialize: erased_serialize_fn::<M>,
+            serialize: unsafe { std::mem::transmute(serialize_fns.serialize) },
+            deserialize: unsafe { std::mem::transmute(serialize_fns.deserialize) },
             map_entities: None,
         }
     }
@@ -84,7 +106,6 @@ impl ErasedSerializeFns {
             self.type_name,
             std::any::type_name::<M>(),
         );
-
         SerializeFns {
             serialize: unsafe { std::mem::transmute(self.serialize) },
             deserialize: unsafe { std::mem::transmute(self.deserialize) },
@@ -100,6 +121,15 @@ impl ErasedSerializeFns {
         if let Some(map_entities_fn) = self.map_entities {
             unsafe { map_entities_fn(ptr, entity_map) }
         }
+    }
+
+    /// SAFETY: the ErasedSerializeFns must be created for the type of the Ptr
+    pub(crate) unsafe fn erased_serialize(
+        &self,
+        message: Ptr,
+        writer: &mut Writer,
+    ) -> Result<(), SerializationError> {
+        (self.erased_serialize)(self, message, writer)
     }
 
     /// SAFETY: the ErasedSerializeFns must be created for the type M
