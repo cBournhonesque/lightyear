@@ -51,6 +51,18 @@ pub enum Cli {
     },
 }
 
+/// App that is Send.
+/// Used as a convenient workaround to send an App to a separate thread,
+/// if we know that the App doesn't contain NonSend resources.
+struct SendApp(App);
+
+unsafe impl Send for SendApp {}
+impl SendApp {
+    fn run(&mut self) {
+        self.0.run();
+    }
+}
+
 impl Default for Cli {
     fn default() -> Self {
         cli()
@@ -292,12 +304,11 @@ impl Apps {
             }
             Apps::ClientAndServer {
                 mut client_app,
-                mut server_app,
+                server_app,
                 ..
             } => {
-                std::thread::spawn(move || {
-                    server_app.run();
-                });
+                let mut send_app = SendApp(server_app);
+                std::thread::spawn(move || send_app.run());
                 client_app.run();
             }
             Apps::HostServer { mut app, .. } => {
@@ -316,9 +327,9 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         ..default()
     }));
-    if settings.client.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
+    // if settings.client.inspector {
+    //     app.add_plugins(WorldInspectorPlugin::new());
+    // }
     let client_config = ClientConfig {
         shared: shared_config(Mode::Separate),
         net: net_config,
@@ -345,9 +356,9 @@ fn server_app(
         ..default()
     });
 
-    if settings.server.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
+    // if settings.server.inspector {
+    //     app.add_plugins(WorldInspectorPlugin::new());
+    // }
 
     // configure the network configuration
     let mut net_configs = get_server_net_configs(&settings);
@@ -380,9 +391,9 @@ fn combined_app(
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         ..default()
     }));
-    if settings.client.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
+    // if settings.client.inspector {
+    //     app.add_plugins(WorldInspectorPlugin::new());
+    // }
 
     // server config
     let mut net_configs = get_server_net_configs(&settings);
