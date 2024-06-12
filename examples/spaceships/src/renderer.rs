@@ -117,13 +117,16 @@ fn update_visual_components(
     tick_manager: Res<TickManager>,
 ) {
     for (e, player, mut label, input_buffer) in q.iter_mut() {
-        let missing_inputs = if let Some(end_tick) = input_buffer.end_tick() {
+        // hopefully this is +ve, ie we have received remote player inputs before they are needed.
+        // this can happen because of input_delay. The server receives inputs in advance of
+        // needing them, and rebroadcasts to other players.
+        let num_buffered_inputs = if let Some(end_tick) = input_buffer.end_tick() {
             lightyear::utils::wrapping_id::wrapping_diff(tick_manager.tick().0, end_tick.0)
         } else {
             0
         };
         label.sub_text = format!(
-            "{} (~{}) ms\ninp-buf: {missing_inputs}",
+            "{} (~{}) ms\ninputs: {num_buffered_inputs}",
             player.rtt.as_millis(),
             player.jitter.as_millis()
         );

@@ -29,6 +29,7 @@ bevy = { version = "0.13", features = ["bevy_core_pipeline"] }
 derive_more = { version = "0.99", features = ["add", "mul"] }
 rand = "0.8.1"
 metrics-exporter-prometheus = { version = "0.13.0", optional = true }
+seahash = "4.1.0"
 
 [lints.clippy]
 type_complexity = "allow"

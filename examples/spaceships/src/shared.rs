@@ -3,6 +3,7 @@ use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
+use std::hash::{Hash, Hasher};
 
 use bevy_xpbd_2d::parry::shape::{Ball, SharedShape};
 use bevy_xpbd_2d::prelude::*;
@@ -157,23 +158,32 @@ pub fn shared_player_firing(
             &ActionState<PlayerActions>,
             &mut Weapon,
             Has<Controlled>,
+            &Player,
         ),
-        (With<Player>, Or<(With<Predicted>, With<ReplicationTarget>)>),
+        Or<(With<Predicted>, With<ReplicationTarget>)>,
     >,
     mut commands: Commands,
     tick_manager: Res<TickManager>,
     identity: NetworkIdentity,
 ) {
-    for (player_position, player_rotation, player_velocity, color, action, mut weapon, is_local) in
-        q.iter_mut()
+    for (
+        player_position,
+        player_rotation,
+        player_velocity,
+        color,
+        action,
+        mut weapon,
+        is_local,
+        player,
+    ) in q.iter_mut()
     {
         if !action.pressed(&PlayerActions::Fire) {
             continue;
         }
         if identity.is_client() && !is_local {
             // don't spawn bullets based on ActionState for remote players
-            info!("Not spawning, remote player fires");
-            continue;
+            // info!("Not spawning, remote player fires");
+            // continue;
         }
         if (weapon.last_fire_tick + Tick(weapon.cooldown)) > tick_manager.tick() {
             // cooldown period - can't fire.
@@ -195,6 +205,14 @@ pub fn shared_player_firing(
         let bullet_linvel =
             player_rotation.rotate(Vec2::Y * weapon.bullet_speed) + player_velocity.0;
 
+        // create a unique hash for this firing event based on player id and tick number
+        // which will match on client and server.
+        let mut hasher = seahash::SeaHasher::new();
+        player.client_id.hash(&mut hasher);
+        weapon.last_fire_tick.hash(&mut hasher);
+        let hash = hasher.finish();
+        let prespawned = PreSpawnedPlayerObject { hash: Some(hash) };
+
         let bullet_entity = commands
             .spawn((
                 BulletMarker,
@@ -202,7 +220,7 @@ pub fn shared_player_firing(
                 LinearVelocity(bullet_linvel),
                 PhysicsBundle::bullet(),
                 ColorComponent(color.0),
-                PreSpawnedPlayerObject::default(),
+                prespawned,
                 lifetime,
             ))
             .id();
