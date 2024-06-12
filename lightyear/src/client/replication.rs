@@ -77,7 +77,7 @@ pub(crate) mod send {
     impl Plugin for ClientReplicationSendPlugin {
         fn build(&self, app: &mut App) {
             let send_interval = app
-                .world
+                .world()
                 .resource::<ClientConfig>()
                 .replication
                 .send_interval;

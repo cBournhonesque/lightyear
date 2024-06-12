@@ -237,7 +237,7 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         #[cfg(feature = "leafwing")]
-        pub use crate::client::input::leafwing::{LeafwingInputConfig, ToggleActions};
+        pub use crate::client::input::leafwing::LeafwingInputConfig;
         pub use crate::client::input::native::{InputConfig, InputManager, InputSystemSet};
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{

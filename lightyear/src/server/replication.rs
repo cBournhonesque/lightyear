@@ -79,8 +79,8 @@ pub(crate) mod send {
     impl Plugin for ServerReplicationSendPlugin {
         fn build(&self, app: &mut App) {
             let send_interval = app
-                .world
-                ().resource::<ServerConfig>()
+                .world()
+                .resource::<ServerConfig>()
                 .replication
                 .send_interval;
 
@@ -1922,7 +1922,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate {
                         // replicate every 4 ticks
@@ -1937,7 +1937,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -1947,7 +1947,7 @@ pub(crate) mod send {
             // update component
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .insert(Component1(2.0));
             stepper.frame_step();
@@ -1957,7 +1957,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),
@@ -1969,7 +1969,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component1>()
                     .expect("component missing"),

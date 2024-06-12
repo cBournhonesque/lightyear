@@ -69,31 +69,6 @@ use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
-/// Run condition to control most of the systems in the LeafwingInputPlugin
-fn run_if_enabled<A: LeafwingUserAction>(config: Res<ToggleActions<A>>) -> bool {
-    config.enabled
-}
-
-#[derive(Resource)]
-pub struct ToggleActions<A> {
-    /// When this is false, [`ActionState`]'s corresponding to `A` will ignore user inputs
-    ///
-    /// When this is set to false, all corresponding [`ActionState`]s are released
-    pub enabled: bool,
-    /// Marker that stores the type of action to toggle
-    pub phantom: PhantomData<A>,
-}
-
-// implement manually to not required the `Default` bound on A
-impl<A> Default for ToggleActions<A> {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            phantom: PhantomData,
-        }
-    }
-}
-
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Copy, Clone, Resource)]
 pub struct LeafwingInputConfig<A> {
@@ -145,7 +120,7 @@ fn is_input_delay(config: Res<ClientConfig>) -> bool {
     config.prediction.input_delay_ticks > 0
 }
 
-impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
+impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
 // FLOW WITH INPUT DELAY
 // - pre-update: run leafwing to update the current ActionState, which is the action-state for tick T + delay
 // - fixed-pre-update:
@@ -166,11 +141,10 @@ impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
         app.add_plugins(InputManagerPlugin::<A>::default());
         // RESOURCES
         app.insert_resource(self.config.clone());
-        app.init_resource::<ToggleActions<A>>();
 
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
-        let should_run = run_if_enabled::<A>.and_then(not(is_host_server));
+        let should_run = not(is_host_server);
 
         app.init_resource::<InputBuffer<A>>();
         // SETS
@@ -239,8 +213,8 @@ impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
                     get_non_rollback_action_state::<A>.run_if(is_input_delay),
                 )
                     .chain()
-                    .run_if(run_if_enabled::<A>.and_then(not(is_in_rollback))),
-                get_rollback_action_state::<A>.run_if(run_if_enabled::<A>.and_then(is_in_rollback)),
+                    .run_if(not(is_in_rollback)),
+                get_rollback_action_state::<A>.run_if(is_in_rollback),
             )
                 .in_set(InputSystemSet::BufferClientInputs),
         );
@@ -278,7 +252,6 @@ impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
                 clean_buffers::<A>.in_set(InputSystemSet::CleanUp),
                 // TODO: why is this here?
                 add_action_state_buffer_added_input_map::<A>.run_if(should_run.clone()),
-                toggle_actions::<A>,
             ),
         );
     }
@@ -306,7 +279,7 @@ pub enum InputSystemSet {
     CleanUp,
 }
 
-/// Add an [`InputBuffer`] and a [`ActionDiffBuffer`] to newly controlled entities
+/// Add an [`InputBuffer`] to newly controlled entities
 fn add_action_state_buffer_added_input_map<A: LeafwingUserAction>(
     mut commands: Commands,
     entities: Query<
@@ -324,16 +297,6 @@ fn add_action_state_buffer_added_input_map<A: LeafwingUserAction>(
     for entity in entities.iter() {
         debug!("added action state buffer");
         commands.entity(entity).insert(InputBuffer::<A>::default());
-    }
-}
-
-/// Propagate toggle actions to the underlying leafwing plugin
-fn toggle_actions<A: LeafwingUserAction>(
-    config: Res<ToggleActions<A>>,
-    mut leafwing_config: ResMut<leafwing_input_manager::prelude::ToggleActions<A>>,
-) {
-    if config.is_changed() {
-        leafwing_config.enabled = config.enabled;
     }
 }
 
@@ -920,7 +883,7 @@ mod tests {
         stepper.frame_step();
         let input_buffer = stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .unwrap();
@@ -932,13 +895,13 @@ mod tests {
         // try releasing the key
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .release(KeyCode::KeyA);
         stepper.frame_step();
         let input_buffer = stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .unwrap();
@@ -958,7 +921,7 @@ mod tests {
         // press on a key
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyA);
         stepper.frame_step();
@@ -967,7 +930,7 @@ mod tests {
         // (we cannot use JustPressed because we start by ticking the ActionState)
         assert!(stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .unwrap()
@@ -978,7 +941,7 @@ mod tests {
         // after FixedUpdate runs, the ActionState should be stayed to the delayed action
         assert!(stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<ActionState<LeafwingInput1>>()
             .unwrap()
@@ -987,14 +950,14 @@ mod tests {
         // release the key
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .release(KeyCode::KeyA);
         // step another frame, this time we get the buffered input from earlier
         stepper.frame_step();
         let input_buffer = stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .unwrap();
@@ -1005,7 +968,7 @@ mod tests {
         // the ActionState outside of FixedUpdate is the delayed one
         assert!(stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<ActionState<LeafwingInput1>>()
             .unwrap()
@@ -1016,7 +979,7 @@ mod tests {
 
         assert!(stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .unwrap()
