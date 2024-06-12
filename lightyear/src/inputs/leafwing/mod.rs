@@ -6,9 +6,9 @@ use leafwing_input_manager::Actionlike;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-pub use input_buffer::InputMessage;
-
+pub(crate) mod action_diff;
 pub(crate) mod input_buffer;
+pub(crate) mod input_message;
 
 /// An enum that represents a list of user actions.
 ///

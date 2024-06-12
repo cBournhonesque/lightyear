@@ -21,7 +21,7 @@ use crate::server::visibility::immediate::VisibilityPlugin;
 use crate::server::visibility::room::RoomPlugin;
 use crate::shared::plugin::SharedPlugin;
 
-use super::config::{ReplicationConfig, ServerConfig};
+use super::config::ServerConfig;
 
 /// A plugin group containing all the server plugins.
 ///
@@ -41,6 +41,12 @@ pub struct ServerPlugins {
 
 impl ServerPlugins {
     pub fn new(config: ServerConfig) -> Self {
+        if config.shared.server_replication_send_interval != config.replication.send_interval {
+            error!(
+                "The config.shared.server_replication_send_interval {:?} is different from the config.replication.send_interval {:?}. This can cause issues. They should be set to the same value",
+                config.shared.server_replication_send_interval, config.replication.send_interval
+            );
+        }
         Self { config }
     }
 }
@@ -71,8 +77,6 @@ struct SetupPlugin {
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
         app
-            // REFLECTION
-            .register_type::<ReplicationConfig>()
             // RESOURCES //
             .insert_resource(self.config.clone());
         // PLUGINS

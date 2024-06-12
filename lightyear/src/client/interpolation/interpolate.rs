@@ -65,7 +65,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
 
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
     let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
-        * config.shared.server_send_interval.as_secs_f32()
+        * config.shared.server_replication_send_interval.as_secs_f32()
         / config.shared.tick.tick_duration.as_secs_f32()) as i16
         + 1;
 
@@ -222,7 +222,7 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
     // how many ticks between each interpolation update (add 1 to roughly take the ceil)
     // TODO: use something more precise, with the interpolation overstep?
     let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
-        * config.shared.server_send_interval.as_secs_f32()
+        * config.shared.server_replication_send_interval.as_secs_f32()
         / config.shared.tick.tick_duration.as_secs_f32()) as i16
         + 1;
     for (entity, status) in query.iter_mut() {

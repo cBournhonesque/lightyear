@@ -140,7 +140,7 @@ impl<R: ReplicationSend> Plugin for HierarchySendPlugin<R> {
                 Self::removal_system,
             )
                 // we don't need to run these every frame, only every send_interval
-                .in_set(InternalMainSet::<R::SetMarker>::Send)
+                .in_set(InternalReplicationSet::<R::SetMarker>::SendMessages)
                 // run before the replication-send systems
                 .before(InternalReplicationSet::<R::SetMarker>::All),
         );

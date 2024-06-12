@@ -13,7 +13,7 @@ use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
 use bevy::app::{App, RunFixedMainLoop};
-use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time, Timer, TimerMode};
+use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time};
 use bevy::time::Fixed;
 use bevy::utils::Duration;
 use bevy::utils::Instant;
@@ -23,32 +23,14 @@ pub use wrapped_time::WrappedTime;
 
 use crate::prelude::Tick;
 
-// TODO: put this in networking plugin instead?
-/// Run Condition to check if the server is ready to send packets
-pub(crate) fn is_server_ready_to_send(time_manager: Res<TimeManager>) -> bool {
-    time_manager.is_server_ready_to_send()
-}
-/// Run Condition to check if the client is ready to send packets
-pub(crate) fn is_client_ready_to_send(time_manager: Res<TimeManager>) -> bool {
-    time_manager.is_client_ready_to_send()
-}
-
 /// Plugin that will centralize information about the various times (real, virtual, fixed)
 /// as well as track when we should send updates to the remote
-pub(crate) struct TimePlugin {
-    /// Interval at which the server should send packets to the remote
-    pub(crate) server_send_interval: Duration,
-    /// Interval at which the client should send packets to the remote
-    pub(crate) client_send_interval: Duration,
-}
+pub(crate) struct TimePlugin;
 
 impl Plugin for TimePlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
-        app.insert_resource(TimeManager::new(
-            self.server_send_interval,
-            self.client_send_interval,
-        ));
+        app.insert_resource(TimeManager::default());
         // SYSTEMS
         app.add_systems(
             RunFixedMainLoop,
@@ -78,26 +60,18 @@ pub struct TimeManager {
     /// We speed up the virtual time so that our ticks go faster/slower
     /// Things that depend on real time (ping/pong times), channel/packet managers, send_interval should be unaffected
     pub(crate) sync_relative_speed: f32,
-    /// Timer to keep track of when the server should next send packets
-    server_send_timer: Option<Timer>,
-    /// Timer to keep track on we send the next update
-    client_send_timer: Option<Timer>,
     /// Instant at the start of the frame
     frame_start: Option<Instant>,
 }
 
 impl Default for TimeManager {
     fn default() -> Self {
-        Self::new(Duration::default(), Duration::default())
+        Self::new()
     }
 }
 
 impl TimeManager {
-    pub fn new(server_send_interval: Duration, client_send_interval: Duration) -> Self {
-        let server_send_timer = (server_send_interval != Duration::default())
-            .then_some(Timer::new(server_send_interval, TimerMode::Repeating));
-        let client_send_timer = (client_send_interval != Duration::default())
-            .then_some(Timer::new(client_send_interval, TimerMode::Repeating));
+    pub fn new() -> Self {
         Self {
             wrapped_time: WrappedTime::new(0),
             real_time: WrappedTime::new(0),
@@ -105,26 +79,8 @@ impl TimeManager {
             delta: Duration::default(),
             base_relative_speed: 1.0,
             sync_relative_speed: 1.0,
-            server_send_timer,
-            client_send_timer,
             frame_start: None,
         }
-    }
-
-    /// Returns true when the server should send packets
-    /// If there is no timer, send packets every frame
-    pub(crate) fn is_server_ready_to_send(&self) -> bool {
-        self.server_send_timer
-            .as_ref()
-            .map_or(true, |timer| timer.finished())
-    }
-
-    /// Returns true when the client should send packets
-    /// If there is no timer, send packets every frame
-    pub(crate) fn is_client_ready_to_send(&self) -> bool {
-        self.client_send_timer
-            .as_ref()
-            .map_or(true, |timer| timer.finished())
     }
 
     pub fn delta(&self) -> Duration {
@@ -149,12 +105,6 @@ impl TimeManager {
         self.delta = delta;
         self.wrapped_time.elapsed += delta;
         self.frame_start = Some(Instant::now());
-        if let Some(timer) = self.server_send_timer.as_mut() {
-            timer.tick(delta);
-        }
-        if let Some(timer) = self.client_send_timer.as_mut() {
-            timer.tick(delta);
-        }
     }
 
     // TODO: reuse time-real for this?

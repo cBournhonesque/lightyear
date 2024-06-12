@@ -1,13 +1,14 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
+use crate::inputs::leafwing::input_buffer::InputBuffer;
+use crate::inputs::leafwing::input_message::InputTarget;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputTarget};
-use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
+use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::server::MessageEvent;
-use crate::prelude::{is_started, MessageRegistry, Mode, TickManager};
+use crate::prelude::{is_started, InputMessage, MessageRegistry, Mode, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::server::config::ServerConfig;
@@ -77,34 +78,23 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     }
 }
 
-/// For each entity that has an action-state, insert an action-state-buffer
-/// that will store the value of the action-state for the last few ticks
-/// (we use a buffer because the client's inputs might arrive out of order)
+/// For each entity that has an action-state, insert an InputBuffer, to store
+/// the values of the ActionState for the ticks of the message
 fn add_action_diff_buffer<A: LeafwingUserAction>(
     mut commands: Commands,
-    action_state: Query<
-        Entity,
-        (
-            Added<ActionState<A>>,
-            Without<ActionDiffBuffer<A>>,
-            Without<InputMap<A>>,
-        ),
-    >,
+    action_state: Query<Entity, (Added<ActionState<A>>, Without<InputMap<A>>)>,
 ) {
     for entity in action_state.iter() {
-        commands
-            .entity(entity)
-            .insert(ActionDiffBuffer::<A>::default());
+        commands.entity(entity).insert(InputBuffer::<A>::default());
     }
 }
 
 /// Read the input messages from the server events to update the ActionDiffBuffers
 fn receive_input_message<A: LeafwingUserAction>(
-    // mut global: Option<ResMut<ActionDiffBuffer<A>>>,
     message_registry: Res<MessageRegistry>,
     mut connection_manager: ResMut<ConnectionManager>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
-    mut query: Query<&mut ActionDiffBuffer<A>>,
+    mut query: Query<&mut InputBuffer<A>>,
     mut events: EventWriter<MessageEvent<InputMessage<A>>>,
 ) {
     let kind = MessageKind::of::<InputMessage<A>>();
@@ -130,7 +120,8 @@ fn receive_input_message<A: LeafwingUserAction>(
                 ) {
                     Ok(message) => {
                         debug!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-                        for (target, diffs) in &message.diffs {
+                        // TODO: UPDATE THIS
+                        for (target, start, diffs) in &message.diffs {
                             match target {
                                 // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
                                 // (which is possible because the server received the entity)
@@ -140,8 +131,18 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 | InputTarget::PrePredictedEntity(entity) => {
                                     debug!("received input for entity: {:?}", entity);
                                     if let Ok(mut buffer) = query.get_mut(*entity) {
-                                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
-                                        buffer.update_from_message(message.end_tick, diffs);
+                                        debug!(
+                                            ?target,
+                                            "Update InputBuffer: {} using InputMessage: {}",
+                                            buffer.as_ref(),
+                                            message
+                                        );
+                                        buffer.update_from_message(message.end_tick, start, diffs);
+                                        // println!(
+                                        //     "received message: {}. input buffer: {}",
+                                        //     message,
+                                        //     buffer.as_ref()
+                                        // );
                                     } else {
                                         // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
                                         debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
@@ -185,110 +186,39 @@ fn receive_input_message<A: LeafwingUserAction>(
     }
 }
 
-/// Read the ActionDiff for the current tick from the buffer, and use them to update the ActionState
+/// Read the InputState for the current tick from the buffer, and use them to update the ActionState
 fn update_action_state<A: LeafwingUserAction>(
     tick_manager: Res<TickManager>,
     // global_input_buffer: Res<InputBuffer<A>>,
     // global_action_state: Option<ResMut<ActionState<A>>>,
-    mut action_state_query: Query<(Entity, &mut ActionState<A>, &mut ActionDiffBuffer<A>)>,
+    mut action_state_query: Query<(Entity, &mut ActionState<A>, &mut InputBuffer<A>)>,
 ) {
     let tick = tick_manager.tick();
 
-    for (entity, mut action_state, mut action_diff_buffer) in action_state_query.iter_mut() {
+    for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
         // the state on the server is only updated from client inputs!
-        trace!(
-            ?tick,
-            ?entity,
-            ?action_diff_buffer,
-            "action state: {:?}. Latest action diff buffer tick: {:?}",
-            &action_state.get_pressed(),
-            action_diff_buffer.end_tick(),
-        );
-        action_diff_buffer.pop(tick).into_iter().for_each(|diff| {
-            debug!(
-                ?tick,
-                ?entity,
-                "update action state using action diff: {:?}",
-                &diff
-            );
-            diff.apply(action_state.deref_mut());
-        });
-        debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update");
+        *action_state = input_buffer.pop(tick).unwrap_or_default();
+        debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bevy::input::InputPlugin;
-    use bevy::utils::Duration;
+    use super::*;
+    use crate::inputs::leafwing::input_buffer::InputBuffer;
     use leafwing_input_manager::prelude::ActionState;
 
-    use crate::inputs::leafwing::input_buffer::{ActionDiff, InputBuffer};
     use crate::prelude::client;
-    use crate::prelude::client::{
-        InterpolationConfig, LeafwingInputConfig, PredictionConfig, SyncConfig,
-    };
     use crate::prelude::server::*;
-    use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-
-    use super::*;
 
     #[test]
     fn test_leafwing_inputs() {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_max_level(tracing::Level::INFO)
         //     .init();
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default();
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
-        #[cfg(feature = "leafwing")]
-        {
-            // NOTE: the test doesn't work with send_diffs_only = True; maybe because leafwing's
-            //  tick-action uses Time<Real>?
-            let config = LeafwingInputConfig {
-                send_diffs_only: false,
-                ..default()
-            };
-            stepper
-                .client_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1> {
-                    config: config.clone(),
-                });
-            stepper
-                .client_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
-            stepper
-                .server_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1> {
-                    config: config.clone(),
-                });
-            stepper
-                .server_app
-                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
-        }
-        stepper.client_app.add_plugins(InputPlugin);
-        stepper.init();
+        let mut stepper = BevyStepper::default();
 
         // create an entity on server
         let server_entity = stepper
@@ -308,7 +238,7 @@ mod tests {
             .server_app
             .world()
             .entity(server_entity)
-            .get::<ActionDiffBuffer<LeafwingInput1>>()
+            .get::<InputBuffer<LeafwingInput1>>()
             .is_some());
 
         // check that the entity is replicated
@@ -354,19 +284,19 @@ mod tests {
         stepper.frame_step();
         // client tick when we send the Jump action
         let client_tick = stepper.client_tick();
-        // we should have sent an InputMessage from client to server
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<ActionDiffBuffer<LeafwingInput1>>()
-                .unwrap()
-                .get(client_tick),
-            vec![ActionDiff::Pressed {
-                action: LeafwingInput1::Jump
-            }]
-        );
+        // TODO: this test sometimes fails because the ActionState is not updated even after we call stepper.frame_step()
+        //  i.e. action_state.get_pressed().is_empty()
+        // we should have sent an InputMessage from client to server, and updated the input buffer on the server
+        // for the client's tick
+        assert!(stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap()
+            .get(client_tick)
+            .unwrap()
+            .pressed(&LeafwingInput1::Jump));
         stepper
             .client_app
             .world_mut()
@@ -375,17 +305,14 @@ mod tests {
         // TODO: how come I need to frame_step() twice to see the release action?
         debug!("before release");
         stepper.frame_step();
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<ActionDiffBuffer<LeafwingInput1>>()
-                .unwrap()
-                .get(client_tick + 1),
-            vec![ActionDiff::Released {
-                action: LeafwingInput1::Jump
-            }]
-        );
+        assert!(stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .unwrap()
+            .get(client_tick + 1)
+            .unwrap()
+            .released(&LeafwingInput1::Jump));
     }
 }

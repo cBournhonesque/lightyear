@@ -27,7 +27,6 @@ use crate::shared::replication::components::Replicated;
 use crate::shared::run_conditions;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
-use crate::shared::time_manager::is_client_ready_to_send;
 use crate::transport::io::IoState;
 
 #[derive(Default)]
@@ -60,20 +59,10 @@ impl Plugin for ClientNetworkingPlugin {
                 // we don't send packets every frame, but on a timer instead
                 (
                     SyncSet,
-                    InternalMainSet::<ClientMarker>::Send
-                        .in_set(MainSet::Send)
-                        .run_if(is_client_ready_to_send),
+                    InternalMainSet::<ClientMarker>::Send.in_set(MainSet::Send),
                 )
                     .run_if(not(is_host_server.or_else(run_conditions::is_disconnected)))
                     .chain(),
-            )
-            .configure_sets(
-                PostUpdate,
-                // send packets is when we call the actual `send` system, it's inside
-                // the `Send` system-sets so that we can run it less frequently than every frame
-                InternalMainSet::<ClientMarker>::SendPackets
-                    .in_set(InternalMainSet::<ClientMarker>::Send)
-                    .in_set(MainSet::SendPackets),
             )
             // SYSTEMS
             .add_systems(
@@ -91,7 +80,7 @@ impl Plugin for ClientNetworkingPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    send.in_set(InternalMainSet::<ClientMarker>::SendPackets),
+                    send.in_set(InternalMainSet::<ClientMarker>::Send),
                     // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
                     sync_update.in_set(SyncSet),
                 ),
@@ -201,12 +190,6 @@ pub(crate) fn send(
     mut connection: ResMut<ConnectionManager>,
 ) {
     trace!("Send packets to server");
-    // finalize any packets that are needed for replication
-    connection
-        .buffer_replication_messages(tick_manager.tick(), system_change_tick.this_run())
-        .unwrap_or_else(|e| {
-            error!("Error preparing replicate send: {}", e);
-        });
     // SEND_PACKETS: send buffered packets to io
     let packet_bytes = connection
         .send_packets(time_manager.as_ref(), tick_manager.as_ref())
@@ -244,7 +227,8 @@ pub(crate) fn sync_update(
         tick_manager.deref_mut(),
         &connection.ping_manager,
         &config.interpolation.delay,
-        config.shared.server_send_interval,
+        // TODO: how to adjust this for replication groups that have a custom send_interval?
+        config.shared.server_replication_send_interval,
     ) {
         tick_events.send(tick_event);
     }

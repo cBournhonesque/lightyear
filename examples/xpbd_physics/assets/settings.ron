@@ -1,5 +1,5 @@
 MySettings(
-  input_delay_ticks: 3,
+  input_delay_ticks: 10,
   correction_ticks_factor: 1.5,
   predict_all: true,
   show_confirmed: false,

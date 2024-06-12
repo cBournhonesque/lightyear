@@ -11,7 +11,6 @@ use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, DisconnectEvent};
 use crate::server::io::ServerIoEvent;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
-use crate::shared::time_manager::is_server_ready_to_send;
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::*;
@@ -46,15 +45,7 @@ impl Plugin for ServerNetworkingPlugin {
             )
             .configure_sets(
                 PostUpdate,
-                (
-                    // we don't send packets every frame, but on a timer instead
-                    InternalMainSet::<ServerMarker>::Send
-                        .in_set(MainSet::Send)
-                        .run_if(is_started.and_then(is_server_ready_to_send)),
-                    InternalMainSet::<ServerMarker>::SendPackets
-                        .in_set(MainSet::SendPackets)
-                        .in_set(InternalMainSet::<ServerMarker>::Send),
-                ),
+                InternalMainSet::<ServerMarker>::Send.in_set(MainSet::Send),
             )
             // SYSTEMS //
             .add_systems(
@@ -63,7 +54,7 @@ impl Plugin for ServerNetworkingPlugin {
             )
             .add_systems(
                 PostUpdate,
-                send.in_set(InternalMainSet::<ServerMarker>::SendPackets),
+                send.in_set(InternalMainSet::<ServerMarker>::Send),
             );
 
         // STARTUP
@@ -232,13 +223,6 @@ pub(crate) fn send(
     time_manager: Res<TimeManager>,
 ) {
     trace!("Send packets to clients");
-    // finalize any packets that are needed for replication
-    connection_manager
-        .buffer_replication_messages(tick_manager.tick(), change_tick.this_run())
-        .unwrap_or_else(|e| {
-            error!("Error preparing replicate send: {}", e);
-        });
-
     // SEND_PACKETS: send buffered packets to io
     let span = info_span!("send_packets").entered();
     connection_manager
@@ -263,10 +247,6 @@ pub(crate) fn send(
         .unwrap_or_else(|e: ServerError| {
             error!("Error sending packets: {}", e);
         });
-
-    // clear the list of newly connected clients
-    // (cannot just use the ConnectionEvent because it is cleared after each frame)
-    connection_manager.new_clients.clear();
 }
 
 /// Bevy [`State`] representing the networking state of the server.

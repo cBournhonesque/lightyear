@@ -14,7 +14,7 @@ use lightyear::prelude::*;
 use lightyear::shared::log::add_log_layer;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use crate::shared::SharedPlugin;
+use crate::shared::{shared_config, SharedPlugin, SERVER_REPLICATION_INTERVAL};
 
 pub(crate) const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 5000);
 
@@ -37,10 +37,15 @@ fn build_server_plugin() -> ServerPlugins {
     };
     let config = ServerConfig {
         // part of the config needs to be shared between the client and server
-        shared: SharedConfig::default(),
+        shared: shared_config(),
         // we can specify multiple net configs here, and the server will listen on all of them
         // at the same time. Here we will only use one
         net: vec![net_config],
+        replication: ReplicationConfig {
+            // we will send updates to the clients every 100ms
+            send_interval: SERVER_REPLICATION_INTERVAL,
+            ..default()
+        },
         ..default()
     };
     ServerPlugins::new(config)

@@ -54,11 +54,11 @@ pub(crate) mod send {
 
     use crate::connection::client::ClientConnection;
 
-    use crate::prelude::client::NetClient;
+    use crate::prelude::client::{ClientConfig, NetClient};
 
     use crate::prelude::{
         is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy,
-        Replicated, ReplicationGroup, TargetEntity, Tick, TickManager,
+        Replicated, ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
 
@@ -76,12 +76,19 @@ pub(crate) mod send {
 
     impl Plugin for ClientReplicationSendPlugin {
         fn build(&self, app: &mut App) {
+            let send_interval = app
+                .world
+                .resource::<ClientConfig>()
+                .replication
+                .send_interval;
+
             app
                 // REFLECTION
                 .register_type::<Replicate>()
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
+                    send_interval,
                 ))
                 // SETS
                 .configure_sets(
@@ -113,7 +120,7 @@ pub(crate) mod send {
                         send_entity_despawn.in_set(
                             InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals,
                         ),
-                        handle_replicating_add
+                        (handle_replicating_add, buffer_replication_messages)
                             .in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
                         add_replicated_component_host_server.run_if(is_host_server),
                     ),
@@ -172,6 +179,24 @@ pub(crate) mod send {
         pub(crate) replication_group: ReplicationGroup,
     }
 
+    /// Buffer the replication messages into channels
+    fn buffer_replication_messages(
+        change_tick: SystemChangeTick,
+        mut connection_manager: ResMut<ConnectionManager>,
+        tick_manager: Res<TickManager>,
+        time_manager: Res<TimeManager>,
+    ) {
+        connection_manager
+            .buffer_replication_messages(
+                tick_manager.tick(),
+                change_tick.this_run(),
+                time_manager.as_ref(),
+            )
+            .unwrap_or_else(|e| {
+                error!("Error preparing replicate send: {}", e);
+            });
+    }
+
     /// For every entity that removes their ReplicationTarget component but are not despawned, remove the component
     /// from our replicate cache (so that the entity's despawns are no longer replicated)
     pub(crate) fn handle_replicating_remove(
@@ -206,7 +231,7 @@ pub(crate) mod send {
             sender.replicate_component_cache.insert(
                 entity,
                 ReplicateCache {
-                    replication_group: *group,
+                    replication_group: group.clone(),
                 },
             );
         }
@@ -272,6 +297,13 @@ pub(crate) mod send {
             // 3. go through all entities of that archetype
             for entity in archetype.entities() {
                 let entity_ref = world.entity(entity.id());
+                let group = entity_ref.get::<ReplicationGroup>();
+
+                let group_id = group.map_or(ReplicationGroupId::default(), |g| {
+                    g.group_id(Some(entity.id()))
+                });
+                let priority = group.map_or(1.0, |g| g.priority());
+                let target_entity = entity_ref.get::<TargetEntity>();
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
                 let replication_target_ticks = unsafe {
@@ -281,12 +313,6 @@ pub(crate) mod send {
                 };
                 let replication_is_changed = replication_target_ticks
                     .is_changed(system_ticks.last_run(), system_ticks.this_run());
-                let group = entity_ref.get::<ReplicationGroup>();
-                let group_id = group.map_or(ReplicationGroupId::default(), |g| {
-                    g.group_id(Some(entity.id()))
-                });
-                let priority = group.map_or(1.0, |g| g.priority());
-                let target_entity = entity_ref.get::<TargetEntity>();
 
                 // b. add entity despawns from ReplicateToServer component being removed
                 // replicate_entity_despawn(
@@ -306,6 +332,11 @@ pub(crate) mod send {
                         target_entity,
                         &mut sender,
                     );
+                }
+
+                // If the group is not set to send, skip this entity
+                if group.is_some_and(|g| !g.should_send) {
+                    continue;
                 }
 
                 // d. all components that were added or changed
@@ -901,6 +932,72 @@ pub(crate) mod send {
                 &Component1(2.0)
             )
         }
+
+        // TODO: hard to test because we need to wait a few ticks on the server..
+        //  maybe disable sync for tests?
+        // #[test]
+        // fn test_component_update_send_frequency() {
+        //     let mut stepper = BevyStepper::default();
+        //
+        //     // spawn an entity on server
+        //     let client_entity = stepper
+        //         .client_app
+        //         .world
+        //         .spawn((
+        //             Replicate {
+        //                 // replicate every 4 ticks
+        //                 group: ReplicationGroup::new_from_entity()
+        //                     .set_send_frequency(Duration::from_millis(40)),
+        //                 ..default()
+        //             },
+        //             Component1(1.0),
+        //         ))
+        //         .id();
+        //     stepper.frame_step();
+        //     stepper.frame_step();
+        //     let server_entity = *stepper
+        //         .server_app
+        //         .world
+        //         .resource::<server::ConnectionManager>()
+        //         .connection(ClientId::Netcode(TEST_CLIENT_ID))
+        //         .unwrap()
+        //         .replication_receiver
+        //         .remote_entity_map
+        //         .get_local(client_entity)
+        //         .expect("entity was not replicated to client");
+        //
+        //     // update component
+        //     stepper
+        //         .client_app
+        //         .world
+        //         .entity_mut(client_entity)
+        //         .insert(Component1(2.0));
+        //     stepper.frame_step();
+        //     stepper.frame_step();
+        //
+        //     // check that the component was not updated (because it had been only three ticks)
+        //     assert_eq!(
+        //         stepper
+        //             .server_app
+        //             .world
+        //             .entity(server_entity)
+        //             .get::<Component1>()
+        //             .expect("component missing"),
+        //         &Component1(1.0)
+        //     );
+        //     // it has been 4 ticks, the component was updated
+        //     stepper.frame_step();
+        //     // check that the component was not updated (because it had been only two ticks)
+        //     assert_eq!(
+        //         stepper
+        //             .server_app
+        //             .world
+        //             .entity(server_entity)
+        //             .get::<Component1>()
+        //             .expect("component missing"),
+        //         &Component1(2.0)
+        //     );
+        // }
 
         #[test]
         fn test_component_update_disabled() {

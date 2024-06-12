@@ -1,3 +1,5 @@
+use bevy::time::{Timer, TimerMode};
+use bevy::utils::Duration;
 use std::collections::VecDeque;
 
 use bytes::Bytes;
@@ -12,7 +14,7 @@ use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
 /// A sender that simply sends the messages without checking if they were received
-/// Same as UnorderedUnreliableSender, but includes ordering information
+/// Same as UnorderedUnreliableSender, but includes ordering information (MessageId)
 pub struct SequencedUnreliableSender {
     /// list of single messages that we want to fit into packets and send
     single_messages_to_send: VecDeque<SendMessage>,
@@ -25,22 +27,34 @@ pub struct SequencedUnreliableSender {
     fragment_sender: FragmentSender,
     /// List of senders that want to be notified when a message is lost
     nack_senders: Vec<Sender<MessageId>>,
+    /// Internal timer to determine if the channel is ready to send messages
+    timer: Option<Timer>,
 }
 
 impl SequencedUnreliableSender {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(send_frequency: Duration) -> Self {
+        let timer = if send_frequency == Duration::default() {
+            None
+        } else {
+            Some(Timer::new(send_frequency, TimerMode::Repeating))
+        };
         Self {
             single_messages_to_send: VecDeque::new(),
             fragmented_messages_to_send: VecDeque::new(),
             next_send_message_id: MessageId(0),
             fragment_sender: FragmentSender::new(),
             nack_senders: vec![],
+            timer,
         }
     }
 }
 
 impl ChannelSend for SequencedUnreliableSender {
-    fn update(&mut self, _: &TimeManager, _: &PingManager, _: &TickManager) {}
+    fn update(&mut self, time_manager: &TimeManager, _: &PingManager, _: &TickManager) {
+        if let Some(timer) = &mut self.timer {
+            timer.tick(time_manager.delta());
+        }
+    }
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
@@ -74,6 +88,9 @@ impl ChannelSend for SequencedUnreliableSender {
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
     fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
+        if self.timer.as_ref().is_some_and(|t| !t.finished()) {
+            return (VecDeque::new(), VecDeque::new());
+        }
         (
             std::mem::take(&mut self.single_messages_to_send),
             std::mem::take(&mut self.fragmented_messages_to_send),
@@ -84,14 +101,7 @@ impl ChannelSend for SequencedUnreliableSender {
         // self.messages_to_send = remaining_messages_to_send;
     }
 
-    // not necessary for an unreliable sender (all the buffered messages can be sent)
-    fn collect_messages_to_send(&mut self) {}
-
     fn receive_ack(&mut self, _message_ack: &MessageAck) {}
-
-    fn has_messages_to_send(&self) -> bool {
-        !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()
-    }
 
     fn subscribe_acks(&mut self) -> Receiver<MessageId> {
         unreachable!()
@@ -115,8 +125,30 @@ impl ChannelSend for SequencedUnreliableSender {
 
 #[cfg(test)]
 mod tests {
-    // #[test]
-    // fn test_sequenced_unreliable_sender_internals() {
-    //     todo!()
-    // }
+    use super::*;
+    use crate::prelude::{PingConfig, TickConfig};
+    #[test]
+    fn test_sequenced_unreliable_sender_internals() {
+        let mut sender = SequencedUnreliableSender::new(Duration::from_secs(1));
+        assert!(sender.timer.as_ref().is_some_and(|t| !t.finished()));
+
+        sender.buffer_send(Bytes::from("hello"), 1.0).unwrap();
+
+        // we do not send because we didn't reach the timer
+        let (single, _) = sender.send_packet();
+        assert!(single.is_empty());
+
+        // update with a delta of 1 second
+        let mut time_manager = TimeManager::default();
+        time_manager.update(Duration::from_secs(1));
+        sender.update(
+            &time_manager,
+            &PingManager::new(PingConfig::default()),
+            &TickManager::from_config(TickConfig::new(Duration::from_secs(1))),
+        );
+
+        // this time, we send the packet
+        let (single, _) = sender.send_packet();
+        assert_eq!(single.len(), 1);
+    }
 }

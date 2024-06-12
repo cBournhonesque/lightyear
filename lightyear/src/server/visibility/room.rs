@@ -54,7 +54,7 @@ use crate::prelude::is_started;
 
 use crate::server::visibility::immediate::{VisibilityManager, VisibilitySet};
 use crate::shared::replication::components::DespawnTracker;
-use crate::shared::sets::{InternalMainSet, ServerMarker};
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
@@ -163,7 +163,7 @@ impl Plugin for RoomPlugin {
                     RoomSystemSets::UpdateReplicationCaches,
                     RoomSystemSets::RoomBookkeeping,
                 )
-                    .in_set(InternalMainSet::<ServerMarker>::Send), // .run_if(is_server_ready_to_send),
+                    .in_set(InternalReplicationSet::<ServerMarker>::SendMessages), // .run_if(is_server_ready_to_send),
             ),
         );
         // SYSTEMS

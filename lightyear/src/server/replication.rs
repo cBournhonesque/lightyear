@@ -21,6 +21,8 @@ pub enum ServerReplicationSet {
     ClientReplication,
 }
 
+pub type ReplicationSet = InternalReplicationSet<ServerMarker>;
+
 pub(crate) mod receive {
     use super::*;
 
@@ -52,7 +54,7 @@ pub(crate) mod send {
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent,
         ReplicateHierarchy, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager,
-        VisibilityMode,
+        TimeManager, VisibilityMode,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
@@ -76,7 +78,11 @@ pub(crate) mod send {
 
     impl Plugin for ServerReplicationSendPlugin {
         fn build(&self, app: &mut App) {
-            let config = app.world().resource::<ServerConfig>();
+            let send_interval = app
+                .world
+                ().resource::<ServerConfig>()
+                .replication
+                .send_interval;
 
             app
                 // REFLECTION
@@ -84,6 +90,7 @@ pub(crate) mod send {
                 // PLUGIN
                 .add_plugins(ReplicationSendPlugin::<ConnectionManager>::new(
                     self.tick_interval,
+                    send_interval,
                 ))
                 // SYSTEM SETS
                 .configure_sets(
@@ -125,7 +132,11 @@ pub(crate) mod send {
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates),
                     replicate_entity_local_despawn
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferDespawnsAndRemovals),
-                    (handle_replicating_add, handle_replication_target_update)
+                    (
+                        handle_replicating_add,
+                        handle_replication_target_update,
+                        buffer_replication_messages,
+                    )
                         .in_set(InternalReplicationSet::<ServerMarker>::AfterBuffer),
                 ),
             );
@@ -133,7 +144,7 @@ pub(crate) mod send {
             app.add_systems(
                 PostUpdate,
                 add_prediction_interpolation_components
-                    .after(InternalMainSet::<ServerMarker>::Send)
+                    // .after(InternalMainSet::<ServerMarker>::SendMessages)
                     .run_if(is_host_server),
             );
         }
@@ -229,6 +240,29 @@ pub(crate) mod send {
         /// How should the hierarchy of the entity (parents/children) be replicated?
         pub hierarchy: ReplicateHierarchy,
         pub marker: Replicating,
+    }
+
+    /// Buffer the replication messages into channels
+    fn buffer_replication_messages(
+        change_tick: SystemChangeTick,
+        mut connection_manager: ResMut<ConnectionManager>,
+        tick_manager: Res<TickManager>,
+        time_manager: Res<TimeManager>,
+    ) {
+        connection_manager
+            .buffer_replication_messages(
+                tick_manager.tick(),
+                change_tick.this_run(),
+                time_manager.as_ref(),
+            )
+            .unwrap_or_else(|e| {
+                error!("Error preparing replicate send: {}", e);
+            });
+        // TODO: how to handle this for replication groups that update less frequently?
+        //  only component updates should update less frequently, but entity spawns/removals
+        //  should be sent with the same frequency!
+        // clear the list of newly connected clients
+        connection_manager.new_clients.clear();
     }
 
     /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities
@@ -328,7 +362,7 @@ pub(crate) mod send {
             commands.entity(entity).insert(DespawnTracker);
             let despawn_metadata = ReplicateCache {
                 replication_target: replication_target.target.clone(),
-                replication_group: *group,
+                replication_group: group.clone(),
                 visibility_mode: *visibility_mode,
                 replication_clients_cache: vec![],
             };
@@ -375,6 +409,16 @@ pub(crate) mod send {
             // 3. go through all entities of that archetype
             for entity in archetype.entities() {
                 let entity_ref = world.entity(entity.id());
+                let group = entity_ref.get::<ReplicationGroup>();
+
+                let group_id = group.map_or(ReplicationGroupId::default(), |g| {
+                    g.group_id(Some(entity.id()))
+                });
+                let priority = group.map_or(1.0, |g| g.priority());
+                let visibility = entity_ref.get::<ReplicateVisibility>();
+                let sync_target = entity_ref.get::<SyncTarget>();
+                let target_entity = entity_ref.get::<TargetEntity>();
+                let controlled_by = entity_ref.get::<ControlledBy>();
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
                 let replication_target =
@@ -397,15 +441,6 @@ pub(crate) mod send {
                     system_ticks.last_run(),
                     system_ticks.this_run(),
                 );
-                let group = entity_ref.get::<ReplicationGroup>();
-                let group_id = group.map_or(ReplicationGroupId::default(), |g| {
-                    g.group_id(Some(entity.id()))
-                });
-                let priority = group.map_or(1.0, |g| g.priority());
-                let visibility = entity_ref.get::<ReplicateVisibility>();
-                let sync_target = entity_ref.get::<SyncTarget>();
-                let target_entity = entity_ref.get::<TargetEntity>();
-                let controlled_by = entity_ref.get::<ControlledBy>();
 
                 // b. add entity despawns from visibility or target change
                 replicate_entity_despawn(
@@ -430,6 +465,11 @@ pub(crate) mod send {
                     &mut sender,
                     &system_ticks,
                 );
+
+                // If the group is not set to send, skip sending updates for this entity
+                if group.is_some_and(|g| !g.should_send) {
+                    continue;
+                }
 
                 // d. all components that were added or changed
                 for replicated_component in replicated_archetype.components.iter() {
@@ -1876,6 +1916,68 @@ pub(crate) mod send {
         }
 
         #[test]
+        fn test_component_update_send_frequency() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world
+                .spawn((
+                    Replicate {
+                        // replicate every 4 ticks
+                        group: ReplicationGroup::new_from_entity()
+                            .set_send_frequency(Duration::from_millis(40)),
+                        ..default()
+                    },
+                    Component1(1.0),
+                ))
+                .id();
+            stepper.frame_step();
+            stepper.frame_step();
+            let client_entity = *stepper
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+
+            // update component
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .insert(Component1(2.0));
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the component was not updated (because it had been only three ticks)
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component1>()
+                    .expect("component missing"),
+                &Component1(1.0)
+            );
+            // it has been 4 ticks, the component was updated
+            stepper.frame_step();
+            // check that the component was not updated (because it had been only two ticks)
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component1>()
+                    .expect("component missing"),
+                &Component1(2.0)
+            );
+        }
+
+        #[test]
         fn test_component_update_delta() {
             let mut stepper = BevyStepper::default();
 
@@ -2750,10 +2852,7 @@ pub(crate) mod commands {
     mod tests {
         use bevy::utils::Duration;
 
-        use crate::client::sync::SyncConfig;
-        use crate::prelude::client::{InterpolationConfig, PredictionConfig};
         use crate::prelude::server::Replicate;
-        use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, Step};
 
@@ -2764,27 +2863,7 @@ pub(crate) mod commands {
         fn test_despawn() {
             let tick_duration = Duration::from_millis(10);
             let frame_duration = Duration::from_millis(10);
-            let shared_config = SharedConfig {
-                tick: TickConfig::new(tick_duration),
-                ..Default::default()
-            };
-            let link_conditioner = LinkConditionerConfig {
-                incoming_latency: Duration::from_millis(0),
-                incoming_jitter: Duration::from_millis(0),
-                incoming_loss: 0.0,
-            };
-            let sync_config = SyncConfig::default().speedup_factor(1.0);
-            let prediction_config = PredictionConfig::default();
-            let interpolation_config = InterpolationConfig::default();
-            let mut stepper = BevyStepper::new(
-                shared_config,
-                sync_config,
-                prediction_config,
-                interpolation_config,
-                link_conditioner,
-                frame_duration,
-            );
-            stepper.init();
+            let mut stepper = BevyStepper::default();
 
             let entity = stepper
                 .server_app

@@ -1,6 +1,7 @@
 //! Components used for replication
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{Component, Entity, Reflect};
+use bevy::time::{Timer, TimerMode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 
@@ -180,13 +181,29 @@ pub enum ReplicationGroupIdBuilder {
 ///
 /// If multiple entities are part of the same replication group, they will be sent together in the same message.
 /// It is guaranteed that these entities will be updated at the same time on the remote world.
-#[derive(Component, Debug, Copy, Clone, PartialEq, Reflect)]
+#[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ReplicationGroup {
     id_builder: ReplicationGroupIdBuilder,
     /// the priority of the accumulation group
     /// (priority will get reset to this value every time a message gets sent successfully)
     base_priority: f32,
+    /// Keep track of whether we should send replication updates for this group.
+    ///
+    /// See [`ReplicationGroup::set_send_frequency`] for more information.
+    pub(crate) send_frequency: Option<Timer>,
+    /// Is true if we should send replication updates for this group.
+    ///
+    /// The interaction with `send_frequency` is as follows:
+    /// Time:               0    10   20    30    40    50    60    70    80    90    100
+    /// GroupTimer(30ms):   X               X                 X                 X
+    /// SendInterval(20ms): X          X          X           X           X           X
+    ///
+    /// At 40ms, 60ms and 100ms, we will buffer the replication updates for the group.
+    /// (We do not buffer the updates exactly at 30ms, 60ms, 90ms; instead we wait for the next send_interval.
+    /// This is to avoid having to track the send_tick for each replication group separately)
+    // TODO: maybe buffer the updates exactly at 30ms, 60ms, 90ms and include the send_tick in the message?
+    pub(crate) should_send: bool,
 }
 
 impl Default for ReplicationGroup {
@@ -194,6 +211,8 @@ impl Default for ReplicationGroup {
         Self {
             id_builder: ReplicationGroupIdBuilder::FromEntity,
             base_priority: 1.0,
+            send_frequency: None,
+            should_send: true,
         }
     }
 }
@@ -203,6 +222,8 @@ impl ReplicationGroup {
         Self {
             id_builder: ReplicationGroupIdBuilder::FromEntity,
             base_priority: 1.0,
+            send_frequency: None,
+            should_send: true,
         }
     }
 
@@ -210,6 +231,8 @@ impl ReplicationGroup {
         Self {
             id_builder: ReplicationGroupIdBuilder::Group(id),
             base_priority: 1.0,
+            send_frequency: None,
+            should_send: true,
         }
     }
 
@@ -233,6 +256,19 @@ impl ReplicationGroup {
 
     pub fn set_id(mut self, id: u64) -> Self {
         self.id_builder = ReplicationGroupIdBuilder::Group(id);
+        self
+    }
+
+    /// Sets the send frequency for this [`ReplicationGroup`]
+    ///
+    /// Any replication updates related to this group will only be buffered at the specified frequency.
+    /// It is INCORRECT to set the send_frequency to be more frequent than the sender's send_interval.
+    ///
+    /// This can be useful to send updates for a group of entities less frequently than the default send_interval.
+    /// For example the send_interval could be 30Hz, but you could set the send_frequency to 10Hz for a group of entities
+    /// to buffer updates less frequently.
+    pub fn set_send_frequency(mut self, send_frequency: bevy::utils::Duration) -> Self {
+        self.send_frequency = Some(Timer::new(send_frequency, TimerMode::Repeating));
         self
     }
 }

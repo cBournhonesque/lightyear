@@ -27,7 +27,6 @@ pub(crate) struct PlayerBundle {
     color: PlayerColor,
     replicate: Replicate,
     action_state: ActionState<Inputs>,
-    action_state_override_target: OverrideTargetComponent<ActionState<Inputs>>,
 }
 
 impl PlayerBundle {
@@ -51,12 +50,6 @@ impl PlayerBundle {
             color: PlayerColor(color),
             replicate,
             action_state: ActionState::default(),
-            // We don't want to replicate the ActionState to the original client, since they are updating it with
-            // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-            // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-            action_state_override_target: OverrideTargetComponent::new(
-                NetworkTarget::AllExceptSingle(id),
-            ),
         }
     }
     pub(crate) fn get_input_map() -> InputMap<Inputs> {

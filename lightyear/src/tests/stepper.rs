@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::ecs::system::RunSystemOnce;
+use bevy::input::InputPlugin;
 use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
@@ -10,7 +11,7 @@ use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig,
+    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig, NetConfig,
     PredictionConfig, SyncConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
@@ -46,22 +47,9 @@ impl Default for BevyStepper {
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default();
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = Self::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
+        let client_config = ClientConfig::default();
+
+        let mut stepper = Self::new(shared_config, client_config, frame_duration);
         stepper.init();
         stepper
     }
@@ -71,10 +59,7 @@ impl Default for BevyStepper {
 impl BevyStepper {
     pub fn new(
         shared_config: SharedConfig,
-        sync_config: SyncConfig,
-        prediction_config: PredictionConfig,
-        interpolation_config: InterpolationConfig,
-        conditioner: LinkConditionerConfig,
+        mut client_config: ClientConfig,
         frame_duration: Duration,
     ) -> Self {
         // tracing_subscriber::FmtSubscriber::builder()
@@ -86,16 +71,22 @@ impl BevyStepper {
         // channels to receive a message from/to server
         let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
         let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
-        let client_io = client::IoConfig::from_transport(ClientTransport::LocalChannel {
+        let mut client_io = client::IoConfig::from_transport(ClientTransport::LocalChannel {
             send: to_server_send,
             recv: from_server_recv,
-        })
-        .with_conditioner(conditioner.clone());
+        });
 
-        let server_io = server::IoConfig::from_transport(ServerTransport::Channels {
+        let mut server_io = server::IoConfig::from_transport(ServerTransport::Channels {
             channels: vec![(addr, to_server_recv, from_server_send)],
-        })
-        .with_conditioner(conditioner.clone());
+        });
+
+        let NetConfig::Netcode { io, .. } = client_config.net else {
+            panic!("Only Netcode transport is supported in tests");
+        };
+        if let Some(conditioner) = io.conditioner {
+            server_io = server_io.with_conditioner(conditioner.clone());
+            client_io = client_io.with_conditioner(conditioner.clone());
+        }
 
         // Shared config
         let protocol_id = 0;
@@ -136,21 +127,26 @@ impl BevyStepper {
             config: Default::default(),
             io: client_io,
         };
-        let config = ClientConfig {
-            shared: shared_config.clone(),
-            net: net_config,
-            sync: sync_config,
-            prediction: prediction_config,
-            interpolation: interpolation_config,
-            ping: PingConfig {
-                // send pings every tick, so that the acks are received every frame
-                ping_interval: Duration::default(),
-                ..default()
-            },
+
+        client_config.shared = shared_config.clone();
+        client_config.ping = PingConfig {
+            // send pings every tick, so that the acks are received every frame
+            ping_interval: Duration::default(),
             ..default()
         };
-        let plugin = client::ClientPlugins::new(config);
+        client_config.net = net_config;
+
+        let plugin = client::ClientPlugins::new(client_config);
         client_app.add_plugins((plugin, ProtocolPlugin));
+
+        #[cfg(feature = "leafwing")]
+        {
+            client_app.add_plugins(LeafwingInputPlugin::<LeafwingInput1>::default());
+            client_app.add_plugins(LeafwingInputPlugin::<LeafwingInput2>::default());
+            server_app.add_plugins(LeafwingInputPlugin::<LeafwingInput1>::default());
+            server_app.add_plugins(LeafwingInputPlugin::<LeafwingInput2>::default());
+            client_app.add_plugins(InputPlugin);
+        }
 
         // Initialize Real time (needed only for the first TimeSystem run)
         let now = bevy::utils::Instant::now();

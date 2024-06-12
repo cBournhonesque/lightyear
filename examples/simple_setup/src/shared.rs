@@ -8,17 +8,17 @@ use lightyear::shared::config::Mode;
 
 pub const FIXED_TIMESTEP_HZ: f64 = 64.0;
 
+pub const SERVER_REPLICATION_INTERVAL: Duration = Duration::from_millis(100);
+
 /// The [`SharedConfig`] must be shared between the `ClientConfig` and `ServerConfig`
-pub fn shared_config(mode: Mode) -> SharedConfig {
+pub fn shared_config() -> SharedConfig {
     SharedConfig {
-        // send an update every frame
-        client_send_interval: Duration::default(),
         // send an update every 100ms
-        server_send_interval: Duration::from_millis(100),
+        server_replication_send_interval: SERVER_REPLICATION_INTERVAL,
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
-        mode,
+        mode: Mode::Separate,
     }
 }
 

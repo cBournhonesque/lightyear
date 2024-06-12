@@ -184,13 +184,12 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
 
 #[cfg(test)]
 mod tests {
+    use crate::client::config::ClientConfig;
     use approx::assert_relative_eq;
     use bevy::prelude::*;
     use bevy::utils::Duration;
 
-    use crate::client::sync::SyncConfig;
-    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::prelude::{SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
@@ -204,22 +203,8 @@ mod tests {
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default();
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
+        // we create the stepper manually to not run init()
+        let mut stepper = BevyStepper::new(shared_config, ClientConfig::default(), frame_duration);
         stepper
             .client_app
             .add_systems(FixedUpdate, fixed_update_increment);

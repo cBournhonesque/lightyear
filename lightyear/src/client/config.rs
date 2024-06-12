@@ -11,6 +11,7 @@ use crate::client::sync::SyncConfig;
 use crate::connection::client::NetConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
+use crate::shared::replication::plugin::ReplicationConfig;
 
 #[derive(Clone, Reflect)]
 /// Config related to the netcode protocol (abstraction of a connection over raw UDP-like transport)
@@ -88,22 +89,6 @@ impl PacketConfig {
         self.bandwidth_cap_enabled = true;
         self
     }
-}
-
-#[derive(Clone, Debug, Default, Reflect)]
-pub struct ReplicationConfig {
-    /// By default, we will send all component updates since the last time we sent an update for a given entity.
-    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
-    /// we won't be sending anything since the component wasn't updated after that.
-    ///
-    /// This helps save bandwidth, but can cause the client to have delayed eventual consistency in the
-    /// case of packet loss.
-    ///
-    /// If this is set to true, we will instead send all updates since the last time we received an ACK from the client.
-    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
-    /// we will send the update again even if the component wasn't updated, because we still haven't
-    /// received an ACK from the client.
-    pub send_updates_since_last_ack: bool,
 }
 
 /// The configuration object that lets you create a `ClientPlugin` with the desired settings.

@@ -94,10 +94,7 @@ fn update_cursor_state_from_window(
 
 // Get the cursor position relative to the window
 fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
-    let Some(cursor_pos) = window.cursor_position() else {
-        return None;
-    };
-
+    let cursor_pos = window.cursor_position()?;
     Some(Vec2::new(
         cursor_pos.x - (window.width() / 2.0),
         (cursor_pos.y - (window.height() / 2.0)) * -1.0,

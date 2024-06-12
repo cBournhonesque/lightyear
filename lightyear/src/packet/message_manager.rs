@@ -164,15 +164,12 @@ impl MessageManager {
                 .channel_registry
                 .get_net_from_kind(channel_kind)
                 .ok_or(PacketError::ChannelNotFound)?;
-            channel.sender.collect_messages_to_send();
-            if channel.sender.has_messages_to_send() {
-                let (single_data, fragment_data) = channel.sender.send_packet();
+            let (single_data, fragment_data) = channel.sender.send_packet();
 
-                if !single_data.is_empty() || !fragment_data.is_empty() {
-                    trace!(?channel_id, "send message with channel_id");
-                    has_data_to_send = true;
-                }
+            if !single_data.is_empty() || !fragment_data.is_empty() {
+                trace!(?channel_id, "send message with channel_id");
                 data_to_send.push((*channel_id, (single_data, fragment_data)));
+                has_data_to_send = true;
             }
         }
         // return early if there are no messages to send
@@ -224,7 +221,7 @@ impl MessageManager {
 
         let mut bytes = Vec::new();
         for mut packet in packets {
-            trace!(num_messages = ?packet.num_messages(), "sending packet");
+            trace!(packet_id = ?packet.packet_id, num_messages = ?packet.num_messages(), "sending packet");
             // TODO: should we update this to include fragment info as well?
             // Step 2. Update the packet_to_message_id_map (only for channels that care about acks)
             std::mem::take(&mut packet.message_acks)
@@ -239,6 +236,12 @@ impl MessageManager {
                         .get(channel_kind)
                         .ok_or(PacketError::ChannelNotFound)?;
                     if channel.setting.mode.is_watching_acks() {
+                        trace!(
+                            "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
+                            channel_id,
+                            message_ack,
+                            packet.packet_id
+                        );
                         self.packet_to_message_ack_map
                             .entry(packet.packet_id)
                             .or_default()
@@ -294,8 +297,18 @@ impl MessageManager {
 
         // Step 3. Update the list of messages that have been acked
         for acked_packet in acked_packets {
+            trace!("Acked packet {:?}", acked_packet);
             if let Some(message_acks) = self.packet_to_message_ack_map.remove(&acked_packet) {
                 for (channel_kind, message_ack) in message_acks {
+                    let channel_name = self
+                        .channel_registry
+                        .name(&channel_kind)
+                        .ok_or(PacketError::ChannelNotFound)?;
+                    trace!(
+                        "Acked message in packet: channel={:?},message_ack={:?}",
+                        channel_name,
+                        message_ack
+                    );
                     let channel = self
                         .channels
                         .get_mut(&channel_kind)
