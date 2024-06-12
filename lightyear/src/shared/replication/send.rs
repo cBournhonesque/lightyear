@@ -1,5 +1,4 @@
 //! General struct handling replication
-use bevy::utils::Duration;
 use std::iter::Extend;
 
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
@@ -212,7 +211,7 @@ impl ReplicationSender {
                 }
             } else {
                 error!(?message_id,
-                    "Received an send message-id notification but we know the corresponding group id"
+                    "Received an send message-id notification but we don't know the corresponding group id"
                 );
             }
         }
@@ -489,17 +488,28 @@ impl ReplicationSender {
             .collect()
     }
 
+    // TODO: the priority for entity actions should remain the base_priority,
+    //  because the priority will get accumulated in the reliable channel
+    //  For entity updates, we might want to use the multiplier, but not sure
+    //  Maybe we just want to run the accumulate priority system every frame.
     /// Before sending replication messages, we accumulate the priority for all replication groups.
     ///
     /// (the priority starts at 0.0, and is accumulated for each group based on the base priority of the group)
     pub(crate) fn accumulate_priority(&mut self, time_manager: &TimeManager) {
-        let priority_multiplier = if self.replication_config.send_interval == Duration::default() {
-            1.0
-        } else {
-            (self.replication_config.send_interval.as_nanos() / time_manager.delta().as_nanos())
-                as f32
-        };
+        // let priority_multiplier = if self.replication_config.send_interval == Duration::default() {
+        //     1.0
+        // } else {
+        //     (self.replication_config.send_interval.as_nanos() as f32
+        //         / time_manager.delta().as_nanos() as f32)
+        // };
+        let priority_multiplier = 1.0;
         self.group_channels.values_mut().for_each(|channel| {
+            trace!(
+                "in accumulate priority: accumulated={:?} base={:?} multiplier={:?}, send_interval={:?}, time_manager_delta={:?}",
+                channel.accumulated_priority, channel.base_priority, priority_multiplier,
+                self.replication_config.send_interval.as_nanos(),
+                time_manager.delta().as_nanos()
+            );
             channel.accumulated_priority += channel.base_priority * priority_multiplier;
         });
     }
@@ -547,7 +557,7 @@ impl ReplicationSender {
                     // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
                     actions: Vec::from_iter(actions),
                 };
-                debug!("final action messages to send: {:?}", message);
+                trace!("final action messages to send: {:?}", message);
 
                 // TODO: we had to put this here because of the borrow checker, but it's not ideal,
                 //  the replication send should normally just an iterator of messages to send
@@ -635,7 +645,7 @@ impl ReplicationSender {
                     )?
                     .expect("The entity actions channels should always return a message_id");
 
-                // keep track of the messaage_id -> group mapping, so we can handle receiving an ACK for that message_id later
+                // keep track of the message_id -> group mapping, so we can handle receiving an ACK for that message_id later
                 self.updates_message_id_to_group_id.insert(
                     message_id,
                     UpdateMessageMetadata {

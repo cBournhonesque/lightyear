@@ -106,7 +106,12 @@ impl ChannelSend for ReliableSender {
         if let Some(timer) = &mut self.timer {
             timer.tick(time_manager.delta());
             self.priority_multiplier =
-                (timer.duration().as_nanos() / time_manager.delta().as_nanos()) as f32;
+                timer.duration().as_nanos() as f32 / time_manager.delta().as_nanos() as f32;
+            trace!(
+                ?timer,
+                "Priority multiplier for reliable sender channel: {:?}",
+                self.priority_multiplier
+            );
         }
     }
 
@@ -181,9 +186,11 @@ impl ChannelSend for ReliableSender {
             unacked_message_with_priority.accumulated_priority +=
                 unacked_message_with_priority.base_priority * self.priority_multiplier;
             trace!(
-                "Accumulating priority for reliable message {:?} to {:?}",
+                "Accumulating priority for reliable message {:?} to {:?}. Base priority: {:?}, Multiplier: {:?}",
                 message_id,
-                unacked_message_with_priority.accumulated_priority
+                unacked_message_with_priority.accumulated_priority,
+                unacked_message_with_priority.base_priority,
+                self.priority_multiplier
             );
 
             match &mut unacked_message_with_priority.unacked_message {
@@ -192,6 +199,7 @@ impl ChannelSend for ReliableSender {
                     ref mut last_sent,
                 } => {
                     if should_send(last_sent) {
+                        trace!("Should send message {:?}", message_id);
                         let message_info = MessageAck {
                             message_id: *message_id,
                             fragment_id: None,
@@ -234,6 +242,12 @@ impl ChannelSend for ReliableSender {
         // TODO: is this message_ids_to_send even useful? in which situation would we send the same message twice?
         // right now, we send everything; so we can reset
         self.message_ids_to_send.clear();
+        if !self.single_messages_to_send.is_empty() {
+            trace!(
+                "Single messages to send: {:?}",
+                self.single_messages_to_send
+            );
+        }
 
         // TODO: use double-buffer to reuse allocated memory?
         (
@@ -258,6 +272,10 @@ impl ChannelSend for ReliableSender {
 
     fn receive_ack(&mut self, message_ack: &MessageAck) {
         if let Some(unacked_message) = self.unacked_messages.get_mut(&message_ack.message_id) {
+            trace!(
+                "Received message ack for message id: {:?}",
+                message_ack.message_id
+            );
             match &mut unacked_message.unacked_message {
                 UnackedMessage::Single { .. } => {
                     if message_ack.fragment_id.is_some() {
