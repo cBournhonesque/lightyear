@@ -206,7 +206,9 @@ pub fn shared_player_firing(
             player_rotation.rotate(Vec2::Y * weapon.bullet_speed) + player_velocity.0;
 
         // create a unique hash for this firing event based on player id and tick number
-        // which will match on client and server.
+        // which will match on client and server. unique, because you can't fire twice per tick.
+        // (default hasher is unsuitable because it can't distinguish between 2 bullets fired on the
+        //  same tick but by different players)
         let mut hasher = seahash::SeaHasher::new();
         player.client_id.hash(&mut hasher);
         weapon.last_fire_tick.hash(&mut hasher);
