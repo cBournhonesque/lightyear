@@ -55,11 +55,3 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         }
     }
 }
-
-// .add_should_rollback(action_state_rollback_checker::<A>);
-// fn action_state_rollback_checker<A: LeafwingUserAction>(
-//     this: &ActionState<A>,
-//     that: &ActionState<A>,
-// ) -> bool {
-//     this != that
-// }

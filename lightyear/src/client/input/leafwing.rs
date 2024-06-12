@@ -110,7 +110,7 @@ pub struct LeafwingInputConfig<A> {
     pub packet_redundancy: u16,
 
     // TODO: add an option where we send all diffs vs send only just-pressed diffs
-    pub _marker: PhantomData<A>,
+    pub(crate) _marker: PhantomData<A>,
 }
 
 impl<A> Default for LeafwingInputConfig<A> {

@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicU16, Ordering};
 
 use bevy::app::FixedMain;
 use bevy::ecs::entity::EntityHashSet;
@@ -13,14 +12,13 @@ use bevy::reflect::Reflect;
 use parking_lot::RwLock;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::client::SyncMetadata;
 use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, Tick, TickManager};
 
 use super::predicted_history::PredictionHistory;
@@ -569,11 +567,9 @@ pub(super) mod test_utils {
 mod unit_tests {
     use super::test_utils::*;
     use super::*;
-    use crate::shared::tick_manager::increment_tick;
     use crate::tests::protocol::Component1;
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::ecs::system::RunSystemOnce;
-    use std::time::Duration;
 
     // TODO: check that if A is updated but B is not, and A and B are in the same replication group,
     //  then we need to check the rollback for B as well!
@@ -728,7 +724,6 @@ mod integration_tests {
     use bevy::prelude::*;
 
     use crate::prelude::client::*;
-    use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
@@ -774,7 +769,7 @@ mod integration_tests {
     /// - rolling back before the remove should re-add it
     /// We are still able to rollback properly (the rollback adds the component to the predicted entity)
     #[test]
-    fn test_removed_predicted_component_rollback() -> anyhow::Result<()> {
+    fn test_removed_predicted_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();
         // insert component on confirmed
         stepper
@@ -827,7 +822,6 @@ mod integration_tests {
                 .0,
             -6.0
         );
-        Ok(())
     }
 
     /// Test that:
@@ -835,7 +829,7 @@ mod integration_tests {
     /// - we trigger a rollback, and the confirmed entity does not have the component
     /// - the rollback removes the component from the predicted entity
     #[test]
-    fn test_added_predicted_component_rollback() -> anyhow::Result<()> {
+    fn test_added_predicted_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();
 
         // add a new component to Predicted
@@ -857,14 +851,13 @@ mod integration_tests {
             .world
             .get::<Component1>(predicted)
             .is_none());
-        Ok(())
     }
 
     /// Test that:
     /// - a component gets removed from the Confirmed entity, triggering a rollback
     /// - during the rollback, the component gets removed from the Predicted entity
     #[test]
-    fn test_removed_confirmed_component_rollback() -> anyhow::Result<()> {
+    fn test_removed_confirmed_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();
 
         // insert component on confirmed
@@ -907,14 +900,13 @@ mod integration_tests {
             .world
             .get_mut::<Component1>(predicted)
             .is_none());
-        Ok(())
     }
 
     /// Test that:
     /// - a component gets added to the confirmed entity, triggering rollback
     /// - the predicted entity did not have the component, so the rollback adds it
     #[test]
-    fn test_added_confirmed_component_rollback() -> anyhow::Result<()> {
+    fn test_added_confirmed_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();
 
         // check that predicted does not have the component
@@ -942,6 +934,5 @@ mod integration_tests {
             .get_mut::<Component1>(predicted)
             .unwrap()
             .0 = 4.0;
-        Ok(())
     }
 }
