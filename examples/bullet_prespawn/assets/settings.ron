@@ -17,7 +17,7 @@ MySettings(
             transport: WebTransport(
                 // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
                 // the server will print the certificate digest on startup
-                certificate_digest: "1a:83:aa:a3:ec:d4:5f:8f:1c:41:e7:70:8f:78:e3:a8:27:f4:db:4e:73:35:e6:a3:ea:f4:95:82:f1:6f:06:4b",
+                certificate_digest: "81:f8:e8:9c:44:4e:41:c8:75:4b:09:32:20:06:57:f7:7f:59:51:65:22:c0:c2:32:16:48:42:ca:f6:8c:b8:22",
             ),
             // server_port: 5001,
             // transport: Udp,
