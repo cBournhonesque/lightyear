@@ -1,13 +1,13 @@
-/*! Room-based visibility module, where you can use semi-static rooms to manage visibility
+/*! Room-based network relevance module, where you can use semi-static rooms to manage network relevance
 
 # Room
 
 Rooms are used to provide interest management in a semi-static way.
 Entities and Clients can be added to multiple rooms.
 
-If an entity and a client are in the same room, then the entity will be visible to the client.
+If an entity and a client are in the same room, then the entity will be relevant to the client.
 If an entity leaves a room that a client is in, or if a client leaves a room that an entity is in,
-then the entity won't be visible anymore to the client.
+then the entity won't be relevant to that client (and will despawned for that client)
 
 You can also find more information in the [book](https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/interest_management.html).
 
@@ -32,8 +32,8 @@ fn room_system(mut manager: ResMut<RoomManager>) {
 
 ## Implementation
 
-Under the hood, the [`RoomManager`] uses the same functions as in the immediate-mode [`VisibilityManager`],
-it just caches the room metadata to keep track of the visibility of entities.
+Under the hood, the [`RoomManager`] uses the same functions as in the immediate-mode [`RelevanceManager`],
+it just caches the room metadata to keep track of the relevance of entities.
 
 */
 
@@ -52,7 +52,7 @@ use tracing::trace;
 use crate::connection::id::ClientId;
 use crate::prelude::is_started;
 
-use crate::server::visibility::immediate::{VisibilityManager, VisibilitySet};
+use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceManager};
 use crate::shared::replication::components::DespawnTracker;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
 
@@ -151,9 +151,9 @@ impl Plugin for RoomPlugin {
             PostUpdate,
             (
                 (
-                    // the room events must be processed before the visibility events
+                    // the room events must be processed before the relevance events
                     RoomSystemSets::UpdateReplicationCaches,
-                    VisibilitySet::UpdateVisibility,
+                    NetworkRelevanceSet::UpdateRelevance,
                     RoomSystemSets::RoomBookkeeping,
                 )
                     .run_if(is_started)
@@ -174,7 +174,7 @@ impl Plugin for RoomPlugin {
         app.add_systems(
             PostUpdate,
             (
-                systems::buffer_room_visibility_events
+                systems::buffer_room_relevance_events
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
                 systems::clean_entity_despawns.in_set(RoomSystemSets::RoomBookkeeping),
             ),
@@ -429,9 +429,9 @@ pub(super) mod systems {
     //  (we only use the ids in events, so we can read them in parallel)
     /// Update each entities' replication-client-list based on the room events
     /// Note that the rooms' entities/clients have already been updated at this point
-    pub fn buffer_room_visibility_events(
+    pub fn buffer_room_relevance_events(
         mut room_manager: ResMut<RoomManager>,
-        mut visibility_manager: ResMut<VisibilityManager>,
+        mut relevance_manager: ResMut<RelevanceManager>,
     ) {
         if !room_manager.events.is_empty() {
             trace!(?room_manager.events, "Room events");
@@ -444,23 +444,23 @@ pub(super) mod systems {
 
         // entity left room
         for (entity, rooms) in room_manager.events.entity_leave_room.drain() {
-            // for each room left, update the entity's client visibility list if the client was in the room
+            // for each room left, update the entity's client relevance list if the client was in the room
             rooms.into_iter().for_each(|room_id| {
                 let room = room_manager.data.rooms.get(&room_id).unwrap();
                 room.clients.iter().for_each(|client_id| {
-                    trace!("entity {entity:?} left room {room:?}. Sending lost visibility to client {client_id:?}");
-                    visibility_manager.lose_visibility(*client_id, entity);
+                    trace!("entity {entity:?} left room {room:?}. Sending lost relevance to client {client_id:?}");
+                    relevance_manager.lose_relevance(*client_id, entity);
                 });
             });
         }
         // entity joined room
         for (entity, rooms) in room_manager.events.entity_enter_room.drain() {
-            // for each room joined, update the entity's client visibility list
+            // for each room joined, update the entity's client relevance list
             rooms.into_iter().for_each(|room_id| {
                 let room = room_manager.data.rooms.get(&room_id).unwrap();
                 room.clients.iter().for_each(|client_id| {
-                    trace!("entity {entity:?} joined room {room:?}. Sending gained visibility to client {client_id:?}");
-                    visibility_manager.gain_visibility(*client_id, entity);
+                    trace!("entity {entity:?} joined room {room:?}. Sending gained relevance to client {client_id:?}");
+                    relevance_manager.gain_relevance(*client_id, entity);
                 });
             });
         }
@@ -469,8 +469,8 @@ pub(super) mod systems {
             rooms.into_iter().for_each(|room_id| {
                 let room = room_manager.data.rooms.get(&room_id).unwrap();
                 room.entities.iter().for_each(|entity| {
-                    trace!("client {client_id:?} left room {room:?}. Sending lost visibility to entity {entity:?}");
-                    visibility_manager.lose_visibility(client_id, *entity);
+                    trace!("client {client_id:?} left room {room:?}. Sending lost relevance to entity {entity:?}");
+                    relevance_manager.lose_relevance(client_id, *entity);
                 });
             });
         }
@@ -479,8 +479,8 @@ pub(super) mod systems {
             rooms.into_iter().for_each(|room_id| {
                 let room = room_manager.data.rooms.get(&room_id).unwrap();
                 room.entities.iter().for_each(|entity| {
-                    trace!("client {client_id:?} joined room {room:?}. Sending gained visibility to entity {entity:?}");
-                    visibility_manager.gain_visibility(client_id, *entity);
+                    trace!("client {client_id:?} joined room {room:?}. Sending gained relevance to entity {entity:?}");
+                    relevance_manager.gain_relevance(client_id, *entity);
                 });
             });
         }
@@ -506,15 +506,15 @@ mod tests {
     use crate::prelude::client::*;
     use crate::prelude::server::Replicate;
     use crate::prelude::*;
-    use crate::server::replication::send::handle_replicating_add;
-    use crate::server::visibility::immediate::systems::{
-        add_replicate_visibility, update_visibility_from_events,
+    use crate::server::relevance::immediate::systems::{
+        add_cached_network_relevance, update_relevance_from_events,
     };
-    use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
-    use crate::shared::replication::components::VisibilityMode;
+    use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
+    use crate::server::replication::send::handle_replicating_add;
+    use crate::shared::replication::components::NetworkRelevanceMode;
     use crate::tests::stepper::{BevyStepper, Step};
 
-    use super::systems::buffer_room_visibility_events;
+    use super::systems::buffer_room_relevance_events;
 
     use super::*;
 
@@ -538,7 +538,7 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                visibility: VisibilityMode::InterestManagement,
+                relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
             })
             .id();
@@ -576,27 +576,27 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         assert!(stepper
             .server_app
             .world
             .entity(server_entity)
-            .get::<ReplicateVisibility>()
+            .get::<CachedNetworkRelevance>()
             .is_some());
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
 
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Gained)])
+            HashMap::from([(client_id, ClientRelevance::Gained)])
         );
 
         stepper.frame_step();
@@ -612,10 +612,10 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Maintained)])
+            HashMap::from([(client_id, ClientRelevance::Maintained)])
         );
 
         // Check that the entity gets replicated to client
@@ -655,20 +655,20 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Lost)])
+            HashMap::from([(client_id, ClientRelevance::Lost)])
         );
         stepper.frame_step();
         // after bookkeeping, the entity should not have any clients in its replication cache
@@ -676,7 +676,7 @@ mod tests {
             .server_app
             .world
             .entity(server_entity)
-            .get::<ReplicateVisibility>()
+            .get::<CachedNetworkRelevance>()
             .unwrap()
             .clients_cache
             .is_empty());
@@ -709,7 +709,7 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                visibility: VisibilityMode::InterestManagement,
+                relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
             })
             .id();
@@ -752,20 +752,20 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Gained)])
+            HashMap::from([(client_id, ClientRelevance::Gained)])
         );
 
         stepper.frame_step();
@@ -781,10 +781,10 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Maintained)])
+            HashMap::from([(client_id, ClientRelevance::Maintained)])
         );
 
         // Check that the entity gets replicated to client
@@ -824,20 +824,20 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Lost)])
+            HashMap::from([(client_id, ClientRelevance::Lost)])
         );
         stepper.frame_step();
         // after bookkeeping, the entity should not have any clients in its replication cache
@@ -845,7 +845,7 @@ mod tests {
             .server_app
             .world
             .entity(server_entity)
-            .get::<ReplicateVisibility>()
+            .get::<CachedNetworkRelevance>()
             .unwrap()
             .clients_cache
             .is_empty());
@@ -865,7 +865,7 @@ mod tests {
 
     /// The client is in a room with the entity
     /// We move the client and the entity to a different room (client first, then entity)
-    /// There should be no change in visibility
+    /// There should be no change in relevance
     #[test]
     fn test_move_client_entity_room() {
         let mut stepper = BevyStepper::default();
@@ -883,14 +883,14 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                visibility: VisibilityMode::InterestManagement,
+                relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
             })
             .id();
         stepper
             .server_app
             .world
-            .run_system_once(add_replicate_visibility);
+            .run_system_once(add_cached_network_relevance);
         stepper
             .server_app
             .world
@@ -900,20 +900,20 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Gained)])
+            HashMap::from([(client_id, ClientRelevance::Gained)])
         );
         // apply bookkeeping
         stepper.frame_step();
@@ -922,10 +922,10 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Maintained)])
+            HashMap::from([(client_id, ClientRelevance::Maintained)])
         );
 
         let new_room_id = RoomId(1);
@@ -955,26 +955,26 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Maintained)])
+            HashMap::from([(client_id, ClientRelevance::Maintained)])
         );
     }
 
     /// The client is in room A and B
     /// Entity is in room A and moves to room B
-    /// There should be no change in visibility
+    /// There should be no change in relevance
     #[test]
     fn test_move_entity_room() {
         let mut stepper = BevyStepper::default();
@@ -997,14 +997,14 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                visibility: VisibilityMode::InterestManagement,
+                relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
             })
             .id();
         stepper
             .server_app
             .world
-            .run_system_once(add_replicate_visibility);
+            .run_system_once(add_cached_network_relevance);
         stepper
             .server_app
             .world
@@ -1014,20 +1014,20 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Gained)])
+            HashMap::from([(client_id, ClientRelevance::Gained)])
         );
         // apply bookkeeping
         stepper.frame_step();
@@ -1036,10 +1036,10 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Maintained)])
+            HashMap::from([(client_id, ClientRelevance::Maintained)])
         );
 
         // entity leaves previous room and joins new room
@@ -1057,26 +1057,26 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Maintained)])
+            HashMap::from([(client_id, ClientRelevance::Maintained)])
         );
     }
 
     /// The entity is in room A and B
     /// Client is in room A and moves to room B
-    /// There should be no change in visibility
+    /// There should be no change in relevance
     #[test]
     fn test_move_client_room() {
         let mut stepper = BevyStepper::default();
@@ -1094,14 +1094,14 @@ mod tests {
             .server_app
             .world
             .spawn(Replicate {
-                visibility: VisibilityMode::InterestManagement,
+                relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
             })
             .id();
         stepper
             .server_app
             .world
-            .run_system_once(add_replicate_visibility);
+            .run_system_once(add_cached_network_relevance);
         stepper
             .server_app
             .world
@@ -1116,20 +1116,20 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Gained)])
+            HashMap::from([(client_id, ClientRelevance::Gained)])
         );
         // apply bookkeeping
         stepper.frame_step();
@@ -1138,10 +1138,10 @@ mod tests {
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Maintained)])
+            HashMap::from([(client_id, ClientRelevance::Maintained)])
         );
 
         // client leaves previous room and joins new room
@@ -1159,20 +1159,20 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(buffer_room_visibility_events);
+            .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
             .world
-            .run_system_once(update_visibility_from_events);
+            .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
                 .world
                 .entity(server_entity)
-                .get::<ReplicateVisibility>()
+                .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientVisibility::Maintained)])
+            HashMap::from([(client_id, ClientRelevance::Maintained)])
         );
     }
 

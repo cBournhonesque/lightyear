@@ -22,5 +22,5 @@ pub(crate) mod prediction;
 
 pub(crate) mod clients;
 pub(crate) mod networking;
+pub mod relevance;
 pub mod replication;
-pub mod visibility;

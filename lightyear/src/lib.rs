@@ -206,9 +206,9 @@ pub mod prelude {
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
-        DeltaCompression, DisabledComponent, OverrideTargetComponent, PrePredicted,
-        ReplicateHierarchy, ReplicateOnceComponent, Replicated, Replicating, ReplicationGroup,
-        ReplicationTarget, ShouldBePredicted, TargetEntity, VisibilityMode,
+        DeltaCompression, DisabledComponent, NetworkRelevanceMode, OverrideTargetComponent,
+        PrePredicted, ReplicateHierarchy, ReplicateOnceComponent, Replicated, Replicating,
+        ReplicationGroup, ReplicationTarget, ShouldBePredicted, TargetEntity,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
     pub use crate::shared::replication::hierarchy::ParentSync;
@@ -286,13 +286,13 @@ pub mod prelude {
         pub use crate::server::io::Io;
         pub use crate::server::networking::{NetworkingState, ServerCommands};
         pub use crate::server::plugin::ServerPlugins;
+        pub use crate::server::relevance::immediate::RelevanceManager;
+        pub use crate::server::relevance::room::{RoomId, RoomManager};
         pub use crate::server::replication::commands::DespawnReplicationCommandExt;
         pub use crate::server::replication::{
             send::{ControlledBy, Replicate, ServerFilter, SyncTarget, Visibility},
             ReplicationSet, ServerReplicationSet,
         };
-        pub use crate::server::visibility::immediate::VisibilityManager;
-        pub use crate::server::visibility::room::{RoomId, RoomManager};
     }
 
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]

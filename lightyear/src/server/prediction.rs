@@ -9,12 +9,13 @@ use bevy::prelude::*;
 
 use crate::prelude::server::ControlledBy;
 use crate::prelude::{
-    ComponentRegistry, ParentSync, PreSpawnedPlayerObject, ReplicateHierarchy, Replicated,
-    Replicating, ReplicationTarget, ShouldBePredicted, TargetEntity, TickManager, VisibilityMode,
+    ComponentRegistry, NetworkRelevanceMode, ParentSync, PreSpawnedPlayerObject,
+    ReplicateHierarchy, Replicated, Replicating, ReplicationTarget, ShouldBePredicted,
+    TargetEntity, TickManager,
 };
 use crate::protocol::component::ComponentKind;
+use crate::server::relevance::immediate::CachedNetworkRelevance;
 use crate::server::replication::send::SyncTarget;
-use crate::server::visibility::immediate::ReplicateVisibility;
 use crate::shared::replication::components::DespawnTracker;
 
 /// Compute the hash of the spawned entity by hashing the NetId of all its components along with the tick at which it was created
@@ -68,15 +69,15 @@ pub(crate) fn compute_hash(
             .filter_map(|component_id| {
                 if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
                     // ignore some book-keeping components
-                    if type_id != TypeId::of::<VisibilityMode>()
+                    if type_id != TypeId::of::<NetworkRelevanceMode>()
                         && type_id != TypeId::of::<ReplicationTarget>()
                         && type_id != TypeId::of::<SyncTarget>()
                         && type_id != TypeId::of::<ControlledBy>()
                         && type_id != TypeId::of::<Replicating>()
                         && type_id != TypeId::of::<Replicated>()
                         && type_id != TypeId::of::<ReplicateToServer>()
-                        && type_id != TypeId::of::<ReplicateVisibility>()
-                        && type_id != TypeId::of::<VisibilityMode>()
+                        && type_id != TypeId::of::<CachedNetworkRelevance>()
+                        && type_id != TypeId::of::<NetworkRelevanceMode>()
                         && type_id != TypeId::of::<TargetEntity>()
                         && type_id != TypeId::of::<ReplicateHierarchy>()
                         && type_id != TypeId::of::<PreSpawnedPlayerObject>()

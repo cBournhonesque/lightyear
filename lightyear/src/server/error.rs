@@ -20,6 +20,6 @@ pub enum ServerError {
     MessageProtocolError(#[from] crate::protocol::message::MessageError),
     #[error(transparent)]
     ComponentProtocolError(#[from] crate::protocol::component::ComponentError),
-    #[error("visibility error: {0}")]
-    VisibilityError(#[from] crate::server::visibility::error::VisibilityError),
+    #[error("network relevance error: {0}")]
+    RelevanceError(#[from] crate::server::relevance::error::RelevanceError),
 }
