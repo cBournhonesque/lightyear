@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::server::ControlledBy;
-use crate::prelude::{Replicating, ReplicationGroup, VisibilityMode};
+use crate::prelude::{NetworkRelevanceMode, Replicating, ReplicationGroup};
 use crate::server::replication::send::SyncTarget;
 use crate::shared::replication::components::{ReplicateHierarchy, ReplicationTarget};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
@@ -52,7 +52,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                 &ReplicationTarget,
                 Option<&SyncTarget>,
                 Option<&ControlledBy>,
-                Option<&VisibilityMode>,
+                Option<&NetworkRelevanceMode>,
             ),
             (Without<Parent>, With<Children>),
         >,

@@ -210,7 +210,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         self.get(start_tick + (self.buffer.len() as i16 - 1))
     }
 
-    /// Upon receiving an [`InputMessage`], update the InputBuffer with all the inputs
+    /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs
     /// included in the message.
     pub(crate) fn update_from_message(
         &mut self,

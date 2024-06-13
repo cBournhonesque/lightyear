@@ -306,7 +306,7 @@ pub enum InputSystemSet {
     CleanUp,
 }
 
-/// Add an [`InputBuffer`] and a [`ActionDiffBuffer`] to newly controlled entities
+/// Add an [`InputBuffer`] to newly controlled entities
 fn add_action_state_buffer_added_input_map<A: LeafwingUserAction>(
     mut commands: Commands,
     entities: Query<
