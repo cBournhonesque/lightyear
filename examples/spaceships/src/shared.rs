@@ -69,9 +69,13 @@ impl Plugin for SharedPlugin {
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
 
         app.add_systems(FixedPostUpdate, after_physics_log);
+        // app.add_systems(FixedPostUpdate, process_collisions);
         app.add_systems(Last, last_log);
 
-        app.add_systems(FixedUpdate, lifetime_despawner.in_set(FixedSet::Main));
+        app.add_systems(
+            FixedUpdate,
+            (process_collisions, lifetime_despawner).in_set(FixedSet::Main),
+        );
 
         // registry types for reflection
         app.register_type::<Player>();
@@ -145,9 +149,38 @@ pub fn shared_movement_behaviour(aiq: ApplyInputsQueryItem) {
     }
 }
 
-// NB we are not restricting this query to `Controlled` entities on the clients, because it's possible one can
+pub fn log_predicted(
+    q: Query<(Entity, &PreSpawnedPlayerObject), Added<PreSpawnedPlayerObject>>,
+    tick_manager: Res<TickManager>,
+    rb: Res<Rollback>,
+) {
+    for (e, ps) in q.iter() {
+        info!(
+            "PRESPAWN ADDED @ {:?} rb:{} {:?}",
+            tick_manager.tick(),
+            rb.is_rollback(),
+            ps.hash
+        );
+    }
+}
+
+// NB we are not restricting this query to `Controlled` entities on the clients, because we hope to
 //    receive PlayerActions for remote players ahead of the server simulating the tick (lag, input delay, etc)
 //    in which case we prespawn their bullets on the correct tick, just like we do for our own bullets.
+//
+//    When spawning here, we add the `PreSpawnedPlayerObject` component, and when the client receives the
+//    replication packet from the server, it matches the hashes on its own `PreSpawnedPlayerObject`, allowing it to
+//    treat our locally spawned one as the `Predicted` entity (and gives it the Predicted component).
+//
+//    In cases where the replication packet spawns the bullet BEFORE we get the remote players inputs,
+//    (IS THIS POSSIBLE? OR ARE INPUTS ATOMIC ALONGSIDE REPLICATION PACKETS),
+//    and then we rollforward over the tick when firing happened, we'd fire another, but would find the
+//    dupe with our query to avoid spawning?
+//
+//    ... hang on.
+
+// not running this in rollback.
+//
 pub fn shared_player_firing(
     mut q: Query<
         (
@@ -165,7 +198,17 @@ pub fn shared_player_firing(
     mut commands: Commands,
     tick_manager: Res<TickManager>,
     identity: NetworkIdentity,
+    rollback: Option<Res<Rollback>>,
 ) {
+    if q.is_empty() {
+        return;
+    }
+    // let current_tick = if let Some(rollback) = rollback {
+    //     tick_manager.tick_or_rollback_tick(&rollback)
+    // } else {
+    //     tick_manager.tick()
+    // };
+    let current_tick = tick_manager.tick();
     for (
         player_position,
         player_rotation,
@@ -185,21 +228,26 @@ pub fn shared_player_firing(
             // info!("Not spawning, remote player fires");
             // continue;
         }
-        if (weapon.last_fire_tick + Tick(weapon.cooldown)) > tick_manager.tick() {
+
+        if (weapon.last_fire_tick + Tick(weapon.cooldown)) > current_tick {
             // cooldown period - can't fire.
+            if weapon.last_fire_tick == current_tick {
+                info!("Can't fire, fired this tick already! {current_tick:?}");
+            }
             continue;
         }
-        weapon.last_fire_tick = tick_manager.tick();
+        let prev_last_fire_tick = weapon.last_fire_tick;
+        weapon.last_fire_tick = current_tick;
 
         // bullet will despawn after a given number of frames
         let lifetime = Lifetime {
-            origin_tick: tick_manager.tick(),
-            lifetime: FIXED_TIMESTEP_HZ as i16 * 2, // 2 secs
+            origin_tick: current_tick,
+            lifetime: FIXED_TIMESTEP_HZ as i16 * 10,
         };
 
         // bullet spawns just in front of the nose of the ship, in the direction the ship is facing,
         // and inherits the speed of the ship.
-        let bullet_spawn_offset = Vec2::Y * (SHIP_LENGTH / 2.0 + 1.0);
+        let bullet_spawn_offset = Vec2::Y * (2.0 + (SHIP_LENGTH + BULLET_SIZE) / 2.0);
 
         let bullet_origin = player_position.0 + player_rotation.rotate(bullet_spawn_offset);
         let bullet_linvel =
@@ -209,23 +257,27 @@ pub fn shared_player_firing(
         // which will match on client and server. unique, because you can't fire twice per tick.
         // (default hasher is unsuitable because it can't distinguish between 2 bullets fired on the
         //  same tick but by different players)
+        // TODO different results wasm vs native?
         let mut hasher = seahash::SeaHasher::new();
         player.client_id.hash(&mut hasher);
         weapon.last_fire_tick.hash(&mut hasher);
         let hash = hasher.finish();
+        // let hash: u64 = player.client_id.to_bits() ^ (weapon.last_fire_tick.0 as u64);
+
         let prespawned = PreSpawnedPlayerObject { hash: Some(hash) };
 
         let bullet_entity = commands
             .spawn((
-                BulletMarker,
-                Position(bullet_origin),
-                LinearVelocity(bullet_linvel),
+                BulletBundle::new(bullet_origin, bullet_linvel, color.0),
                 PhysicsBundle::bullet(),
-                ColorComponent(color.0),
                 prespawned,
                 lifetime,
             ))
             .id();
+        info!(
+            "spawned bullet for ActionState, bullet={bullet_entity:?} hash: {hash} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?} rb:{:?}",
+            weapon.last_fire_tick.0, player.client_id, rollback.as_ref().map(|rb| rb.is_rollback())
+        );
 
         if identity.is_server() {
             let replicate = server::Replicate {
@@ -239,7 +291,6 @@ pub fn shared_player_firing(
             };
             commands.entity(bullet_entity).insert(replicate);
         }
-        info!("spawned bullet for ActionState {bullet_entity:?}");
     }
 }
 
@@ -259,7 +310,7 @@ pub(crate) fn lifetime_despawner(
                 // commands.entity(e).despawn_without_replication(); // CRASH ?
                 commands.entity(e).remove::<server::Replicate>().despawn();
             } else {
-                // info!("Despawning {e:?}");
+                info!("Despawning:lifetime {e:?}");
                 commands.entity(e).despawn_recursive();
             }
         }
@@ -353,6 +404,44 @@ impl WallBundle {
             },
             wall: Wall { start, end },
             name: Name::new("Wall"),
+        }
+    }
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub(crate) struct CollisionPayload;
+
+/// despawn any entities that collide with something and have a
+/// CollisionPayload component.
+pub(crate) fn process_collisions(
+    mut collision_event_reader: EventReader<Collision>,
+    payload_q: Query<Entity, With<CollisionPayload>>,
+    mut commands: Commands,
+    tick_manager: Res<TickManager>,
+    identity: NetworkIdentity,
+) {
+    for Collision(contacts) in collision_event_reader.read() {
+        // info!("collision {contacts:?}");
+        // continue;
+        if payload_q.contains(contacts.entity1) {
+            if identity.is_server() {
+                commands
+                    .entity(contacts.entity1)
+                    .remove::<server::Replicate>()
+                    .despawn();
+            } else {
+                commands.entity(contacts.entity1).despawn_recursive();
+            }
+        }
+        if payload_q.contains(contacts.entity2) {
+            if identity.is_server() {
+                commands
+                    .entity(contacts.entity2)
+                    .remove::<server::Replicate>()
+                    .despawn();
+            } else {
+                commands.entity(contacts.entity2).despawn_recursive();
+            }
         }
     }
 }

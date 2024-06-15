@@ -13,7 +13,7 @@ use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::shared::color_from_id;
+use crate::shared::{color_from_id, CollisionPayload};
 
 pub const BALL_SIZE: f32 = 15.0;
 pub const BULLET_SIZE: f32 = 1.5;
@@ -31,29 +31,20 @@ pub(crate) struct BulletBundle {
     position: Position,
     velocity: LinearVelocity,
     color: ColorComponent,
-    replicate: Replicate,
     marker: BulletMarker,
-    physics: PhysicsBundle,
+    // physics: PhysicsBundle,
+    collision_payload: CollisionPayload,
 }
 
 impl BulletBundle {
     pub(crate) fn new(position: Vec2, velocity: Vec2, color: Color) -> Self {
-        let sync_target = SyncTarget {
-            prediction: NetworkTarget::All,
-            ..default()
-        };
-        let replicate = Replicate {
-            sync: sync_target,
-            group: REPLICATION_GROUP,
-            ..default()
-        };
         Self {
             position: Position(position),
             velocity: LinearVelocity(velocity),
             color: ColorComponent(color),
-            replicate,
-            physics: PhysicsBundle::bullet(),
+            // physics: PhysicsBundle::bullet(),
             marker: BulletMarker,
+            collision_payload: CollisionPayload,
         }
     }
 }
@@ -142,14 +133,16 @@ impl PhysicsBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Player {
     pub client_id: ClientId,
+    pub nickname: String,
     pub rtt: Duration,
     pub jitter: Duration,
 }
 
 impl Player {
-    pub fn new(client_id: ClientId) -> Self {
+    pub fn new(client_id: ClientId, nickname: String) -> Self {
         Self {
             client_id,
+            nickname,
             rtt: Duration::ZERO,
             jitter: Duration::ZERO,
         }
@@ -187,6 +180,7 @@ impl Weapon {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub(crate) struct Lifetime {
     pub(crate) origin_tick: Tick,
+    /// number of ticks to live for
     pub(crate) lifetime: i16,
 }
 
@@ -233,8 +227,6 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Player>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Simple);
 
-        //
-
         app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
@@ -250,10 +242,14 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Lifetime>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
+        // to avoid spawning in shared_firing when inputs are not early
         app.register_component::<Weapon>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple);
+
+        app.register_component::<CollisionPayload>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
-        //
+        // Velocity and position fully replicated
 
         app.register_component::<LinearVelocity>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);

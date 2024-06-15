@@ -243,62 +243,58 @@ impl PreSpawnedPlayerObjectPlugin {
         mut events: EventReader<ComponentInsertEvent<PreSpawnedPlayerObject>>,
         query: Query<&PreSpawnedPlayerObject>,
     ) {
+        // ComponentInsertEvent is emitted by replication systems, so server has replicated us an entity
+        // with a PreSpawnedPlayerObject component.
         for event in events.read() {
             let confirmed_entity = event.entity();
-            // we handle the PreSpawnedPlayerObject hash in this system and don't need it afterwards
-            commands
-                .entity(confirmed_entity)
-                .remove::<PreSpawnedPlayerObject>();
-            let server_prespawn = query.get(confirmed_entity).unwrap();
-
-            let Some(server_hash) = server_prespawn.hash else {
-                debug!("Received a PreSpawnedPlayerObject entity from the server without a hash");
-                continue;
-            };
-            let Some(mut client_entity_list) =
-                manager.prespawn_hash_to_entities.remove(&server_hash)
-            else {
-                debug!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
-                // remove the PreSpawnedPlayerObject so that the entity can be normal-predicted
-                commands
-                    .entity(confirmed_entity)
-                    .remove::<PreSpawnedPlayerObject>();
-                continue;
-            };
-
-            // if there are multiple entities, we will use the first one
-            let client_entity = client_entity_list.pop().unwrap();
-            debug!("found a client pre-spawned entity corresponding to server pre-spawned entity! Spawning a Predicted entity for it");
-
-            // we found the corresponding client entity!
-            // 1.a if the client_entity exists, remove the PreSpawnedPlayerObject component from the client entity
-            //  and add a Predicted component to it
-            let predicted_entity =
-                if let Some(mut entity_commands) = commands.get_entity(client_entity) {
-                    debug!("re-using existing entity");
-                    entity_commands
-                        .remove::<PreSpawnedPlayerObject>()
-                        .insert(Predicted {
-                            confirmed_entity: Some(confirmed_entity),
-                        });
-                    client_entity
-                } else {
-                    debug!("spawning new entity");
-                    // 1.b if the client_entity does not exist, re-create it (because server has authority)
-                    commands
-                        .spawn(Predicted {
-                            confirmed_entity: Some(confirmed_entity),
-                        })
-                        .id()
-                };
-
-            // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawnedPlayerObject
-            // get the confirmed tick for the entity
-            // if we don't have it, something has gone very wrong
             let confirmed_tick = connection
                 .replication_receiver
                 .get_confirmed_tick(confirmed_entity)
                 .unwrap();
+
+            let server_prespawn = query.get(confirmed_entity).unwrap();
+            let Some(server_hash) = server_prespawn.hash else {
+                warn!("Received a PreSpawnedPlayerObject entity from the server without a hash");
+                continue;
+            };
+
+            // Find or spawn the Predicted entity.
+
+            let predicted_entity = manager
+                // is there a prespawned entity matching this hash?
+                .take_entity_for_prespawn_hash(&server_hash)
+                // if it exists, update components accordingly
+                .and_then(|e| {
+                    commands
+                        .get_entity(e)
+                        .map(|mut entity_commands| {
+                            warn!("re-using existing entity, hash: {server_hash}, confirmed_tick: {confirmed_tick:?}");
+                            entity_commands
+                                .remove::<PreSpawnedPlayerObject>()
+                                .insert(Predicted {
+                                    confirmed_entity: Some(confirmed_entity),
+                                });
+                            e
+                        })
+                        .or_else(|| {
+                            warn!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
+                            None
+                        })
+                })
+                // if no such entity found, spawn one
+                .or_else(|| {
+                    warn!("spawning new entity, hash: {server_hash}, confirmed_tick: {confirmed_tick:?}");
+                    Some(
+                        commands
+                            .spawn(Predicted {
+                                confirmed_entity: Some(confirmed_entity),
+                            })
+                            .id(),
+                    )
+                })
+                .unwrap();
+
+            // Assign Confirmed to the server entity's counterpart, and remove PreSpawnedPlayerObject
             commands
                 .entity(confirmed_entity)
                 .insert(Confirmed {
@@ -308,17 +304,11 @@ impl PreSpawnedPlayerObjectPlugin {
                 })
                 // remove ShouldBePredicted so that we don't spawn another Predicted entity
                 .remove::<(PreSpawnedPlayerObject, ShouldBePredicted)>();
-            debug!(
-                "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?}",
+
+            warn!(
+                "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?} (confirmed_tick: {confirmed_tick:?}, hash: {server_hash})",
                 predicted_entity, confirmed_entity
             );
-
-            // 3. re-add the remaining entities in the map
-            if !client_entity_list.is_empty() {
-                manager
-                    .prespawn_hash_to_entities
-                    .insert(server_hash, client_entity_list);
-            }
         }
     }
 
@@ -357,7 +347,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 .flatten()
                 .for_each(|entity| {
                     if let Some(entity_commands) = commands.get_entity(*entity) {
-                        trace!(
+                        warn!(
                             ?tick,
                             ?entity,
                             "Cleaning up prespawned player object up to past tick: {:?}",

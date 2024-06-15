@@ -37,7 +37,7 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.add_systems(Startup, init_camera);
         app.insert_resource(ClearColor(Color::DARK_GRAY));
         let draw_shadows = false;
-        // draw after interpolation is done
+        // draw last to ensure all the interpolation/synching stuff has happened
         app.add_systems(
             Last,
             (
@@ -48,15 +48,13 @@ impl Plugin for SpaceshipsRendererPlugin {
                 draw_predicted_entities,
                 draw_confirmed_entities.run_if(is_server),
             )
-                .chain(), // .after(InterpolationSet::Interpolate)
-                          // .after(PredictionSet::VisualCorrection)
-                          // .after(bevy::transform::TransformSystem::TransformPropagate),
+                .chain(),
         );
 
         app.add_systems(Startup, setup_diagnostic);
         app.add_plugins(ScreenDiagnosticsPlugin::default());
         app.add_plugins(ScreenEntityDiagnosticsPlugin);
-        app.add_plugins(ScreenFrameDiagnosticsPlugin);
+        // app.add_plugins(ScreenFrameDiagnosticsPlugin);
         app.add_plugins(EntityLabelPlugin {
             config: EntityLabelConfig {
                 font: "fonts/quicksand-light.ttf".to_owned(),
@@ -68,7 +66,9 @@ impl Plugin for SpaceshipsRendererPlugin {
     }
 }
 
-fn init_camera(mut commands: Commands) {
+fn init_camera(mut commands: Commands, mut windows: Query<&mut Window>) {
+    let mut window = windows.single_mut();
+    window.resolution.set(800., 800.);
     commands.spawn(Camera2dBundle::default());
 }
 
@@ -76,25 +76,24 @@ fn init_camera(mut commands: Commands) {
 fn add_visual_components(
     mut commands: Commands,
     q: Query<
-        Entity,
+        (Entity, &Player),
         (
             With<Predicted>,
-            With<Player>,
             Added<Collider>,
             Without<VisualInterpolateStatus<Position>>,
             Without<VisualInterpolateStatus<Rotation>>,
         ),
     >,
 ) {
-    for e in q.iter() {
-        info!("Adding visual bits to {e:?}");
+    for (e, player) in q.iter() {
+        // info!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
             VisibilityBundle::default(),
             TransformBundle::default(),
             EntityLabel {
-                text: format!("{e:?}"),
+                text: player.nickname.clone(),
                 color: Color::ANTIQUE_WHITE.with_a(0.8),
-                offset: Vec2::Y * -40.0,
+                offset: Vec2::Y * -45.0,
                 ..Default::default()
             },
             VisualInterpolateStatus::<Position>::default(),
@@ -126,7 +125,7 @@ fn update_visual_components(
             0
         };
         label.sub_text = format!(
-            "{} (~{}) ms\ninputs: {num_buffered_inputs}",
+            "{}±{}ms [{num_buffered_inputs}]",
             player.rtt.as_millis(),
             player.jitter.as_millis()
         );
@@ -135,22 +134,19 @@ fn update_visual_components(
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
     onscreen
-        .add(
-            "Rollbacks".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACKS,
-        )
+        .add("RB".to_string(), PredictionDiagnosticsPlugin::ROLLBACKS)
         .aggregate(Aggregate::Value)
         .format(|v| format!("{v:.0}"));
     onscreen
         .add(
-            "Rollback ticks".to_string(),
+            "RBt".to_string(),
             PredictionDiagnosticsPlugin::ROLLBACK_TICKS,
         )
         .aggregate(Aggregate::Value)
         .format(|v| format!("{v:.0}"));
     onscreen
         .add(
-            "RB depth".to_string(),
+            "RBd".to_string(),
             PredictionDiagnosticsPlugin::ROLLBACK_DEPTH,
         )
         .aggregate(Aggregate::Value)

@@ -1,6 +1,6 @@
 MySettings(
-  input_delay_ticks: 10,
-  correction_ticks_factor: 2,
+  input_delay_ticks: 3,
+  correction_ticks_factor: 1.5,
   predict_all: true,
   show_confirmed: true,
   common: Settings(
@@ -10,15 +10,15 @@ MySettings(
             client_port: 0, // the OS will assign a random open port
             server_addr: "127.0.0.1",
             conditioner: Some(Conditioner(
-                latency_ms: 5,
-                jitter_ms: 1,
+                latency_ms: 50,
+                jitter_ms: 5,
                 packet_loss: 0.005
             )),
             server_port: 5000,
             transport: WebTransport(
                 // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
                 // the server will print the certificate digest on startup
-                certificate_digest: "1c:70:84:ed:c1:ce:2e:2e:59:30:3a:30:d1:8e:11:d9:a9:d7:df:4e:e3:06:68:5a:7f:5b:e0:c2:0d:96:71:b6",
+                certificate_digest: "e6:59:f0:e4:77:7c:53:68:2d:a3:be:66:1f:8a:a5:11:03:8a:2c:ff:b7:b4:4e:fc:e9:bd:97:bb:b0:a0:82:a8",
             ),
             // server_port: 5001,
             // transport: Udp,

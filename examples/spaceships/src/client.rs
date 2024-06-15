@@ -10,6 +10,7 @@ use lightyear::shared::tick_manager;
 
 use crate::protocol::*;
 use crate::shared;
+use crate::shared::log_predicted;
 use crate::shared::ApplyInputsQuery;
 use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 
@@ -34,13 +35,21 @@ impl Plugin for ExampleClientPlugin {
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(
             FixedUpdate,
-            (player_movement, shared::shared_player_firing)
+            (
+                player_movement,
+                shared::shared_player_firing.run_if(not(is_in_rollback)),
+            )
                 .chain()
                 .in_set(FixedSet::Main),
         );
         app.add_systems(
             Update,
-            (add_ball_physics, add_bullet_physics, handle_new_player),
+            (
+                add_ball_physics,
+                add_bullet_physics, // probably should be right after replicated entities get spawned
+                handle_new_player,
+                log_predicted,
+            ),
         );
     }
 }
@@ -99,25 +108,16 @@ fn add_ball_physics(
 #[allow(clippy::type_complexity)]
 fn add_bullet_physics(
     mut commands: Commands,
-    mut bullet_query: Query<
-        Entity,
-        (
-            With<BulletMarker>,
-            // insert the physics components on predicted entity
-            Added<Predicted>,
-            // prespawned by client entities will have physics components already
-            // Without<Collider>,
-        ),
-    >,
+    mut bullet_query: Query<Entity, (With<BulletMarker>, Without<Confirmed>, Without<Collider>)>,
 ) {
     for entity in bullet_query.iter_mut() {
-        info!("Got bullet, adding physics  {entity:?}");
+        info!("Adding physics to a (replicated?) bullet:  {entity:?}");
         commands.entity(entity).insert(PhysicsBundle::bullet());
     }
 }
 
-/// When we receive other players (whether they are predicted or interpolated), we want to add the physics components
-/// so that our predicted entities can predict collisions with them correctly
+/// Decorate newly connecting players with physics components
+/// ..and if it's our own player, set up input stuff
 #[allow(clippy::type_complexity)]
 fn handle_new_player(
     connection: Res<ClientConnection>,

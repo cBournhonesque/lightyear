@@ -1,6 +1,7 @@
 //! Defines bevy resources needed for Prediction
 
 use bevy::ecs::entity::EntityHash;
+use bevy::ecs::world::OccupiedEntry;
 use bevy::prelude::{Entity, Resource};
 use std::cell::UnsafeCell;
 
@@ -40,6 +41,19 @@ impl PredictionManager {
             predicted_entity_map: Default::default(),
             prespawn_hash_to_entities: Default::default(),
             prespawn_tick_to_hash: Default::default(),
+        }
+    }
+
+    /// takes a single matching prespawned entity for a given hash, or None
+    pub(crate) fn take_entity_for_prespawn_hash(&mut self, hash: &u64) -> Option<Entity> {
+        if let Some(ehm) = self.prespawn_hash_to_entities.get_mut(hash) {
+            let entity = ehm.pop();
+            if ehm.is_empty() {
+                self.prespawn_hash_to_entities.remove(hash);
+            }
+            entity
+        } else {
+            None
         }
     }
 

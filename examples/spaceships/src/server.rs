@@ -92,7 +92,7 @@ fn init(mut commands: Commands) {
             ..default()
         }),
     );
-
+    return;
     // the balls are server-authoritative
     const NUM_BALLS: usize = 6;
     for i in 0..NUM_BALLS {
@@ -165,7 +165,7 @@ pub(crate) fn handle_connections(
         // spawn the player with ActionState - the client will add their own InputMap
         let player_ent = commands
             .spawn((
-                Player::new(client_id),
+                Player::new(client_id, pick_player_name(client_id.to_bits())),
                 Name::new("Player"),
                 ActionState::<PlayerActions>::default(),
                 Position(Vec2::new(x, y)),
@@ -185,3 +185,60 @@ pub(crate) fn handle_connections(
         info!("Created entity {player_ent:?} for client {client_id:?}");
     }
 }
+
+fn pick_player_name(client_id: u64) -> String {
+    let index = (client_id % NAMES.len() as u64) as usize;
+    NAMES[index].to_string()
+}
+
+const NAMES: [&str; 49] = [
+    "Ellen Ripley",
+    "Sarah Connor",
+    "Neo",
+    "Trinity",
+    "Morpheus",
+    "John Connor",
+    "T-800",
+    "T-1000",
+    "Roy Batty",
+    "Rick Deckard",
+    "Princess Leia",
+    "Han Solo",
+    "Spock",
+    "James T. Kirk",
+    "Hikaru Sulu",
+    "Nyota Uhura",
+    "Jean-Luc Picard",
+    "Data",
+    "Beverly Crusher",
+    "Seven of Nine",
+    "Doctor Who",
+    "Rose Tyler",
+    "Marty McFly",
+    "Doc Brown",
+    "Dana Scully",
+    "Fox Mulder",
+    "Riddick",
+    "Leeloo",
+    "Korben Dallas",
+    "Barbarella",
+    "Dave Bowman",
+    "HAL 9000",
+    "Zorg",
+    "Major Motoko Kusanagi",
+    "Optimus Prime",
+    "Megatron",
+    "Furiosa",
+    "Max Rockatansky",
+    "Quorra",
+    "Sam Flynn",
+    "Snake Plissken",
+    "Lois Lane",
+    "Clark Kent",
+    "Tony Stark",
+    "Natasha Romanoff",
+    "Bruce Banner",
+    "Diana Prince",
+    "Peter Quill",
+    "Gamora",
+];
