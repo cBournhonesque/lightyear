@@ -255,12 +255,38 @@ fn draw_walls(walls: Query<&Wall, Without<Player>>, mut gizmos: Gizmos) {
 fn draw_confirmed_entities(
     mut gizmos: Gizmos,
     confirmed: Query<
-        (&Position, &Rotation, &ColorComponent, &Collider),
+        (
+            &Position,
+            &Rotation,
+            &ColorComponent,
+            &Collider,
+            Option<&ActionState<PlayerActions>>,
+            &ColorComponent,
+        ),
         Or<(With<Player>, With<BallMarker>, With<BulletMarker>)>,
     >,
 ) {
-    for (position, rotation, color, collider) in &confirmed {
+    for (position, rotation, color, collider, opt_action, col) in &confirmed {
         render_shape(collider.shape(), position, rotation, &mut gizmos, color.0);
+        // render engine exhaust for players holding down thrust.
+        if let Some(action) = opt_action {
+            if action.pressed(&PlayerActions::Up) {
+                let width = 0.6 * (SHIP_WIDTH / 2.0);
+                let points = vec![
+                    Vec2::new(width, (-SHIP_LENGTH / 2.) - 3.0),
+                    Vec2::new(-width, (-SHIP_LENGTH / 2.) - 3.0),
+                    Vec2::new(0.0, (-SHIP_LENGTH / 2.) - 10.0),
+                ];
+                let collider = Collider::convex_hull(points).unwrap();
+                render_shape(
+                    collider.shape(),
+                    position,
+                    rotation,
+                    &mut gizmos,
+                    col.0.with_a(0.7),
+                );
+            }
+        }
     }
 }
 
