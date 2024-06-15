@@ -92,6 +92,7 @@ fn init(mut commands: Commands) {
             ..default()
         }),
     );
+
     // the balls are server-authoritative
     const NUM_BALLS: usize = 3;
     for i in 0..NUM_BALLS {

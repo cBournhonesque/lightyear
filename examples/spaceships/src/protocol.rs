@@ -246,7 +246,6 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Lifetime>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
-        // to avoid spawning in shared_firing when inputs are not early
         app.register_component::<Weapon>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);
 
