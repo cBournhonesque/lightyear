@@ -223,11 +223,6 @@ pub fn shared_player_firing(
         if !action.pressed(&PlayerActions::Fire) {
             continue;
         }
-        if identity.is_client() && !is_local {
-            // don't spawn bullets based on ActionState for remote players
-            // info!("Not spawning, remote player fires");
-            // continue;
-        }
 
         if (weapon.last_fire_tick + Tick(weapon.cooldown)) > current_tick {
             // cooldown period - can't fire.
@@ -238,12 +233,6 @@ pub fn shared_player_firing(
         }
         let prev_last_fire_tick = weapon.last_fire_tick;
         weapon.last_fire_tick = current_tick;
-
-        // bullet will despawn after a given number of frames
-        let lifetime = Lifetime {
-            origin_tick: current_tick,
-            lifetime: FIXED_TIMESTEP_HZ as i16 * 10,
-        };
 
         // bullet spawns just in front of the nose of the ship, in the direction the ship is facing,
         // and inherits the speed of the ship.
@@ -258,20 +247,19 @@ pub fn shared_player_firing(
         // (default hasher is unsuitable because it can't distinguish between 2 bullets fired on the
         //  same tick but by different players)
         // TODO different results wasm vs native?
-        let mut hasher = seahash::SeaHasher::new();
-        player.client_id.hash(&mut hasher);
-        weapon.last_fire_tick.hash(&mut hasher);
-        let hash = hasher.finish();
-        // let hash: u64 = player.client_id.to_bits() ^ (weapon.last_fire_tick.0 as u64);
+        // let mut hasher = seahash::SeaHasher::new();
+        // player.client_id.hash(&mut hasher);
+        // weapon.last_fire_tick.hash(&mut hasher);
+        // let hash = hasher.finish();
+        let hash: u64 = player.client_id.to_bits() ^ (weapon.last_fire_tick.0 as u64);
 
         let prespawned = PreSpawnedPlayerObject { hash: Some(hash) };
 
         let bullet_entity = commands
             .spawn((
-                BulletBundle::new(bullet_origin, bullet_linvel, color.0),
+                BulletBundle::new(bullet_origin, bullet_linvel, color.0, current_tick),
                 PhysicsBundle::bullet(),
                 prespawned,
-                lifetime,
             ))
             .id();
         info!(

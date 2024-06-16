@@ -92,9 +92,8 @@ fn init(mut commands: Commands) {
             ..default()
         }),
     );
-    return;
     // the balls are server-authoritative
-    const NUM_BALLS: usize = 6;
+    const NUM_BALLS: usize = 3;
     for i in 0..NUM_BALLS {
         let angle: f32 = i as f32 * (TAU / NUM_BALLS as f32);
         let pos = Vec2::new(125.0 * angle.cos(), 125.0 * angle.sin());
@@ -138,6 +137,8 @@ pub(crate) fn handle_connections(
     mut commands: Commands,
     all_players: Query<Entity, With<Player>>,
 ) {
+    // track the number of connected players in order to pick colors and starting positions
+    let mut player_n = all_players.iter().count();
     for connection in connections.read() {
         let client_id = connection.client_id;
         info!("New connected client, client_id: {client_id:?}. Spawning player entity..");
@@ -155,8 +156,21 @@ pub(crate) fn handle_connections(
             ..default()
         };
         // pick color and x,y pos for player
-        let player_n = all_players.iter().count();
-        let available_colors = [Color::LIME_GREEN, Color::PINK, Color::YELLOW, Color::CYAN];
+
+        let available_colors = [
+            Color::LIME_GREEN,
+            Color::PINK,
+            Color::YELLOW,
+            Color::CYAN,
+            Color::CRIMSON,
+            Color::GOLD,
+            Color::ORANGE_RED,
+            Color::SILVER,
+            Color::SALMON,
+            Color::YELLOW_GREEN,
+            Color::WHITE,
+            Color::RED,
+        ];
         let col = available_colors[player_n % available_colors.len()];
         let angle: f32 = player_n as f32 * 5.0;
         let x = 200.0 * angle.cos();
@@ -183,6 +197,7 @@ pub(crate) fn handle_connections(
             .id();
 
         info!("Created entity {player_ent:?} for client {client_id:?}");
+        player_n += 1;
     }
 }
 
@@ -191,7 +206,7 @@ fn pick_player_name(client_id: u64) -> String {
     NAMES[index].to_string()
 }
 
-const NAMES: [&str; 49] = [
+const NAMES: [&str; 50] = [
     "Ellen Ripley",
     "Sarah Connor",
     "Neo",
@@ -241,4 +256,5 @@ const NAMES: [&str; 49] = [
     "Diana Prince",
     "Peter Quill",
     "Gamora",
+    "Mr. T",
 ];

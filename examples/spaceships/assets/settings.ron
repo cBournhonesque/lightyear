@@ -1,19 +1,20 @@
 MySettings(
-  input_delay_ticks: 3,
+  input_delay_ticks: 6,
   correction_ticks_factor: 1.5,
   predict_all: true,
   show_confirmed: true,
   common: Settings(
     client: ClientSettings(
-            inspector: true,
+            inspector: false,
             client_id: 0,
             client_port: 0, // the OS will assign a random open port
-            server_addr: "127.0.0.1",
-            conditioner: Some(Conditioner(
-                latency_ms: 50,
-                jitter_ms: 5,
-                packet_loss: 0.005
-            )),
+            server_addr: "138.201.23.5",
+            conditioner: None, 
+            // Some(Conditioner(
+             //   latency_ms: 50,
+             //   jitter_ms: 5,
+             //   packet_loss: 0.005
+            //)),
             server_port: 5000,
             transport: WebTransport(
                 // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks

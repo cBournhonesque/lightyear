@@ -3,6 +3,7 @@ use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
+use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
@@ -32,17 +33,20 @@ pub(crate) struct BulletBundle {
     velocity: LinearVelocity,
     color: ColorComponent,
     marker: BulletMarker,
-    // physics: PhysicsBundle,
+    lifetime: Lifetime,
     collision_payload: CollisionPayload,
 }
 
 impl BulletBundle {
-    pub(crate) fn new(position: Vec2, velocity: Vec2, color: Color) -> Self {
+    pub(crate) fn new(position: Vec2, velocity: Vec2, color: Color, current_tick: Tick) -> Self {
         Self {
             position: Position(position),
             velocity: LinearVelocity(velocity),
             color: ColorComponent(color),
-            // physics: PhysicsBundle::bullet(),
+            lifetime: Lifetime {
+                origin_tick: current_tick,
+                lifetime: FIXED_TIMESTEP_HZ as i16 * 2,
+            },
             marker: BulletMarker,
             collision_payload: CollisionPayload,
         }
@@ -244,7 +248,7 @@ impl Plugin for ProtocolPlugin {
 
         // to avoid spawning in shared_firing when inputs are not early
         app.register_component::<Weapon>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Simple);
+            .add_prediction(ComponentSyncMode::Full);
 
         app.register_component::<CollisionPayload>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);

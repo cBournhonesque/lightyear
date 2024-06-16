@@ -37,6 +37,9 @@ impl Plugin for ExampleClientPlugin {
             FixedUpdate,
             (
                 player_movement,
+                // we don't spawn bullets during rollback.
+                // if we have the inputs early (so not in rb) then we spawn,
+                // otherwise we rely on normal server replication to spawn them
                 shared::shared_player_firing.run_if(not(is_in_rollback)),
             )
                 .chain()
@@ -46,7 +49,7 @@ impl Plugin for ExampleClientPlugin {
             Update,
             (
                 add_ball_physics,
-                add_bullet_physics, // probably should be right after replicated entities get spawned
+                add_bullet_physics, // TODO should be scheduled right after replicated entities get spawned
                 handle_new_player,
                 log_predicted,
             ),
@@ -143,10 +146,7 @@ fn handle_new_player(
         }
         let client_id = connection.id();
         info!(?entity, ?client_id, "adding physics to predicted player");
-        commands
-            .entity(entity)
-            .insert(PhysicsBundle::player_ship())
-            .insert(ExternalForce::ZERO.with_persistence(false));
+        commands.entity(entity).insert(PhysicsBundle::player_ship());
     }
 }
 

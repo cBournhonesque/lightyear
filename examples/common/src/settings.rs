@@ -15,6 +15,7 @@ use bevy::tasks::IoTaskPool;
 
 use lightyear::prelude::client::Authentication;
 #[cfg(not(target_family = "wasm"))]
+#[cfg(feature = "steam")]
 use lightyear::prelude::client::{SocketConfig, SteamConfig};
 use lightyear::prelude::{CompressionConfig, LinkConditionerConfig};
 
@@ -34,6 +35,7 @@ pub enum ClientTransports {
     },
     WebSocket,
     #[cfg(not(target_family = "wasm"))]
+    #[cfg(feature = "steam")]
     Steam {
         app_id: u32,
     },
@@ -51,6 +53,7 @@ pub enum ServerTransports {
         local_port: u16,
     },
     #[cfg(not(target_family = "wasm"))]
+    #[cfg(feature = "steam")]
     Steam {
         app_id: u32,
         server_ip: Ipv4Addr,
@@ -215,6 +218,7 @@ pub(crate) fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConf
                     server_addr: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port),
                 },
             ),
+            #[cfg(feature = "steam")]
             ServerTransports::Steam {
                 app_id,
                 server_ip,
@@ -307,6 +311,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
             client::ClientTransport::WebSocketClient { server_addr },
         ),
         #[cfg(not(target_family = "wasm"))]
+        #[cfg(feature = "steam")]
         ClientTransports::Steam { app_id } => client::NetConfig::Steam {
             steamworks_client: None,
             config: SteamConfig {
