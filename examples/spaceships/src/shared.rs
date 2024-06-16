@@ -74,7 +74,7 @@ impl Plugin for SharedPlugin {
 
         app.add_systems(
             FixedUpdate,
-            (process_collisions, lifetime_despawner).in_set(FixedSet::Main),
+            (/*process_collisions,*/lifetime_despawner).in_set(FixedSet::Main),
         );
 
         // registry types for reflection
@@ -146,21 +146,6 @@ pub fn shared_movement_behaviour(aiq: ApplyInputsQueryItem) {
     };
     if ang_vel.0 != desired_ang_vel {
         ang_vel.0 = desired_ang_vel;
-    }
-}
-
-pub fn log_predicted(
-    q: Query<(Entity, &PreSpawnedPlayerObject), Added<PreSpawnedPlayerObject>>,
-    tick_manager: Res<TickManager>,
-    rb: Res<Rollback>,
-) {
-    for (e, ps) in q.iter() {
-        info!(
-            "PRESPAWN ADDED @ {:?} rb:{} {:?}",
-            tick_manager.tick(),
-            rb.is_rollback(),
-            ps.hash
-        );
     }
 }
 

@@ -10,7 +10,6 @@ use lightyear::shared::tick_manager;
 
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::log_predicted;
 use crate::shared::ApplyInputsQuery;
 use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 
@@ -51,7 +50,6 @@ impl Plugin for ExampleClientPlugin {
                 add_ball_physics,
                 add_bullet_physics, // TODO should be scheduled right after replicated entities get spawned
                 handle_new_player,
-                log_predicted,
             ),
         );
     }
