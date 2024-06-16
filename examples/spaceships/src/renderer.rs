@@ -206,12 +206,13 @@ fn draw_predicted_entities(
             &Collider,
             Has<PreSpawnedPlayerObject>,
             Option<&ActionState<PlayerActions>>,
+            Option<&InputBuffer<PlayerActions>>,
         ),
         Or<(With<PreSpawnedPlayerObject>, With<Predicted>)>,
     >,
     tick_manager: Res<TickManager>,
 ) {
-    for (e, position, rotation, color, collider, prespawned, opt_action) in &predicted {
+    for (e, position, rotation, color, collider, prespawned, opt_action, opt_ib) in &predicted {
         // render prespawned translucent until acknowledged by the server
         // (at which point the PreSpawnedPlayerObject component is removed)
         let col = if prespawned {
@@ -222,23 +223,37 @@ fn draw_predicted_entities(
 
         render_shape(collider.shape(), position, rotation, &mut gizmos, col);
         // render engine exhaust for players holding down thrust.
-        if let Some(action) = opt_action {
-            if action.pressed(&PlayerActions::Up) {
-                let width = 0.6 * (SHIP_WIDTH / 2.0);
-                let points = vec![
-                    Vec2::new(width, (-SHIP_LENGTH / 2.) - 3.0),
-                    Vec2::new(-width, (-SHIP_LENGTH / 2.) - 3.0),
-                    Vec2::new(0.0, (-SHIP_LENGTH / 2.) - 10.0),
-                ];
-                let collider = Collider::convex_hull(points).unwrap();
-                render_shape(
-                    collider.shape(),
-                    position,
-                    rotation,
-                    &mut gizmos,
-                    col.with_a(0.7),
-                );
+        let Some(action) = opt_action else {
+            continue;
+        };
+        let Some(ib) = opt_ib else {
+            continue;
+        };
+        let mut is_thrusting = action.pressed(&PlayerActions::Up);
+        if !is_thrusting {
+            // if inputs are late for this player, we'll render the engine if their
+            // last input was thrust. otherwise remote players with late inputs will never
+            // appear to be thrusting, since it all happens in rollback.
+            if let Some(action) = ib.get_last() {
+                is_thrusting = action.pressed(&PlayerActions::Up);
             }
+        }
+
+        if is_thrusting {
+            let width = 0.6 * (SHIP_WIDTH / 2.0);
+            let points = vec![
+                Vec2::new(width, (-SHIP_LENGTH / 2.) - 3.0),
+                Vec2::new(-width, (-SHIP_LENGTH / 2.) - 3.0),
+                Vec2::new(0.0, (-SHIP_LENGTH / 2.) - 10.0),
+            ];
+            let collider = Collider::convex_hull(points).unwrap();
+            render_shape(
+                collider.shape(),
+                position,
+                rotation,
+                &mut gizmos,
+                col.with_a(0.7),
+            );
         }
     }
 }

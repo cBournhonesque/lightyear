@@ -224,6 +224,13 @@ pub fn shared_player_firing(
             continue;
         }
 
+        // if let Some(ref rb) = rollback {
+        //     if rb.is_rollback() {
+        //         info!("fire but in rb");
+        //         return;
+        //     }
+        // }
+
         if (weapon.last_fire_tick + Tick(weapon.cooldown)) > current_tick {
             // cooldown period - can't fire.
             if weapon.last_fire_tick == current_tick {

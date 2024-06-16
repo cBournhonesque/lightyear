@@ -200,7 +200,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
     }
 
     /// Get latest ActionState present in the buffer
-    pub(crate) fn get_last(&self) -> Option<&ActionState<T>> {
+    pub fn get_last(&self) -> Option<&ActionState<T>> {
         let Some(start_tick) = self.start_tick else {
             return None;
         };
