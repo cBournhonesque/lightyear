@@ -4,11 +4,11 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::server::ControlledBy;
-use crate::prelude::{Replicated, Replicating, ReplicationGroup, VisibilityMode};
+use crate::prelude::{Replicating, ReplicationGroup, VisibilityMode};
 use crate::server::replication::send::SyncTarget;
 use crate::shared::replication::components::{ReplicateHierarchy, ReplicationTarget};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
-use crate::shared::sets::InternalReplicationSet;
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
 /// The `ParentSync` component will be updated automatically when the `Parent` component changes,
@@ -160,18 +160,17 @@ impl<R> Default for HierarchyReceivePlugin<R> {
 }
 
 impl<R> HierarchyReceivePlugin<R> {
-    /// On the receiving side, update the hierarchy if ParentSync was changed
+    /// Update parent/children hierarchy if parent_sync changed
     ///
-    /// We implement this as an observer because this should be rare, and we don't
-    /// want to run a system every frame to check for changes in ParentSync.
-    fn on_insert_parent_sync(
-        trigger: Trigger<OnInsert, ParentSync>,
+    /// This only runs on the receiving side
+    fn update_parent(
         mut commands: Commands,
-        hierarchy: Query<(&ParentSync, Option<&Parent>), Without<ReplicationTarget>>,
+        hierarchy: Query<
+            (Entity, &ParentSync, Option<&Parent>),
+            (Changed<ParentSync>, Without<ReplicationTarget>),
+        >,
     ) {
-        let entity = trigger.entity();
-        dbg!("Received ParentSync");
-        if let Ok((parent_sync, parent)) = hierarchy.get(trigger.entity()) {
+        for (entity, parent_sync, parent) in hierarchy.iter() {
             trace!(
                 "update_parent: entity: {:?}, parent_sync: {:?}, parent: {:?}",
                 entity,
@@ -195,8 +194,11 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
         app.register_type::<ParentSync>();
 
         // TODO: does this work for client replication? (client replicating to other clients via the server?)
-        app.observe(Self::on_insert_parent_sync);
-        app.world_mut().spawn(ParentSync { 0: None });
+        // when we receive a ParentSync update from the remote, update the hierarchy
+        app.add_systems(
+            PreUpdate,
+            Self::update_parent.after(InternalMainSet::<R::SetMarker>::Receive),
+        );
     }
 }
 
