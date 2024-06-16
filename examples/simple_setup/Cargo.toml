@@ -16,11 +16,9 @@ publish = false
 lightyear = { path = "../../lightyear" }
 serde = { version = "1.0.188", features = ["derive"] }
 clap = { version = "4.5.4", features = ["derive"] }
-bevy = { version = "0.14.0-rc.2", features = [
-  "multi_threaded",
-  "bevy_state",
-  "serialize",
+bevy = { version = "0.14.0-rc.3", features = [
+    "multi_threaded",
+    "bevy_state",
+    "serialize",
 ] }
-bevy_ecs = { version = "0.14.0-rc.2", default-features = false, features = [
-  "serde",
-] }
+
