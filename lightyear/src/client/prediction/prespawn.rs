@@ -339,7 +339,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 .flatten()
                 .for_each(|entity| {
                     if let Some(entity_commands) = commands.get_entity(*entity) {
-                        warn!(
+                        trace!(
                             ?tick,
                             ?entity,
                             "Cleaning up prespawned player object up to past tick: {:?}",
