@@ -1,11 +1,15 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+use std::time::Duration;
+
 use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
+use lightyear::client::config::ClientConfig;
 use lightyear::prelude::client::PredictionConfig;
+use lightyear::server::config::ServerConfig;
 use lightyear_examples_common::app::{Apps, Cli};
 use lightyear_examples_common::settings::{read_settings, Settings};
 use serde::{Deserialize, Serialize};
@@ -24,7 +28,15 @@ fn main() {
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
     let mut apps = Apps::new(settings.common, cli);
-    // for this example, we will use input delay and a correction function
+    // set replication interval different to the default for other examples:
+    let replication_interval = Duration::from_millis(20);
+    apps.update_lightyear_client_config(|cc: &mut ClientConfig| {
+        cc.shared.server_replication_send_interval = replication_interval
+    });
+    apps.update_lightyear_server_config(|sc: &mut ServerConfig| {
+        sc.shared.server_replication_send_interval = replication_interval
+    });
+    // use input delay and a correction function to smooth over rollback errors
     apps.update_lightyear_client_config(|config| {
         config.prediction.input_delay_ticks = settings.input_delay_ticks;
         config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
