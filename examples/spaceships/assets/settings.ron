@@ -1,4 +1,5 @@
 MySettings(
+  server_replication_send_interval: 20,
   input_delay_ticks: 6,
   correction_ticks_factor: 1.5,
   predict_all: true,

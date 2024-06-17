@@ -35,16 +35,12 @@ impl Plugin for ExampleServerPlugin {
             predict_all: self.predict_all,
         });
         app.add_systems(Startup, (start_server, init));
-        // app.add_systems(FixedPostUpdate, broadcast_future_inputs);
         app.add_systems(
             PreUpdate,
             // this system will replicate the inputs of a client to other clients
             // so that a client can predict other clients
             replicate_inputs.after(MainSet::EmitEvents),
         );
-
-        // spawn player entities once they connect
-        app.add_systems(Update, handle_connections);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(
             FixedUpdate,
@@ -52,14 +48,17 @@ impl Plugin for ExampleServerPlugin {
                 .chain()
                 .in_set(FixedSet::Main),
         );
-
         app.add_systems(
             Update,
-            update_player_metrics.run_if(on_timer(Duration::from_secs(1))),
+            (
+                handle_connections,
+                update_player_metrics.run_if(on_timer(Duration::from_secs(1))),
+            ),
         );
     }
 }
 
+/// Since Player is replicated, this allows the clients to display remote players' latency stats.
 fn update_player_metrics(
     connection_manager: Res<ConnectionManager>,
     mut q: Query<(Entity, &mut Player)>,
@@ -121,6 +120,7 @@ pub(crate) fn replicate_inputs(
         let client_id = event.context();
 
         // Optional: do some validation on the inputs to check that there's no cheating
+        // Inputs for a specific tick should be write *once*. Don't let players change old inputs.
 
         // rebroadcast the input to other clients
         connection

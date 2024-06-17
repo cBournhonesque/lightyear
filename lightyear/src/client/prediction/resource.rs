@@ -1,7 +1,6 @@
 //! Defines bevy resources needed for Prediction
 
 use bevy::ecs::entity::EntityHash;
-use bevy::ecs::world::OccupiedEntry;
 use bevy::prelude::{Entity, Resource};
 use std::cell::UnsafeCell;
 

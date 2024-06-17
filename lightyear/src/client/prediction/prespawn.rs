@@ -297,7 +297,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 // remove ShouldBePredicted so that we don't spawn another Predicted entity
                 .remove::<(PreSpawnedPlayerObject, ShouldBePredicted)>();
 
-            warn!(
+            debug!(
                 "{} Predicted entity: {:?} for the confirmed entity: {:?} (confirmed_tick: {confirmed_tick:?}, hash: {server_hash})",
                 if found_existing { "Found existing" } else { "Spawned new" }, predicted_entity, confirmed_entity
             );

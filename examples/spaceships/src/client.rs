@@ -18,13 +18,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // To send global inputs, insert the ActionState and the InputMap as Resources
-        // app.init_resource::<ActionState<AdminActions>>();
-        // app.insert_resource(InputMap::<AdminActions>::new([
-        //     (AdminActions::SendMessage, KeyCode::KeyM),
-        //     (AdminActions::Reset, KeyCode::KeyR),
-        // ]));
-
         app.add_systems(Startup, init);
         app.add_systems(
             PreUpdate,
@@ -49,7 +42,7 @@ impl Plugin for ExampleClientPlugin {
             Update,
             (
                 add_ball_physics,
-                add_bullet_physics, // TODO should be scheduled right after replicated entities get spawned
+                add_bullet_physics, // TODO better to scheduled right after replicated entities get spawned?
                 handle_new_player,
             ),
         );
@@ -102,28 +95,24 @@ pub(crate) fn handle_connection(
 #[allow(clippy::type_complexity)]
 fn add_ball_physics(
     mut commands: Commands,
-    mut ball_query: Query<
-        Entity,
-        (
-            With<BallMarker>,
-            // insert the physics components on predicted entity
-            Added<Predicted>,
-        ),
-    >,
+    mut ball_query: Query<Entity, (With<BallMarker>, Added<Predicted>)>,
 ) {
     for entity in ball_query.iter_mut() {
-        info!("Got ball {entity:?}");
+        info!("Adding physics to a replicated ball {entity:?}");
         commands.entity(entity).insert(PhysicsBundle::ball());
     }
 }
 
+/// Simliar blueprint scenario as balls, except sometimes clients prespawn bullets ahead of server
+/// replication, which means they will already have the physics components.
+/// So, we filter the query using `Without<Collider>`.
 #[allow(clippy::type_complexity)]
 fn add_bullet_physics(
     mut commands: Commands,
-    mut bullet_query: Query<Entity, (With<BulletMarker>, Without<Confirmed>, Without<Collider>)>,
+    mut bullet_query: Query<Entity, (With<BulletMarker>, Added<Predicted>, Without<Collider>)>,
 ) {
     for entity in bullet_query.iter_mut() {
-        info!("Adding physics to a (replicated?) bullet:  {entity:?}");
+        info!("Adding physics to a replicated bullet:  {entity:?}");
         commands.entity(entity).insert(PhysicsBundle::bullet());
     }
 }

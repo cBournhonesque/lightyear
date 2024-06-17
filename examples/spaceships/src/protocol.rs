@@ -162,7 +162,7 @@ pub struct BallMarker;
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BulletMarker;
 
-// to debounce shots - once you fire (on `last_fire_tick` you have to wait `cooldown` ticks before firing again)
+// Limiting firing rate: once you fire on `last_fire_tick` you have to wait `cooldown` ticks before firing again.
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub(crate) struct Weapon {
     pub(crate) last_fire_tick: Tick,
@@ -188,18 +188,6 @@ pub(crate) struct Lifetime {
     pub(crate) lifetime: i16,
 }
 
-// Channels
-
-#[derive(Channel)]
-pub struct Channel1;
-
-// Messages
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
-
-// Inputs
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
 pub enum PlayerActions {
     Up,
@@ -209,23 +197,12 @@ pub enum PlayerActions {
     Fire,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
-pub enum AdminActions {
-    SendMessage,
-    Reset,
-}
-
 // Protocol
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
-        // inputs
         app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
-        app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
-        // components
 
         // Player is synced as Simple, because we periodically update rtt ping stats
         app.register_component::<Player>(ChannelDirection::ServerToClient)
@@ -246,18 +223,18 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Lifetime>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
-        app.register_component::<Weapon>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
-
         app.register_component::<CollisionPayload>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
-        // Velocity and position fully replicated
+        // Fully replicated, but not visual, so no need for lerp/corrections:
 
         app.register_component::<LinearVelocity>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);
 
         app.register_component::<AngularVelocity>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full);
+
+        app.register_component::<Weapon>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);
 
         // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
@@ -274,11 +251,5 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation_fn(rotation::lerp)
             .add_correction_fn(rotation::lerp);
-
-        // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        });
     }
 }
