@@ -309,26 +309,11 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
     // https://github.com/bevyengine/bevy/issues/10157
     app.insert_resource(bevy::asset::AssetMetaCheck::Never);
 
-    app.add_plugins(
-        DefaultPlugins
-            .build()
-            .set(LogPlugin {
-                level: Level::INFO,
-                filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-                update_subscriber: None,
-            })
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    // Tells wasm to resize the window according to the available canvas (bevy 0.14)
-                    // fit_canvas_to_parent: true,
-                    resolution: (800., 800.).into(),
-                    // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
-                    prevent_default_event_handling: false,
-                    ..default()
-                }),
-                ..default()
-            }),
-    );
+    app.add_plugins(DefaultPlugins.build().set(LogPlugin {
+        level: Level::INFO,
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
+        update_subscriber: None,
+    }));
     if settings.client.inspector {
         app.add_plugins(WorldInspectorPlugin::new());
     }
