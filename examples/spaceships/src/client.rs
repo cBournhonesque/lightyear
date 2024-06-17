@@ -7,6 +7,7 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::Controlled;
 use lightyear::shared::tick_manager;
+use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
 use crate::shared;
@@ -51,6 +52,16 @@ impl Plugin for ExampleClientPlugin {
                 add_bullet_physics, // TODO should be scheduled right after replicated entities get spawned
                 handle_new_player,
             ),
+        );
+        #[cfg(target_family = "wasm")]
+        app.add_systems(
+            Startup,
+            |mut settings: ResMut<lightyear::client::web::KeepaliveSettings>| {
+                // the show must go on, even in the background.
+                let keepalive = 1000. / FIXED_TIMESTEP_HZ;
+                info!("Setting webworker keepalive to {keepalive}");
+                settings.wake_delay = keepalive;
+            },
         );
     }
 }
