@@ -17,12 +17,12 @@ use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::PredictionSet;
 use crate::prelude::server::ControlledBy;
 use crate::prelude::{
-    ComponentRegistry, NetworkRelevanceMode, ParentSync, ReplicateHierarchy, Replicated,
-    Replicating, ReplicationTarget, ShouldBePredicted, TargetEntity, TickManager,
+    ComponentRegistry, ParentSync, ReplicateHierarchy, Replicated, Replicating, ReplicationTarget,
+    ShouldBePredicted, TargetEntity, TickManager, VisibilityMode,
 };
 use crate::protocol::component::ComponentKind;
-use crate::server::relevance::immediate::CachedNetworkRelevance;
 use crate::server::replication::send::SyncTarget;
+use crate::server::visibility::immediate::ReplicateVisibility;
 use crate::shared::replication::components::DespawnTracker;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
@@ -150,15 +150,15 @@ impl PreSpawnedPlayerObjectPlugin {
                                         world.components().get_info(component_id).unwrap().type_id()
                                     {
                                         // ignore some book-keeping components
-                                        if type_id != TypeId::of::<NetworkRelevanceMode>()
+                                        if type_id != TypeId::of::<VisibilityMode>()
                                             && type_id != TypeId::of::<ReplicationTarget>()
                                             && type_id != TypeId::of::<SyncTarget>()
                                             && type_id != TypeId::of::<ControlledBy>()
                                             && type_id != TypeId::of::<Replicating>()
                                             && type_id != TypeId::of::<Replicated>()
                                             && type_id != TypeId::of::<ReplicateToServer>()
-                                            && type_id != TypeId::of::<CachedNetworkRelevance>()
-                                            && type_id != TypeId::of::<NetworkRelevanceMode>()
+                                            && type_id != TypeId::of::<ReplicateVisibility>()
+                                            && type_id != TypeId::of::<VisibilityMode>()
                                             && type_id != TypeId::of::<TargetEntity>()
                                             && type_id != TypeId::of::<ReplicateHierarchy>()
                                             && type_id != TypeId::of::<PreSpawnedPlayerObject>()
@@ -243,25 +243,21 @@ impl PreSpawnedPlayerObjectPlugin {
         mut events: EventReader<ComponentInsertEvent<PreSpawnedPlayerObject>>,
         query: Query<&PreSpawnedPlayerObject>,
     ) {
-        // ComponentInsertEvent is emitted by replication systems, so server has replicated us an entity
-        // with a PreSpawnedPlayerObject component. Using the hash, check if we've prespawned a
-        // Predicted entity, otherwise we must spawn one.
         for event in events.read() {
             let confirmed_entity = event.entity();
-            let confirmed_tick = connection
-                .replication_receiver
-                .get_confirmed_tick(confirmed_entity)
-                .unwrap();
-
+            // we handle the PreSpawnedPlayerObject hash in this system and don't need it afterwards
+            commands
+                .entity(confirmed_entity)
+                .remove::<PreSpawnedPlayerObject>();
             let server_prespawn = query.get(confirmed_entity).unwrap();
+
             let Some(server_hash) = server_prespawn.hash else {
-                error!("Received a PreSpawnedPlayerObject entity {confirmed_entity:?} from the server without a hash");
+                debug!("Received a PreSpawnedPlayerObject entity from the server without a hash");
                 continue;
             };
-
-            // Find or spawn the Predicted entity.
-
-            let Some(prespawned_entity) = manager.pop_entity_for_prespawn_hash(&server_hash) else {
+            let Some(mut client_entity_list) =
+                manager.prespawn_hash_to_entities.remove(&server_hash)
+            else {
                 debug!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
                 // remove the PreSpawnedPlayerObject so that the entity can be normal-predicted
                 commands
@@ -270,27 +266,39 @@ impl PreSpawnedPlayerObjectPlugin {
                 continue;
             };
 
-            let predicted_entity = if let Some(mut entity_commands) =
-                commands.get_entity(prespawned_entity)
-            {
-                entity_commands
-                    .remove::<PreSpawnedPlayerObject>()
-                    .insert(Predicted {
-                        confirmed_entity: Some(confirmed_entity),
-                    });
-                debug!("Found existing Predicted entity: {prespawned_entity:?} for the confirmed entity: {confirmed_entity:?} (confirmed_tick: {confirmed_tick:?}, hash: {server_hash})");
-                prespawned_entity
-            } else {
-                let e = commands
-                    .spawn(Predicted {
-                        confirmed_entity: Some(confirmed_entity),
-                    })
-                    .id();
-                debug!("Spawned new Predicted entity: {e:?} for the confirmed entity: {confirmed_entity:?} (confirmed_tick: {confirmed_tick:?}, hash: {server_hash})");
-                e
-            };
+            // if there are multiple entities, we will use the first one
+            let client_entity = client_entity_list.pop().unwrap();
+            debug!("found a client pre-spawned entity corresponding to server pre-spawned entity! Spawning a Predicted entity for it");
 
-            // Assign Confirmed to the server entity's counterpart, and remove PreSpawnedPlayerObject
+            // we found the corresponding client entity!
+            // 1.a if the client_entity exists, remove the PreSpawnedPlayerObject component from the client entity
+            //  and add a Predicted component to it
+            let predicted_entity =
+                if let Some(mut entity_commands) = commands.get_entity(client_entity) {
+                    debug!("re-using existing entity");
+                    entity_commands
+                        .remove::<PreSpawnedPlayerObject>()
+                        .insert(Predicted {
+                            confirmed_entity: Some(confirmed_entity),
+                        });
+                    client_entity
+                } else {
+                    debug!("spawning new entity");
+                    // 1.b if the client_entity does not exist, re-create it (because server has authority)
+                    commands
+                        .spawn(Predicted {
+                            confirmed_entity: Some(confirmed_entity),
+                        })
+                        .id()
+                };
+
+            // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawnedPlayerObject
+            // get the confirmed tick for the entity
+            // if we don't have it, something has gone very wrong
+            let confirmed_tick = connection
+                .replication_receiver
+                .get_confirmed_tick(confirmed_entity)
+                .unwrap();
             commands
                 .entity(confirmed_entity)
                 .insert(Confirmed {
@@ -300,6 +308,17 @@ impl PreSpawnedPlayerObjectPlugin {
                 })
                 // remove ShouldBePredicted so that we don't spawn another Predicted entity
                 .remove::<(PreSpawnedPlayerObject, ShouldBePredicted)>();
+            debug!(
+                "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?}",
+                predicted_entity, confirmed_entity
+            );
+
+            // 3. re-add the remaining entities in the map
+            if !client_entity_list.is_empty() {
+                manager
+                    .prespawn_hash_to_entities
+                    .insert(server_hash, client_entity_list);
+            }
         }
     }
 

@@ -43,22 +43,6 @@ impl PredictionManager {
         }
     }
 
-    /// Pops the first matching prespawned entity for a given hash.
-    ///
-    /// Used when looking for prespawned client entities when the server replicates an entity
-    /// containing a [`PreSpawnedPlayerObject`] component.
-    pub(crate) fn pop_entity_for_prespawn_hash(&mut self, hash: &u64) -> Option<Entity> {
-        if let Some(ehm) = self.prespawn_hash_to_entities.get_mut(hash) {
-            let entity = ehm.pop();
-            if ehm.is_empty() {
-                self.prespawn_hash_to_entities.remove(hash);
-            }
-            entity
-        } else {
-            None
-        }
-    }
-
     /// Call MapEntities on the given component.
     ///
     /// Using this function only requires `&self` instead of `&mut self` (on the MapEntities trait), which is useful for parallelism
