@@ -261,30 +261,34 @@ impl PreSpawnedPlayerObjectPlugin {
 
             // Find or spawn the Predicted entity.
 
-            let (predicted_entity, found_existing) = manager
-                // is there a prespawned entity matching this hash?
-                .pop_entity_for_prespawn_hash(&server_hash)
-                // if it exists, update components accordingly
-                .and_then(|e| {
-                    commands.get_entity(e).map(|mut entity_commands| {
-                        entity_commands
-                            .remove::<PreSpawnedPlayerObject>()
-                            .insert(Predicted {
-                                confirmed_entity: Some(confirmed_entity),
-                            });
-                        (e, true)
+            let Some(prespawned_entity) = manager.pop_entity_for_prespawn_hash(&server_hash) else {
+                debug!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
+                // remove the PreSpawnedPlayerObject so that the entity can be normal-predicted
+                commands
+                    .entity(confirmed_entity)
+                    .remove::<PreSpawnedPlayerObject>();
+                continue;
+            };
+
+            let predicted_entity = if let Some(mut entity_commands) =
+                commands.get_entity(prespawned_entity)
+            {
+                entity_commands
+                    .remove::<PreSpawnedPlayerObject>()
+                    .insert(Predicted {
+                        confirmed_entity: Some(confirmed_entity),
+                    });
+                debug!("Found existing Predicted entity: {prespawned_entity:?} for the confirmed entity: {confirmed_entity:?} (confirmed_tick: {confirmed_tick:?}, hash: {server_hash})");
+                prespawned_entity
+            } else {
+                let e = commands
+                    .spawn(Predicted {
+                        confirmed_entity: Some(confirmed_entity),
                     })
-                })
-                // if no such entity found, spawn one
-                .or_else(|| {
-                    let e = commands
-                        .spawn(Predicted {
-                            confirmed_entity: Some(confirmed_entity),
-                        })
-                        .id();
-                    Some((e, false))
-                })
-                .unwrap();
+                    .id();
+                debug!("Spawned new Predicted entity: {e:?} for the confirmed entity: {confirmed_entity:?} (confirmed_tick: {confirmed_tick:?}, hash: {server_hash})");
+                e
+            };
 
             // Assign Confirmed to the server entity's counterpart, and remove PreSpawnedPlayerObject
             commands
@@ -296,11 +300,6 @@ impl PreSpawnedPlayerObjectPlugin {
                 })
                 // remove ShouldBePredicted so that we don't spawn another Predicted entity
                 .remove::<(PreSpawnedPlayerObject, ShouldBePredicted)>();
-
-            debug!(
-                "{} Predicted entity: {:?} for the confirmed entity: {:?} (confirmed_tick: {confirmed_tick:?}, hash: {server_hash})",
-                if found_existing { "Found existing" } else { "Spawned new" }, predicted_entity, confirmed_entity
-            );
         }
     }
 
