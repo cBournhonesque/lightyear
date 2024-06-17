@@ -183,16 +183,11 @@ pub fn shared_player_firing(
     mut commands: Commands,
     tick_manager: Res<TickManager>,
     identity: NetworkIdentity,
-    rollback: Option<Res<Rollback>>,
 ) {
     if q.is_empty() {
         return;
     }
-    // let current_tick = if let Some(rollback) = rollback {
-    //     tick_manager.tick_or_rollback_tick(&rollback)
-    // } else {
-    //     tick_manager.tick()
-    // };
+
     let current_tick = tick_manager.tick();
     for (
         player_position,
@@ -208,18 +203,14 @@ pub fn shared_player_firing(
         if !action.pressed(&PlayerActions::Fire) {
             continue;
         }
-
-        // if let Some(ref rb) = rollback {
-        //     if rb.is_rollback() {
-        //         info!("fire but in rb");
-        //         return;
-        //     }
-        // }
-
-        if (weapon.last_fire_tick + Tick(weapon.cooldown)) > current_tick {
+        if (current_tick - weapon.last_fire_tick) <= weapon.cooldown as i16 {
             // cooldown period - can't fire.
             if weapon.last_fire_tick == current_tick {
+                // logging because debugging latency edge conditions where
+                // inputs arrive on exact frame server replicates to you.
                 info!("Can't fire, fired this tick already! {current_tick:?}");
+            } else {
+                // info!("cooldown. {weapon:?} current_tick = {current_tick:?}");
             }
             continue;
         }
@@ -255,8 +246,8 @@ pub fn shared_player_firing(
             ))
             .id();
         info!(
-            "spawned bullet for ActionState, bullet={bullet_entity:?} hash: {hash} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?} rb:{:?}",
-            weapon.last_fire_tick.0, player.client_id, rollback.as_ref().map(|rb| rb.is_rollback())
+            "spawned bullet for ActionState, bullet={bullet_entity:?} hash: {hash} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?}",
+            weapon.last_fire_tick.0, player.client_id
         );
 
         if identity.is_server() {
