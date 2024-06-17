@@ -244,7 +244,8 @@ impl PreSpawnedPlayerObjectPlugin {
         query: Query<&PreSpawnedPlayerObject>,
     ) {
         // ComponentInsertEvent is emitted by replication systems, so server has replicated us an entity
-        // with a PreSpawnedPlayerObject component.
+        // with a PreSpawnedPlayerObject component. Using the hash, check if we've prespawned a
+        // Predicted entity, otherwise we must spawn one.
         for event in events.read() {
             let confirmed_entity = event.entity();
             let confirmed_tick = connection
@@ -254,43 +255,34 @@ impl PreSpawnedPlayerObjectPlugin {
 
             let server_prespawn = query.get(confirmed_entity).unwrap();
             let Some(server_hash) = server_prespawn.hash else {
-                warn!("Received a PreSpawnedPlayerObject entity from the server without a hash");
+                error!("Received a PreSpawnedPlayerObject entity {confirmed_entity:?} from the server without a hash");
                 continue;
             };
 
             // Find or spawn the Predicted entity.
 
-            let predicted_entity = manager
+            let (predicted_entity, found_existing) = manager
                 // is there a prespawned entity matching this hash?
-                .take_entity_for_prespawn_hash(&server_hash)
+                .pop_entity_for_prespawn_hash(&server_hash)
                 // if it exists, update components accordingly
                 .and_then(|e| {
-                    commands
-                        .get_entity(e)
-                        .map(|mut entity_commands| {
-                            warn!("re-using existing entity, hash: {server_hash}, confirmed_tick: {confirmed_tick:?}");
-                            entity_commands
-                                .remove::<PreSpawnedPlayerObject>()
-                                .insert(Predicted {
-                                    confirmed_entity: Some(confirmed_entity),
-                                });
-                            e
-                        })
-                        .or_else(|| {
-                            warn!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
-                            None
-                        })
+                    commands.get_entity(e).map(|mut entity_commands| {
+                        entity_commands
+                            .remove::<PreSpawnedPlayerObject>()
+                            .insert(Predicted {
+                                confirmed_entity: Some(confirmed_entity),
+                            });
+                        (e, true)
+                    })
                 })
                 // if no such entity found, spawn one
                 .or_else(|| {
-                    warn!("spawning new entity, hash: {server_hash}, confirmed_tick: {confirmed_tick:?}");
-                    Some(
-                        commands
-                            .spawn(Predicted {
-                                confirmed_entity: Some(confirmed_entity),
-                            })
-                            .id(),
-                    )
+                    let e = commands
+                        .spawn(Predicted {
+                            confirmed_entity: Some(confirmed_entity),
+                        })
+                        .id();
+                    Some((e, false))
                 })
                 .unwrap();
 
@@ -306,8 +298,8 @@ impl PreSpawnedPlayerObjectPlugin {
                 .remove::<(PreSpawnedPlayerObject, ShouldBePredicted)>();
 
             warn!(
-                "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?} (confirmed_tick: {confirmed_tick:?}, hash: {server_hash})",
-                predicted_entity, confirmed_entity
+                "{} Predicted entity: {:?} for the confirmed entity: {:?} (confirmed_tick: {confirmed_tick:?}, hash: {server_hash})",
+                if found_existing { "Found existing" } else { "Spawned new" }, predicted_entity, confirmed_entity
             );
         }
     }

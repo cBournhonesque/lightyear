@@ -21,21 +21,17 @@ mod renderer;
 mod server;
 mod shared;
 
+// set replication interval different to the default for other examples:
+const REPLICATION_INTERVAL: Duration = Duration::from_millis(20);
+
 fn main() {
     let cli = Cli::default();
     let settings_str = include_str!("../assets/settings.ron");
     let settings = read_settings::<MySettings>(settings_str);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut apps = Apps::new(settings.common, cli);
-    // set replication interval different to the default for other examples:
-    let replication_interval = Duration::from_millis(20);
-    apps.update_lightyear_client_config(|cc: &mut ClientConfig| {
-        cc.shared.server_replication_send_interval = replication_interval
-    });
-    apps.update_lightyear_server_config(|sc: &mut ServerConfig| {
-        sc.shared.server_replication_send_interval = replication_interval
-    });
+    let mut apps =
+        Apps::new(settings.common, cli).with_server_replication_send_interval(REPLICATION_INTERVAL);
     // use input delay and a correction function to smooth over rollback errors
     apps.update_lightyear_client_config(|config| {
         config.prediction.input_delay_ticks = settings.input_delay_ticks;

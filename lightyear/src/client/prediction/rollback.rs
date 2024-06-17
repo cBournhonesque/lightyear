@@ -192,7 +192,6 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 }),
             };
             if should_rollback {
-                // bevy::prelude::info!(
                 debug!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
@@ -568,6 +567,7 @@ pub(super) mod test_utils {
 mod unit_tests {
     use super::test_utils::*;
     use super::*;
+
     use crate::tests::protocol::Component1;
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::ecs::system::RunSystemOnce;
@@ -725,6 +725,7 @@ mod integration_tests {
     use bevy::prelude::*;
 
     use crate::prelude::client::*;
+
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

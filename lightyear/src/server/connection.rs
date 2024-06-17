@@ -462,10 +462,12 @@ impl Connection {
         }
     }
 
+    /// Return the latest estimate of rtt
     pub fn rtt(&self) -> Duration {
         self.ping_manager.rtt()
     }
 
+    /// Return the latest estimate of jitter
     pub fn jitter(&self) -> Duration {
         self.ping_manager.jitter()
     }

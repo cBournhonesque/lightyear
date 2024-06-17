@@ -5,6 +5,7 @@
 
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::time::Duration;
 
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
@@ -162,6 +163,18 @@ impl Apps {
                 Apps::Client { app, config }
             }
         }
+    }
+
+    /// Set the `server_replication_send_interval` on client and server apps.
+    /// Use to overwrite the default [`SharedConfig`] value in the settings file.
+    pub fn with_server_replication_send_interval(mut self, replication_interval: Duration) -> Self {
+        self.update_lightyear_client_config(|cc: &mut ClientConfig| {
+            cc.shared.server_replication_send_interval = replication_interval
+        });
+        self.update_lightyear_server_config(|sc: &mut ServerConfig| {
+            sc.shared.server_replication_send_interval = replication_interval
+        });
+        self
     }
 
     /// Add the lightyear [`ClientPlugins`] and [`ServerPlugins`] plugin groups to the app.
