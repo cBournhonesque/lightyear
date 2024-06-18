@@ -92,7 +92,6 @@ pub(crate) fn handle_connection(
 ///
 /// However we remove the Position because we want the balls position to be interpolated, without being computed/updated
 /// by the physics engine? Actually this shouldn't matter because we run interpolation in PostUpdate...
-#[allow(clippy::type_complexity)]
 fn add_ball_physics(
     mut commands: Commands,
     mut ball_query: Query<Entity, (With<BallMarker>, Added<Predicted>)>,
@@ -106,7 +105,6 @@ fn add_ball_physics(
 /// Simliar blueprint scenario as balls, except sometimes clients prespawn bullets ahead of server
 /// replication, which means they will already have the physics components.
 /// So, we filter the query using `Without<Collider>`.
-#[allow(clippy::type_complexity)]
 fn add_bullet_physics(
     mut commands: Commands,
     mut bullet_query: Query<Entity, (With<BulletMarker>, Added<Predicted>, Without<Collider>)>,

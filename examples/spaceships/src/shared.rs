@@ -65,13 +65,6 @@ impl Plugin for SharedPlugin {
                 (FixedSet::Main, FixedSet::Physics).chain(),
             ),
         );
-        // add a log at the start of the physics schedule
-        app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
-
-        app.add_systems(FixedPostUpdate, after_physics_log);
-        // app.add_systems(FixedPostUpdate, process_collisions);
-        app.add_systems(Last, last_log);
-
         app.add_systems(
             FixedUpdate,
             (/*process_collisions,*/lifetime_despawner).in_set(FixedSet::Main),
@@ -149,23 +142,16 @@ pub fn shared_movement_behaviour(aiq: ApplyInputsQueryItem) {
     }
 }
 
-// NB we are not restricting this query to `Controlled` entities on the clients, because we hope to
-//    receive PlayerActions for remote players ahead of the server simulating the tick (lag, input delay, etc)
-//    in which case we prespawn their bullets on the correct tick, just like we do for our own bullets.
-//
-//    When spawning here, we add the `PreSpawnedPlayerObject` component, and when the client receives the
-//    replication packet from the server, it matches the hashes on its own `PreSpawnedPlayerObject`, allowing it to
-//    treat our locally spawned one as the `Predicted` entity (and gives it the Predicted component).
-//
-//    In cases where the replication packet spawns the bullet BEFORE we get the remote players inputs,
-//    (IS THIS POSSIBLE? OR ARE INPUTS ATOMIC ALONGSIDE REPLICATION PACKETS),
-//    and then we rollforward over the tick when firing happened, we'd fire another, but would find the
-//    dupe with our query to avoid spawning?
-//
-//    ... hang on.
-
-// not running this in rollback.
-//
+/// NB we are not restricting this query to `Controlled` entities on the clients, because we hope to
+///    receive PlayerActions for remote players ahead of the server simulating the tick (lag, input delay, etc)
+///    in which case we prespawn their bullets on the correct tick, just like we do for our own bullets.
+///
+///    When spawning here, we add the `PreSpawnedPlayerObject` component, and when the client receives the
+///    replication packet from the server, it matches the hashes on its own `PreSpawnedPlayerObject`, allowing it to
+///    treat our locally spawned one as the `Predicted` entity (and gives it the Predicted component).
+///
+///    This system doesn't run in rollback, so without early player inputs, their bullets will be
+///    spawned by the normal server replication (triggering a rollback).
 pub fn shared_player_firing(
     mut q: Query<
         (
@@ -203,14 +189,15 @@ pub fn shared_player_firing(
         if !action.pressed(&PlayerActions::Fire) {
             continue;
         }
-        if (current_tick - weapon.last_fire_tick) <= weapon.cooldown as i16 {
+        let wrapped_diff = weapon.last_fire_tick - current_tick;
+        if wrapped_diff.abs() <= weapon.cooldown as i16 {
             // cooldown period - can't fire.
             if weapon.last_fire_tick == current_tick {
                 // logging because debugging latency edge conditions where
                 // inputs arrive on exact frame server replicates to you.
                 info!("Can't fire, fired this tick already! {current_tick:?}");
             } else {
-                // info!("cooldown. {weapon:?} current_tick = {current_tick:?}");
+                // info!("cooldown. {weapon:?} current_tick = {current_tick:?} wrapped_diff: {wrapped_diff}");
             }
             continue;
         }
@@ -225,18 +212,9 @@ pub fn shared_player_firing(
         let bullet_linvel =
             player_rotation.rotate(Vec2::Y * weapon.bullet_speed) + player_velocity.0;
 
-        // create a unique hash for this firing event based on player id and tick number
-        // which will match on client and server. unique, because you can't fire twice per tick.
-        // (default hasher is unsuitable because it can't distinguish between 2 bullets fired on the
-        //  same tick but by different players)
-        // TODO different results wasm vs native?
-        // let mut hasher = seahash::SeaHasher::new();
-        // player.client_id.hash(&mut hasher);
-        // weapon.last_fire_tick.hash(&mut hasher);
-        // let hash = hasher.finish();
-        let hash: u64 = player.client_id.to_bits() ^ (weapon.last_fire_tick.0 as u64);
-
-        let prespawned = PreSpawnedPlayerObject { hash: Some(hash) };
+        // the default hashing algorithm uses the tick and component list. in order to disambiguate
+        // between two players spawning a bullet on the same tick, we add client_id to the mix.
+        let prespawned = PreSpawnedPlayerObject::default_with_salt(player.client_id.to_bits());
 
         let bullet_entity = commands
             .spawn((
@@ -246,7 +224,7 @@ pub fn shared_player_firing(
             ))
             .id();
         info!(
-            "spawned bullet for ActionState, bullet={bullet_entity:?} hash: {hash} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?}",
+            "spawned bullet for ActionState, bullet={bullet_entity:?} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?}",
             weapon.last_fire_tick.0, player.client_id
         );
 
@@ -281,71 +259,11 @@ pub(crate) fn lifetime_despawner(
                 // commands.entity(e).despawn_without_replication(); // CRASH ?
                 commands.entity(e).remove::<server::Replicate>().despawn();
             } else {
-                info!("Despawning:lifetime {e:?}");
+                // info!("Despawning:lifetime {e:?}");
                 commands.entity(e).despawn_recursive();
             }
         }
     }
-}
-
-pub(crate) fn after_physics_log(
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
-    players: Query<
-        (Entity, &Position, &Rotation),
-        (Without<BallMarker>, Without<Confirmed>, With<Player>),
-    >,
-    ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
-) {
-    let tick = rollback.map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
-    for (entity, position, rotation) in players.iter() {
-        debug!(
-            ?tick,
-            ?entity,
-            ?position,
-            rotation = ?rotation.as_degrees(),
-            "Player after physics update"
-        );
-    }
-    for position in ball.iter() {
-        debug!(?tick, ?position, "Ball after physics update");
-    }
-}
-
-pub(crate) fn last_log(
-    tick_manager: Res<TickManager>,
-    players: Query<
-        (
-            Entity,
-            &Position,
-            &Rotation,
-            Option<&Correction<Position>>,
-            Option<&Correction<Rotation>>,
-        ),
-        (Without<BallMarker>, Without<Confirmed>, With<Player>),
-    >,
-    ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
-) {
-    let tick = tick_manager.tick();
-    for (entity, position, rotation, correction, rotation_correction) in players.iter() {
-        debug!(?tick, ?entity, ?position, ?correction, "Player LAST update");
-        debug!(
-            ?tick,
-            ?entity,
-            rotation = ?rotation.as_degrees(),
-            ?rotation_correction,
-            "Player LAST update"
-        );
-    }
-    for position in ball.iter() {
-        debug!(?tick, ?position, "Ball LAST update");
-    }
-}
-
-pub(crate) fn log() {
-    debug!("run physics schedule!");
 }
 
 // Wall

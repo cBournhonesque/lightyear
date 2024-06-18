@@ -114,6 +114,7 @@ impl PreSpawnedPlayerObjectPlugin {
                     // let mut predicted_entities = vec![];
                     for (entity_ref, prespawn) in pre_spawned_query.iter(world) {
                         // we only care about newly-added PreSpawnedPlayerObject components
+                        // TODO shouldn't we use an Added<PreSpawnedPlayerObject> query filter?
                         if !prespawn.is_added() {
                             continue;
                         }
@@ -177,6 +178,10 @@ impl PreSpawnedPlayerObjectPlugin {
                                 trace!(?kind, "using kind for hash");
                                 kind.hash(&mut hasher)
                             });
+                            // if a user salt is provided, hash after the sorted component list
+                            if let Some(salt) = prespawn.user_salt {
+                                salt.hash(&mut hasher);
+                            }
 
                             // No need to set the value on the component here, we only need the value in the resource!
                             // prespawn.hash = Some(hasher.finish());
@@ -235,6 +240,7 @@ impl PreSpawnedPlayerObjectPlugin {
     /// When we receive an entity from the server that contains the PreSpawnedPlayerObject component,
     /// that means that we already spawned it on the client.
     /// Try to match which client entity it is and take authority over it.
+    /// TODO WARNING see duplicated logic in server/prediction.rs compute_hash
     pub(crate) fn match_with_received_server_entity(
         mut commands: Commands,
         connection: Res<ConnectionManager>,
@@ -252,7 +258,7 @@ impl PreSpawnedPlayerObjectPlugin {
             let server_prespawn = query.get(confirmed_entity).unwrap();
 
             let Some(server_hash) = server_prespawn.hash else {
-                debug!("Received a PreSpawnedPlayerObject entity from the server without a hash");
+                error!("Received a PreSpawnedPlayerObject entity from the server without a hash");
                 continue;
             };
             let Some(mut client_entity_list) =
@@ -268,7 +274,7 @@ impl PreSpawnedPlayerObjectPlugin {
 
             // if there are multiple entities, we will use the first one
             let client_entity = client_entity_list.pop().unwrap();
-            debug!("found a client pre-spawned entity corresponding to server pre-spawned entity! Spawning a Predicted entity for it");
+            debug!("found a client pre-spawned entity corresponding to server pre-spawned entity! Spawning/finding a Predicted entity for it {}", server_hash);
 
             // we found the corresponding client entity!
             // 1.a if the client_entity exists, remove the PreSpawnedPlayerObject component from the client entity
@@ -374,13 +380,50 @@ impl PreSpawnedPlayerObjectPlugin {
     Component, Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq, Reflect,
 )]
 #[component(storage = "SparseSet")]
+/// Added to indicate the client has prespawned the predicted version of this entity.
+///
+/// ```rust,no_run
+/// // Default hashing implementation: (tick + components)
+/// PreSpawnedPlayerObject::default();
+///
+/// // Default hashing implementation with additional user-provided salt:
+/// let client_id: u64 = 12345;
+/// PreSpawnedPlayerObject::default_with_salt(client_id);
+///
+/// // User-provided custom hash
+/// let custom_hash: u64 = compute_hash();
+/// PreSpawnedPlayerObject::new(hash);
+/// ``````
 pub struct PreSpawnedPlayerObject {
     /// The hash that will identify the spawned entity
     /// By default, if the hash is not set, it will be generated from the entity's archetype (list of components) and spawn tick
     /// Otherwise you can manually set it to a value that will be the same on both the client and server
     pub hash: Option<u64>,
+    /// An optional extra value that will be passed to the hasher as part of the default hashing algorithm
+    ///
+    /// Since the default hash uses the tick and components, a useful addition is the client id, to
+    /// distinguish between bullets spawned on the same tick, but by different players.
+    #[serde(skip)]
+    pub user_salt: Option<u64>,
     //
     // pub conflict_resolution: ConflictResolution,
+}
+
+impl PreSpawnedPlayerObject {
+    /// You specify the hash yourself, default hasher not used.
+    pub fn new(hash: u64) -> Self {
+        Self {
+            hash: Some(hash),
+            user_salt: None,
+        }
+    }
+    /// Uses default hasher with additional `salt`.
+    pub fn default_with_salt(salt: u64) -> Self {
+        Self {
+            hash: None,
+            user_salt: Some(salt),
+        }
+    }
 }
 
 // pub enum ClientNoMatchHandling {

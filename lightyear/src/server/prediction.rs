@@ -23,6 +23,7 @@ use crate::shared::replication::components::DespawnTracker;
 /// 2. Client will compute the hash of the entity and store it internally
 /// 3. Server (later) spawns the entity, computes the hash and replicates the PreSpawnedPlayerObject component
 /// 4. When the client receives the PreSpawnedPlayerObject component, it will compare the hash with the one it computed
+/// TODO WARNING see duplicated logic in client/prediction/prespawn.rs  match_with_received_server_entity
 pub(crate) fn compute_hash(
     // we need a param-set because of https://github.com/bevyengine/bevy/issues/7255
     // (entity-mut conflicts with resources)
@@ -40,12 +41,8 @@ pub(crate) fn compute_hash(
     for mut entity_mut in set.p0().iter_mut() {
         let entity = entity_mut.id();
         // the hash has already been computed by the user
-        if entity_mut
-            .get::<PreSpawnedPlayerObject>()
-            .unwrap()
-            .hash
-            .is_some()
-        {
+        let prespawn = entity_mut.get::<PreSpawnedPlayerObject>().unwrap();
+        if prespawn.hash.is_some() {
             trace!("Hash for pre-spawned player object was already computed!");
             continue;
         }
@@ -96,6 +93,10 @@ pub(crate) fn compute_hash(
             trace!(?kind, "using kind for hash");
             kind.hash(&mut hasher)
         });
+        // if a user salt is provided, hash after the sorted component list
+        if let Some(salt) = prespawn.user_salt {
+            salt.hash(&mut hasher);
+        }
 
         let hash = hasher.finish();
         debug!(?entity, ?tick, ?hash, "computed spawn hash for entity");
