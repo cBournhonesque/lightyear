@@ -11,18 +11,10 @@ use lightyear::{
     prelude::client::Correction,
 };
 
-#[derive(Resource, Clone)]
-pub struct EntityLabelConfig {
-    pub font: String,
-}
-
-pub struct EntityLabelPlugin {
-    pub config: EntityLabelConfig,
-}
+pub struct EntityLabelPlugin;
 
 impl Plugin for EntityLabelPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(self.config.clone());
         app.add_systems(Update, (label_added, label_changed));
 
         app.add_systems(
@@ -51,7 +43,7 @@ impl Default for EntityLabel {
             offset: Vec2::ZERO,
             inherit_rotation: false,
             z: 10.0,
-            size: 16.0,
+            size: 13.0,
             color: Color::ANTIQUE_WHITE,
         }
     }
@@ -64,11 +56,10 @@ pub struct EntityLabelChild;
 /// Add the child entity containing the Text2dBundle
 fn label_added(
     asset_server: Res<AssetServer>,
-    config: Res<EntityLabelConfig>,
     q: Query<(Entity, &EntityLabel), Added<EntityLabel>>,
     mut commands: Commands,
 ) {
-    let font = asset_server.load(config.font.clone());
+    let font: Handle<Font> = Default::default();
     let mut ts = TextStyle {
         font: font.clone(),
         font_size: 16.0,
@@ -81,7 +72,7 @@ fn label_added(
     };
     for (e, label) in q.iter() {
         ts.font_size = label.size;
-        ts_sub.font_size = label.size * 0.6;
+        ts_sub.font_size = label.size * 0.85;
         ts.color = label.color;
         ts_sub.color = label.color.with_a(0.6);
         commands
@@ -109,7 +100,6 @@ fn label_added(
 
 /// modify text when EntityLabel changes
 fn label_changed(
-    config: Res<EntityLabelConfig>,
     q_parents: Query<(&EntityLabel, &Children), Changed<EntityLabel>>,
     mut q_children: Query<
         (&mut Text, &mut Transform),

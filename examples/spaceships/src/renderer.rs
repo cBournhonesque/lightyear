@@ -55,11 +55,7 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.add_plugins(ScreenDiagnosticsPlugin::default());
         app.add_plugins(ScreenEntityDiagnosticsPlugin);
         // app.add_plugins(ScreenFrameDiagnosticsPlugin);
-        app.add_plugins(EntityLabelPlugin {
-            config: EntityLabelConfig {
-                font: "fonts/quicksand-light.ttf".to_owned(),
-            },
-        });
+        app.add_plugins(EntityLabelPlugin);
         // probably want to avoid using this on server, if server gui enabled
         app.add_plugins(VisualInterpolationPlugin::<Position>::default());
         app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
@@ -125,7 +121,7 @@ fn update_visual_components(
             0
         };
         label.sub_text = format!(
-            "{}±{}ms [{num_buffered_inputs}]",
+            "{}~{}ms [{num_buffered_inputs}]",
             player.rtt.as_millis(),
             player.jitter.as_millis()
         );
