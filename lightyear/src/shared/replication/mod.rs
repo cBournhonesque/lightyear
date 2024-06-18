@@ -29,6 +29,7 @@ pub mod entity_map;
 pub(crate) mod hierarchy;
 pub mod network_target;
 pub(crate) mod plugin;
+pub(crate) mod prespawn;
 pub(crate) mod receive;
 pub(crate) mod resources;
 pub(crate) mod send;
