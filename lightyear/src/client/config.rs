@@ -47,7 +47,7 @@ impl NetcodeConfig {
     }
 }
 
-#[derive(Clone, Reflect)]
+#[derive(Clone, Copy, Reflect)]
 #[reflect(from_reflect = false)]
 pub struct PacketConfig {
     /// After how many multiples of RTT do we consider a packet to be lost?

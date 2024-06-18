@@ -65,6 +65,7 @@ use crate::prelude::{
 };
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
+use crate::shared::ping::manager::PingManager;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
@@ -117,7 +118,9 @@ impl<A> Default for LeafwingInputPlugin<A> {
 
 /// Returns true if there is input delay present
 fn is_input_delay(config: Res<ClientConfig>) -> bool {
-    config.prediction.input_delay_ticks > 0
+    config.prediction.minimum_input_delay_ticks > 0
+        || config.prediction.maximum_input_delay_before_prediction > 0
+        || config.prediction.maximum_predicted_ticks < 30
 }
 
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
@@ -378,6 +381,7 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
 /// We do not need to buffer inputs during rollback, as they have already been buffered
 fn buffer_action_state<A: LeafwingUserAction>(
     config: Res<ClientConfig>,
+    ping_manager: Res<PingManager>,
     tick_manager: Res<TickManager>,
     // mut global_input_buffer: ResMut<InputBuffer<A>>,
     // global_action_state: Option<Res<ActionState<A>>>,
@@ -386,7 +390,10 @@ fn buffer_action_state<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
-    let input_delay_ticks = config.prediction.input_delay_ticks as i16;
+    let input_delay_ticks = config
+        .prediction
+        .input_delay_ticks(ping_manager.rtt(), config.shared.tick.tick_duration)
+        as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(
@@ -533,6 +540,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager>,
     channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,
+    ping_manager: Res<PingManager>,
     input_config: Res<LeafwingInputConfig<A>>,
     tick_manager: Res<TickManager>,
     input_buffer_query: Query<
@@ -545,7 +553,11 @@ fn prepare_input_message<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
-    let tick = tick_manager.tick() + config.prediction.input_delay_ticks as i16;
+    let input_delay_ticks = config
+        .prediction
+        .input_delay_ticks(ping_manager.rtt(), config.shared.tick.tick_duration)
+        as i16;
+    let tick = tick_manager.tick() + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?tick, "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
@@ -793,7 +805,9 @@ mod tests {
         };
         let client_config = ClientConfig {
             prediction: PredictionConfig {
-                input_delay_ticks: delay_ticks,
+                minimum_input_delay_ticks: delay_ticks,
+                maximum_input_delay_before_prediction: 0,
+                maximum_predicted_ticks: 30,
                 ..default()
             },
             ..default()

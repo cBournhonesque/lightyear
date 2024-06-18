@@ -4,6 +4,7 @@ use bevy::prelude::{
 };
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
+use std::time::Duration;
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
@@ -34,21 +35,57 @@ use super::rollback::{
 use super::spawn::spawn_predicted_entity;
 
 /// Configuration to specify how the prediction plugin should behave
-#[derive(Debug, Clone, Copy, Default, Reflect)]
+#[derive(Debug, Clone, Copy, Reflect)]
 pub struct PredictionConfig {
     /// If true, we always rollback whenever we receive a server update, instead of checking
     /// ff the confirmed state matches the predicted state history
     pub always_rollback: bool,
-    /// The amount of ticks that the player's inputs will be delayed by.
-    /// This can be useful to mitigate the amount of client-prediction
-    /// This setting is global instead of per Actionlike because it affects how ahead the client will be
-    /// compared to the server
-    pub input_delay_ticks: u16,
+    /// Minimum number of input delay ticks that will be applied, regardless of latency.
+    ///
+    /// This should almost always be set to 0 to ensure that your game is as responsive as possible.
+    /// Some games might prefer enforcing a minimum input delay to ensure a consistent game feel even
+    /// when the latency conditions are changing.
+    pub minimum_input_delay_ticks: u16,
+    /// Maximum amount of input delay that will be applied in order to cover latency, before any prediction
+    /// is done to cover additional latency.
+    ///
+    /// Input delay can be ideal in low-latency situations to avoid rollbacks and networking artifacts, but it
+    /// must be balanced against the responsiveness of the game. Even at higher latencies, it's useful to add
+    /// some input delay to reduce the amount of rollback ticks that are needed. (to reduce the rollback visual artifacts
+    /// and CPU costs)
+    ///
+    /// The default value is 3 (or about 50ms at 60Hz): for clients that have less than 50ms ping, we will apply input delay
+    /// to cover the latency, and there should no rollback.
+    ///
+    /// Set to 0ms if you won't want any input delay. (for example for shooters)
+    pub maximum_input_delay_before_prediction: u16,
+    /// This setting describes how far ahead the client simulation is allowed to predict to cover latency.
+    /// This controls the maximum amount of rollback ticks. Any additional latency will be covered by adding more input delays.
+    ///
+    /// The default value is 7 ticks (or about 100ms of prediction at 60Hz)
+    ///
+    /// If you set `maximum_input_delay_before_prediction` to 50ms and `maximum_predicted_time` to 100ms, and the client has:
+    /// - 30ms ping: there will be 30ms of input delay and no prediction
+    /// - 120ms ping: there will be 50ms of input delay and 70ms of prediction/rollback
+    /// - 200ms ping: there will be 100ms of input delay, and 100ms of prediction/rollback
+    pub maximum_predicted_ticks: u16,
     /// The number of correction ticks will be a multiplier of the number of ticks between
     /// the client and the server correction
     /// (i.e. if the client is 10 ticks head and correction_ticks is 1.0, then the correction will be done over 10 ticks)
     // Number of ticks it will take to visually update the Predicted state to the new Corrected state
     pub correction_ticks_factor: f32,
+}
+
+impl Default for PredictionConfig {
+    fn default() -> Self {
+        Self {
+            always_rollback: false,
+            minimum_input_delay_ticks: 0,
+            maximum_input_delay_before_prediction: 3,
+            maximum_predicted_ticks: 7,
+            correction_ticks_factor: 1.0,
+        }
+    }
 }
 
 impl PredictionConfig {
@@ -58,8 +95,8 @@ impl PredictionConfig {
     }
 
     /// Update the amount of input delay (number of ticks)
-    pub fn with_input_delay_ticks(mut self, tick: u16) -> Self {
-        self.input_delay_ticks = tick;
+    pub fn with_minimum_input_delay_ticks(mut self, tick: u16) -> Self {
+        self.minimum_input_delay_ticks = tick;
         self
     }
 
@@ -67,6 +104,28 @@ impl PredictionConfig {
     pub fn with_correction_ticks_factor(mut self, factor: f32) -> Self {
         self.correction_ticks_factor = factor;
         self
+    }
+
+    /// Compute the amount of input delay that should be applied, considering the current RTT
+    pub fn input_delay_ticks(&self, rtt: Duration, tick_interval: Duration) -> u16 {
+        let rtt_ticks = rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32;
+        // if the rtt is lower than the minimum input delay, we will apply the minimum input delay
+        if rtt_ticks <= self.minimum_input_delay_ticks as f32 {
+            return self.minimum_input_delay_ticks;
+        }
+        // else, apply input delay up to the maximum input delay
+        if rtt_ticks <= self.maximum_input_delay_before_prediction as f32 {
+            return rtt_ticks.ceil() as u16;
+        }
+        // else, apply input delay up to the maximum input delay, and cover the rest with prediction
+        // if not possible, add even more input delay
+        return if rtt_ticks
+            <= (self.maximum_predicted_ticks + self.maximum_input_delay_before_prediction) as f32
+        {
+            self.maximum_input_delay_before_prediction
+        } else {
+            rtt_ticks.ceil() as u16 - self.maximum_predicted_ticks
+        };
     }
 }
 
@@ -293,5 +352,42 @@ impl Plugin for PredictionPlugin {
 
         // PLUGINS
         app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_input_delay_config() {
+        let config_1 = PredictionConfig {
+            always_rollback: false,
+            minimum_input_delay_ticks: 2,
+            maximum_input_delay_before_prediction: 3,
+            maximum_predicted_ticks: 7,
+            correction_ticks_factor: 0.0,
+        };
+        // 1. Test the minimum input delay
+        assert_eq!(
+            config_1.input_delay_ticks(Duration::from_millis(10), Duration::from_millis(16)),
+            2
+        );
+
+        // 2. Test the maximum input delay before prediction
+        assert_eq!(
+            config_1.input_delay_ticks(Duration::from_millis(60), Duration::from_millis(16)),
+            3
+        );
+
+        // 3. Test the maximum predicted delay
+        assert_eq!(
+            config_1.input_delay_ticks(Duration::from_millis(200), Duration::from_millis(16)),
+            6
+        );
+        assert_eq!(
+            config_1.input_delay_ticks(Duration::from_millis(300), Duration::from_millis(16)),
+            12
+        );
     }
 }

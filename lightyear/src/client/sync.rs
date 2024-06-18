@@ -8,6 +8,7 @@ use tracing::{debug, trace};
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::packet::packet::PacketId;
+use crate::prelude::client::PredictionConfig;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickEvent};
@@ -31,7 +32,7 @@ pub struct SyncSet;
 ///     for tick T sent from the client arrive on the server at tick T
 /// - the interpolation tick/time: this is the interpolation timeline, which runs behind the server time so that interpolation
 ///     always has at least one packet to interpolate towards
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub struct SyncConfig {
     /// How much multiple of jitter do we apply as margin when computing the time
     /// a packet will get received by the server
@@ -95,7 +96,7 @@ impl SentPacketStore {
 /// right after the connection is established
 pub struct SyncManager {
     config: SyncConfig,
-    input_delay_ticks: u16,
+    prediction_config: PredictionConfig,
     /// whether the handshake is finalized
     pub(crate) synced: bool,
 
@@ -120,10 +121,10 @@ pub struct SyncManager {
 
 // TODO: split into PredictionTime Manager, InterpolationTime Manager
 impl SyncManager {
-    pub fn new(config: SyncConfig, input_delay_ticks: u16) -> Self {
+    pub fn new(config: SyncConfig, prediction_config: PredictionConfig) -> Self {
         Self {
             config,
-            input_delay_ticks,
+            prediction_config,
             synced: false,
             // time
             server_time_estimate: WrappedTime::default(),
@@ -318,7 +319,12 @@ impl SyncManager {
         self.server_time_estimate() + rtt
     }
 
-    /// how far ahead of the server should I be? (for prediction)
+    /// How far ahead of the server should I be? (for prediction)
+    ///
+    /// We want the input packets for tick T sent from the client to arrive on the server at tick T.
+    /// So the client should be ahead by RTT/2 - input_delay_ticks
+    ///
+    /// This could be a negative value
     fn client_ahead_minimum(
         &self,
         tick_duration: Duration,
@@ -349,6 +355,8 @@ impl SyncManager {
 
         // TODO: client_ideal_time must be higher than server_time in raw value (not wrapping)
         //  so that wrapping with Ticks still works!! Need to update this
+
+        // TODO: is there a problem if the client_time is lower than server time? maybe not actually!
 
         // if the ideal time is too close to the server time (probably because of input delay)
         // make sure that the client time is still ahead of the server time
@@ -459,11 +467,14 @@ impl SyncManager {
         let current_prediction_time = self.current_prediction_time(tick_manager, time_manager);
 
         // client ideal time
+        let input_delay_ticks = self
+            .prediction_config
+            .input_delay_ticks(rtt, tick_manager.config.tick_duration);
         let client_ideal_time = self.client_ideal_time(
             rtt,
             tick_manager.config.tick_duration,
             jitter,
-            self.input_delay_ticks,
+            input_delay_ticks,
         );
 
         let error = current_prediction_time - client_ideal_time;
@@ -551,8 +562,11 @@ impl SyncManager {
         self.update_server_time_estimate(tick_duration, rtt);
 
         // Compute how many ticks the client must be compared to server
+        let input_delay_ticks = self
+            .prediction_config
+            .input_delay_ticks(rtt, tick_manager.config.tick_duration);
         let client_ideal_time =
-            self.client_ideal_time(rtt, tick_duration, jitter, self.input_delay_ticks);
+            self.client_ideal_time(rtt, tick_duration, jitter, input_delay_ticks);
 
         // TODO: client_ideal_time must be higher than server_time in raw value (not wrapping)
         //  so that wrapping with Ticks still works
@@ -574,7 +588,7 @@ impl SyncManager {
                 ?jitter,
                 ?delta_tick,
                 predicted_server_receive_time = ?self.predicted_server_receive_time(rtt),
-                client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter, self.input_delay_ticks),
+                client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter, input_delay_ticks),
                 ?client_ideal_time,
                 ?client_ideal_tick,
                 server_tick = ?self.latest_received_server_tick,

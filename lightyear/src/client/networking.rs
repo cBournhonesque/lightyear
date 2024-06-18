@@ -405,11 +405,7 @@ fn rebuild_client_connection(world: &mut World) {
         world.resource::<ComponentRegistry>(),
         world.resource::<MessageRegistry>(),
         world.resource::<ChannelRegistry>(),
-        client_config.replication,
-        client_config.packet,
-        client_config.sync,
-        client_config.ping,
-        client_config.prediction.input_delay_ticks,
+        &client_config,
     );
     world.insert_resource(connection_manager);
 

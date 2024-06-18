@@ -11,7 +11,7 @@ use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Config for the ping manager, which sends regular pings to the remote machine in order
 /// to compute network statistics (RTT, jitter)
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub struct PingConfig {
     /// The duration to wait before sending a ping message to the remote host,
     /// in order to estimate RTT time
