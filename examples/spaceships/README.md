@@ -5,6 +5,9 @@ predicted by clients. Bullets are prespawned when you fire, or remote players fi
 
 **Controls:** `Up/Left/Right/Space`
 
+<img width="90%" alt="spaceships-screenshot" src="https://github.com/RJ/lightyear/assets/29747/698237c0-56fa-4dd8-a341-a49834d0e107">
+
+
 * Client spaceships are spawned upon connect, and despawned when a client disconnects.
 * All player actions are replicated immediately, and may arrive before server update for that tick
 * Early inputs result in predicted bullet spawning to reduce perceived lag
