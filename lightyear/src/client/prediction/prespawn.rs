@@ -382,7 +382,7 @@ impl PreSpawnedPlayerObjectPlugin {
 #[component(storage = "SparseSet")]
 /// Added to indicate the client has prespawned the predicted version of this entity.
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// // Default hashing implementation: (tick + components)
 /// PreSpawnedPlayerObject::default();
 ///
