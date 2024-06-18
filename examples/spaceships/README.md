@@ -1,7 +1,9 @@
 # Spaceships Demo
 
 This example extends what the `xpbd_physics` demo offers, making all entities server authoritative and
-predicted by clients. 
+predicted by clients. Bullets are prespawned when you fire, or remote players fire if we have their inputs early.
+
+**Controls:** `Up/Left/Right/Space`
 
 * Client spaceships are spawned upon connect, and despawned when a client disconnects.
 * All player actions are replicated immediately, and may arrive before server update for that tick
@@ -11,6 +13,23 @@ predicted by clients.
 * Player labels: `25±2ms [3]` means 25ms server reported ping, 2ms jitter, 3 ticks of future inputs available
 * Number of rollbacks and other metrics shown via screen diagnostics plugin
 
+
+### Predicted bullet spawning and Input Delay
+
+When you press fire, the bullet is prespawned with a `PreSpawnedPlayerObject` hash. The server spawns with the
+matching hash, and once the `Confirmed` entity is replicated, your prespawned entity becomes the `Predicted` entity. See the [Prespawning chapter](https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/prespawning.html) of the Lightyear book for more information.
+
+Notably, when players have an input delay configured (eg. on tick 10 you sample inputs for tick 13), 
+since these inputs are immediately sent to the server, which broadcasts them to other players, it's
+possible to receive remote players' inputs for a tick before you simulate that tick on the client.
+
+In this scenario, the remote player's bullet will also be predictively spawned just like for the local player.
+
+Should the remote player inputs not arrive before your client simulates the tick, 
+the bullet will be created when the server spawns it and replicates through normal means. In this case
+your client will rollback to position the bullet correctly.
+
+ 
 ## Running the example
 
 - Run the server: `cargo run server`
