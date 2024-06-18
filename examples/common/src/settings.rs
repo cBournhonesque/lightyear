@@ -33,6 +33,7 @@ pub enum ClientTransports {
     WebTransport {
         certificate_digest: String,
     },
+    #[cfg(feature = "websocket")]
     WebSocket,
     #[cfg(not(target_family = "wasm"))]
     #[cfg(feature = "steam")]
@@ -49,6 +50,7 @@ pub enum ServerTransports {
     WebTransport {
         local_port: u16,
     },
+    #[cfg(feature = "websocket")]
     WebSocket {
         local_port: u16,
     },
@@ -211,6 +213,7 @@ pub(crate) fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConf
                     },
                 )
             }
+            #[cfg(feature = "websocket")]
             ServerTransports::WebSocket { local_port } => build_server_netcode_config(
                 settings.server.conditioner.as_ref(),
                 &settings.shared,
@@ -303,6 +306,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
                 certificate_digest: certificate_digest.to_string().replace(":", ""),
             },
         ),
+        #[cfg(feature = "websocket")]
         ClientTransports::WebSocket => build_client_netcode_config(
             client_id,
             server_addr,
