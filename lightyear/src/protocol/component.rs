@@ -169,7 +169,11 @@ impl PredictionMetadata {
         Self {
             prediction_mode: mode,
             correction: None,
-            should_rollback: unsafe { std::mem::transmute(should_rollback) },
+            should_rollback: unsafe {
+                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
+                    should_rollback,
+                )
+            },
         }
     }
 }
@@ -385,7 +389,11 @@ mod prediction {
             self.prediction_map
                 .entry(kind)
                 .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
-                .should_rollback = unsafe { std::mem::transmute(should_rollback) };
+                .should_rollback = unsafe {
+                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
+                    should_rollback,
+                )
+            };
         }
 
         pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
@@ -400,7 +408,11 @@ mod prediction {
             self.prediction_map
                 .entry(kind)
                 .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
-                .correction = Some(unsafe { std::mem::transmute(correction_fn) });
+                .correction = Some(unsafe {
+                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
+                    correction_fn,
+                )
+            });
         }
         pub(crate) fn prediction_mode<C: Component>(&self) -> ComponentSyncMode {
             let kind = ComponentKind::of::<C>();
@@ -467,7 +479,11 @@ mod interpolation {
                     interpolation_mode: ComponentSyncMode::Full,
                     interpolation: None,
                 })
-                .interpolation = Some(unsafe { std::mem::transmute(interpolation_fn) });
+                .interpolation = Some(unsafe {
+                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
+                    interpolation_fn,
+                )
+            });
         }
         pub(crate) fn interpolation_mode<C: Component>(&self) -> ComponentSyncMode {
             let kind = ComponentKind::of::<C>();

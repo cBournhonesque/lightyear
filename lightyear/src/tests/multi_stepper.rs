@@ -135,7 +135,7 @@ impl MultiBevyStepper {
                     task_pool_options: TaskPoolOptions {
                         compute: TaskPoolThreadAssignmentPolicy {
                             min_threads: available_parallelism(),
-                            max_threads: std::usize::MAX,
+                            max_threads: usize::MAX,
                             percent: 1.0,
                         },
                         ..default()
@@ -177,7 +177,7 @@ impl MultiBevyStepper {
                         task_pool_options: TaskPoolOptions {
                             compute: TaskPoolThreadAssignmentPolicy {
                                 min_threads: available_parallelism(),
-                                max_threads: std::usize::MAX,
+                                max_threads: usize::MAX,
                                 percent: 1.0,
                             },
                             ..default()
