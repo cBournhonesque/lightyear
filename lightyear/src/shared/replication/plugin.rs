@@ -229,8 +229,8 @@ pub(crate) mod send {
 pub(crate) mod shared {
     use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
-        PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated, ReplicationConfig,
-        ReplicationGroup, ReplicationTarget, ShouldBePredicted, TargetEntity, VisibilityMode,
+        NetworkRelevanceMode, PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated,
+        ReplicationConfig, ReplicationGroup, ReplicationTarget, ShouldBePredicted, TargetEntity,
     };
     use crate::shared::replication::components::{
         Controlled, Replicating, ReplicationGroupId, ReplicationGroupIdBuilder,
@@ -256,7 +256,7 @@ pub(crate) mod shared {
                 .register_type::<ReplicationGroup>()
                 .register_type::<ReplicationConfig>()
                 .register_type::<ReplicationGroupId>()
-                .register_type::<VisibilityMode>()
+                .register_type::<NetworkRelevanceMode>()
                 .register_type::<NetworkTarget>()
                 .register_type::<ShouldBeInterpolated>()
                 .register_type::<PrePredicted>()

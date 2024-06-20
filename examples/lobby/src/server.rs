@@ -81,10 +81,10 @@ fn spawn_player_entity(
         controlled_by: ControlledBy {
             target: NetworkTarget::Single(client_id),
         },
-        visibility: if dedicated_server {
-            VisibilityMode::InterestManagement
+        relevance_mode: if dedicated_server {
+            NetworkRelevanceMode::InterestManagement
         } else {
-            VisibilityMode::All
+            NetworkRelevanceMode::All
         },
         ..default()
     };
@@ -153,7 +153,7 @@ mod game {
 
 mod lobby {
     use lightyear::server::connection::ConnectionManager;
-    use lightyear::server::visibility::room::RoomManager;
+    use lightyear::server::relevance::room::RoomManager;
 
     use super::*;
 

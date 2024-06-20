@@ -52,13 +52,13 @@ pub(crate) mod receive {
 pub(crate) mod send {
     use super::*;
     use crate::prelude::{
-        is_host_server, ClientId, ComponentRegistry, DisabledComponent, OverrideTargetComponent,
-        ReplicateHierarchy, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager,
-        TimeManager, VisibilityMode,
+        is_host_server, ClientId, ComponentRegistry, DisabledComponent, NetworkRelevanceMode,
+        OverrideTargetComponent, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
+        TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
-    use crate::server::visibility::immediate::{ClientVisibility, ReplicateVisibility};
+    use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
     use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
     use crate::shared::replication::components::{
         Controlled, DespawnTracker, Replicating, ReplicationGroupId, ReplicationTarget,
@@ -192,7 +192,7 @@ pub(crate) mod send {
     #[derive(Component, Clone, Debug, PartialEq, Reflect)]
     pub struct Visibility {
         /// Control if we do fine-grained or coarse-grained visibility
-        mode: VisibilityMode,
+        mode: NetworkRelevanceMode,
         // TODO: should we store the visibility cache here if visibility_mode = InterestManagement?
     }
 
@@ -212,7 +212,7 @@ pub(crate) mod send {
     /// - [`ReplicationTarget`] to specify which clients should receive the entity
     /// - [`SyncTarget`] to specify which clients should predict/interpolate the entity
     /// - [`ControlledBy`] to specify which client controls the entity
-    /// - [`VisibilityMode`] to specify if we should replicate the entity to all clients in the
+    /// - [`NetworkRelevanceMode`] to specify if we should replicate the entity to all clients in the
     /// replication target, or if we should apply interest management logic to determine which clients
     /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
     /// will be sent together in the same message.
@@ -229,7 +229,7 @@ pub(crate) mod send {
         /// Which client(s) control this entity?
         pub controlled_by: ControlledBy,
         /// How do we control the visibility of the entity?
-        pub visibility: VisibilityMode,
+        pub relevance_mode: NetworkRelevanceMode,
         /// The replication group defines how entities are grouped (sent as a single message) for replication.
         ///
         /// After the entity is first replicated, the replication group of the entity should not be modified.
@@ -314,7 +314,7 @@ pub(crate) mod send {
     pub(crate) struct ReplicateCache {
         pub(crate) replication_target: NetworkTarget,
         pub(crate) replication_group: ReplicationGroup,
-        pub(crate) visibility_mode: VisibilityMode,
+        pub(crate) network_relevance_mode: NetworkRelevanceMode,
         /// If mode = Room, the list of clients that could see the entity
         pub(crate) replication_clients_cache: Vec<ClientId>,
     }
@@ -352,7 +352,7 @@ pub(crate) mod send {
                 Entity,
                 &ReplicationTarget,
                 &ReplicationGroup,
-                &VisibilityMode,
+                &NetworkRelevanceMode,
             ),
             (With<Replicating>, Without<DespawnTracker>),
         >,
@@ -363,7 +363,7 @@ pub(crate) mod send {
             let despawn_metadata = ReplicateCache {
                 replication_target: replication_target.target.clone(),
                 replication_group: group.clone(),
-                visibility_mode: *visibility_mode,
+                network_relevance_mode: *visibility_mode,
                 replication_clients_cache: vec![],
             };
             sender
@@ -415,7 +415,7 @@ pub(crate) mod send {
                     g.group_id(Some(entity.id()))
                 });
                 let priority = group.map_or(1.0, |g| g.priority());
-                let visibility = entity_ref.get::<ReplicateVisibility>();
+                let visibility = entity_ref.get::<CachedNetworkRelevance>();
                 let sync_target = entity_ref.get::<SyncTarget>();
                 let target_entity = entity_ref.get::<TargetEntity>();
                 let controlled_by = entity_ref.get::<ControlledBy>();
@@ -530,7 +530,7 @@ pub(crate) mod send {
         controlled_by: Option<&ControlledBy>,
         sync_target: Option<&SyncTarget>,
         target_entity: Option<&TargetEntity>,
-        visibility: Option<&ReplicateVisibility>,
+        visibility: Option<&CachedNetworkRelevance>,
         sender: &mut ConnectionManager,
         system_ticks: &SystemChangeTick,
     ) {
@@ -544,7 +544,7 @@ pub(crate) mod send {
                     .filter_map(|(client_id, visibility)| {
                         if replication_target.target.targets(client_id) {
                             match visibility {
-                                ClientVisibility::Gained => {
+                                ClientRelevance::Gained => {
                                     trace!(
                                         ?entity,
                                         ?client_id,
@@ -552,8 +552,8 @@ pub(crate) mod send {
                                     );
                                     return Some(*client_id);
                                 }
-                                ClientVisibility::Lost => {}
-                                ClientVisibility::Maintained => {
+                                ClientRelevance::Lost => {}
+                                ClientRelevance::Maintained => {
                                     // only try to replicate if the replicate component was just added
                                     if replication_target.is_added() {
                                         trace!(
@@ -685,7 +685,9 @@ pub(crate) mod send {
                 //  to be updated for every replication change! Wait for observers instead.
                 //  How did it work on the `main` branch? was there something else making it work? Maybe the
                 //  update replicate ran before
-                if replicate_cache.visibility_mode == VisibilityMode::InterestManagement {
+                if replicate_cache.network_relevance_mode
+                    == NetworkRelevanceMode::InterestManagement
+                {
                     // if the mode was room, only replicate the despawn to clients that were in the same room
                     network_target.intersection(&NetworkTarget::Only(
                         replicate_cache.replication_clients_cache,
@@ -713,7 +715,7 @@ pub(crate) mod send {
         entity: Entity,
         group_id: ReplicationGroupId,
         replication_target: &Ref<ReplicationTarget>,
-        visibility: Option<&ReplicateVisibility>,
+        visibility: Option<&CachedNetworkRelevance>,
         sender: &mut ConnectionManager,
     ) {
         // 1. send despawn for clients that lost visibility
@@ -724,7 +726,7 @@ pub(crate) mod send {
                     .iter()
                     .filter_map(|(client_id, visibility)| {
                         if replication_target.target.targets(client_id)
-                            && matches!(visibility, ClientVisibility::Lost) {
+                            && matches!(visibility, ClientRelevance::Lost) {
                             debug!(
                                 "sending entity despawn for entity: {:?} because ClientVisibility::Lost",
                                 entity
@@ -777,7 +779,7 @@ pub(crate) mod send {
         replication_target: &Ref<ReplicationTarget>,
         sync_target: Option<&SyncTarget>,
         group_id: ReplicationGroupId,
-        visibility: Option<&ReplicateVisibility>,
+        visibility: Option<&CachedNetworkRelevance>,
         delta_compression: bool,
         replicate_once: bool,
         override_target: Option<&NetworkTarget>,
@@ -799,11 +801,11 @@ pub(crate) mod send {
                     .for_each(|(client_id, visibility)| {
                         if target.targets(client_id) {
                             match visibility {
-                                ClientVisibility::Gained => {
+                                ClientRelevance::Gained => {
                                     insert_clients.push(*client_id);
                                 }
-                                ClientVisibility::Lost => {}
-                                ClientVisibility::Maintained => {
+                                ClientRelevance::Lost => {}
+                                ClientRelevance::Maintained => {
                                     // send a component_insert for components that were newly added
                                     if component_ticks
                                         .is_added(system_ticks.last_run(), system_ticks.this_run())
@@ -922,7 +924,7 @@ pub(crate) mod send {
             (
                 &ReplicationTarget,
                 &ReplicationGroup,
-                Option<&ReplicateVisibility>,
+                Option<&CachedNetworkRelevance>,
                 Has<DisabledComponent<C>>,
                 Option<&OverrideTargetComponent<C>>,
             ),
@@ -953,7 +955,7 @@ pub(crate) mod send {
                             .filter_map(|(client_id, visibility)| {
                                 if base_target.targets(client_id) {
                                     // TODO: maybe send no matter the vis?
-                                    if matches!(visibility, ClientVisibility::Maintained) {
+                                    if matches!(visibility, ClientRelevance::Maintained) {
                                         // TODO: USE THE CUSTOM REPLICATE TARGET FOR THIS COMPONENT IF PRESENT!
                                         return Some(*client_id);
                                     }
@@ -1021,7 +1023,7 @@ pub(crate) mod send {
         use super::*;
         use crate::client::events::ComponentUpdateEvent;
         use crate::prelude::client::Confirmed;
-        use crate::prelude::server::{ControlledBy, NetConfig, Replicate, VisibilityManager};
+        use crate::prelude::server::{ControlledBy, NetConfig, RelevanceManager, Replicate};
         use crate::prelude::{
             client, DeltaCompression, LinkConditionerConfig, ReplicateOnceComponent, Replicated,
         };
@@ -1124,7 +1126,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn(Replicate {
-                    visibility: VisibilityMode::InterestManagement,
+                    relevance_mode: NetworkRelevanceMode::InterestManagement,
                     ..default()
                 })
                 .id();
@@ -1144,8 +1146,8 @@ pub(crate) mod send {
             stepper
                 .server_app
                 .world_mut()
-                .resource_mut::<VisibilityManager>()
-                .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity);
+                .resource_mut::<RelevanceManager>()
+                .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity);
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1305,15 +1307,15 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn(Replicate {
-                    visibility: VisibilityMode::InterestManagement,
+                    relevance_mode: NetworkRelevanceMode::InterestManagement,
                     ..default()
                 })
                 .id();
             stepper
                 .server_app
                 .world_mut()
-                .resource_mut::<VisibilityManager>()
-                .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+                .resource_mut::<RelevanceManager>()
+                .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
 
             stepper.frame_step();
             stepper.frame_step();
@@ -1332,8 +1334,8 @@ pub(crate) mod send {
             stepper
                 .server_app
                 .world_mut()
-                .resource_mut::<VisibilityManager>()
-                .lose_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+                .resource_mut::<RelevanceManager>()
+                .lose_relevance(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1358,7 +1360,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn(Replicate {
-                    visibility: VisibilityMode::InterestManagement,
+                    relevance_mode: NetworkRelevanceMode::InterestManagement,
                     group: ReplicationGroup::new_id(1),
                     ..default()
                 })
@@ -1367,7 +1369,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn(Replicate {
-                    visibility: VisibilityMode::InterestManagement,
+                    relevance_mode: NetworkRelevanceMode::InterestManagement,
                     group: ReplicationGroup::new_id(1),
                     ..default()
                 })
@@ -1375,9 +1377,9 @@ pub(crate) mod send {
             stepper
                 .server_app
                 .world_mut()
-                .resource_mut::<VisibilityManager>()
-                .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity_1)
-                .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_2), server_entity_2);
+                .resource_mut::<RelevanceManager>()
+                .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity_1)
+                .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID_2), server_entity_2);
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1622,15 +1624,15 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn(Replicate {
-                    visibility: VisibilityMode::InterestManagement,
+                    relevance_mode: NetworkRelevanceMode::InterestManagement,
                     ..default()
                 })
                 .id();
             stepper
                 .server_app
                 .world_mut()
-                .resource_mut::<VisibilityManager>()
-                .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+                .resource_mut::<RelevanceManager>()
+                .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = *stepper
@@ -1672,7 +1674,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn(Replicate {
-                    visibility: VisibilityMode::InterestManagement,
+                    relevance_mode: NetworkRelevanceMode::InterestManagement,
                     ..default()
                 })
                 .id();
@@ -1689,8 +1691,8 @@ pub(crate) mod send {
             stepper
                 .server_app
                 .world_mut()
-                .resource_mut::<VisibilityManager>()
-                .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+                .resource_mut::<RelevanceManager>()
+                .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1819,7 +1821,7 @@ pub(crate) mod send {
                 .spawn((
                     Replicate {
                         // target is both
-                        visibility: VisibilityMode::InterestManagement,
+                        relevance_mode: NetworkRelevanceMode::InterestManagement,
                         ..default()
                     },
                     Component1(1.0),
@@ -1833,9 +1835,9 @@ pub(crate) mod send {
             stepper
                 .server_app
                 .world_mut()
-                .resource_mut::<VisibilityManager>()
-                .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity)
-                .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID_2), server_entity);
+                .resource_mut::<RelevanceManager>()
+                .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID_1), server_entity)
+                .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID_2), server_entity);
             stepper.frame_step();
             stepper.frame_step();
             let client_entity_1 = *stepper
@@ -2679,7 +2681,7 @@ pub(crate) mod send {
                 &ReplicateCache {
                     replication_target: NetworkTarget::All,
                     replication_group: ReplicationGroup::new_from_entity(),
-                    visibility_mode: VisibilityMode::All,
+                    network_relevance_mode: NetworkRelevanceMode::All,
                     replication_clients_cache: vec![],
                 }
             );
@@ -2710,7 +2712,7 @@ pub(crate) mod send {
                 .world_mut()
                 .entity_mut(server_entity)
                 .insert((
-                    VisibilityMode::InterestManagement,
+                    NetworkRelevanceMode::InterestManagement,
                     ReplicationTarget {
                         target: NetworkTarget::All,
                     },
@@ -2718,8 +2720,8 @@ pub(crate) mod send {
             stepper
                 .server_app
                 .world_mut()
-                .resource_mut::<VisibilityManager>()
-                .gain_visibility(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
+                .resource_mut::<RelevanceManager>()
+                .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
 
             stepper.frame_step();
             stepper.frame_step();

@@ -14,7 +14,7 @@ use tracing::info;
 use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::server::{ControlledBy, Replicate, SyncTarget};
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::VisibilityMode;
+use lightyear::shared::replication::components::NetworkRelevanceMode;
 use UserAction;
 
 use crate::shared::color_from_id;
@@ -40,8 +40,8 @@ impl PlayerBundle {
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(id),
             },
-            // use rooms for replication
-            visibility: VisibilityMode::InterestManagement,
+            // use network relevance for replication
+            relevance_mode: NetworkRelevanceMode::InterestManagement,
             ..default()
         };
         Self {

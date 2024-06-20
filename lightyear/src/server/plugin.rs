@@ -14,11 +14,11 @@ use bevy::prelude::*;
 
 use crate::server::events::ServerEventsPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
+use crate::server::relevance::immediate::NetworkRelevancePlugin;
+use crate::server::relevance::room::RoomPlugin;
 use crate::server::replication::{
     receive::ServerReplicationReceivePlugin, send::ServerReplicationSendPlugin,
 };
-use crate::server::visibility::immediate::VisibilityPlugin;
-use crate::server::visibility::room::RoomPlugin;
 use crate::shared::plugin::SharedPlugin;
 
 use super::config::ServerConfig;
@@ -29,7 +29,7 @@ use super::config::ServerConfig;
 /// - [`SetupPlugin`]: Adds the [`ServerConfig`] resource and the [`SharedPlugin`] plugin.
 /// - [`ServerEventsPlugin`]: Adds the server network event
 /// - [`ServerNetworkingPlugin`]: Handles the network state (starting/stopping the server, sending/receiving packets)
-/// - [`VisibilityPlugin`]: Handles the visibility system. This can be disabled if you don't need fine-grained interest management.
+/// - [`NetworkRelevancePlugin`]: Handles the network relevance systems. This can be disabled if you don't need fine-grained interest management.
 /// - [`RoomPlugin`]: Handles the room system, which is an addition to the visibility system. This can be disabled if you don't need rooms.
 /// - [`ServerReplicationReceivePlugin`]: Handles the replication of entities and resources from clients to the server. This can be
 ///   disabled if you don't need client to server replication.
@@ -61,7 +61,7 @@ impl PluginGroup for ServerPlugins {
             })
             .add(ServerEventsPlugin)
             .add(ServerNetworkingPlugin)
-            .add(VisibilityPlugin)
+            .add(NetworkRelevancePlugin)
             .add(RoomPlugin)
             .add(ClientsMetadataPlugin)
             .add(ServerReplicationReceivePlugin { tick_interval })

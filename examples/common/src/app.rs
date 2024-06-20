@@ -5,6 +5,7 @@
 
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::time::Duration;
 
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
@@ -177,6 +178,18 @@ impl Apps {
         }
     }
 
+    /// Set the `server_replication_send_interval` on client and server apps.
+    /// Use to overwrite the default [`SharedConfig`] value in the settings file.
+    pub fn with_server_replication_send_interval(mut self, replication_interval: Duration) -> Self {
+        self.update_lightyear_client_config(|cc: &mut ClientConfig| {
+            cc.shared.server_replication_send_interval = replication_interval
+        });
+        self.update_lightyear_server_config(|sc: &mut ServerConfig| {
+            sc.shared.server_replication_send_interval = replication_interval
+        });
+        self
+    }
+
     /// Add the lightyear [`ClientPlugins`] and [`ServerPlugins`] plugin groups to the app.
     ///
     /// This can be called after any modifications to the [`ClientConfig`] and [`ServerConfig`]
@@ -322,6 +335,9 @@ impl Apps {
 /// Takes in a `net_config` parameter so that we configure the network transport.
 fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, ClientConfig) {
     let mut app = App::new();
+    // https://github.com/bevyengine/bevy/issues/10157
+    app.insert_resource(bevy::asset::AssetMetaCheck::Never);
+
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
         level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),

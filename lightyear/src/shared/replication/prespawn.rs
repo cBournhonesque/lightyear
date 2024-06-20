@@ -17,6 +17,7 @@ pub(crate) fn compute_default_hash(
     components: &Components,
     archetype: &Archetype,
     tick: Tick,
+    salt: Option<u64>,
 ) -> u64 {
     // TODO: try EntityHasher instead since we only hash the 64 lower bits of TypeId
     // TODO: should I create the hasher once outside?
@@ -64,6 +65,11 @@ pub(crate) fn compute_default_hash(
         trace!(?kind, "using kind for hash");
         kind.hash(&mut hasher)
     });
+
+    // if a user salt is provided, hash after the sorted component list
+    if let Some(salt) = salt {
+        salt.hash(&mut hasher);
+    }
 
     hasher.finish()
 }

@@ -3,7 +3,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
 use bevy::ptr::Ptr;
-use bevy::utils::{HashMap, HashSet};
+use bevy::utils::{Duration, HashMap, HashSet};
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
 use tracing::{debug, info, info_span, trace, trace_span};
@@ -38,8 +38,8 @@ use crate::serialize::{SerializationError, ToBytes};
 use crate::server::config::PacketConfig;
 use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
+use crate::server::relevance::error::RelevanceError;
 use crate::server::replication::send::ReplicateCache;
-use crate::server::visibility::error::VisibilityError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
@@ -146,7 +146,7 @@ impl ConnectionManager {
     ) -> Result<(), ServerError> {
         let room = room_manager
             .get_room(room_id)
-            .ok_or::<ServerError>(VisibilityError::RoomIdNotFound(room_id).into())?;
+            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
         let target = NetworkTarget::Only(room.clients.iter().copied().collect());
         self.send_message_to_target::<C, M>(message, target)
     }
@@ -460,6 +460,16 @@ impl Connection {
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_rebroadcast: vec![],
         }
+    }
+
+    /// Return the latest estimate of rtt
+    pub fn rtt(&self) -> Duration {
+        self.ping_manager.rtt()
+    }
+
+    /// Return the latest estimate of jitter
+    pub fn jitter(&self) -> Duration {
+        self.ping_manager.jitter()
     }
 
     pub(crate) fn update(

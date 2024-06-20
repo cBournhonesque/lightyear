@@ -29,12 +29,8 @@ pub(crate) fn compute_hash(
     for mut entity_mut in set.p0().iter_mut() {
         let entity = entity_mut.id();
         // the hash has already been computed by the user
-        if entity_mut
-            .get::<PreSpawnedPlayerObject>()
-            .unwrap()
-            .hash
-            .is_some()
-        {
+        let prespawn = entity_mut.get::<PreSpawnedPlayerObject>().unwrap();
+        if prespawn.hash.is_some() {
             trace!("Hash for pre-spawned player object was already computed!");
             continue;
         }
@@ -43,6 +39,7 @@ pub(crate) fn compute_hash(
             components,
             entity_mut.archetype(),
             tick,
+            prespawn.user_salt,
         );
         debug!(?entity, ?tick, ?hash, "computed spawn hash for entity");
         let mut prespawn = entity_mut.get_mut::<PreSpawnedPlayerObject>().unwrap();
