@@ -237,7 +237,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                             ..default()
                         },
                         border_color: BorderColor(Color::BLACK),
-                        background_color: Color::rgb(0.15, 0.15, 0.15).into(),
+                        image: UiImage::default().with_color(Color::srgb(0.15, 0.15, 0.15)),
                         ..default()
                     },
                     On::<Pointer<Click>>::run(|| {}),
@@ -248,7 +248,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                             "Connect",
                             TextStyle {
                                 font_size: 20.0,
-                                color: Color::rgb(0.9, 0.9, 0.9),
+                                color: Color::srgb(0.9, 0.9, 0.9),
                                 ..default()
                             },
                         ),

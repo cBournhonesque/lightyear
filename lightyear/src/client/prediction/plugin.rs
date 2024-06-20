@@ -77,12 +77,13 @@ pub struct PredictionConfig {
 }
 
 impl Default for PredictionConfig {
+    // TODO: the settings of 0/3/7 do not work! investigate!
     fn default() -> Self {
         Self {
             always_rollback: false,
             minimum_input_delay_ticks: 0,
-            maximum_input_delay_before_prediction: 3,
-            maximum_predicted_ticks: 7,
+            maximum_input_delay_before_prediction: 0,
+            maximum_predicted_ticks: 100,
             correction_ticks_factor: 1.0,
         }
     }
