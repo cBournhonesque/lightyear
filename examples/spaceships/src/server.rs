@@ -187,12 +187,6 @@ pub(crate) fn handle_connections(
                 replicate,
                 PhysicsBundle::player_ship(),
                 Weapon::new((FIXED_TIMESTEP_HZ / 5.0) as u16),
-                // We don't want to replicate the ActionState to the original client, since they are updating it with
-                // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-                // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-                OverrideTargetComponent::<ActionState<PlayerActions>>::new(
-                    NetworkTarget::AllExceptSingle(client_id),
-                ),
                 ColorComponent(col),
             ))
             .id();

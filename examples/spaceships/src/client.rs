@@ -134,6 +134,10 @@ fn handle_new_player(
                     (PlayerActions::Down, KeyCode::ArrowDown),
                     (PlayerActions::Left, KeyCode::ArrowLeft),
                     (PlayerActions::Right, KeyCode::ArrowRight),
+                    (PlayerActions::Up, KeyCode::KeyW),
+                    (PlayerActions::Down, KeyCode::KeyS),
+                    (PlayerActions::Left, KeyCode::KeyA),
+                    (PlayerActions::Right, KeyCode::KeyD),
                     (PlayerActions::Fire, KeyCode::Space),
                 ]))
                 .insert(ActionState::<PlayerActions>::default());

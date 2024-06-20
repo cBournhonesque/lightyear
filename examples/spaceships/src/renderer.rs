@@ -37,7 +37,7 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.add_systems(Startup, init_camera);
         app.insert_resource(ClearColor(Color::DARK_GRAY));
         let draw_shadows = false;
-        // draw last to ensure all the interpolation/synching stuff has happened
+        // draw last to ensure all the interpolation/syncing stuff has happened
         app.add_systems(
             Last,
             (
@@ -112,7 +112,7 @@ fn update_visual_components(
     tick_manager: Res<TickManager>,
 ) {
     for (e, player, mut label, input_buffer) in q.iter_mut() {
-        // hopefully this is +ve, ie we have received remote player inputs before they are needed.
+        // hopefully this is positive, ie we have received remote player inputs before they are needed.
         // this can happen because of input_delay. The server receives inputs in advance of
         // needing them, and rebroadcasts to other players.
         let num_buffered_inputs = if let Some(end_tick) = input_buffer.end_tick() {
@@ -340,6 +340,6 @@ pub fn render_shape(
     } else if let Some(ball) = shape.as_ball() {
         gizmos.circle_2d(pos.0, ball.radius, render_color);
     } else {
-        panic!("unimplented render");
+        panic!("unimplemented render");
     }
 }
