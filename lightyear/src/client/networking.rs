@@ -12,6 +12,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent};
 use crate::client::interpolation::Interpolated;
 use crate::client::io::ClientIoEvent;
+use crate::client::networking::utils::AppStateExt;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::client::sync::SyncSet;
@@ -39,8 +40,7 @@ impl Plugin for ClientNetworkingPlugin {
             .register_type::<HostServerMetadata>()
             .register_type::<IoConfig>()
             // STATE
-            .insert_state(NetworkingState::Disconnected)
-            // .init_state_without_entering::<NetworkingState>()
+            .init_state_without_entering(NetworkingState::Disconnected)
             // RESOURCE
             .init_resource::<HostServerMetadata>()
             // SYSTEM SETS
@@ -86,13 +86,6 @@ impl Plugin for ClientNetworkingPlugin {
                 ),
             );
 
-        // STARTUP
-        // TODO: update all systems that need these to only run when needed, so that we don't have to create
-        //  a ConnectionManager or a NetConfig at startup
-        // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
-        // that depend on these resources do not panic
-        app.world_mut().run_system_once(rebuild_client_connection);
-
         // CONNECTING
         app.add_systems(OnEnter(NetworkingState::Connecting), connect);
 
@@ -110,6 +103,16 @@ impl Plugin for ClientNetworkingPlugin {
                 on_disconnect_host_server.run_if(is_host_server),
             ),
         );
+    }
+
+    // This runs after all plugins have run build() and finish()
+    // so we are sure that the ComponentRegistry has been built
+    fn cleanup(&self, app: &mut App) {
+        // TODO: update all systems that need these to only run when needed, so that we don't have to create
+        //  a ConnectionManager or a NetConfig at startup
+        // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
+        // that depend on these resources do not panic
+        app.world_mut().run_system_once(rebuild_client_connection);
     }
 }
 
@@ -476,29 +479,25 @@ impl ClientCommands for Commands<'_, '_> {
 }
 
 mod utils {
-    use bevy::app::App;
-    use bevy::prelude::{FromWorld, States};
+    use bevy::app::{App, Startup};
+    use bevy::ecs::schedule::ScheduleLabel;
+    use bevy::prelude::{NextState, State, StateTransition, StateTransitionEvent};
+    use bevy::state::state::{setup_state_transitions_in_world, FreelyMutableState};
 
     pub(super) trait AppStateExt {
         // Helper function that runs `init_state::<S>` without entering the state
         // This is useful for us as we don't want to run OnEnter<NetworkingState::Disconnected> when we start the app
-        fn init_state_without_entering<S: States + FromWorld>(&mut self) -> &mut Self;
+        fn init_state_without_entering<S: FreelyMutableState>(&mut self, state: S) -> &mut Self;
     }
 
     impl AppStateExt for App {
-        fn init_state_without_entering<S: States + FromWorld>(&mut self) -> &mut Self {
-            // self.insert_::<S>();
-            // TODO: re-add this
-            // if !self.world().contains_resource::<State<S>>() {
-            //     self.init_resource::<State<S>>()
-            //         .init_resource::<NextState<S>>()
-            //         .add_event::<StateTransitionEvent<S>>()
-            //         .add_systems(StateTransition, apply_state_transition::<S>);
-            // }
-
-            // The OnEnter, OnExit, and OnTransition schedules are lazily initialized
-            // (i.e. when the first system is added to them), and World::try_run_schedule is used to fail
-            // gracefully if they aren't present.
+        fn init_state_without_entering<S: FreelyMutableState>(&mut self, state: S) -> &mut Self {
+            setup_state_transitions_in_world(self.world_mut(), Some(Startup.intern()));
+            self.insert_resource::<State<S>>(State::new(state.clone()))
+                .init_resource::<NextState<S>>()
+                .add_event::<StateTransitionEvent<S>>();
+            let schedule = self.get_schedule_mut(StateTransition).unwrap();
+            S::register_state(schedule);
             self
         }
     }
