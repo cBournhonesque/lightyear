@@ -29,4 +29,4 @@ pub mod replication;
 
 pub mod error;
 #[cfg(target_family = "wasm")]
-mod web;
+pub mod web;

@@ -32,7 +32,7 @@ use super::LeafwingUserAction;
 /// `start_tick` and `end_tick`. All ticks between `start_tick` and `end_tick` must be included in the buffer.
 // TODO: improve this data structure
 #[derive(Resource, Component, Debug)]
-pub(crate) struct InputBuffer<A: LeafwingUserAction> {
+pub struct InputBuffer<A: LeafwingUserAction> {
     pub(crate) start_tick: Option<Tick>,
     pub(crate) buffer: VecDeque<BufferItem<ActionState<A>>>,
 }
@@ -200,7 +200,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
     }
 
     /// Get latest ActionState present in the buffer
-    pub(crate) fn get_last(&self) -> Option<&ActionState<T>> {
+    pub fn get_last(&self) -> Option<&ActionState<T>> {
         let Some(start_tick) = self.start_tick else {
             return None;
         };
@@ -233,7 +233,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
     }
 
     /// Get the last tick in the buffer
-    pub(crate) fn end_tick(&self) -> Option<Tick> {
+    pub fn end_tick(&self) -> Option<Tick> {
         self.start_tick
             .map(|start_tick| start_tick + (self.buffer.len() as i16 - 1))
     }

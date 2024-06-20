@@ -15,7 +15,9 @@ use bevy_web_keepalive::WebKeepalivePlugin;
 /// This solution spawns a WebWorker (a background thread) which is not throttled, and which runs
 /// `app.update()` at a fixed interval. This way, the client can keep sending and receiving packets,
 /// and updating the local World.
-pub struct WebPlugin;
+pub(crate) struct WebPlugin;
+
+pub use bevy_web_keepalive::KeepaliveSettings;
 
 impl Plugin for WebPlugin {
     fn build(&self, app: &mut App) {

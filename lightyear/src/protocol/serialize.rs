@@ -59,7 +59,12 @@ impl ErasedSerializeFns {
             type_id: TypeId::of::<M>(),
             type_name: std::any::type_name::<M>(),
             serialize: erased_serialize::<M>,
-            deserialize: unsafe { std::mem::transmute(erased_deserialize) },
+            deserialize: unsafe {
+                std::mem::transmute::<
+                    for<'a> fn(&'a mut Reader) -> std::result::Result<M, SerializationError>,
+                    unsafe fn(),
+                >(erased_deserialize)
+            },
             map_entities: None,
         }
     }
@@ -73,7 +78,12 @@ impl ErasedSerializeFns {
         );
 
         SerializeFns {
-            deserialize: unsafe { std::mem::transmute(self.deserialize) },
+            deserialize: unsafe {
+                std::mem::transmute::<
+                    unsafe fn(),
+                    for<'a> fn(&'a mut Reader) -> std::result::Result<M, SerializationError>,
+                >(self.deserialize)
+            },
         }
     }
 

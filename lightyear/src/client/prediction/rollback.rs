@@ -58,8 +58,9 @@ impl Rollback {
             state: RwLock::new(state),
         }
     }
+
     /// Returns true if we are currently in a rollback state
-    pub(crate) fn is_rollback(&self) -> bool {
+    pub fn is_rollback(&self) -> bool {
         match *self.state.read().deref() {
             RollbackState::ShouldRollback { .. } => true,
             RollbackState::Default => false,
