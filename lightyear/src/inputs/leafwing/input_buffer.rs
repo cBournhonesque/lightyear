@@ -178,7 +178,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
     }
 
     /// Get the [`ActionState`] for the given tick
-    pub(crate) fn get(&self, tick: Tick) -> Option<&ActionState<T>> {
+    pub fn get(&self, tick: Tick) -> Option<&ActionState<T>> {
         let Some(start_tick) = self.start_tick else {
             return None;
         };

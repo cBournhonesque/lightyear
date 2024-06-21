@@ -444,17 +444,19 @@ fn get_non_rollback_action_state<A: LeafwingUserAction>(
 ) {
     let tick = tick_manager.tick();
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-        *action_state = input_buffer
-            .get(tick)
-            .unwrap_or(&ActionState::<A>::default())
-            .clone();
-        debug!(
-            ?entity,
-            ?tick,
-            "fetched non-rollback action state {:?} from input buffer: {}",
-            action_state.get_pressed(),
-            input_buffer
-        );
+        // We only apply the ActionState from the buffer if we have one.
+        // If we don't (which could happen for remote inputs), we won't do anything.
+        // This is equivalent to considering that the remote player will keep playing the last action they played.
+        if let Some(action) = input_buffer.get(tick) {
+            *action_state = action.clone();
+            debug!(
+                ?entity,
+                ?tick,
+                "fetched action state {:?} from input buffer: {}",
+                action_state.get_pressed(),
+                input_buffer
+            );
+        }
     }
 }
 
