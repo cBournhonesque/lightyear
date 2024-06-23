@@ -3,6 +3,8 @@ use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
+use lightyear::inputs::leafwing::input_buffer::InputBuffer;
+use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
 use bevy_xpbd_2d::parry::shape::{Ball, SharedShape};
@@ -67,9 +69,10 @@ impl Plugin for SharedPlugin {
         );
         app.add_systems(
             FixedUpdate,
-            (/*process_collisions,*/lifetime_despawner).in_set(FixedSet::Main),
+            (process_collisions, lifetime_despawner).in_set(FixedSet::Main),
         );
 
+        app.add_event::<BulletHitEvent>();
         // registry types for reflection
         app.register_type::<Player>();
     }
@@ -113,17 +116,32 @@ pub struct ApplyInputsQuery {
     pub ang_vel: &'static mut AngularVelocity,
     pub rot: &'static Rotation,
     pub action: &'static ActionState<PlayerActions>,
+    pub player: &'static Player,
+    pub input_buffer: &'static InputBuffer<PlayerActions>,
 }
 
-pub fn shared_movement_behaviour(aiq: ApplyInputsQueryItem) {
+/// applies forces based on action state inputs
+pub fn apply_action_state_to_player_movement(
+    action: &ActionState<PlayerActions>,
+    staleness: u16,
+    aiq: &mut ApplyInputsQueryItem,
+    tick: Tick,
+) {
+    // if !action.get_pressed().is_empty() {
+    //     info!(
+    //         "🎹 {} {:?} {tick:?} = {:?} staleness = {staleness}",
+    //         if staleness > 0 { "😐" } else { "" },
+    //         aiq.player.client_id,
+    //         action.get_pressed(),
+    //     );
+    // }
+
+    let ex_force = &mut aiq.ex_force;
+    let rot = &aiq.rot;
+    let ang_vel = &mut aiq.ang_vel;
+
     const THRUSTER_POWER: f32 = 32000.;
     const ROTATIONAL_SPEED: f32 = 4.0;
-    let ApplyInputsQueryItem {
-        mut ex_force,
-        mut ang_vel,
-        rot,
-        action,
-    } = aiq;
 
     if action.pressed(&PlayerActions::Up) {
         ex_force
@@ -218,7 +236,13 @@ pub fn shared_player_firing(
 
         let bullet_entity = commands
             .spawn((
-                BulletBundle::new(bullet_origin, bullet_linvel, color.0, current_tick),
+                BulletBundle::new(
+                    player.client_id,
+                    bullet_origin,
+                    bullet_linvel,
+                    color.0 * 5.0, // bloom!
+                    current_tick,
+                ),
                 PhysicsBundle::bullet(),
                 prespawned,
             ))
@@ -297,22 +321,25 @@ impl WallBundle {
     }
 }
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub(crate) struct CollisionPayload;
-
-/// despawn any entities that collide with something and have a
-/// CollisionPayload component.
+// Despawn bullets that collide with something.
+//
+// Generate a BulletHitEvent so we can modify scores, show visual effects, etc.
 pub(crate) fn process_collisions(
     mut collision_event_reader: EventReader<Collision>,
-    payload_q: Query<Entity, With<CollisionPayload>>,
+    bullet_q: Query<(&BulletMarker, &ColorComponent, &Position)>,
+    player_q: Query<&Player>,
     mut commands: Commands,
     tick_manager: Res<TickManager>,
     identity: NetworkIdentity,
+    mut hit_ev_writer: EventWriter<BulletHitEvent>,
 ) {
+    // when A and B collide, it can be reported as one of:
+    // * A collides with B
+    // * B collides with A
+    // which is why logic is duplicated twice here
     for Collision(contacts) in collision_event_reader.read() {
-        // info!("collision {contacts:?}");
-        // continue;
-        if payload_q.contains(contacts.entity1) {
+        if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity1) {
+            // despawn the bullet
             if identity.is_server() {
                 commands
                     .entity(contacts.entity1)
@@ -321,8 +348,19 @@ pub(crate) fn process_collisions(
             } else {
                 commands.entity(contacts.entity1).despawn_recursive();
             }
+            let victim_client_id = player_q
+                .get(contacts.entity2)
+                .map_or(None, |victim_player| Some(victim_player.client_id));
+
+            let ev = BulletHitEvent {
+                bullet_owner: bullet.owner,
+                victim_client_id,
+                position: bullet_pos.0,
+                bullet_color: col.0,
+            };
+            hit_ev_writer.send(ev);
         }
-        if payload_q.contains(contacts.entity2) {
+        if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity2) {
             if identity.is_server() {
                 commands
                     .entity(contacts.entity2)
@@ -331,6 +369,17 @@ pub(crate) fn process_collisions(
             } else {
                 commands.entity(contacts.entity2).despawn_recursive();
             }
+            let victim_client_id = player_q
+                .get(contacts.entity1)
+                .map_or(None, |victim_player| Some(victim_player.client_id));
+
+            let ev = BulletHitEvent {
+                bullet_owner: bullet.owner,
+                victim_client_id,
+                position: bullet_pos.0,
+                bullet_color: col.0,
+            };
+            hit_ev_writer.send(ev);
         }
     }
 }
