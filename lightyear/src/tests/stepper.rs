@@ -188,10 +188,12 @@ impl BevyStepper {
     }
     pub(crate) fn init(&mut self) {
         self.server_app.finish();
+        self.server_app.cleanup();
         self.server_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_app.finish();
+        self.client_app.cleanup();
         self.client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
