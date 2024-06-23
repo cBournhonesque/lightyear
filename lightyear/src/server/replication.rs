@@ -211,7 +211,6 @@ pub(crate) mod send {
     /// The bundle is composed of several components:
     /// - [`ReplicationTarget`] to specify which clients should receive the entity
     /// - [`SyncTarget`] to specify which clients should predict/interpolate the entity
-    /// - [`ControlledBy`] to specify which client controls the entity
     /// - [`NetworkRelevanceMode`] to specify if we should replicate the entity to all clients in the
     /// replication target, or if we should apply interest management logic to determine which clients
     /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
@@ -226,8 +225,6 @@ pub(crate) mod send {
         pub target: ReplicationTarget,
         /// Which clients should predict/interpolate the entity?
         pub sync: SyncTarget,
-        /// Which client(s) control this entity?
-        pub controlled_by: ControlledBy,
         /// How do we control the visibility of the entity?
         pub relevance_mode: NetworkRelevanceMode,
         /// The replication group defines how entities are grouped (sent as a single message) for replication.
@@ -1061,16 +1058,18 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Replicate {
-                    sync: SyncTarget {
-                        prediction: NetworkTarget::All,
-                        interpolation: NetworkTarget::All,
+                .insert((
+                    Replicate {
+                        sync: SyncTarget {
+                            prediction: NetworkTarget::All,
+                            interpolation: NetworkTarget::All,
+                        },
+                        ..default()
                     },
-                    controlled_by: ControlledBy {
+                    ControlledBy {
                         target: NetworkTarget::All,
                     },
-                    ..default()
-                });
+                ));
 
             stepper.frame_step();
             stepper.frame_step();
