@@ -7,7 +7,7 @@ use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::*;
 
 /// List of entities under the control of a client
-#[derive(Component, Default, Debug, Deref, DerefMut)]
+#[derive(Component, Default, Debug, Deref, DerefMut, PartialEq)]
 pub struct ControlledEntities(pub EntityHashSet);
 
 pub(crate) struct ClientsMetadataPlugin;
@@ -22,8 +22,13 @@ mod systems {
     use tracing::{debug, trace};
 
     // TODO: remove entity from ControlledBy when ControlledBy gets removed! (via observers)?
-    // TODO: remove entity in controlled by lists after the component gets updated
+    //  but does the OnRemove component get called when the entity gets despawned?
 
+    // TODO: remove entity in controlledby lists after the component gets updated
+    //  need to detect what the previous ControlledBy was to compute the change
+
+    /// If the ControlledBy component gets update, update the ControlledEntities component
+    /// on the Client Entity
     pub(super) fn handle_controlled_by_update(
         sender: Res<ConnectionManager>,
         query: Query<(Entity, &ControlledBy), Changed<ControlledBy>>,
@@ -106,5 +111,117 @@ impl Plugin for ClientsMetadataPlugin {
         // we handle this in the `Last` `SystemSet` to let the user handle the disconnect event
         // however they want first, before the client entity gets despawned
         app.add_systems(Last, systems::handle_client_disconnect);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::client::networking::ClientCommands;
+    use crate::prelude::server::{ConnectionManager, ControlledBy, Replicate};
+    use crate::prelude::{ClientId, NetworkTarget};
+    use crate::server::clients::ControlledEntities;
+    use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
+    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+    use bevy::ecs::entity::EntityHashSet;
+    use bevy::prelude::default;
+
+    /// Check that the Client Entities are updated after ControlledBy is added
+    #[test]
+    fn test_insert_controlled_by() {
+        let mut stepper = MultiBevyStepper::default();
+
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate {
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
+                },
+                ..default()
+            })
+            .id();
+
+        stepper.frame_step();
+
+        // check that the entity was marked as controlled by client_1
+        let client_entity_1 = stepper
+            .server_app
+            .world()
+            .resource::<ConnectionManager>()
+            .client_entity(ClientId::Netcode(TEST_CLIENT_ID_1))
+            .unwrap();
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<ControlledEntities>(client_entity_1)
+                .unwrap(),
+            &ControlledEntities(EntityHashSet::from_iter([server_entity]))
+        );
+        // check that the entity was not marked as controlled by client_2
+        let client_entity_2 = stepper
+            .server_app
+            .world()
+            .resource::<ConnectionManager>()
+            .client_entity(ClientId::Netcode(TEST_CLIENT_ID_2))
+            .unwrap();
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<ControlledEntities>(client_entity_2)
+                .unwrap(),
+            &ControlledEntities(EntityHashSet::default())
+        );
+    }
+
+    /// Check that when a client disconnects, its controlled entities get despawned
+    /// on the server
+    #[test]
+    fn test_controlled_by_despawn_on_client_disconnect() {
+        let mut stepper = BevyStepper::default();
+
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate {
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::All,
+                },
+                ..default()
+            })
+            .id();
+
+        stepper.frame_step();
+
+        // check that the entity was marked as controlled by client_1
+        let client_entity = stepper
+            .server_app
+            .world()
+            .resource::<ConnectionManager>()
+            .client_entity(ClientId::Netcode(TEST_CLIENT_ID))
+            .unwrap();
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<ControlledEntities>(client_entity)
+                .unwrap(),
+            &ControlledEntities(EntityHashSet::from_iter([server_entity]))
+        );
+
+        // client disconnects
+        stepper
+            .client_app
+            .world_mut()
+            .commands()
+            .disconnect_client();
+
+        stepper.frame_step();
+        assert!(stepper
+            .server_app
+            .world()
+            .get_entity(server_entity)
+            .is_none());
     }
 }
