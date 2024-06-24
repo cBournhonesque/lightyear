@@ -295,6 +295,7 @@ impl SyncManager {
         let input_delay = tick_duration * input_delay_ticks as u32;
         ChronoDuration::nanoseconds(
             jitter.as_nanos() as i64 * self.config.jitter_multiple_margin as i64
+                // TODO: this should actually be `n * client_input_send_interval`
                 + tick_duration.as_nanos() as i64 * self.config.tick_margin as i64
                 - input_delay.as_nanos() as i64,
         )
