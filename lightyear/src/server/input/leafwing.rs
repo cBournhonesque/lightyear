@@ -196,9 +196,17 @@ fn update_action_state<A: LeafwingUserAction>(
     let tick = tick_manager.tick();
 
     for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
-        // the state on the server is only updated from client inputs!
-        *action_state = input_buffer.pop(tick).unwrap_or_default();
-        debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
+        // We only apply the ActionState from the buffer if we have one.
+        // If we don't (because the input packet is late or lost), we won't do anything.
+        // This is equivalent to considering that the player will keep playing the last action they played.
+        if let Some(action) = input_buffer.get(tick) {
+            *action_state = action.clone();
+            debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
+            // remove all the previous values
+            // we keep the current value in the InputBuffer so that if future messages are lost, we can still
+            // fallback on the last known value
+            input_buffer.pop(tick - 1);
+        }
     }
 }
 
