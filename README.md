@@ -66,8 +66,7 @@ app.add_channel::<Channel1>(ChannelSettings {
     - WebSocket: available on both native and wasm!
     - Steam: use the SteamWorks SDK to send messages over the Steam network
 - Serialization
-    - *Lightyear* uses [bitcode](https://github.com/SoftbearStudios/bitcode/tree/main) for very compact serialization.
-      It uses bit-packing (a bool will be serialized as a single bit).
+    - *Lightyear* uses `bincode` as a default serializer, but you can provide your own serialization function
 - Message passing
     - *Lightyear* supports sending packets with different guarantees of ordering and reliability through the use of
       channels.
