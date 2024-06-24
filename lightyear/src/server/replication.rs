@@ -211,6 +211,7 @@ pub(crate) mod send {
     /// The bundle is composed of several components:
     /// - [`ReplicationTarget`] to specify which clients should receive the entity
     /// - [`SyncTarget`] to specify which clients should predict/interpolate the entity
+    /// - [`ControlledBy`] to specify which client controls the entity
     /// - [`NetworkRelevanceMode`] to specify if we should replicate the entity to all clients in the
     /// replication target, or if we should apply interest management logic to determine which clients
     /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
@@ -227,6 +228,8 @@ pub(crate) mod send {
         pub sync: SyncTarget,
         /// How do we control the visibility of the entity?
         pub relevance_mode: NetworkRelevanceMode,
+        /// Which client(s) control this entity?
+        pub controlled_by: ControlledBy,
         /// The replication group defines how entities are grouped (sent as a single message) for replication.
         ///
         /// After the entity is first replicated, the replication group of the entity should not be modified.
@@ -1058,18 +1061,16 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert((
-                    Replicate {
-                        sync: SyncTarget {
-                            prediction: NetworkTarget::All,
-                            interpolation: NetworkTarget::All,
-                        },
-                        ..default()
+                .insert(Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        interpolation: NetworkTarget::All,
                     },
-                    ControlledBy {
+                    controlled_by: ControlledBy {
                         target: NetworkTarget::All,
                     },
-                ));
+                    ..default()
+                });
 
             stepper.frame_step();
             stepper.frame_step();

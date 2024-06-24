@@ -174,6 +174,7 @@ mod tests {
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::ecs::entity::EntityHashSet;
+    use bevy::prelude::default;
 
     /// Check that the Client Entities are updated after ControlledBy is added
     #[test]
@@ -183,11 +184,12 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world_mut()
-            .spawn((Replicate::default(), {
-                ControlledBy {
+            .spawn(Replicate {
+                controlled_by: ControlledBy {
                     target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
-                }
-            }))
+                },
+                ..default()
+            })
             .id();
 
         stepper.frame_step();
@@ -232,11 +234,12 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world_mut()
-            .spawn((Replicate::default(), {
-                ControlledBy {
+            .spawn(Replicate {
+                controlled_by: ControlledBy {
                     target: NetworkTarget::All,
-                }
-            }))
+                },
+                ..default()
+            })
             .id();
 
         stepper.frame_step();
@@ -278,11 +281,12 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world_mut()
-            .spawn((Replicate::default(), {
-                ControlledBy {
+            .spawn(Replicate {
+                controlled_by: ControlledBy {
                     target: NetworkTarget::All,
-                }
-            }))
+                },
+                ..default()
+            })
             .id();
 
         stepper.frame_step();

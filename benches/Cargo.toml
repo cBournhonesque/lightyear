@@ -18,9 +18,9 @@ lightyear = { path = "../lightyear" }
 criterion = { version = "0.5", features = ["html_reports"] }
 crossbeam-channel = "0.5.10"
 bevy = { version = "0.14.0-rc.3", default-features = true, features = [
-    "bevy_core_pipeline",
-    "multi_threaded",
-    "bevy_state",
+  "bevy_core_pipeline",
+  "multi_threaded",
+  "bevy_state",
 ] }
 divan = "0.1.14"
 serde = { version = "1.0.188", features = ["derive"] }
