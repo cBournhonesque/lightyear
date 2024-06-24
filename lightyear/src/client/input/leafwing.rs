@@ -89,6 +89,25 @@ pub struct LeafwingInputConfig<A> {
     pub(crate) _marker: PhantomData<A>,
 }
 
+// TODO: is this actually necessary? The sync happens in PostUpdate,
+//  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
+//  before the sync). If it's not needed, send the messages directly in FixedPostUpdate!
+//  Actually maybe it is, because the send-tick on the server will be updated.
+/// Buffer that will store the InputMessages we want to write this frame.
+///
+/// We need this because:
+/// - we write the InputMessages during FixedPostUpdate
+/// - we apply the TickUpdateEvents (from doing sync) during PostUpdate. During this phase,
+/// we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
+#[derive(Debug, Resource)]
+struct MessageBuffer<A>(Vec<InputMessage<A>>);
+
+impl<A> Default for MessageBuffer<A> {
+    fn default() -> Self {
+        Self(Vec::default())
+    }
+}
+
 impl<A> Default for LeafwingInputConfig<A> {
     fn default() -> Self {
         LeafwingInputConfig {
@@ -150,6 +169,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         let should_run = not(is_host_server);
 
         app.init_resource::<InputBuffer<A>>();
+        app.init_resource::<MessageBuffer<A>>();
+
         // SETS
         app.configure_sets(
             PreUpdate,
@@ -228,33 +249,22 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
             //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
             // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
-            get_delayed_action_state::<A>.run_if(
-                is_input_delay
-                    .and_then(should_run.clone())
-                    .and_then(not(is_in_rollback)),
+            (
+                get_delayed_action_state::<A>.run_if(
+                    is_input_delay
+                        .and_then(should_run.clone())
+                        .and_then(not(is_in_rollback)),
+                ),
+                prepare_input_message::<A>.in_set(InputSystemSet::PrepareInputMessage),
             ),
         );
 
-        // NOTE: we run the buffer_action_state system in the Update schedule for several reasons:
-        // - if the fixed update schedule is too slow, we still want to have the correct input values added to the buffer
-        //   for example if I have F1 TA F2 F3 TB, and I get a new button press on F2; then I want
-        //   The value won't be marked as 'JustPressed' anymore on F3, so what we need to do is ...
-        //   WARNING: actually we don't want to buffer here, else we would override the previous value!
-        // - if the fixed update schedule is too fast, the ActionState doesn't change between the different ticks,
-        //   so setting the value once at the end of the frame is enough
-        //   for example if I have F1 TA F2 TB TC F3, we set the value after TA and after TC
-        //   'set' will apply SameAsPrecedent for TB.
         app.add_systems(
             PostUpdate,
             (
-                // NOTE:
-                // - one thing to understand is that if we have F1 FU1 ( frame 1 starts, and then we run one FixedUpdate schedule)
-                //   we want to add the input value computed during F1 to the buffer for tick FU1, because the tick will use this value
-                prepare_input_message::<A>.in_set(InputSystemSet::SendInputMessage),
+                send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
                 receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
                 clean_buffers::<A>.in_set(InputSystemSet::CleanUp),
-                // TODO: why is this here?
-                add_action_state_buffer_added_input_map::<A>.run_if(should_run.clone()),
             ),
         );
     }
@@ -267,11 +277,17 @@ pub enum InputSystemSet {
     AddBuffers,
     /// Receive the InputMessage from other clients
     ReceiveInputMessages,
-    // FIXED UPDATE
+    // FIXED PRE UPDATE
     /// System Set where we update the ActionState and the InputBuffers
     /// - no rollback: we write the ActionState to the InputBuffers
     /// - rollback: we fetch the ActionState value from the InputBuffers
     BufferClientInputs,
+
+    // FIXED POST UPDATE
+    /// Prepare a message for the server with the current tick's inputs.
+    /// (we do this in the FixedUpdate schedule because if the simulation is slow (e.g. 10Hz)
+    /// we don't want to send an InputMessage every frame)
+    PrepareInputMessage,
 
     // POST UPDATE
     /// In case we suddenly changed the ticks during sync, we need to update out input buffers to the new ticks
@@ -282,27 +298,6 @@ pub enum InputSystemSet {
     CleanUp,
 }
 
-/// Add an [`InputBuffer`] to newly controlled entities
-fn add_action_state_buffer_added_input_map<A: LeafwingUserAction>(
-    mut commands: Commands,
-    entities: Query<
-        Entity,
-        (
-            With<ActionState<A>>,
-            Added<InputMap<A>>,
-            Without<InputBuffer<A>>,
-        ),
-    >,
-) {
-    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
-    //  maybe provide the "controlled" component? or just use With<InputMap>?
-
-    for entity in entities.iter() {
-        debug!("added action state buffer");
-        commands.entity(entity).insert(InputBuffer::<A>::default());
-    }
-}
-
 /// For each entity that has an action-state, insert an input buffer.
 /// that will store the value of the action-state for the last few ticks
 fn add_action_state_buffer<A: LeafwingUserAction>(
@@ -311,9 +306,11 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
     player_entities: Query<
         Entity,
         (
-            Added<ActionState<A>>,
             Without<InputBuffer<A>>,
-            With<InputMap<A>>,
+            Or<(
+                (Added<ActionState<A>>, With<InputMap<A>>),
+                (Added<InputMap<A>>, With<ActionState<A>>),
+            )>,
         ),
     >,
     remote_entities: Query<
@@ -539,7 +536,8 @@ fn clean_buffers<A: LeafwingUserAction>(
 
 /// Send a message to the server containing the ActionDiffs for the last few ticks
 fn prepare_input_message<A: LeafwingUserAction>(
-    mut connection: ResMut<ConnectionManager>,
+    connection: Res<ConnectionManager>,
+    mut message_buffer: ResMut<MessageBuffer<A>>,
     channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,
     ping_manager: Res<PingManager>,
@@ -634,23 +632,30 @@ fn prepare_input_message<A: LeafwingUserAction>(
         }
     }
 
-    // all inputs are absent
-    // TODO: should we provide variants of each user-facing function, so that it pushes the error
-    //  to the ConnectionEvents?
     debug!(?tick, ?num_tick, "sending input message: {}", message);
-    connection
-        .send_message::<InputChannel, InputMessage<A>>(&message)
-        .unwrap_or_else(|err| {
-            error!("Error while sending input message: {:?}", err);
-        })
-    // }
+    message_buffer.0.push(message);
 
-    // NOTE: keep the older input values! because they might be needed when we rollback for client prediction
+    // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
+}
+
+/// Drain the messages from the buffer and send them to the server
+fn send_input_messages<A: LeafwingUserAction>(
+    mut connection: ResMut<ConnectionManager>,
+    mut message_buffer: ResMut<MessageBuffer<A>>,
+) {
+    for message in message_buffer.0.drain(..) {
+        connection
+            .send_message::<InputChannel, InputMessage<A>>(&message)
+            .unwrap_or_else(|err| {
+                error!("Error while sending input message: {:?}", err);
+            });
+    }
 }
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<A: LeafwingUserAction>(
     mut tick_events: EventReader<TickEvent>,
+    mut message_buffer: ResMut<MessageBuffer<A>>,
     mut global_input_buffer: Option<ResMut<InputBuffer<A>>>,
     mut input_buffer_query: Query<&mut InputBuffer<A>>,
 ) {
@@ -674,6 +679,9 @@ fn receive_tick_events<A: LeafwingUserAction>(
                             tick_event, input_buffer.start_tick
                         );
                     }
+                }
+                for mut message in message_buffer.0.iter_mut() {
+                    message.end_tick = message.end_tick + (*new_tick - *old_tick);
                 }
             }
         }
