@@ -226,10 +226,10 @@ pub(crate) mod send {
         pub target: ReplicationTarget,
         /// Which clients should predict/interpolate the entity?
         pub sync: SyncTarget,
-        /// Which client(s) control this entity?
-        pub controlled_by: ControlledBy,
         /// How do we control the visibility of the entity?
         pub relevance_mode: NetworkRelevanceMode,
+        /// Which client(s) control this entity?
+        pub controlled_by: ControlledBy,
         /// The replication group defines how entities are grouped (sent as a single message) for replication.
         ///
         /// After the entity is first replicated, the replication group of the entity should not be modified.
