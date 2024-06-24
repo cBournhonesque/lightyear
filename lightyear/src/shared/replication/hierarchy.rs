@@ -1,10 +1,12 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
+use crate::client::prediction::pre_prediction::PrePredictionSet;
+use crate::client::replication::send::ReplicateToServer;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::server::ControlledBy;
-use crate::prelude::{NetworkRelevanceMode, Replicating, ReplicationGroup};
+use crate::prelude::{NetworkRelevanceMode, PrePredicted, Replicating, ReplicationGroup};
 use crate::server::replication::send::SyncTarget;
 use crate::shared::replication::components::{ReplicateHierarchy, ReplicationTarget};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
@@ -48,7 +50,9 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             (
                 Entity,
                 Ref<ReplicateHierarchy>,
-                &ReplicationTarget,
+                Option<&PrePredicted>,
+                Option<&ReplicationTarget>,
+                Option<&ReplicateToServer>,
                 Option<&SyncTarget>,
                 Option<&ControlledBy>,
                 Option<&NetworkRelevanceMode>,
@@ -60,7 +64,9 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
         for (
             parent_entity,
             replicate_hierarchy,
+            pre_predicted,
             replication_target,
+            replicate_to_server,
             sync_target,
             controlled_by,
             visibility_mode,
@@ -74,12 +80,27 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                     commands.entity(child).insert((
                         // TODO: should we add replicating?
                         Replicating,
-                        replication_target.clone(),
                         // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id
                         ReplicationGroup::new_id(parent_entity.to_bits()),
                         ReplicateHierarchy { recursive: true },
                         ParentSync(None),
                     ));
+                    // On the client, we want to add the PrePredicted component to the children
+                    // The `client_entity` will be filled in a PrePrediction system
+                    // On the server, we just send the PrePredicted component as is to the client
+                    if let Some(pre_predicted) = pre_predicted {
+                        // only insert on the child if the client_entity is None (which means we
+                        // are on the client)
+                        if pre_predicted.client_entity.is_none() {
+                            commands.entity(child).insert(PrePredicted::default());
+                        }
+                    }
+                    if let Some(replication_target) = replication_target {
+                        commands.entity(child).insert(replication_target.clone());
+                    }
+                    if let Some(replicate_to_server) = replicate_to_server {
+                        commands.entity(child).insert(replicate_to_server.clone());
+                    }
                     if let Some(controlled_by) = controlled_by {
                         commands.entity(child).insert(controlled_by.clone());
                     }
@@ -135,7 +156,12 @@ impl<R: ReplicationSend> Plugin for HierarchySendPlugin<R> {
         app.add_systems(
             PostUpdate,
             (
-                (Self::propagate_replicate, Self::update_parent_sync).chain(),
+                (
+                    // we copy PrePredicted to children before we set the correct value of the PrePredicted entity
+                    Self::propagate_replicate.before(PrePredictionSet::Fill),
+                    Self::update_parent_sync,
+                )
+                    .chain(),
                 Self::removal_system,
             )
                 // we don't need to run these every frame, only every send_interval
@@ -208,6 +234,7 @@ mod tests {
     use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
 
+    use crate::prelude::client;
     use crate::prelude::server::Replicate;
     use crate::prelude::ReplicationGroup;
     use crate::shared::replication::components::ReplicateHierarchy;
@@ -391,6 +418,53 @@ mod tests {
                 .entity_mut(child)
                 .get::<ReplicationGroup>(),
             Some(&ReplicationGroup::new_id(grandparent.to_bits()))
+        );
+    }
+
+    #[test]
+    fn test_propagate_hierarchy_client_to_server() {
+        let mut stepper = BevyStepper::default();
+        let child = stepper.client_app.world_mut().spawn(Component3(0.0)).id();
+        let parent = stepper
+            .client_app
+            .world_mut()
+            .spawn((Component2(0.0), client::Replicate::default()))
+            .add_child(child)
+            .id();
+
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // check that both the parent and the child were replicated
+        let server_parent = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<Component2>>()
+            .get_single(stepper.server_app.world())
+            .expect("parent entity was not replicated");
+        let server_child = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<Component3>>()
+            .get_single(stepper.server_app.world())
+            .expect("child entity was not replicated");
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<Parent>(server_child)
+                .unwrap()
+                .get(),
+            server_parent
+        );
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<ParentSync>(server_child)
+                .unwrap(),
+            &ParentSync(Some(server_parent))
         );
     }
 }
