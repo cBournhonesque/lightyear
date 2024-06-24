@@ -1025,14 +1025,17 @@ pub(crate) mod send {
         use crate::prelude::client::Confirmed;
         use crate::prelude::server::{ControlledBy, NetConfig, RelevanceManager, Replicate};
         use crate::prelude::{
-            client, DeltaCompression, LinkConditionerConfig, ReplicateOnceComponent, Replicated,
+            client, server, DeltaCompression, LinkConditionerConfig, ReplicateOnceComponent,
+            Replicated,
         };
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
         use crate::shared::replication::delta::DeltaComponentHistory;
+        use crate::shared::replication::systems;
         use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+        use bevy::ecs::system::RunSystemOnce;
         use bevy::prelude::{default, EventReader, Resource, Update};
         use bevy::utils::HashSet;
 
@@ -1914,6 +1917,68 @@ pub(crate) mod send {
                     .get::<Component1>()
                     .expect("component missing"),
                 &Component1(2.0)
+            );
+        }
+
+        /// Test that replicating updates works even if the update happens after tick wrapping
+        #[test]
+        fn test_component_update_after_tick_wrap() {
+            let mut stepper = BevyStepper::default();
+
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn((Component1(0.0), Replicate::default()))
+                .id();
+
+            // replicate to client
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // we increase the ticks in 2 steps (otherwise we would directly go over tick wrapping)
+            let tick_delta = (u16::MAX / 3 + 10) as i16;
+            stepper.set_client_tick(stepper.client_tick() + tick_delta);
+            stepper.set_server_tick(stepper.server_tick() + tick_delta);
+
+            stepper
+                .server_app
+                .world_mut()
+                .run_system_once(systems::send_cleanup::<server::ConnectionManager>);
+            stepper
+                .client_app
+                .world_mut()
+                .run_system_once(systems::receive_cleanup::<client::ConnectionManager>);
+
+            stepper.set_client_tick(stepper.client_tick() + tick_delta);
+            stepper.set_server_tick(stepper.server_tick() + tick_delta);
+
+            // update the component on the server
+            stepper
+                .server_app
+                .world_mut()
+                .entity_mut(server_entity)
+                .insert(Component1(1.0));
+
+            // make sure the client receives the replication message
+            stepper.frame_step();
+            stepper.frame_step();
+
+            let client_entity = *stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .unwrap();
+            // check that the component got updated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .get::<Component1>(client_entity)
+                    .unwrap(),
+                &Component1(1.0)
             );
         }
 

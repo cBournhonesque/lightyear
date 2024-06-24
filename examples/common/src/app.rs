@@ -335,14 +335,21 @@ impl Apps {
 /// Takes in a `net_config` parameter so that we configure the network transport.
 fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, ClientConfig) {
     let mut app = App::new();
-    // https://github.com/bevyengine/bevy/issues/10157
-    app.insert_resource(bevy::asset::AssetMetaCheck::Never);
 
-    app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-        level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        ..default()
-    }));
+    app.add_plugins(
+        DefaultPlugins
+            .build()
+            .set(AssetPlugin {
+                // https://github.com/bevyengine/bevy/issues/10157
+                meta_check: bevy::asset::AssetMetaCheck::Never,
+                ..default()
+            })
+            .set(LogPlugin {
+                level: Level::INFO,
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
+                ..default()
+            }),
+    );
     // if settings.client.inspector {
     //     app.add_plugins(WorldInspectorPlugin::new());
     // }

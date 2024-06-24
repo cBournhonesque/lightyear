@@ -16,6 +16,7 @@ use crate::prelude::client::{
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
+use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
 
@@ -178,6 +179,32 @@ impl BevyStepper {
                     .interpolation_tick(world.resource::<TickManager>())
             },
         )
+    }
+
+    pub(crate) fn set_client_tick(&mut self, tick: Tick) {
+        let new_time = WrappedTime::from_duration(self.tick_duration * (tick.0 as u32));
+
+        self.client_app
+            .world_mut()
+            .resource_mut::<TimeManager>()
+            .set_current_time(new_time);
+        self.client_app
+            .world_mut()
+            .resource_mut::<TickManager>()
+            .set_tick_to(tick);
+    }
+
+    pub(crate) fn set_server_tick(&mut self, tick: Tick) {
+        let new_time = WrappedTime::from_duration(self.tick_duration * (tick.0 as u32));
+
+        self.server_app
+            .world_mut()
+            .resource_mut::<TimeManager>()
+            .set_current_time(new_time);
+        self.server_app
+            .world_mut()
+            .resource_mut::<TickManager>()
+            .set_tick_to(tick);
     }
 
     pub(crate) fn client_tick(&self) -> Tick {

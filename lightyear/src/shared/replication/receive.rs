@@ -191,6 +191,7 @@ impl ReplicationReceiver {
         for group_channel in self.group_channels.values_mut() {
             debug!("Checking group channel: {:?}", group_channel);
             if let Some(latest_tick) = group_channel.latest_tick {
+                // delta = u16::MAX / 4
                 if tick - latest_tick > (i16::MAX / 2) {
                     debug!(
                     ?tick,
@@ -645,6 +646,8 @@ impl<'a> Iterator for ActionsIterator<'a> {
 // TODO: try a sequence buffer?
 /// Stores the [`EntityUpdatesMessage`] for a given [`ReplicationGroup`](crate::prelude::ReplicationGroup), sorted
 /// in descending remote tick order (the most recent tick first, the oldest tick last)
+///
+/// The first element is the remote tick, the second is the message
 #[derive(Debug)]
 pub struct UpdatesBuffer(Vec<(Tick, EntityUpdatesMessage)>);
 
@@ -687,9 +690,11 @@ impl UpdatesBuffer {
         // if we haven't applied any latest_tick, we can't apply any updates
         let latest_tick = latest_tick?;
 
+        // we can use partition point because we know that all the non-ready elements will be on the left
+        // and the ready elements will be on the right
         let idx = self.0.partition_point(|(_, message)| {
             let Some(last_action_tick) = message.last_action_tick else {
-                return true;
+                return false;
             };
             last_action_tick > latest_tick
         });
