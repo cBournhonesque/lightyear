@@ -196,6 +196,7 @@ fn player_movement(
         if let Some((prev_tick, prev_input)) = input_buffer.get_last_with_tick() {
             let staleness = (tick - prev_tick).max(0) as u16;
             if staleness > MAX_STALE_TICKS {
+                // input too stale, apply default input (ie, nothing pressed)
                 apply_action_state_to_player_movement(
                     &ActionState::default(),
                     staleness,
@@ -203,9 +204,13 @@ fn player_movement(
                     tick,
                 );
             } else {
+                // apply a stale input within our acceptable threshold.
+                // we could use the staleness to decay movement forces as desired.
                 apply_action_state_to_player_movement(prev_input, staleness, &mut aiq, tick);
             }
         } else {
+            // no inputs in the buffer yet, can happen during initial connection.
+            // apply the default input (ie, nothing pressed)
             apply_action_state_to_player_movement(action_state, 0, &mut aiq, tick);
         }
     }
