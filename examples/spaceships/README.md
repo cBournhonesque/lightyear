@@ -32,7 +32,7 @@ Should the remote player inputs not arrive before your client simulates the tick
 the bullet will be created when the server spawns it and replicates through normal means. In this case
 your client will rollback to position the bullet correctly.
 
- 
+
 ## Running the example
 
 - Run the server: `cargo run server`
