@@ -564,6 +564,15 @@ impl ReplicationSender {
                 // This is ok to do even if we don't get an actual send notification because EntityActions messages are
                 // guaranteed to be sent at some point. (since the actions channel is reliable)
                 channel.send_tick = Some(bevy_tick);
+                //  We can consider that we received an ack for the current tick because the message is sent reliably,
+                //  so we know that we should eventually receive an ack.
+                //  Updates after this insert only get read if the insert was received, so this doesn't introduce any bad behaviour.
+                //  - For delta-compression: this is useful to compute future diffs from this Insert value immediately
+                //  - in general: this is useful to avoid sending too many unnecessary updates. For example:
+                //      - tick 3: C1 update
+                //      - tick 4: C2 insert. C1 update. (if we send all updates since last_ack) !!!! We need to update the ack from the Insert only AFTER all the Updates are prepared!!!
+                //      - tick 5: Before, we would send C1 update again, since we didn't receive an ack for C1 yet. But now we stop sending it because we know that the message from tick 4 will be received.
+                channel.ack_tick = Some(tick);
                 let priority = channel.accumulated_priority;
                 let message_id = channel.actions_next_send_message_id;
                 channel.actions_next_send_message_id += 1;
@@ -718,8 +727,8 @@ pub struct GroupChannel {
     /// Used for delta-compression
     pub ack_tick: Option<Tick>,
 
-    // TODO:
-    // last tick for which we sent an action message
+    /// Last tick for which we sent an action message. Needed because we want the receiver to only
+    /// process Updates if they have processed all Actions that happened before them.
     pub last_action_tick: Option<Tick>,
 
     /// The priority to send the replication group.
@@ -872,7 +881,8 @@ mod tests {
             .get(group_id)
             .expect("we should have a group channel for the entity");
         assert_eq!(group_channel.send_tick, Some(*bevy_tick));
-        assert_eq!(group_channel.ack_tick, None);
+        // the ack_tick is updated when we send Actions
+        assert_eq!(group_channel.ack_tick, Some(server_tick - 1));
     }
 
     #[test]

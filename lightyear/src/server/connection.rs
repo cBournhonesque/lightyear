@@ -815,17 +815,6 @@ impl ConnectionManager {
                 // );
                 let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
 
-                //  We can consider that we received an ack for the current tick because the Insert is sent reliably,
-                //  so we know that we should eventually receive an ack.
-                //  Updates after this insert only get read if the insert was received, so this doesn't introduce any bad behaviour.
-                //  This is useful to compute future diffs from this Insert value immediately
-                if delta_compression {
-                    replication_sender
-                        .group_channels
-                        .entry(group_id)
-                        .or_default()
-                        .ack_tick = Some(tick);
-                }
                 // update the collect changes tick
                 // replication_sender
                 //     .group_channels
