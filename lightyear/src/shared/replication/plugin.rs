@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
-#[derive(Clone, Debug, Default, Reflect)]
+#[derive(Clone, Debug, Reflect)]
 pub struct ReplicationConfig {
     /// By default, we will send all component updates since the last time we sent an update for a given entity.
     /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
@@ -30,6 +30,15 @@ pub struct ReplicationConfig {
     ///
     /// Set to `Duration::default()` to send updates every frame.
     pub send_interval: Duration,
+}
+
+impl Default for ReplicationConfig {
+    fn default() -> Self {
+        Self {
+            send_updates_since_last_ack: true,
+            send_interval: Duration::default(),
+        }
+    }
 }
 
 pub(crate) mod receive {

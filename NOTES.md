@@ -1,3 +1,4 @@
+- 
 - Replication serialization:
   - to improve performance, we want to:
     - entities that don't have SerializationGroup are considered part of SerializationGroup for the PLACEHOLDER entity (this should be ok since the PLACEHOLDER is never instantiated)

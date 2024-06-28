@@ -6,7 +6,7 @@ use bevy::ptr::Ptr;
 use bevy::utils::{Duration, HashMap, HashSet};
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
-use tracing::{debug, info, info_span, trace, trace_span};
+use tracing::{debug, error, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
@@ -784,6 +784,7 @@ impl ConnectionManager {
         if delta_compression {
             // store the component value in a storage shared between all connections, so that we can compute diffs
             // NOTE: we don't update the ack data because we only receive acks for ReplicationUpdate messages
+
             self.delta_manager.data.store_component_value(
                 entity,
                 tick,
@@ -794,14 +795,14 @@ impl ConnectionManager {
             );
             // SAFETY: the component_data corresponds to the kind
             unsafe {
-                component_registry
-                    .serialize_diff_from_base_value(component_data, &mut self.writer, kind)
-                    .expect("could not serialize delta")
+                component_registry.serialize_diff_from_base_value(
+                    component_data,
+                    &mut self.writer,
+                    kind,
+                )?;
             }
         } else {
-            component_registry
-                .erased_serialize(component_data, &mut self.writer, kind)
-                .expect("could not serialize component")
+            component_registry.erased_serialize(component_data, &mut self.writer, kind)?;
         };
         let raw_data = self.writer.split();
         self.apply_replication(actual_target)
@@ -813,6 +814,18 @@ impl ConnectionManager {
                 //     "Inserting single component"
                 // );
                 let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+
+                //  We can consider that we received an ack for the current tick because the Insert is sent reliably,
+                //  so we know that we should eventually receive an ack.
+                //  Updates after this insert only get read if the insert was received, so this doesn't introduce any bad behaviour.
+                //  This is useful to compute future diffs from this Insert value immediately
+                if delta_compression {
+                    replication_sender
+                        .group_channels
+                        .entry(group_id)
+                        .or_default()
+                        .ack_tick = Some(tick);
+                }
                 // update the collect changes tick
                 // replication_sender
                 //     .group_channels
@@ -841,20 +854,8 @@ impl ConnectionManager {
         tick: Tick,
         delta_compression: bool,
     ) -> Result<(), ServerError> {
-        trace!(
-            ?kind,
-            ?entity,
-            ?component_change_tick,
-            ?system_current_tick,
-            "Prepare entity update"
-        );
-        let mut raw_data: Bytes = Bytes::new();
-        if !delta_compression {
-            // we serialize once and re-use the result for all clients
-            registry.erased_serialize(component, &mut self.writer, kind)?;
-            raw_data = self.writer.split();
-        }
         let mut num_targets = 0;
+        let mut existing_bytes: Option<Bytes> = None;
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             let replication_sender = &mut self.connections.get_mut(&client_id).ok_or(ServerError::ClientIdNotFound(client_id))?.replication_sender;
@@ -874,6 +875,16 @@ impl ConnectionManager {
             if send_tick.map_or(true, |tick| {
                 component_change_tick.is_newer_than(tick, system_current_tick)
             }) {
+                if delta_compression {
+                    error!(
+                        name = ?registry.name(kind),
+                        ?entity,
+                        ?tick,
+                        ?send_tick,
+                        ?component_change_tick,
+                        "Prepare entity update"
+                    );
+                }
                 num_targets += 1;
                 trace!(
                     change_tick = ?component_change_tick,
@@ -888,10 +899,16 @@ impl ConnectionManager {
                 //     "Updating single component"
                 // );
                 if !delta_compression {
-                    // TODO: avoid component clone with Arc<[u8]>
-                    replication_sender.prepare_component_update(entity, group_id, raw_data.clone());
+                    // we serialize once and re-use the result for all clients
+                    // serialize only if there is at least one client that needs the update
+                    if let None = existing_bytes {
+                        registry.erased_serialize(component, &mut self.writer, kind)?;
+                        existing_bytes = Some(self.writer.split());
+                    }
+                    let raw_data = existing_bytes.clone().unwrap();
+                    replication_sender.prepare_component_update(entity, group_id, raw_data);
                 } else {
-                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick);
+                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick)?;
                 }
             }
             Ok::<(), ServerError>(())

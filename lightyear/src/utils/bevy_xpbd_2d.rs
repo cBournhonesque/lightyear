@@ -1,10 +1,10 @@
 //! Implement lightyear traits for some common bevy types
+use crate::shared::replication::delta::Diffable;
 use bevy_xpbd_2d::components::*;
 use bevy_xpbd_2d::math::Scalar;
 use tracing::trace;
 
 pub mod position {
-
     use super::*;
 
     pub fn lerp(start: &Position, other: &Position, t: f32) -> Position {
@@ -18,6 +18,22 @@ pub mod position {
             res
         );
         res
+    }
+
+    impl Diffable for Position {
+        type Delta = Self;
+
+        fn base_value() -> Self {
+            Position::default()
+        }
+
+        fn diff(&self, new: &Self) -> Self::Delta {
+            Position(new.0 - self.0)
+        }
+
+        fn apply_diff(&mut self, delta: &Self::Delta) {
+            self.0 += delta.0;
+        }
     }
 }
 

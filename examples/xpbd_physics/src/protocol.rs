@@ -9,6 +9,7 @@ use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::client;
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
+use lightyear::shared::replication::delta::Diffable;
 use lightyear::utils::bevy_xpbd_2d::*;
 
 use crate::shared::color_from_id;
@@ -182,7 +183,8 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation(ComponentSyncMode::Full)
             .add_interpolation_fn(position::lerp)
-            .add_correction_fn(position::lerp);
+            .add_correction_fn(position::lerp)
+            .add_delta_compression();
 
         app.register_component::<Rotation>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Full)

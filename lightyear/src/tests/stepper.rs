@@ -260,10 +260,7 @@ impl Step for BevyStepper {
     fn frame_step(&mut self) {
         self.advance_time(self.frame_duration);
         self.client_app.update();
-        // sleep a bit to make sure that local io receives the packets
-        // std::thread::sleep(Duration::from_millis(1));
         self.server_app.update();
-        // std::thread::sleep(Duration::from_millis(1));
     }
 
     fn tick_step(&mut self) {

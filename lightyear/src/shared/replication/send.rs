@@ -21,6 +21,7 @@ use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
+use crate::shared::replication::error::ReplicationError;
 use crate::shared::replication::plugin::ReplicationConfig;
 #[cfg(test)]
 use crate::utils::captures::Captures;
@@ -204,6 +205,11 @@ impl ReplicationSender {
                         ?group_id,
                         "successfully sent message for replication group! Resetting priority"
                     );
+                    error!(
+                        ?group_id,
+                        ?bevy_tick,
+                        "Sent message for replication group. Updating send_tick"
+                    );
                     channel.send_tick = Some(*bevy_tick);
                     channel.accumulated_priority = 0.0;
                 } else {
@@ -236,11 +242,12 @@ impl ReplicationSender {
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
                     // update the ack tick for the channel
-                    debug!(?bevy_tick, "Update channel ack_tick");
+                    error!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
                     channel.ack_bevy_tick = Some(bevy_tick);
                     channel.ack_tick = Some(tick);
 
                     // update the acks for the delta manager
+                    dbg!(group_id, tick);
                     delta_manager.receive_ack(tick, group_id, component_registry);
                 } else {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
@@ -400,7 +407,7 @@ impl ReplicationSender {
         writer: &mut Writer,
         delta_manager: &mut DeltaManager,
         tick: Tick,
-    ) {
+    ) -> Result<(), ReplicationError> {
         let group_channel = self.group_channels.entry(group_id).or_default();
         // Get the latest acked tick for this replication group
         let raw_data = group_channel
@@ -411,25 +418,34 @@ impl ReplicationSender {
                 let old_data = delta_manager
                     .data
                     .get_component_value(entity, ack_tick, kind, group_id)
-                    .expect("we should have stored a component value for this tick");
+                    .ok_or(ReplicationError::DeltaCompressionError(
+                        "could not find old component value to compute delta".to_string(),
+                    ))
+                    .inspect_err(|e| {
+                        error!(
+                            ?entity,
+                            name = ?registry.name(kind),
+                            "Could not find old component value from tick {:?} to compute delta",
+                            ack_tick
+                        );
+                        error!("DeltaManager data: {:?}", delta_manager.data);
+                    })?;
+                dbg!("diff from previous data");
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
-                    registry
-                        .serialize_diff(ack_tick, old_data, component_data, writer, kind)
-                        .expect("could not serialize delta")
+                    registry.serialize_diff(ack_tick, old_data, component_data, writer, kind)?;
                 }
-                writer.split()
+                Ok::<Bytes, ReplicationError>(writer.split())
             })
             .unwrap_or_else(|| {
+                dbg!("diff from base");
                 // SAFETY: the component_data is a pointer to a component that corresponds to kind
                 unsafe {
                     // compute a diff from the base value, and serialize that
-                    registry
-                        .serialize_diff_from_base_value(component_data, writer, kind)
-                        .expect("could not serialize delta")
+                    registry.serialize_diff_from_base_value(component_data, writer, kind)?;
                 }
-                writer.split()
-            });
+                Ok::<Bytes, ReplicationError>(writer.split())
+            })?;
         trace!(?kind, "Inserting pending update!");
         self.pending_updates
             .entry(group_id)
@@ -437,6 +453,7 @@ impl ReplicationSender {
             .entry(entity)
             .or_default()
             .push(raw_data);
+        Ok(())
     }
 
     #[cfg(test)]
@@ -646,6 +663,13 @@ impl ReplicationSender {
                     .expect("The entity actions channels should always return a message_id");
 
                 // keep track of the message_id -> group mapping, so we can handle receiving an ACK for that message_id later
+                error!(
+                    ?message_id,
+                    ?group_id,
+                    ?bevy_tick,
+                    ?tick,
+                    "Send replication update"
+                );
                 self.updates_message_id_to_group_id.insert(
                     message_id,
                     UpdateMessageMetadata {
@@ -672,6 +696,10 @@ impl ReplicationSender {
 #[derive(Debug)]
 pub struct GroupChannel {
     pub actions_next_send_message_id: MessageId,
+    /// Per entity/component send_tick.
+    /// It is necessary to use this for:
+    /// - delta-compression, so that we know which tick to diff against
+
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
     /// Bevy Tick when we last sent an update for this group.
     /// This is used to collect updates that we will replicate; we replicate any update that happened after this tick.

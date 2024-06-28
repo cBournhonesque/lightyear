@@ -153,6 +153,7 @@ pub(crate) fn replicate_players(
             };
             e.insert((
                 replicate,
+                DeltaCompression::<Position>::default(),
                 // if we receive a pre-predicted entity, only send the prepredicted component back
                 // to the original client
                 OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(client_id)),
