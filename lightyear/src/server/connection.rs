@@ -875,7 +875,7 @@ impl ConnectionManager {
                 } else {
                     // we serialize once and re-use the result for all clients
                     // serialize only if there is at least one client that needs the update
-                    if let None = existing_bytes {
+                    if existing_bytes.is_none() {
                         registry.erased_serialize(component, &mut self.writer, kind)?;
                         existing_bytes = Some(self.writer.split());
                     }
