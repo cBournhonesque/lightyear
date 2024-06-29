@@ -38,6 +38,7 @@ websocket = [
   "dep:futures-util",
   "dep:web-sys",
   "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
 ]
 steam = ["dep:steamworks"]
 
