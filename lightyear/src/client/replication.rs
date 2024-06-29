@@ -498,14 +498,14 @@ pub(crate) mod send {
                 if delta_compression {
                     // SAFETY: the component_data corresponds to the kind
                     unsafe {
-                        component_registry
-                            .serialize_diff_from_base_value(component_data, writer, component_kind)
-                            .expect("could not serialize delta")
+                        component_registry.serialize_diff_from_base_value(
+                            component_data,
+                            writer,
+                            component_kind,
+                        )?
                     }
                 } else {
-                    component_registry
-                        .erased_serialize(component_data, writer, component_kind)
-                        .expect("could not serialize component")
+                    component_registry.erased_serialize(component_data, writer, component_kind)?;
                 };
                 let raw_data = writer.split();
                 sender.replication_sender.prepare_component_insert(
@@ -552,9 +552,11 @@ pub(crate) mod send {
                             current_tick,
                         )?;
                     } else {
-                        component_registry
-                            .erased_serialize(component_data, writer, component_kind)
-                            .expect("could not serialize component");
+                        component_registry.erased_serialize(
+                            component_data,
+                            writer,
+                            component_kind,
+                        )?;
                         let raw_data = writer.split();
                         sender
                             .replication_sender
