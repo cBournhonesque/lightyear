@@ -864,29 +864,13 @@ impl ConnectionManager {
             if send_tick.map_or(true, |tick| {
                 component_change_tick.is_newer_than(tick, system_current_tick)
             }) {
-                if delta_compression.is_some() {
-                    error!(
-                        name = ?registry.name(kind),
-                        ?entity,
-                        ?tick,
-                        ?send_tick,
-                        ?component_change_tick,
-                        "Prepare entity update"
-                    );
-                }
                 num_targets += 1;
                 trace!(
-                    change_tick = ?component_change_tick,
-                    ?send_tick,
-                    current_tick = ?system_current_tick,
-                    "prepare entity update changed check"
+                    ?entity,
+                    ?tick,
+                    name = ?registry.name(kind),
+                    "Updating single component"
                 );
-                // trace!(
-                //     ?entity,
-                //     component = ?kind,
-                //     tick = ?self.tick_manager.tick(),
-                //     "Updating single component"
-                // );
                 if let Some(delta_compression) = delta_compression {
                     replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, delta_compression, tick)?;
                 } else {

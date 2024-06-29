@@ -253,8 +253,7 @@ impl ReplicationSender {
                     channel.ack_tick = Some(tick);
 
                     // update the acks for the delta manager
-                    dbg!(group_id, tick);
-                    channel.delta_manager.receive_ack(
+                    delta_manager.receive_ack(
                         tick,
                         group_id,
                         delta_components,
@@ -441,7 +440,6 @@ impl ReplicationSender {
                         );
                         error!("DeltaManager data: {:?}", group_channel.delta_manager.data);
                     })?;
-                dbg!("diff from previous data");
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
                     registry.serialize_diff(ack_tick, old_data, component_data, writer, kind)?;
@@ -449,7 +447,6 @@ impl ReplicationSender {
                 Ok::<Bytes, ReplicationError>(writer.split())
             })
             .unwrap_or_else(|| {
-                dbg!("diff from base");
                 // SAFETY: the component_data is a pointer to a component that corresponds to kind
                 unsafe {
                     // compute a diff from the base value, and serialize that
@@ -712,9 +709,6 @@ impl ReplicationSender {
 #[derive(Debug)]
 pub struct GroupChannel {
     pub actions_next_send_message_id: MessageId,
-    /// Per entity/component send_tick.
-    /// It is necessary to use this for:
-    /// - delta-compression, so that we know which tick to diff against
 
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
     /// Bevy Tick when we last sent an update for this group.
