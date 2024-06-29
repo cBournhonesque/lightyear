@@ -43,8 +43,6 @@ pub(crate) struct UpdateMessageMetadata {
     bevy_tick: BevyTick,
     /// The tick at which we buffered the message
     tick: Tick,
-    /// The delta-compression components (along with the entity) that were included in the message.
-    delta_components: Vec<(Entity, ComponentKind)>,
 }
 
 #[derive(Debug)]
@@ -208,12 +206,7 @@ impl ReplicationSender {
                     debug!(
                         ?message_id,
                         ?group_id,
-                        "successfully sent message for replication group! Resetting priority"
-                    );
-                    error!(
-                        ?group_id,
-                        ?bevy_tick,
-                        "Sent message for replication group. Updating send_tick"
+                        "successfully sent message for replication group! Updating send_tick"
                     );
                     channel.send_tick = Some(*bevy_tick);
                     channel.accumulated_priority = 0.0;
@@ -243,22 +236,16 @@ impl ReplicationSender {
                 group_id,
                 bevy_tick,
                 tick,
-                delta_components,
             }) = self.updates_message_id_to_group_id.remove(&message_id)
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
                     // update the ack tick for the channel
-                    error!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
+                    debug!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
                     channel.ack_bevy_tick = Some(bevy_tick);
                     channel.ack_tick = Some(tick);
 
                     // update the acks for the delta manager
-                    delta_manager.receive_ack(
-                        tick,
-                        group_id,
-                        delta_components,
-                        component_registry,
-                    );
+                    delta_manager.receive_ack(tick, group_id, component_registry);
                 } else {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
                 }
@@ -415,12 +402,12 @@ impl ReplicationSender {
         component_data: Ptr,
         registry: &ComponentRegistry,
         writer: &mut Writer,
-        delta_compression: &ErasedDeltaCompression,
+        delta_manager: &mut DeltaManager,
         tick: Tick,
     ) -> Result<(), ReplicationError> {
         let group_channel = self.group_channels.entry(group_id).or_default();
         // Get the latest acked tick for this entity/component
-        let raw_data = delta_compression
+        let raw_data = group_channel
             .ack_tick
             .map(|ack_tick| {
                 // we have an ack tick for this replication group, get the corresponding component value
@@ -675,7 +662,7 @@ impl ReplicationSender {
                     .expect("The entity actions channels should always return a message_id");
 
                 // keep track of the message_id -> group mapping, so we can handle receiving an ACK for that message_id later
-                error!(
+                debug!(
                     ?message_id,
                     ?group_id,
                     ?bevy_tick,
@@ -688,7 +675,6 @@ impl ReplicationSender {
                         group_id,
                         bevy_tick,
                         tick,
-                        delta_components:
                     },
                 );
                 // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
@@ -737,9 +723,6 @@ pub struct GroupChannel {
     /// for this group because of the bandwidth cap, in which case it will be accumulated.
     pub accumulated_priority: f32,
     pub base_priority: f32,
-
-    /// Manages delta-compression for this group
-    pub delta_manager: DeltaManager,
 }
 
 impl Default for GroupChannel {
@@ -752,7 +735,6 @@ impl Default for GroupChannel {
             last_action_tick: None,
             accumulated_priority: 0.0,
             base_priority: 1.0,
-            delta_manager: DeltaManager::default(),
         }
     }
 }

@@ -108,6 +108,7 @@ impl ConnectionManager {
             message_registry,
             channel_registry,
             events: ServerEvents::new(),
+            delta_manager: DeltaManager::default(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
@@ -780,7 +781,7 @@ impl ConnectionManager {
 
         // even with delta-compression enabled
         // the diff can be shared for every client since we're inserting
-        if delta_compression.is_some() {
+        if delta_compression {
             // update the ack_tick for the (entity, component) so that future diffs are based on this tick
             self.delta_manager.ack_tick.insert((entity, kind), tick);
             // store the component value in a storage shared between all connections, so that we can compute diffs
@@ -841,7 +842,7 @@ impl ConnectionManager {
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
         tick: Tick,
-        delta_compression: Option<&ErasedDeltaCompression>,
+        delta_compression: bool,
     ) -> Result<(), ServerError> {
         let mut num_targets = 0;
         let mut existing_bytes: Option<Bytes> = None;
@@ -871,8 +872,8 @@ impl ConnectionManager {
                     name = ?registry.name(kind),
                     "Updating single component"
                 );
-                if let Some(delta_compression) = delta_compression {
-                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, delta_compression, tick)?;
+                if delta_compression {
+                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick)?;
                 } else {
                     // we serialize once and re-use the result for all clients
                     // serialize only if there is at least one client that needs the update
@@ -887,7 +888,7 @@ impl ConnectionManager {
             Ok::<(), ServerError>(())
         })?;
 
-        if delta_compression.is_some() && num_targets > 0 {
+        if delta_compression && num_targets > 0 {
             // store the component value in a storage shared between all connections, so that we can compute diffs
             self.delta_manager
                 .data

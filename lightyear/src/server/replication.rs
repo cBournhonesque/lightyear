@@ -482,13 +482,6 @@ pub(crate) mod send {
                             replicated_component.id,
                         )
                     };
-                    let delta_compression = replicated_component.delta_compression.and_then(|id| {
-                        entity_ref
-                            .get_by_id(id)
-                            // SAFETY: we know the archetype has the OverrideTarget<C> component
-                            // the DeltaCompression<C> component has the same memory layout as ErasedDeltaCompression
-                            .map(|ptr| unsafe { ptr.deref::<ErasedDeltaCompression>() })
-                    });
                     let override_target = replicated_component.override_target.and_then(|id| {
                         entity_ref
                             .get_by_id(id)
@@ -508,7 +501,7 @@ pub(crate) mod send {
                         sync_target,
                         group_id,
                         visibility,
-                        delta_compression,
+                        replicated_component.delta_compression,
                         replicated_component.replicate_once,
                         override_target,
                         &system_ticks,
@@ -787,7 +780,7 @@ pub(crate) mod send {
         sync_target: Option<&SyncTarget>,
         group_id: ReplicationGroupId,
         visibility: Option<&CachedNetworkRelevance>,
-        delta_compression: Option<&ErasedDeltaCompression>,
+        delta_compression: bool,
         replicate_once: bool,
         override_target: Option<&NetworkTarget>,
         system_ticks: &SystemChangeTick,
@@ -2558,12 +2551,6 @@ pub(crate) mod send {
             );
             // check that the history still contains the component for the component update
             // (because we only purge when we receive a strictly more recent tick)
-            dbg!(stepper
-                .client_app
-                .world
-                .entity(client_entity)
-                .get::<DeltaComponentHistory<Component7>>()
-                .expect("component missing"));
             assert!(stepper
                 .client_app
                 .world

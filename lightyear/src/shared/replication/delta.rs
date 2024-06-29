@@ -84,10 +84,6 @@ pub struct DeltaManager {
     // TODO: this should be per component! especially if do the send updates since `send_tick` which needs
     //  to be done since (entity, component)
     pub(crate) acks: EntityHashMap<ReplicationGroupId, HashMap<Tick, usize>>,
-    /// Store the `ack_tick` per (entity, component) so we can track which tick to compute the diff from.
-    /// We cannot use the `ack_tick` of the replication group, because it could have been updated by a different component
-    /// being acked. (for example C1 is acked at tick 2, and C2 is acked at tick 3)
-    pub(crate) ack_tick: HashMap<(Entity, ComponentKind), Tick>,
 }
 
 impl DeltaManager {
@@ -97,14 +93,8 @@ impl DeltaManager {
         &mut self,
         tick: Tick,
         replication_group: ReplicationGroupId,
-        mut delta_components: Vec<(Entity, ComponentKind)>,
         component_registry: &ComponentRegistry,
     ) {
-        // update the per-(entity, component) ack_tick
-        delta_components.into_iter().for_each(|(entity, kind)| {
-            self.ack_tick.insert((entity, kind), tick);
-        });
-
         // check if we can remove the stored data because all clients have acked this tick
         let mut delete = false;
         if let Some(group_data) = self.acks.get_mut(&replication_group) {
@@ -176,10 +166,6 @@ impl DeltaComponentStore {
         replication_group: ReplicationGroupId,
         registry: &ComponentRegistry,
     ) {
-        warn!(
-            ?entity, ?tick, kind = ?registry.name(kind),
-            "Storing component value in delta manager",
-        );
         // SAFETY: the component Ptr corresponds to kind
         let cloned = unsafe { registry.erased_clone(component, kind).unwrap() };
         self.data

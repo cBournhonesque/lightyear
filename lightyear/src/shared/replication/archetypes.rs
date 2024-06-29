@@ -65,7 +65,7 @@ pub(crate) struct ReplicatedArchetype {
 }
 
 pub(crate) struct ReplicatedComponent {
-    pub(crate) delta_compression: Option<ComponentId>,
+    pub(crate) delta_compression: bool,
     pub(crate) replicate_once: bool,
     pub(crate) override_target: Option<ComponentId>,
     pub(crate) id: ComponentId,
@@ -149,8 +149,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
                     // TODO: should we store the components in a hashmap for faster lookup?
                     let delta_compression = archetype
                         .components()
-                        .any(|c| c == replication_metadata.delta_compression_id)
-                        .then_some(replication_metadata.delta_compression_id);
+                        .any(|c| c == replication_metadata.delta_compression_id);
                     let replicate_once = archetype
                         .components()
                         .any(|c| c == replication_metadata.replicate_once_id);
