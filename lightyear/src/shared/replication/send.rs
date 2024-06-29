@@ -64,7 +64,7 @@ pub(crate) struct ReplicationSender {
     /// We don't put this into group_channels because we would have to iterate through all the group_channels
     /// to collect new replication messages
     pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
-    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<Bytes>>>,
+    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, (Vec<ComponentKind>, Vec<Bytes>)>>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 
@@ -254,7 +254,7 @@ impl ReplicationSender {
 
                     // update the acks for the delta manager
                     dbg!(group_id, tick);
-                    channel.delta_manager.receive_ack(
+                    delta_manager.receive_ack(
                         tick,
                         group_id,
                         delta_components,
@@ -395,6 +395,7 @@ impl ReplicationSender {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
+        kind: ComponentKind,
         raw_data: Bytes,
     ) {
         self.pending_updates
@@ -402,7 +403,7 @@ impl ReplicationSender {
             .or_default()
             .entry(entity)
             .or_default()
-            .push(raw_data);
+            .push((kind, raw_data));
     }
 
     /// Create a component update.
@@ -416,6 +417,7 @@ impl ReplicationSender {
         component_data: Ptr,
         registry: &ComponentRegistry,
         writer: &mut Writer,
+        delta_manager: &mut DeltaManager,
         delta_compression: &ErasedDeltaCompression,
         tick: Tick,
     ) -> Result<(), ReplicationError> {
@@ -426,8 +428,7 @@ impl ReplicationSender {
             .map(|ack_tick| {
                 // we have an ack tick for this replication group, get the corresponding component value
                 // so we can compute a diff
-                let old_data = group_channel
-                    .delta_manager
+                let old_data = delta_manager
                     .get_component_value(entity, ack_tick, kind)
                     .ok_or(ReplicationError::DeltaCompressionError(
                         "could not find old component value to compute delta".to_string(),
@@ -439,7 +440,7 @@ impl ReplicationSender {
                             "Could not find old component value from tick {:?} to compute delta",
                             ack_tick
                         );
-                        error!("DeltaManager data: {:?}", group_channel.delta_manager.data);
+                        error!("DeltaManager data: {:?}", delta_manager.data);
                     })?;
                 dbg!("diff from previous data");
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
@@ -458,7 +459,7 @@ impl ReplicationSender {
                 Ok::<Bytes, ReplicationError>(writer.split())
             })?;
         trace!(?kind, "Inserting pending update!");
-        self.prepare_component_update(entity, group_id, raw_data);
+        self.prepare_component_update(entity, group_id, kind, raw_data);
         Ok(())
     }
 
@@ -620,9 +621,14 @@ impl ReplicationSender {
         tick: Tick,
         bevy_tick: BevyTick,
     ) -> impl Iterator<Item = (EntityUpdatesMessage, f32)> + Captures<&()> {
-        self.pending_updates.drain().map(|(group_id, updates)| {
+        self.pending_updates.drain().map(|(group_id, mut updates)| {
             trace!(?group_id, "pending updates: {:?}", updates);
             let channel = self.group_channels.entry(group_id).or_default();
+            let mut update_message = Vec::with_capacity(updates.len());
+            updates.drain().for_each(|(entity, (_, bytes))| {
+                update_message.push((entity, bytes));
+            });
+
             let priority = channel.accumulated_priority;
             (
                 EntityUpdatesMessage {
@@ -632,7 +638,7 @@ impl ReplicationSender {
                     // SAFETY: the last action tick is always set because we send Actions before Updates
                     last_action_tick: channel.last_action_tick,
                     // TODO: maybe we can just send the HashMap directly?
-                    updates: Vec::from_iter(updates),
+                    updates: update_message,
                 },
                 priority,
             )
@@ -655,6 +661,12 @@ impl ReplicationSender {
                 trace!(?group_id, "pending updates: {:?}", updates);
                 let channel = self.group_channels.entry(group_id).or_default();
                 let priority = channel.accumulated_priority;
+                let mut components = Vec::with_capacity(updates.len());
+                let mut update_message = Vec::with_capacity(updates.len());
+                updates.drain().for_each(|(entity, (component_kinds, bytes))| {
+                    components.push((entity))
+                    update_message.push((entity, bytes));
+                });
                 let message = EntityUpdatesMessage {
                     group_id,
                     // TODO: as an optimization, we can use `last_action_tick = tick` to signify
@@ -743,9 +755,6 @@ pub struct GroupChannel {
     /// for this group because of the bandwidth cap, in which case it will be accumulated.
     pub accumulated_priority: f32,
     pub base_priority: f32,
-
-    /// Manages delta-compression for this group
-    pub delta_manager: DeltaManager,
 }
 
 impl Default for GroupChannel {
@@ -758,7 +767,6 @@ impl Default for GroupChannel {
             last_action_tick: None,
             accumulated_priority: 0.0,
             base_priority: 1.0,
-            delta_manager: DeltaManager::default(),
         }
     }
 }

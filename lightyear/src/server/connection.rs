@@ -897,7 +897,7 @@ impl ConnectionManager {
                         existing_bytes = Some(self.writer.split());
                     }
                     let raw_data = existing_bytes.clone().unwrap();
-                    replication_sender.prepare_component_update(entity, group_id, raw_data);
+                    replication_sender.prepare_component_update(entity, group_id, kind, raw_data);
                 }
             }
             Ok::<(), ServerError>(())
