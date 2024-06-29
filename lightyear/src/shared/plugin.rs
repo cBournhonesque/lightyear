@@ -3,6 +3,7 @@ use crate::client::config::ClientConfig;
 use crate::connection::server::ServerConnections;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use bevy::utils::Duration;
 
 use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::{
@@ -104,10 +105,19 @@ impl Plugin for SharedPlugin {
             .register_type::<CompressionConfig>();
 
         // RESOURCES
-        // NOTE: this tick duration must be the same as any previous existing fixed timesteps
-        app.insert_resource(ChannelRegistry::new());
+        // the SharedPlugin is called after the ClientConfig is inserted
+        let input_send_interval =
+            if let Some(client_config) = app.world.get_resource::<ClientConfig>() {
+                // use the input_send_interval on the client
+                client_config.input.send_interval
+            } else {
+                // on the server (when rebroadcasting inputs), send inputs every frame
+                Duration::default()
+            };
+        app.insert_resource(ChannelRegistry::new(input_send_interval));
         app.insert_resource(ComponentRegistry::default());
         app.insert_resource(MessageRegistry::default());
+        // NOTE: this tick duration must be the same as any previous existing fixed timesteps
         app.insert_resource(Time::<Fixed>::from_seconds(
             self.config.tick.tick_duration.as_secs_f64(),
         ));

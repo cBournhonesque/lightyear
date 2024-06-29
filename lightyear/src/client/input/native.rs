@@ -48,6 +48,7 @@ use bevy::prelude::{
     IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
 };
 use bevy::reflect::Reflect;
+use bevy::utils::Duration;
 use tracing::{debug, error, trace};
 
 use crate::channel::builder::InputChannel;
@@ -70,6 +71,9 @@ pub struct InputConfig {
     /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
     ///  for the 3 last packets.
     pub packet_redundancy: u16,
+    /// How often do we send input messages to the server?
+    /// Duration::default() means that we will send input messages every frame.
+    pub send_interval: Duration,
 }
 
 /// Resource that handles buffering and sending inputs to the server
@@ -106,6 +110,7 @@ impl Default for InputConfig {
     fn default() -> Self {
         InputConfig {
             packet_redundancy: 10,
+            send_interval: Duration::default(),
         }
     }
 }
