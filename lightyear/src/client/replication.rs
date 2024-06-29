@@ -62,7 +62,9 @@ pub(crate) mod send {
     };
     use crate::protocol::component::ComponentKind;
 
-    use crate::shared::replication::components::{DespawnTracker, Replicating, ReplicationGroupId};
+    use crate::shared::replication::components::{
+        DespawnTracker, ErasedDeltaCompression, Replicating, ReplicationGroupId,
+    };
 
     use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
     use crate::shared::replication::error::ReplicationError;
@@ -351,6 +353,13 @@ pub(crate) mod send {
                             replicated_component.id,
                         )
                     };
+                    let delta_compression = replicated_component.delta_compression.and_then(|id| {
+                        entity_ref
+                            .get_by_id(id)
+                            // SAFETY: we know the archetype has the OverrideTarget<C> component
+                            // the DeltaCompression<C> component has the same memory layout as ErasedDeltaCompression
+                            .map(|ptr| unsafe { ptr.deref::<ErasedDeltaCompression>() })
+                    });
                     let _ = replicate_component_update(
                         tick_manager.tick(),
                         &component_registry,
@@ -360,7 +369,7 @@ pub(crate) mod send {
                         component_ticks,
                         replication_is_changed,
                         group_id,
-                        replicated_component.delta_compression,
+                        delta_compression,
                         replicated_component.replicate_once,
                         &system_ticks,
                         &mut sender,
@@ -462,7 +471,7 @@ pub(crate) mod send {
         component_ticks: ComponentTicks,
         replication_target_is_changed: bool,
         group_id: ReplicationGroupId,
-        delta_compression: bool,
+        delta_compression: Option<&ErasedDeltaCompression>,
         replicate_once: bool,
         system_ticks: &SystemChangeTick,
         sender: &mut ConnectionManager,
@@ -495,7 +504,7 @@ pub(crate) mod send {
         if insert || update {
             let writer = &mut sender.writer;
             if insert {
-                if delta_compression {
+                if delta_compression.is_some() {
                     // SAFETY: the component_data corresponds to the kind
                     unsafe {
                         component_registry
@@ -540,15 +549,7 @@ pub(crate) mod send {
                     //     tick = ?self.tick_manager.tick(),
                     //     "Updating single component"
                     // );
-                    if !delta_compression {
-                        component_registry
-                            .erased_serialize(component_data, writer, component_kind)
-                            .expect("could not serialize component");
-                        let raw_data = writer.split();
-                        sender
-                            .replication_sender
-                            .prepare_component_update(entity, group_id, raw_data);
-                    } else {
+                    if let Some(delta_compression) = delta_compression {
                         sender.replication_sender.prepare_delta_component_update(
                             entity,
                             group_id,
@@ -557,8 +558,17 @@ pub(crate) mod send {
                             component_registry,
                             writer,
                             &mut sender.delta_manager,
+                            delta_compression,
                             current_tick,
                         )?;
+                    } else {
+                        component_registry
+                            .erased_serialize(component_data, writer, component_kind)
+                            .expect("could not serialize component");
+                        let raw_data = writer.split();
+                        sender
+                            .replication_sender
+                            .prepare_component_update(entity, group_id, raw_data);
                     }
                 }
             }

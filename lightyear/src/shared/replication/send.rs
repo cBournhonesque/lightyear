@@ -19,7 +19,7 @@ use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick, TimeMana
 use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::replication::components::ReplicationGroupId;
+use crate::shared::replication::components::{ErasedDeltaCompression, ReplicationGroupId};
 use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::error::ReplicationError;
 use crate::shared::replication::plugin::ReplicationConfig;
@@ -43,6 +43,8 @@ pub(crate) struct UpdateMessageMetadata {
     bevy_tick: BevyTick,
     /// The tick at which we buffered the message
     tick: Tick,
+    /// The delta-compression components (along with the entity) that were included in the message.
+    delta_components: Vec<(Entity, ComponentKind)>,
 }
 
 #[derive(Debug)]
@@ -58,6 +60,9 @@ pub(crate) struct ReplicationSender {
     pub(crate) updates_message_id_to_group_id: HashMap<MessageId, UpdateMessageMetadata>,
     /// Messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
+    ///
+    /// We don't put this into group_channels because we would have to iterate through all the group_channels
+    /// to collect new replication messages
     pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
     pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<Bytes>>>,
     /// Buffer to so that we have an ordered receiver per group
@@ -147,7 +152,7 @@ impl ReplicationSender {
             if let Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
-                tick,
+                ..
             }) = self.updates_message_id_to_group_id.remove(&message_id)
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
@@ -238,6 +243,7 @@ impl ReplicationSender {
                 group_id,
                 bevy_tick,
                 tick,
+                delta_components,
             }) = self.updates_message_id_to_group_id.remove(&message_id)
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
@@ -248,7 +254,12 @@ impl ReplicationSender {
 
                     // update the acks for the delta manager
                     dbg!(group_id, tick);
-                    delta_manager.receive_ack(tick, group_id, component_registry);
+                    channel.delta_manager.receive_ack(
+                        tick,
+                        group_id,
+                        delta_components,
+                        component_registry,
+                    );
                 } else {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
                 }
@@ -405,19 +416,19 @@ impl ReplicationSender {
         component_data: Ptr,
         registry: &ComponentRegistry,
         writer: &mut Writer,
-        delta_manager: &mut DeltaManager,
+        delta_compression: &ErasedDeltaCompression,
         tick: Tick,
     ) -> Result<(), ReplicationError> {
         let group_channel = self.group_channels.entry(group_id).or_default();
-        // Get the latest acked tick for this replication group
-        let raw_data = group_channel
+        // Get the latest acked tick for this entity/component
+        let raw_data = delta_compression
             .ack_tick
             .map(|ack_tick| {
                 // we have an ack tick for this replication group, get the corresponding component value
                 // so we can compute a diff
-                let old_data = delta_manager
-                    .data
-                    .get_component_value(entity, ack_tick, kind, group_id)
+                let old_data = group_channel
+                    .delta_manager
+                    .get_component_value(entity, ack_tick, kind)
                     .ok_or(ReplicationError::DeltaCompressionError(
                         "could not find old component value to compute delta".to_string(),
                     ))
@@ -428,7 +439,7 @@ impl ReplicationSender {
                             "Could not find old component value from tick {:?} to compute delta",
                             ack_tick
                         );
-                        error!("DeltaManager data: {:?}", delta_manager.data);
+                        error!("DeltaManager data: {:?}", group_channel.delta_manager.data);
                     })?;
                 dbg!("diff from previous data");
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
@@ -447,12 +458,7 @@ impl ReplicationSender {
                 Ok::<Bytes, ReplicationError>(writer.split())
             })?;
         trace!(?kind, "Inserting pending update!");
-        self.pending_updates
-            .entry(group_id)
-            .or_default()
-            .entry(entity)
-            .or_default()
-            .push(raw_data);
+        self.prepare_component_update(entity, group_id, raw_data);
         Ok(())
     }
 
@@ -685,6 +691,7 @@ impl ReplicationSender {
                         group_id,
                         bevy_tick,
                         tick,
+                        delta_components:
                     },
                 );
                 // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
@@ -736,6 +743,9 @@ pub struct GroupChannel {
     /// for this group because of the bandwidth cap, in which case it will be accumulated.
     pub accumulated_priority: f32,
     pub base_priority: f32,
+
+    /// Manages delta-compression for this group
+    pub delta_manager: DeltaManager,
 }
 
 impl Default for GroupChannel {
@@ -748,6 +758,7 @@ impl Default for GroupChannel {
             last_action_tick: None,
             accumulated_priority: 0.0,
             base_priority: 1.0,
+            delta_manager: DeltaManager::default(),
         }
     }
 }

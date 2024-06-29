@@ -6,6 +6,7 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 
 use crate::connection::id::ClientId;
+use crate::prelude::Tick;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
@@ -92,6 +93,11 @@ impl Default for ReplicateHierarchy {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ErasedDeltaCompression {
+    pub(crate) ack_tick: Option<Tick>,
+}
+
 // TODO: do we need this? or do we just check if delta compression fn is present in the registry?
 /// If this component is present, the component will be replicated via delta-compression.
 ///
@@ -100,12 +106,15 @@ impl Default for ReplicateHierarchy {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct DeltaCompression<C> {
+    /// The latest tick where the component was acked
+    ack_tick: Option<Tick>,
     _marker: std::marker::PhantomData<C>,
 }
 
 impl<C> Default for DeltaCompression<C> {
     fn default() -> Self {
         Self {
+            ack_tick: None,
             _marker: Default::default(),
         }
     }

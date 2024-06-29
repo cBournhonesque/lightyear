@@ -44,7 +44,7 @@ use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
-use crate::shared::replication::components::ReplicationGroupId;
+use crate::shared::replication::components::{ErasedDeltaCompression, ReplicationGroupId};
 use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
@@ -108,7 +108,6 @@ impl ConnectionManager {
             message_registry,
             channel_registry,
             events: ServerEvents::new(),
-            delta_manager: DeltaManager::default(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
@@ -751,7 +750,7 @@ impl ConnectionManager {
         prediction_target: Option<&NetworkTarget>,
         group_id: ReplicationGroupId,
         target: NetworkTarget,
-        delta_compression: bool,
+        delta_compression: Option<&ErasedDeltaCompression>,
         tick: Tick,
         bevy_tick: BevyTick,
     ) -> Result<(), ServerError> {
@@ -781,10 +780,11 @@ impl ConnectionManager {
 
         // even with delta-compression enabled
         // the diff can be shared for every client since we're inserting
-        if delta_compression {
+        if delta_compression.is_some() {
+            // update the ack_tick for the (entity, component) so that future diffs are based on this tick
+            self.delta_manager.ack_tick.insert((entity, kind), tick);
             // store the component value in a storage shared between all connections, so that we can compute diffs
             // NOTE: we don't update the ack data because we only receive acks for ReplicationUpdate messages
-
             self.delta_manager.data.store_component_value(
                 entity,
                 tick,
@@ -841,7 +841,7 @@ impl ConnectionManager {
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
         tick: Tick,
-        delta_compression: bool,
+        delta_compression: Option<&ErasedDeltaCompression>,
     ) -> Result<(), ServerError> {
         let mut num_targets = 0;
         let mut existing_bytes: Option<Bytes> = None;
@@ -864,7 +864,7 @@ impl ConnectionManager {
             if send_tick.map_or(true, |tick| {
                 component_change_tick.is_newer_than(tick, system_current_tick)
             }) {
-                if delta_compression {
+                if delta_compression.is_some() {
                     error!(
                         name = ?registry.name(kind),
                         ?entity,
@@ -887,7 +887,9 @@ impl ConnectionManager {
                 //     tick = ?self.tick_manager.tick(),
                 //     "Updating single component"
                 // );
-                if !delta_compression {
+                if let Some(delta_compression) = delta_compression {
+                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, delta_compression, tick)?;
+                } else {
                     // we serialize once and re-use the result for all clients
                     // serialize only if there is at least one client that needs the update
                     if let None = existing_bytes {
@@ -896,14 +898,12 @@ impl ConnectionManager {
                     }
                     let raw_data = existing_bytes.clone().unwrap();
                     replication_sender.prepare_component_update(entity, group_id, raw_data);
-                } else {
-                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick)?;
                 }
             }
             Ok::<(), ServerError>(())
         })?;
 
-        if delta_compression && num_targets > 0 {
+        if delta_compression.is_some() && num_targets > 0 {
             // store the component value in a storage shared between all connections, so that we can compute diffs
             self.delta_manager
                 .data
