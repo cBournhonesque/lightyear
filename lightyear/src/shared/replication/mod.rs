@@ -26,6 +26,7 @@ pub mod components;
 pub(crate) mod archetypes;
 pub mod delta;
 pub mod entity_map;
+pub mod error;
 pub(crate) mod hierarchy;
 pub mod network_target;
 pub(crate) mod plugin;

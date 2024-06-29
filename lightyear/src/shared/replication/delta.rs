@@ -77,6 +77,11 @@ impl<C> Default for DeltaComponentHistory<C> {
 #[derive(Default, Debug)]
 pub struct DeltaManager {
     pub(crate) data: DeltaComponentStore,
+    /// Keeps track of how many clients have acked a specific tick for a specific replication group
+    /// Used to track when we can drop old data.
+    // TODO: maybe we don't need this and we can just drop data after 100 tick?
+    // TODO: this should be per component! especially if do the send updates since `send_tick` which needs
+    //  to be done since (entity, component)
     pub(crate) acks: EntityHashMap<ReplicationGroupId, HashMap<Tick, usize>>,
 }
 
@@ -89,6 +94,7 @@ impl DeltaManager {
         replication_group: ReplicationGroupId,
         component_registry: &ComponentRegistry,
     ) {
+        // check if we can remove the stored data because all clients have acked this tick
         let mut delete = false;
         if let Some(group_data) = self.acks.get_mut(&replication_group) {
             if let Some(sent_number) = group_data.get_mut(&tick) {

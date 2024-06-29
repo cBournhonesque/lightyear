@@ -2093,6 +2093,163 @@ pub(crate) mod send {
                 .is_none());
         }
 
+        /// One component is delta, the other is not
+        /// This fails to work if we don't have an ack tick specific to the delta component
+        #[test]
+        fn test_component_update_delta_with_non_delta_component() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world
+                .spawn((
+                    Replicate::default(),
+                    Component1(1.0),
+                    Component6(vec![1, 2]),
+                    DeltaCompression::<Component6>::default(),
+                ))
+                .id();
+            let group_id = ReplicationGroupId(server_entity.to_bits());
+            stepper.frame_step();
+            let insert_tick = stepper.server_tick();
+            dbg!(insert_tick);
+            stepper.frame_step();
+            let client_entity = *stepper
+                .client_app
+                .world
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![1, 2])
+            );
+            // check that the component value was stored in the delta manager cache
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .data
+                .get_component_value(
+                    server_entity,
+                    insert_tick,
+                    ComponentKind::of::<Component6>(),
+                    group_id,
+                )
+                .is_some());
+
+            // apply non-delta update
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .get_mut::<Component1>()
+                .unwrap()
+                .0 = 1.0;
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // apply update
+            stepper
+                .server_app
+                .world
+                .entity_mut(server_entity)
+                .get_mut::<Component6>()
+                .unwrap()
+                .0 = vec![1, 2, 3];
+            stepper.frame_step();
+            let update_tick = stepper.server_tick();
+            // check that the delta manager has been updated correctly
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .data
+                .get_component_value(
+                    server_entity,
+                    insert_tick,
+                    ComponentKind::of::<Component6>(),
+                    group_id,
+                )
+                .is_some());
+            assert_eq!(
+                *stepper
+                    .server_app
+                    .world
+                    .resource::<ConnectionManager>()
+                    .delta_manager
+                    .acks
+                    .get(&group_id)
+                    .expect("no acks data for the group_id found")
+                    .get(&update_tick)
+                    .unwrap(),
+                1
+            );
+            stepper.frame_step();
+
+            // check that the component was updated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world
+                    .entity(client_entity)
+                    .get::<Component6>()
+                    .expect("component missing"),
+                &Component6(vec![1, 2, 3])
+            );
+            // check that the component value for the update_tick was stored in the delta manager cache
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .data
+                .get_component_value(
+                    server_entity,
+                    update_tick,
+                    ComponentKind::of::<Component6>(),
+                    group_id,
+                )
+                .is_some());
+            // check that the component value for the insert_tick was removed from the delta manager cache
+            // since all clients received the update for update_tick (so the insert_tick is no longer needed)
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .data
+                .get_component_value(
+                    server_entity,
+                    insert_tick,
+                    ComponentKind::of::<Component6>(),
+                    group_id,
+                )
+                .is_none());
+            // check that there is no acks data for the update tick, since all clients received the update
+            assert!(stepper
+                .server_app
+                .world
+                .resource::<ConnectionManager>()
+                .delta_manager
+                .acks
+                .get(&group_id)
+                .expect("no acks data for the group_id found")
+                .get(&update_tick)
+                .is_none());
+        }
+
         /// We want to test the following case:
         /// - server sends a diff between ticks 1-3
         /// - client receives that and applies it

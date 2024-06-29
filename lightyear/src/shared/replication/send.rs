@@ -21,6 +21,7 @@ use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
+use crate::shared::replication::error::ReplicationError;
 use crate::shared::replication::plugin::ReplicationConfig;
 #[cfg(test)]
 use crate::utils::captures::Captures;
@@ -57,6 +58,9 @@ pub(crate) struct ReplicationSender {
     pub(crate) updates_message_id_to_group_id: HashMap<MessageId, UpdateMessageMetadata>,
     /// Messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
+    ///
+    /// We don't put this into group_channels because we would have to iterate through all the group_channels
+    /// to collect new replication messages
     pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
     pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<Bytes>>>,
     /// Buffer to so that we have an ordered receiver per group
@@ -146,7 +150,7 @@ impl ReplicationSender {
             if let Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
-                tick,
+                ..
             }) = self.updates_message_id_to_group_id.remove(&message_id)
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
@@ -202,7 +206,7 @@ impl ReplicationSender {
                     debug!(
                         ?message_id,
                         ?group_id,
-                        "successfully sent message for replication group! Resetting priority"
+                        "successfully sent message for replication group! Updating send_tick"
                     );
                     channel.send_tick = Some(*bevy_tick);
                     channel.accumulated_priority = 0.0;
@@ -236,7 +240,7 @@ impl ReplicationSender {
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
                     // update the ack tick for the channel
-                    debug!(?bevy_tick, "Update channel ack_tick");
+                    debug!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
                     channel.ack_bevy_tick = Some(bevy_tick);
                     channel.ack_tick = Some(tick);
 
@@ -400,9 +404,9 @@ impl ReplicationSender {
         writer: &mut Writer,
         delta_manager: &mut DeltaManager,
         tick: Tick,
-    ) {
+    ) -> Result<(), ReplicationError> {
         let group_channel = self.group_channels.entry(group_id).or_default();
-        // Get the latest acked tick for this replication group
+        // Get the latest acked tick for this entity/component
         let raw_data = group_channel
             .ack_tick
             .map(|ack_tick| {
@@ -411,32 +415,35 @@ impl ReplicationSender {
                 let old_data = delta_manager
                     .data
                     .get_component_value(entity, ack_tick, kind, group_id)
-                    .expect("we should have stored a component value for this tick");
+                    .ok_or(ReplicationError::DeltaCompressionError(
+                        "could not find old component value to compute delta".to_string(),
+                    ))
+                    .inspect_err(|e| {
+                        error!(
+                            ?entity,
+                            name = ?registry.name(kind),
+                            "Could not find old component value from tick {:?} to compute delta",
+                            ack_tick
+                        );
+                        error!("DeltaManager data: {:?}", delta_manager.data);
+                    })?;
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
-                    registry
-                        .serialize_diff(ack_tick, old_data, component_data, writer, kind)
-                        .expect("could not serialize delta")
+                    registry.serialize_diff(ack_tick, old_data, component_data, writer, kind)?;
                 }
-                writer.split()
+                Ok::<Bytes, ReplicationError>(writer.split())
             })
             .unwrap_or_else(|| {
                 // SAFETY: the component_data is a pointer to a component that corresponds to kind
                 unsafe {
                     // compute a diff from the base value, and serialize that
-                    registry
-                        .serialize_diff_from_base_value(component_data, writer, kind)
-                        .expect("could not serialize delta")
+                    registry.serialize_diff_from_base_value(component_data, writer, kind)?;
                 }
-                writer.split()
-            });
+                Ok::<Bytes, ReplicationError>(writer.split())
+            })?;
         trace!(?kind, "Inserting pending update!");
-        self.pending_updates
-            .entry(group_id)
-            .or_default()
-            .entry(entity)
-            .or_default()
-            .push(raw_data);
+        self.prepare_component_update(entity, group_id, raw_data);
+        Ok(())
     }
 
     #[cfg(test)]
@@ -547,6 +554,15 @@ impl ReplicationSender {
                 // This is ok to do even if we don't get an actual send notification because EntityActions messages are
                 // guaranteed to be sent at some point. (since the actions channel is reliable)
                 channel.send_tick = Some(bevy_tick);
+                //  We can consider that we received an ack for the current tick because the message is sent reliably,
+                //  so we know that we should eventually receive an ack.
+                //  Updates after this insert only get read if the insert was received, so this doesn't introduce any bad behaviour.
+                //  - For delta-compression: this is useful to compute future diffs from this Insert value immediately
+                //  - in general: this is useful to avoid sending too many unnecessary updates. For example:
+                //      - tick 3: C1 update
+                //      - tick 4: C2 insert. C1 update. (if we send all updates since last_ack) !!!! We need to update the ack from the Insert only AFTER all the Updates are prepared!!!
+                //      - tick 5: Before, we would send C1 update again, since we didn't receive an ack for C1 yet. But now we stop sending it because we know that the message from tick 4 will be received.
+                channel.ack_tick = Some(tick);
                 let priority = channel.accumulated_priority;
                 let message_id = channel.actions_next_send_message_id;
                 channel.actions_next_send_message_id += 1;
@@ -646,6 +662,13 @@ impl ReplicationSender {
                     .expect("The entity actions channels should always return a message_id");
 
                 // keep track of the message_id -> group mapping, so we can handle receiving an ACK for that message_id later
+                debug!(
+                    ?message_id,
+                    ?group_id,
+                    ?bevy_tick,
+                    ?tick,
+                    "Send replication update"
+                );
                 self.updates_message_id_to_group_id.insert(
                     message_id,
                     UpdateMessageMetadata {
@@ -672,6 +695,7 @@ impl ReplicationSender {
 #[derive(Debug)]
 pub struct GroupChannel {
     pub actions_next_send_message_id: MessageId,
+
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
     /// Bevy Tick when we last sent an update for this group.
     /// This is used to collect updates that we will replicate; we replicate any update that happened after this tick.
@@ -690,8 +714,8 @@ pub struct GroupChannel {
     /// Used for delta-compression
     pub ack_tick: Option<Tick>,
 
-    // TODO:
-    // last tick for which we sent an action message
+    /// Last tick for which we sent an action message. Needed because we want the receiver to only
+    /// process Updates if they have processed all Actions that happened before them.
     pub last_action_tick: Option<Tick>,
 
     /// The priority to send the replication group.
@@ -844,7 +868,8 @@ mod tests {
             .get(group_id)
             .expect("we should have a group channel for the entity");
         assert_eq!(group_channel.send_tick, Some(*bevy_tick));
-        assert_eq!(group_channel.ack_tick, None);
+        // the ack_tick is updated when we send Actions
+        assert_eq!(group_channel.ack_tick, Some(server_tick - 1));
     }
 
     #[test]

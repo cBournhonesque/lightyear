@@ -794,14 +794,14 @@ impl ConnectionManager {
             );
             // SAFETY: the component_data corresponds to the kind
             unsafe {
-                component_registry
-                    .serialize_diff_from_base_value(component_data, &mut self.writer, kind)
-                    .expect("could not serialize delta")
+                component_registry.serialize_diff_from_base_value(
+                    component_data,
+                    &mut self.writer,
+                    kind,
+                )?;
             }
         } else {
-            component_registry
-                .erased_serialize(component_data, &mut self.writer, kind)
-                .expect("could not serialize component")
+            component_registry.erased_serialize(component_data, &mut self.writer, kind)?;
         };
         let raw_data = self.writer.split();
         self.apply_replication(actual_target)
@@ -813,6 +813,7 @@ impl ConnectionManager {
                 //     "Inserting single component"
                 // );
                 let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+
                 // update the collect changes tick
                 // replication_sender
                 //     .group_channels
@@ -841,20 +842,8 @@ impl ConnectionManager {
         tick: Tick,
         delta_compression: bool,
     ) -> Result<(), ServerError> {
-        trace!(
-            ?kind,
-            ?entity,
-            ?component_change_tick,
-            ?system_current_tick,
-            "Prepare entity update"
-        );
-        let mut raw_data: Bytes = Bytes::new();
-        if !delta_compression {
-            // we serialize once and re-use the result for all clients
-            registry.erased_serialize(component, &mut self.writer, kind)?;
-            raw_data = self.writer.split();
-        }
         let mut num_targets = 0;
+        let mut existing_bytes: Option<Bytes> = None;
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             let replication_sender = &mut self.connections.get_mut(&client_id).ok_or(ServerError::ClientIdNotFound(client_id))?.replication_sender;
@@ -876,22 +865,22 @@ impl ConnectionManager {
             }) {
                 num_targets += 1;
                 trace!(
-                    change_tick = ?component_change_tick,
-                    ?send_tick,
-                    current_tick = ?system_current_tick,
-                    "prepare entity update changed check"
+                    ?entity,
+                    ?tick,
+                    name = ?registry.name(kind),
+                    "Updating single component"
                 );
-                // trace!(
-                //     ?entity,
-                //     component = ?kind,
-                //     tick = ?self.tick_manager.tick(),
-                //     "Updating single component"
-                // );
-                if !delta_compression {
-                    // TODO: avoid component clone with Arc<[u8]>
-                    replication_sender.prepare_component_update(entity, group_id, raw_data.clone());
+                if delta_compression {
+                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick)?;
                 } else {
-                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick);
+                    // we serialize once and re-use the result for all clients
+                    // serialize only if there is at least one client that needs the update
+                    if existing_bytes.is_none() {
+                        registry.erased_serialize(component, &mut self.writer, kind)?;
+                        existing_bytes = Some(self.writer.split());
+                    }
+                    let raw_data = existing_bytes.clone().unwrap();
+                    replication_sender.prepare_component_update(entity, group_id, raw_data);
                 }
             }
             Ok::<(), ServerError>(())
