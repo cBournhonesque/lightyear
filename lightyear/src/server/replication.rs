@@ -61,8 +61,8 @@ pub(crate) mod send {
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
     use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
     use crate::shared::replication::components::{
-        Controlled, DespawnTracker, ErasedDeltaCompression, Replicating, ReplicationGroupId,
-        ReplicationTarget, ShouldBeInterpolated,
+        Controlled, DespawnTracker, Replicating, ReplicationGroupId, ReplicationTarget,
+        ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;

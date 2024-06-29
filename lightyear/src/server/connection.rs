@@ -6,7 +6,7 @@ use bevy::ptr::Ptr;
 use bevy::utils::{Duration, HashMap, HashSet};
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
-use tracing::{debug, error, info, info_span, trace, trace_span};
+use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
@@ -44,7 +44,7 @@ use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
-use crate::shared::replication::components::{ErasedDeltaCompression, ReplicationGroupId};
+use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
@@ -751,7 +751,7 @@ impl ConnectionManager {
         prediction_target: Option<&NetworkTarget>,
         group_id: ReplicationGroupId,
         target: NetworkTarget,
-        delta_compression: Option<&ErasedDeltaCompression>,
+        delta_compression: bool,
         tick: Tick,
         bevy_tick: BevyTick,
     ) -> Result<(), ServerError> {
@@ -782,8 +782,6 @@ impl ConnectionManager {
         // even with delta-compression enabled
         // the diff can be shared for every client since we're inserting
         if delta_compression {
-            // update the ack_tick for the (entity, component) so that future diffs are based on this tick
-            self.delta_manager.ack_tick.insert((entity, kind), tick);
             // store the component value in a storage shared between all connections, so that we can compute diffs
             // NOTE: we don't update the ack data because we only receive acks for ReplicationUpdate messages
             self.delta_manager.data.store_component_value(

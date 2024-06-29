@@ -11,7 +11,6 @@ use bevy::utils::HashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ptr::NonNull;
-use tracing::warn;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {

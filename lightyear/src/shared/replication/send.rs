@@ -19,7 +19,7 @@ use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick, TimeMana
 use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::replication::components::{ErasedDeltaCompression, ReplicationGroupId};
+use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::error::ReplicationError;
 use crate::shared::replication::plugin::ReplicationConfig;
@@ -412,9 +412,9 @@ impl ReplicationSender {
             .map(|ack_tick| {
                 // we have an ack tick for this replication group, get the corresponding component value
                 // so we can compute a diff
-                let old_data = group_channel
-                    .delta_manager
-                    .get_component_value(entity, ack_tick, kind)
+                let old_data = delta_manager
+                    .data
+                    .get_component_value(entity, ack_tick, kind, group_id)
                     .ok_or(ReplicationError::DeltaCompressionError(
                         "could not find old component value to compute delta".to_string(),
                     ))
@@ -425,7 +425,7 @@ impl ReplicationSender {
                             "Could not find old component value from tick {:?} to compute delta",
                             ack_tick
                         );
-                        error!("DeltaManager data: {:?}", group_channel.delta_manager.data);
+                        error!("DeltaManager data: {:?}", delta_manager.data);
                     })?;
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
