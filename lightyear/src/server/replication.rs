@@ -185,17 +185,6 @@ pub(crate) mod send {
         }
     }
 
-    /// Component to have more fine-grained control over the visibility of an entity
-    /// (which clients do we replicate this entity to?)
-    ///
-    /// This has no effect for client to server replication.
-    #[derive(Component, Clone, Debug, PartialEq, Reflect)]
-    pub struct Visibility {
-        /// Control if we do fine-grained or coarse-grained visibility
-        mode: NetworkRelevanceMode,
-        // TODO: should we store the visibility cache here if visibility_mode = InterestManagement?
-    }
-
     /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
     /// it to remote peers.
     ///
