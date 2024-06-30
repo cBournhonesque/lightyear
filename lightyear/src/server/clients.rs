@@ -92,34 +92,35 @@ mod systems {
     /// When a client disconnects, we despawn all the entities it controlled if the lifetime
     /// is SesssionBased
     pub(super) fn handle_client_disconnect(
+        trigger: Trigger<DisconnectEvent>,
         mut commands: Commands,
         client_query: Query<&ControlledEntities>,
-        mut events: EventReader<DisconnectEvent>,
     ) {
-        for event in events.read() {
-            // despawn all the controlled entities for the disconnected client
-            if let Ok(controlled_entities) = client_query.get(event.entity) {
-                debug!(
-                    "Despawning all entities controlled by disconnected client {:?}",
-                    event.client_id
-                );
-                for (entity, lifetime) in controlled_entities.iter() {
-                    if lifetime == &Lifetime::SessionBased {
-                        trace!(
-                            "Despawning entity {entity:?} controlled by disconnected client {:?}",
-                            event.client_id
-                        );
-                        if let Some(command) = commands.get_entity(*entity) {
-                            command.despawn_recursive();
-                        }
+        // TODO: should directly we use the client entity as the trigger entity?
+        let client_entity = trigger.event().entity;
+        let client_id = trigger.event().client_id;
+        // despawn all the controlled entities for the disconnected client
+        if let Ok(controlled_entities) = client_query.get(client_entity) {
+            debug!(
+                "Despawning all entities controlled by disconnected client {:?}",
+                client_id
+            );
+            for (entity, lifetime) in controlled_entities.iter() {
+                if lifetime == &Lifetime::SessionBased {
+                    trace!(
+                        "Despawning entity {entity:?} controlled by disconnected client {:?}",
+                        client_id
+                    );
+                    if let Some(command) = commands.get_entity(*entity) {
+                        command.despawn_recursive();
                     }
                 }
             }
-            // despawn the entity itself
-            if let Some(command) = commands.get_entity(event.entity) {
-                command.despawn_recursive();
-            };
         }
+        // despawn the entity itself
+        if let Some(command) = commands.get_entity(client_entity) {
+            command.despawn_recursive();
+        };
     }
 }
 
@@ -131,9 +132,12 @@ impl Plugin for ClientsMetadataPlugin {
                 .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
         );
         app.observe(handle_controlled_by_remove);
+        // TODO: should we have a system that runs in the `Last` SystemSet instead? because the user might want to still have access
+        //  to the client entity
+        app.observe(systems::handle_client_disconnect);
         // we handle this in the `Last` `SystemSet` to let the user handle the disconnect event
         // however they want first, before the client entity gets despawned
-        app.add_systems(Last, systems::handle_client_disconnect);
+        // app.add_systems(Last, systems::handle_client_disconnect);
     }
 }
 

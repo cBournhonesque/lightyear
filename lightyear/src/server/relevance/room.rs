@@ -39,10 +39,7 @@ it just caches the room metadata to keep track of the relevance of entities.
 
 use bevy::app::App;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{
-    Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate,
-    RemovedComponents, ResMut, Resource, SystemSet,
-};
+use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
 
@@ -54,7 +51,7 @@ use crate::prelude::is_started;
 
 use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceManager};
 use crate::shared::replication::components::DespawnTracker;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
+use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
@@ -167,10 +164,7 @@ impl Plugin for RoomPlugin {
             ),
         );
         // SYSTEMS
-        app.add_systems(
-            PreUpdate,
-            systems::handle_client_disconnect.after(InternalMainSet::<ServerMarker>::EmitEvents),
-        );
+        app.observe(systems::handle_client_disconnect);
         app.add_systems(
             PostUpdate,
             (
@@ -413,16 +407,14 @@ impl RoomEvents {
 pub(super) mod systems {
     use super::*;
     use crate::server::events::DisconnectEvent;
-    use bevy::prelude::EventReader;
+    use bevy::prelude::Trigger;
 
     /// Clear the internal room buffers when a client disconnects
     pub fn handle_client_disconnect(
+        trigger: Trigger<DisconnectEvent>,
         mut room_manager: ResMut<RoomManager>,
-        mut disconnect_events: EventReader<DisconnectEvent>,
     ) {
-        for event in disconnect_events.read() {
-            room_manager.client_disconnect(event.client_id);
-        }
+        room_manager.client_disconnect(trigger.event().client_id);
     }
 
     // TODO: (perf) split this into 4 separate functions that access RoomManager in parallel?

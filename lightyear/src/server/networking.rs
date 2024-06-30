@@ -191,20 +191,20 @@ pub(crate) fn receive(world: &mut World) {
                                             if !connection_manager.events.is_empty() {
                                                 // Connection / Disconnection events
                                                 if connection_manager.events.has_connections() {
-                                                    let mut connect_event_writer =
-                                                        world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
                                                     for connect_event in connection_manager.events.iter_connections() {
                                                         debug!("Client connected event: {}", connect_event.client_id);
-                                                        connect_event_writer.send(connect_event);
+                                                        world.resource_mut::<Events<ConnectEvent>>().send(connect_event);
+                                                        // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
+                                                        world.trigger(connect_event);
                                                     }
                                                 }
 
                                                 if connection_manager.events.has_disconnections() {
-                                                    let mut connect_event_writer =
-                                                        world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
                                                     for disconnect_event in connection_manager.events.iter_disconnections() {
                                                         debug!("Client disconnected event: {}", disconnect_event.client_id);
-                                                        connect_event_writer.send(disconnect_event);
+                                                        world.resource_mut::<Events<DisconnectEvent>>().send(disconnect_event);
+                                                        // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
+                                                        world.trigger(disconnect_event);
                                                     }
                                                 }
                                             }
