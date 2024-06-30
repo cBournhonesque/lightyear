@@ -173,9 +173,12 @@ pub(crate) mod send {
     ///
     /// This is only used for server to client replication.
     #[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
+    #[reflect(Component)]
     pub struct ControlledBy {
         /// Which client(s) control this entity?
         pub target: NetworkTarget,
+        /// What happens to the entity if the controlling client disconnects?
+        pub lifetime: Lifetime,
     }
 
     impl ControlledBy {
@@ -183,6 +186,15 @@ pub(crate) mod send {
         pub fn targets(&self, client_id: &ClientId) -> bool {
             self.target.targets(client_id)
         }
+    }
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Reflect)]
+    pub enum Lifetime {
+        #[default]
+        /// When the client that controls the entity disconnects, the entity is despawned
+        SessionBased,
+        /// The entity is not despawned even if the controlling client disconnects
+        Persistent,
     }
 
     /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
@@ -594,7 +606,7 @@ pub(crate) mod send {
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         //  (i.e. before we received an ack?)
         let _ = sender
-            .apply_replication(target)
+            .connected_targets(target)
             .try_for_each(|client_id| {
                 // let the client know that this entity is controlled by them
                 if controlled_by.is_some_and(|c| c.targets(&client_id)) {
@@ -1060,6 +1072,7 @@ pub(crate) mod send {
                     },
                     controlled_by: ControlledBy {
                         target: NetworkTarget::All,
+                        ..default()
                     },
                     ..default()
                 });
@@ -2185,7 +2198,7 @@ pub(crate) mod send {
             // spawn an entity on server
             let server_entity = stepper
                 .server_app
-                .world
+                .world_mut()
                 .spawn((
                     Replicate::default(),
                     Component1(1.0),
@@ -2200,7 +2213,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let client_entity = *stepper
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .replication_receiver
                 .remote_entity_map
@@ -2210,7 +2223,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -2219,7 +2232,7 @@ pub(crate) mod send {
             // check that the component value was stored in the delta manager cache
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .data
@@ -2234,7 +2247,7 @@ pub(crate) mod send {
             // apply non-delta update
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<Component1>()
                 .unwrap()
@@ -2245,7 +2258,7 @@ pub(crate) mod send {
             // apply update
             stepper
                 .server_app
-                .world
+                .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<Component6>()
                 .unwrap()
@@ -2255,7 +2268,7 @@ pub(crate) mod send {
             // check that the delta manager has been updated correctly
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .data
@@ -2269,7 +2282,7 @@ pub(crate) mod send {
             assert_eq!(
                 *stepper
                     .server_app
-                    .world
+                    .world()
                     .resource::<ConnectionManager>()
                     .delta_manager
                     .acks
@@ -2285,7 +2298,7 @@ pub(crate) mod send {
             assert_eq!(
                 stepper
                     .client_app
-                    .world
+                    .world()
                     .entity(client_entity)
                     .get::<Component6>()
                     .expect("component missing"),
@@ -2294,7 +2307,7 @@ pub(crate) mod send {
             // check that the component value for the update_tick was stored in the delta manager cache
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .data
@@ -2309,7 +2322,7 @@ pub(crate) mod send {
             // since all clients received the update for update_tick (so the insert_tick is no longer needed)
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .data
@@ -2323,7 +2336,7 @@ pub(crate) mod send {
             // check that there is no acks data for the update tick, since all clients received the update
             assert!(stepper
                 .server_app
-                .world
+                .world()
                 .resource::<ConnectionManager>()
                 .delta_manager
                 .acks

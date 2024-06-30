@@ -56,7 +56,7 @@ impl NetcodeConfig {
 }
 
 /// Configuration related to sending packets
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct PacketConfig {
     /// After how many multiples of RTT do we consider a packet to be lost?
     ///

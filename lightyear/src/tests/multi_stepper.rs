@@ -135,7 +135,7 @@ impl MultiBevyStepper {
             .with_protocol_id(protocol_id)
             .with_key(private_key);
         let config = ServerConfig {
-            shared: shared_config.clone(),
+            shared: shared_config,
             net: vec![
                 server::NetConfig::Netcode {
                     config: netcode_config.clone(),
@@ -162,11 +162,11 @@ impl MultiBevyStepper {
             client_app.add_plugins((MinimalPlugins, StatesPlugin));
 
             let config = ClientConfig {
-                shared: shared_config.clone(),
+                shared: shared_config,
                 net: net_config,
-                sync: sync_config.clone(),
+                sync: sync_config,
                 prediction: prediction_config,
-                interpolation: interpolation_config.clone(),
+                interpolation: interpolation_config,
                 ..default()
             };
             let plugin = client::ClientPlugins::new(config);

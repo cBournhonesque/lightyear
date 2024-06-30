@@ -64,7 +64,7 @@ use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, Tick, TickMan
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
-#[derive(Debug, Clone, Reflect)]
+#[derive(Debug, Clone, Copy, Reflect)]
 pub struct InputConfig {
     /// How many consecutive packets losses do we want to handle?
     /// This is used to compute the redundancy of the input messages.

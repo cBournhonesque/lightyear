@@ -83,7 +83,7 @@ pub type SyncStatsBuffer = ReadyBuffer<WrappedTime, SyncStats>;
 impl PingManager {
     pub fn new(config: PingConfig) -> Self {
         Self {
-            config: config.clone(),
+            config,
             // pings
             ping_timer: Stopwatch::new(),
             ping_store: PingStore::new(),

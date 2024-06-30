@@ -82,12 +82,7 @@ impl ErasedSerializeFns {
             type_name: std::any::type_name::<M>(),
             erased_serialize: erased_serialize_fn::<M>,
             serialize: unsafe { std::mem::transmute(serialize_fns.serialize) },
-            deserialize: unsafe {
-                std::mem::transmute::<
-                    for<'a> fn(&'a mut Reader) -> std::result::Result<M, SerializationError>,
-                    unsafe fn(),
-                >(serialize_fns.deserialize)
-            },
+            deserialize: unsafe { std::mem::transmute(serialize_fns.deserialize) },
             map_entities: None,
         }
     }

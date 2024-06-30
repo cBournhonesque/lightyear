@@ -1,15 +1,15 @@
 //! The server spawns an entity per connected client to store metadata about them.
 //!
 //! This module contains components and systems to manage the metadata on client entities.
-use crate::prelude::ClientId;
 use crate::server::clients::systems::handle_controlled_by_remove;
+use crate::server::replication::send::Lifetime;
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
-use bevy::ecs::entity::EntityHashSet;
+use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::*;
 
 /// List of entities under the control of a client
 #[derive(Component, Default, Debug, Deref, DerefMut, PartialEq)]
-pub struct ControlledEntities(pub EntityHashSet);
+pub struct ControlledEntities(pub EntityHashMap<Lifetime>);
 
 pub(crate) struct ClientsMetadataPlugin;
 
@@ -19,7 +19,6 @@ mod systems {
     use crate::server::clients::ControlledEntities;
     use crate::server::connection::ConnectionManager;
     use crate::server::events::DisconnectEvent;
-    use crate::shared::replication::network_target::NetworkTarget;
     use tracing::{debug, trace};
 
     // TODO: remove entity in ControlledEntities lists after the component gets updated
@@ -27,104 +26,71 @@ mod systems {
     //  need to detect what the previous ControlledBy was to compute the change
     //  i.e. add the previous ControlledBy to the replicate cache?
 
-    /// If the ControlledBy component gets update, update the ControlledEntities component
+    /// If the [`ControlledBy`] component gets updated, update the [`ControlledEntities`] component
     /// on the Client Entity
     pub(super) fn handle_controlled_by_update(
         sender: Res<ConnectionManager>,
         query: Query<(Entity, &ControlledBy), Changed<ControlledBy>>,
         mut client_query: Query<&mut ControlledEntities>,
     ) {
-        let update_controlled_entities =
-            |entity: Entity,
-             client_id: ClientId,
-             client_query: &mut Query<&mut ControlledEntities>,
-             sender: &ConnectionManager| {
-                trace!(
-                    "Adding entity {:?} to client {:?}'s controlled entities",
-                    entity,
-                    client_id,
-                );
-                if let Ok(client_entity) = sender.client_entity(client_id) {
-                    if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
-                        // first check if it already contains, to not trigger change detection needlessly
-                        if controlled_entities.contains(&entity) {
-                            return;
-                        }
-                        controlled_entities.insert(entity);
-                    }
-                }
-            };
-
         for (entity, controlled_by) in query.iter() {
-            match &controlled_by.target {
-                NetworkTarget::None => {}
-                NetworkTarget::Single(client_id) => {
-                    update_controlled_entities(entity, *client_id, &mut client_query, &sender);
-                }
-                NetworkTarget::Only(client_ids) => client_ids.iter().for_each(|client_id| {
-                    update_controlled_entities(entity, *client_id, &mut client_query, &sender);
-                }),
-                _ => {
-                    let client_ids: Vec<ClientId> = sender.connected_clients().collect();
-                    client_ids.iter().for_each(|client_id| {
-                        update_controlled_entities(entity, *client_id, &mut client_query, &sender);
-                    });
-                }
-            }
+            // TODO: avoid clone
+            sender
+                .connected_targets(controlled_by.target.clone())
+                .for_each(|client_id| {
+                    if let Ok(client_entity) = sender.client_entity(client_id) {
+                        if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
+                            // first check if it already contains, to not trigger change detection needlessly
+                            if controlled_entities.contains_key(&entity) {
+                                return;
+                            }
+                            trace!(
+                                "Adding entity {:?} to client {:?}'s controlled entities",
+                                entity,
+                                client_id,
+                            );
+                            controlled_entities.insert(entity, controlled_by.lifetime);
+                        }
+                    }
+                });
         }
     }
 
-    /// When the ControlledBy component gets removed from an entity, remove that entity from the list of
-    /// controlled entities for the client
+    /// When the [`ControlledBy`] component gets removed from an entity, remove that entity from the list of
+    /// [`ControlledEntities`] for the client
     pub(super) fn handle_controlled_by_remove(
         trigger: Trigger<OnRemove, ControlledBy>,
         query: Query<&ControlledBy>,
         mut client_query: Query<&mut ControlledEntities>,
         sender: Res<ConnectionManager>,
     ) {
-        let update_controlled_entities =
-            |entity: Entity,
-             client_id: ClientId,
-             client_query: &mut Query<&mut ControlledEntities>,
-             sender: &ConnectionManager| {
-                trace!(
-                    "Removing entity {:?} to client {:?}'s controlled entities",
-                    entity,
-                    client_id,
-                );
-                if let Ok(client_entity) = sender.client_entity(client_id) {
-                    if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
-                        // first check if it already contains, to not trigger change detection needlessly
-                        if !controlled_entities.contains(&entity) {
-                            return;
-                        }
-                        controlled_entities.remove(&entity);
-                    }
-                }
-            };
-
         // OnRemove observers trigger before the actual removal
         let entity = trigger.entity();
         if let Ok(controlled_by) = query.get(entity) {
-            match &controlled_by.target {
-                NetworkTarget::None => {}
-                NetworkTarget::Single(client_id) => {
-                    update_controlled_entities(entity, *client_id, &mut client_query, &sender);
-                }
-                NetworkTarget::Only(client_ids) => client_ids.iter().for_each(|client_id| {
-                    update_controlled_entities(entity, *client_id, &mut client_query, &sender);
-                }),
-                _ => {
-                    let client_ids: Vec<ClientId> = sender.connected_clients().collect();
-                    client_ids.iter().for_each(|client_id| {
-                        update_controlled_entities(entity, *client_id, &mut client_query, &sender);
-                    });
-                }
-            }
+            // TODO: avoid clone
+            sender
+                .connected_targets(controlled_by.target.clone())
+                .for_each(|client_id| {
+                    if let Ok(client_entity) = sender.client_entity(client_id) {
+                        if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
+                            // first check if it already contains, to not trigger change detection needlessly
+                            if !controlled_entities.contains_key(&entity) {
+                                return;
+                            }
+                            trace!(
+                                "Removing entity {:?} to client {:?}'s controlled entities",
+                                entity,
+                                client_id,
+                            );
+                            controlled_entities.remove(&entity);
+                        }
+                    }
+                })
         }
     }
 
-    /// When a client disconnect, we despawn all the entities it controlled
+    /// When a client disconnects, we despawn all the entities it controlled if the lifetime
+    /// is SesssionBased
     pub(super) fn handle_client_disconnect(
         mut commands: Commands,
         client_query: Query<&ControlledEntities>,
@@ -134,19 +100,25 @@ mod systems {
             // despawn all the controlled entities for the disconnected client
             if let Ok(controlled_entities) = client_query.get(event.entity) {
                 debug!(
-                    "Despawning all entities controlled by client {:?}",
+                    "Despawning all entities controlled by disconnected client {:?}",
                     event.client_id
                 );
-                for entity in controlled_entities.iter() {
-                    debug!(
-                        "Despawning entity {entity:?} controlled by client {:?}",
-                        event.client_id
-                    );
-                    commands.entity(*entity).despawn_recursive();
+                for (entity, lifetime) in controlled_entities.iter() {
+                    if lifetime == &Lifetime::SessionBased {
+                        trace!(
+                            "Despawning entity {entity:?} controlled by disconnected client {:?}",
+                            event.client_id
+                        );
+                        if let Some(command) = commands.get_entity(*entity) {
+                            command.despawn_recursive();
+                        }
+                    }
                 }
             }
             // despawn the entity itself
-            commands.entity(event.entity).despawn_recursive();
+            if let Some(command) = commands.get_entity(event.entity) {
+                command.despawn_recursive();
+            };
         }
     }
 }
@@ -171,9 +143,10 @@ mod tests {
     use crate::prelude::server::{ConnectionManager, ControlledBy, Replicate};
     use crate::prelude::{ClientId, NetworkTarget};
     use crate::server::clients::ControlledEntities;
+    use crate::server::replication::send::Lifetime;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
-    use bevy::ecs::entity::EntityHashSet;
+    use bevy::ecs::entity::EntityHashMap;
     use bevy::prelude::default;
 
     /// Check that the Client Entities are updated after ControlledBy is added
@@ -187,6 +160,7 @@ mod tests {
             .spawn(Replicate {
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
+                    ..default()
                 },
                 ..default()
             })
@@ -207,7 +181,10 @@ mod tests {
                 .world()
                 .get::<ControlledEntities>(client_entity_1)
                 .unwrap(),
-            &ControlledEntities(EntityHashSet::from_iter([server_entity]))
+            &ControlledEntities(EntityHashMap::from_iter([(
+                server_entity,
+                Lifetime::SessionBased
+            )]))
         );
         // check that the entity was not marked as controlled by client_2
         let client_entity_2 = stepper
@@ -222,7 +199,7 @@ mod tests {
                 .world()
                 .get::<ControlledEntities>(client_entity_2)
                 .unwrap(),
-            &ControlledEntities(EntityHashSet::default())
+            &ControlledEntities(EntityHashMap::default())
         );
     }
 
@@ -237,6 +214,7 @@ mod tests {
             .spawn(Replicate {
                 controlled_by: ControlledBy {
                     target: NetworkTarget::All,
+                    ..default()
                 },
                 ..default()
             })
@@ -257,7 +235,10 @@ mod tests {
                 .world()
                 .get::<ControlledEntities>(client_entity)
                 .unwrap(),
-            &ControlledEntities(EntityHashSet::from_iter([server_entity]))
+            &ControlledEntities(EntityHashMap::from_iter([(
+                server_entity,
+                Lifetime::SessionBased
+            )]))
         );
 
         // despawn the entity (which removes ControlledBy)
@@ -269,7 +250,7 @@ mod tests {
             .world()
             .get::<ControlledEntities>(client_entity)
             .unwrap()
-            .contains(&server_entity));
+            .contains_key(&server_entity));
     }
 
     /// Check that when a client disconnects, its controlled entities get despawned
@@ -284,6 +265,18 @@ mod tests {
             .spawn(Replicate {
                 controlled_by: ControlledBy {
                     target: NetworkTarget::All,
+                    ..default()
+                },
+                ..default()
+            })
+            .id();
+        let server_entity_2 = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate {
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::All,
+                    lifetime: Lifetime::Persistent,
                 },
                 ..default()
             })
@@ -304,7 +297,10 @@ mod tests {
                 .world()
                 .get::<ControlledEntities>(client_entity)
                 .unwrap(),
-            &ControlledEntities(EntityHashSet::from_iter([server_entity]))
+            &ControlledEntities(EntityHashMap::from_iter([
+                (server_entity, Lifetime::SessionBased),
+                (server_entity_2, Lifetime::Persistent)
+            ]))
         );
 
         // client disconnects
@@ -320,5 +316,10 @@ mod tests {
             .world()
             .get_entity(server_entity)
             .is_none());
+        assert!(stepper
+            .server_app
+            .world()
+            .get_entity(server_entity_2)
+            .is_some());
     }
 }
