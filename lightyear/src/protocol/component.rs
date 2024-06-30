@@ -230,6 +230,11 @@ impl ComponentRegistry {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
     }
 
+    /// Return the name of the component from the [`ComponentKind`]
+    pub fn name(&self, kind: ComponentKind) -> &'static str {
+        self.serialize_fns_map.get(&kind).unwrap().type_name
+    }
+
     pub fn is_registered<C: 'static>(&self) -> bool {
         self.kind_map.net_id(&ComponentKind::of::<C>()).is_some()
     }

@@ -68,7 +68,7 @@ impl Rollback {
     }
 
     /// Get the current rollback tick
-    pub(crate) fn get_rollback_tick(&self) -> Option<Tick> {
+    pub fn get_rollback_tick(&self) -> Option<Tick> {
         match *self.state.read().deref() {
             RollbackState::ShouldRollback { current_tick } => Some(current_tick),
             RollbackState::Default => None,

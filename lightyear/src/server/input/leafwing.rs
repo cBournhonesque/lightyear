@@ -89,7 +89,7 @@ fn add_action_diff_buffer<A: LeafwingUserAction>(
     }
 }
 
-/// Read the input messages from the server events to update the ActionDiffBuffers
+/// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: LeafwingUserAction>(
     message_registry: Res<MessageRegistry>,
     mut connection_manager: ResMut<ConnectionManager>,
@@ -129,6 +129,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 // (client converted from their local entity to the remote server entity)
                                 InputTarget::Entity(entity)
                                 | InputTarget::PrePredictedEntity(entity) => {
+                                    // TODO Don't update input buffer if inputs arrived too late?
                                     debug!("received input for entity: {:?}", entity);
                                     if let Ok(mut buffer) = query.get_mut(*entity) {
                                         debug!(

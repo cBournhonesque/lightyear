@@ -22,4 +22,6 @@ pub enum ServerError {
     ComponentProtocolError(#[from] crate::protocol::component::ComponentError),
     #[error("network relevance error: {0}")]
     RelevanceError(#[from] crate::server::relevance::error::RelevanceError),
+    #[error(transparent)]
+    ReplicationError(#[from] crate::shared::replication::error::ReplicationError),
 }

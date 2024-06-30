@@ -14,9 +14,8 @@ use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::shared::{color_from_id, CollisionPayload};
+use crate::shared::color_from_id;
 
-pub const BALL_SIZE: f32 = 15.0;
 pub const BULLET_SIZE: f32 = 1.5;
 pub const SHIP_WIDTH: f32 = 19.0;
 pub const SHIP_LENGTH: f32 = 32.0;
@@ -34,11 +33,16 @@ pub(crate) struct BulletBundle {
     color: ColorComponent,
     marker: BulletMarker,
     lifetime: Lifetime,
-    collision_payload: CollisionPayload,
 }
 
 impl BulletBundle {
-    pub(crate) fn new(position: Vec2, velocity: Vec2, color: Color, current_tick: Tick) -> Self {
+    pub(crate) fn new(
+        owner: ClientId,
+        position: Vec2,
+        velocity: Vec2,
+        color: Color,
+        current_tick: Tick,
+    ) -> Self {
         Self {
             position: Position(position),
             velocity: LinearVelocity(velocity),
@@ -47,8 +51,7 @@ impl BulletBundle {
                 origin_tick: current_tick,
                 lifetime: FIXED_TIMESTEP_HZ as i16 * 2,
             },
-            marker: BulletMarker,
-            collision_payload: CollisionPayload,
+            marker: BulletMarker::new(owner),
         }
     }
 }
@@ -65,7 +68,8 @@ pub(crate) struct BallBundle {
 }
 
 impl BallBundle {
-    pub(crate) fn new(position: Vec2, color: Color) -> Self {
+    pub(crate) fn new(radius: f32, position: Vec2, color: Color) -> Self {
+        let ball = BallMarker::new(radius);
         let sync_target = SyncTarget {
             prediction: NetworkTarget::All,
             ..default()
@@ -79,8 +83,8 @@ impl BallBundle {
             position: Position(position),
             color: ColorComponent(color),
             replicate,
-            physics: PhysicsBundle::ball(),
-            marker: BallMarker,
+            physics: ball.physics_bundle(),
+            marker: ball,
             name: Name::new("Ball"),
         }
     }
@@ -101,15 +105,6 @@ impl PhysicsBundle {
             collider_density: ColliderDensity(5.0),
             rigid_body: RigidBody::Dynamic,
             external_force: ExternalForce::default(),
-        }
-    }
-
-    pub(crate) fn ball() -> Self {
-        Self {
-            collider: Collider::circle(BALL_SIZE),
-            collider_density: ColliderDensity(0.5),
-            rigid_body: RigidBody::Dynamic,
-            external_force: ExternalForce::ZERO.with_persistence(false),
         }
     }
 
@@ -153,14 +148,51 @@ impl Player {
     }
 }
 
+/// A shared system generates these events on server and client.
+/// On the server, we use them to manipulate player scores;
+/// On the clients, we just use them for visual effects.
+#[derive(Event, Debug)]
+pub struct BulletHitEvent {
+    pub bullet_owner: ClientId,
+    pub bullet_color: Color,
+    /// if it struck a player, this is their clientid:
+    pub victim_client_id: Option<ClientId>,
+    pub position: Vec2,
+}
+
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BallMarker;
+pub struct BallMarker {
+    pub radius: f32,
+}
+
+impl BallMarker {
+    pub fn new(radius: f32) -> Self {
+        Self { radius }
+    }
+
+    pub fn physics_bundle(&self) -> PhysicsBundle {
+        PhysicsBundle {
+            collider: Collider::circle(self.radius),
+            collider_density: ColliderDensity(1.5),
+            rigid_body: RigidBody::Dynamic,
+            external_force: ExternalForce::ZERO.with_persistence(false),
+        }
+    }
+}
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BulletMarker;
+pub struct BulletMarker {
+    pub owner: ClientId,
+}
+
+impl BulletMarker {
+    pub fn new(owner: ClientId) -> Self {
+        Self { owner }
+    }
+}
 
 // Limiting firing rate: once you fire on `last_fire_tick` you have to wait `cooldown` ticks before firing again.
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -179,6 +211,10 @@ impl Weapon {
         }
     }
 }
+
+// increases if you hit another player with a bullet, decreases if you get hit.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Score(pub i32);
 
 // despawns `lifetime` ticks after `origin_tick`
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -223,8 +259,8 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Lifetime>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
-        app.register_component::<CollisionPayload>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<Score>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple);
 
         // Fully replicated, but not visual, so no need for lerp/corrections:
 

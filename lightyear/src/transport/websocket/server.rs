@@ -19,8 +19,6 @@ use tokio::{
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use tracing::{debug, info, trace};
 use tracing_log::log::error;
-use wtransport::datagram::Datagram;
-use wtransport::Connection;
 
 use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};

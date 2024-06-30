@@ -6,7 +6,11 @@ use crate::entity_label::*;
 /// Renders entities using gizmos to draw outlines
 use crate::protocol::*;
 use crate::shared::*;
+use bevy::core_pipeline::bloom::BloomSettings;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
+use bevy::sprite::MaterialMesh2dBundle;
+use bevy::sprite::Mesh2dHandle;
 use bevy::time::common_conditions::on_timer;
 use bevy_screen_diagnostics::ScreenEntityDiagnosticsPlugin;
 use bevy_screen_diagnostics::ScreenFrameDiagnosticsPlugin;
@@ -41,15 +45,18 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.add_systems(
             Last,
             (
-                add_visual_components,
-                update_visual_components,
+                add_player_visual_components,
+                update_player_visual_components,
                 draw_walls,
                 draw_confirmed_shadows.run_if(move || draw_shadows),
                 draw_predicted_entities,
                 draw_confirmed_entities.run_if(is_server),
+                draw_explosions,
             )
                 .chain(),
         );
+
+        app.add_systems(FixedPreUpdate, insert_bullet_mesh);
 
         app.add_systems(Startup, setup_diagnostic);
         app.add_plugins(ScreenDiagnosticsPlugin::default());
@@ -65,14 +72,27 @@ impl Plugin for SpaceshipsRendererPlugin {
 fn init_camera(mut commands: Commands, mut windows: Query<&mut Window>) {
     let mut window = windows.single_mut();
     window.resolution.set(800., 800.);
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn((
+        Camera2dBundle {
+            camera: Camera {
+                hdr: true,
+                ..default()
+            },
+            // https://bevyengine.org/examples/3D%20Rendering/tonemapping/
+            // 2. Using a tonemapper that desaturates to white is recommended
+            tonemapping: Tonemapping::TonyMcMapface,
+            ..default()
+        },
+        BloomSettings::default(),
+        VisibilityBundle::default(),
+    ));
 }
 
 // add visual interp components on client predicted entities
-fn add_visual_components(
+fn add_player_visual_components(
     mut commands: Commands,
     q: Query<
-        (Entity, &Player),
+        (Entity, &Player, &Score),
         (
             With<Predicted>,
             Added<Collider>,
@@ -81,13 +101,13 @@ fn add_visual_components(
         ),
     >,
 ) {
-    for (e, player) in q.iter() {
+    for (e, player, score) in q.iter() {
         // info!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
             VisibilityBundle::default(),
             TransformBundle::default(),
             EntityLabel {
-                text: player.nickname.clone(),
+                text: format!("{}\n{}", player.nickname, score.0),
                 color: Color::ANTIQUE_WHITE.with_a(0.8),
                 offset: Vec2::Y * -45.0,
                 ..Default::default()
@@ -99,19 +119,20 @@ fn add_visual_components(
 }
 
 // update the labels when the player rtt/jitter is updated by the server
-fn update_visual_components(
+fn update_player_visual_components(
     mut q: Query<
         (
             Entity,
             &Player,
             &mut EntityLabel,
             &InputBuffer<PlayerActions>,
+            &Score,
         ),
-        Changed<Player>,
+        Or<(Changed<Player>, Changed<Score>)>,
     >,
     tick_manager: Res<TickManager>,
 ) {
-    for (e, player, mut label, input_buffer) in q.iter_mut() {
+    for (e, player, mut label, input_buffer, score) in q.iter_mut() {
         // hopefully this is positive, ie we have received remote player inputs before they are needed.
         // this can happen because of input_delay. The server receives inputs in advance of
         // needing them, and rebroadcasts to other players.
@@ -120,6 +141,7 @@ fn update_visual_components(
         } else {
             0
         };
+        label.text = format!("{}\n{}", player.nickname, score.0);
         label.sub_text = format!(
             "{}~{}ms [{num_buffered_inputs}]",
             player.rtt.as_millis(),
@@ -204,7 +226,11 @@ fn draw_predicted_entities(
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<PlayerActions>>,
         ),
-        Or<(With<PreSpawnedPlayerObject>, With<Predicted>)>,
+        (
+            // skip drawing bullet outlines, since we add a mesh + material to them
+            Without<BulletMarker>,
+            Or<(With<PreSpawnedPlayerObject>, With<Predicted>)>,
+        ),
     >,
     tick_manager: Res<TickManager>,
 ) {
@@ -236,6 +262,7 @@ fn draw_predicted_entities(
         }
 
         if is_thrusting {
+            // draw an engine exhaust triangle
             let width = 0.6 * (SHIP_WIDTH / 2.0);
             let points = vec![
                 Vec2::new(width, (-SHIP_LENGTH / 2.) - 3.0),
@@ -248,7 +275,7 @@ fn draw_predicted_entities(
                 position,
                 rotation,
                 &mut gizmos,
-                col.with_a(0.7),
+                col * 2.5, // bloom
             );
         }
     }
@@ -301,6 +328,22 @@ fn draw_confirmed_entities(
     }
 }
 
+// draws explosion effects, and despawns them once they expire
+fn draw_explosions(
+    mut gizmos: Gizmos,
+    q: Query<(Entity, &Explosion, &Transform)>,
+    time: Res<Time>,
+    mut commands: Commands,
+) {
+    for (e, explosion, transform) in q.iter() {
+        if let Some((color, radius)) = explosion.compute_at_time(time.elapsed()) {
+            gizmos.circle_2d(transform.translation.xy(), radius, color);
+        } else {
+            commands.entity(e).despawn();
+        }
+    }
+}
+
 /// renders various shapes using gizmos
 pub fn render_shape(
     shape: &SharedShape,
@@ -341,5 +384,62 @@ pub fn render_shape(
         gizmos.circle_2d(pos.0, ball.radius, render_color);
     } else {
         panic!("unimplemented render");
+    }
+}
+
+pub fn insert_bullet_mesh(
+    q: Query<(Entity, &Collider, &ColorComponent), (With<BulletMarker>, Added<Collider>)>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (entity, collider, col) in q.iter() {
+        let ball = collider
+            .shape()
+            .as_ball()
+            .expect("Bullets expected to be balls.");
+        let ball = bevy::math::prelude::Circle::new(ball.radius);
+        let mesh = Mesh::from(ball);
+        let mesh_handle = Mesh2dHandle(meshes.add(mesh));
+        commands.entity(entity).insert((MaterialMesh2dBundle {
+            mesh: mesh_handle,
+            transform: Transform::from_translation(Vec3::Z),
+            material: materials.add(ColorMaterial::from(col.0)),
+            ..default()
+        },));
+    }
+}
+
+#[derive(Component)]
+pub struct Explosion {
+    spawn_time: Duration,
+    max_age: Duration,
+    color: Color,
+    initial_radius: f32,
+}
+
+impl Explosion {
+    pub fn new(now: Duration, color: Color) -> Self {
+        Self {
+            spawn_time: now,
+            max_age: Duration::from_millis(70),
+            initial_radius: BULLET_SIZE,
+            color,
+        }
+    }
+
+    // Gives a color and radius based on elapsed time, for a simple visual explosion effect.
+    //
+    // None = despawn due to expiry.
+    pub fn compute_at_time(&self, now: Duration) -> Option<(Color, f32)> {
+        let age = now - self.spawn_time;
+        if age > self.max_age {
+            return None;
+        }
+        // starts at 0.0, once max_age reached, is 1.0.
+        let progress = (age.as_secs_f32() / self.max_age.as_secs_f32()).clamp(0.0, 1.0);
+        let color = self.color.with_a(1.0 - progress);
+        let radius = self.initial_radius + (1.0 - progress) * self.initial_radius * 3.0;
+        Some((color, radius))
     }
 }

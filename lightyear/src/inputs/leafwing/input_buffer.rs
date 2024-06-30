@@ -210,8 +210,20 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         self.get(start_tick + (self.buffer.len() as i16 - 1))
     }
 
+    /// Get latest ActionState present in the buffer, along with the associated Tick
+    pub fn get_last_with_tick(&self) -> Option<(Tick, &ActionState<T>)> {
+        let start_tick = self.start_tick?;
+        if self.buffer.is_empty() {
+            return None;
+        }
+        let end_tick = start_tick + (self.buffer.len() as i16 - 1);
+        self.get(end_tick)
+            .map(|action_state| (end_tick, action_state))
+    }
+
     /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs
     /// included in the message.
+    /// TODO: disallow overwriting inputs for ticks we've already received inputs for?
     pub(crate) fn update_from_message(
         &mut self,
         end_tick: Tick,

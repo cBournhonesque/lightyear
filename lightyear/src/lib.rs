@@ -290,7 +290,7 @@ pub mod prelude {
         pub use crate::server::relevance::room::{RoomId, RoomManager};
         pub use crate::server::replication::commands::DespawnReplicationCommandExt;
         pub use crate::server::replication::{
-            send::{ControlledBy, Replicate, ServerFilter, SyncTarget, Visibility},
+            send::{ControlledBy, Replicate, ServerFilter, SyncTarget},
             ReplicationSet, ServerReplicationSet,
         };
     }

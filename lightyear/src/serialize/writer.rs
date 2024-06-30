@@ -33,6 +33,7 @@ impl Writer {
 
     // TODO: how do reduce capacity over time?
     /// Split the current bytes written as a separate [`Bytes`].
+    ///
     /// Retains any additional capacity. O(1) operation.
     pub(crate) fn split(&mut self) -> Bytes {
         self.0.get_mut().split().freeze()

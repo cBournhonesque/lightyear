@@ -65,6 +65,7 @@ pub(crate) mod send {
     use crate::shared::replication::components::{DespawnTracker, Replicating, ReplicationGroupId};
 
     use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
+    use crate::shared::replication::error::ReplicationError;
     use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
@@ -350,7 +351,7 @@ pub(crate) mod send {
                             replicated_component.id,
                         )
                     };
-                    replicate_component_update(
+                    let _ = replicate_component_update(
                         tick_manager.tick(),
                         &component_registry,
                         entity.id(),
@@ -363,7 +364,15 @@ pub(crate) mod send {
                         replicated_component.replicate_once,
                         &system_ticks,
                         &mut sender,
-                    );
+                    )
+                    .inspect_err(|e| {
+                        error!(
+                            "Error replicating component {:?} update for entity {:?}: {:?}",
+                            replicated_component.kind,
+                            entity.id(),
+                            e
+                        )
+                    });
                 }
             }
         }
@@ -457,7 +466,7 @@ pub(crate) mod send {
         replicate_once: bool,
         system_ticks: &SystemChangeTick,
         sender: &mut ConnectionManager,
-    ) {
+    ) -> Result<(), ReplicationError> {
         let (mut insert, mut update) = (false, false);
 
         // send a component_insert for components that were newly added
@@ -477,7 +486,7 @@ pub(crate) mod send {
                     "not replicating updates for {:?} because it is marked as replicate_once",
                     component_kind
                 );
-                return;
+                return Ok(());
             }
             // otherwise send an update for all components that changed since the
             // last update we have ack-ed
@@ -489,14 +498,14 @@ pub(crate) mod send {
                 if delta_compression {
                     // SAFETY: the component_data corresponds to the kind
                     unsafe {
-                        component_registry
-                            .serialize_diff_from_base_value(component_data, writer, component_kind)
-                            .expect("could not serialize delta")
+                        component_registry.serialize_diff_from_base_value(
+                            component_data,
+                            writer,
+                            component_kind,
+                        )?
                     }
                 } else {
-                    component_registry
-                        .erased_serialize(component_data, writer, component_kind)
-                        .expect("could not serialize component")
+                    component_registry.erased_serialize(component_data, writer, component_kind)?;
                 };
                 let raw_data = writer.split();
                 sender.replication_sender.prepare_component_insert(
@@ -531,15 +540,7 @@ pub(crate) mod send {
                     //     tick = ?self.tick_manager.tick(),
                     //     "Updating single component"
                     // );
-                    if !delta_compression {
-                        component_registry
-                            .erased_serialize(component_data, writer, component_kind)
-                            .expect("could not serialize component");
-                        let raw_data = writer.split();
-                        sender
-                            .replication_sender
-                            .prepare_component_update(entity, group_id, raw_data);
-                    } else {
+                    if delta_compression {
                         sender.replication_sender.prepare_delta_component_update(
                             entity,
                             group_id,
@@ -549,11 +550,22 @@ pub(crate) mod send {
                             writer,
                             &mut sender.delta_manager,
                             current_tick,
-                        );
+                        )?;
+                    } else {
+                        component_registry.erased_serialize(
+                            component_data,
+                            writer,
+                            component_kind,
+                        )?;
+                        let raw_data = writer.split();
+                        sender
+                            .replication_sender
+                            .prepare_component_update(entity, group_id, raw_data);
                     }
                 }
             }
         }
+        Ok(())
     }
 
     /// Send component remove

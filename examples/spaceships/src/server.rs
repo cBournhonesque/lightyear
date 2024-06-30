@@ -5,6 +5,7 @@ use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 use bevy::utils::HashMap;
 use bevy_xpbd_2d::prelude::*;
+use client::Rollback;
 use leafwing_input_manager::action_diff::ActionDiff;
 use leafwing_input_manager::prelude::*;
 use lightyear::client::connection;
@@ -17,7 +18,8 @@ use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::ApplyInputsQuery;
-use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
+use crate::shared::ApplyInputsQueryItem;
+use crate::shared::{apply_action_state_to_player_movement, color_from_id, FixedSet};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
@@ -55,6 +57,13 @@ impl Plugin for ExampleServerPlugin {
                 update_player_metrics.run_if(on_timer(Duration::from_secs(1))),
             ),
         );
+
+        app.add_systems(
+            FixedUpdate,
+            handle_hit_event
+                .run_if(on_event::<BulletHitEvent>())
+                .after(shared::process_collisions),
+        );
     }
 }
 
@@ -91,23 +100,13 @@ fn init(mut commands: Commands) {
             ..default()
         }),
     );
-
     // the balls are server-authoritative
-    const NUM_BALLS: usize = 3;
+    const NUM_BALLS: usize = 6;
     for i in 0..NUM_BALLS {
+        let radius = 10.0 + i as f32 * 4.0;
         let angle: f32 = i as f32 * (TAU / NUM_BALLS as f32);
         let pos = Vec2::new(125.0 * angle.cos(), 125.0 * angle.sin());
-        commands.spawn(BallBundle::new(pos, Color::AZURE));
-    }
-}
-
-/// Read inputs and move players
-pub(crate) fn player_movement(
-    mut q: Query<ApplyInputsQuery, With<Player>>,
-    tick_manager: Res<TickManager>,
-) {
-    for aiq in q.iter_mut() {
-        shared_movement_behaviour(aiq);
+        commands.spawn(BallBundle::new(radius, pos, Color::GOLD));
     }
 }
 
@@ -181,6 +180,7 @@ pub(crate) fn handle_connections(
         let player_ent = commands
             .spawn((
                 Player::new(client_id, pick_player_name(client_id.to_bits())),
+                Score(0),
                 Name::new("Player"),
                 ActionState::<PlayerActions>::default(),
                 Position(Vec2::new(x, y)),
@@ -238,3 +238,61 @@ const NAMES: [&str; 35] = [
     "Bruce Banner",
     "Mr. T",
 ];
+
+/// Server will manipulate scores when a bullet collides with a player.
+/// the `Score` component is a simple replication. scores fully server-authoritative.
+pub(crate) fn handle_hit_event(
+    connection_manager: Res<server::ConnectionManager>,
+    mut events: EventReader<BulletHitEvent>,
+    client_q: Query<&ControlledEntities, Without<Player>>,
+    mut player_q: Query<(&Player, &mut Score)>,
+) {
+    let client_id_to_player_entity = |client_id: ClientId| -> Option<&Entity> {
+        if let Ok(e) = connection_manager.client_entity(client_id) {
+            if let Ok(controlled_entities) = client_q.get(e) {
+                return controlled_entities.0.iter().next();
+            }
+        }
+        None
+    };
+
+    for ev in events.read() {
+        // did they hit a player?
+        if let Some(victim_entity) = ev.victim_client_id.and_then(client_id_to_player_entity) {
+            if let Ok((player, mut score)) = player_q.get_mut(*victim_entity) {
+                score.0 -= 1;
+            }
+            if let Some(shooter_entity) = client_id_to_player_entity(ev.bullet_owner) {
+                if let Ok((player, mut score)) = player_q.get_mut(*shooter_entity) {
+                    score.0 += 1;
+                }
+            }
+        }
+    }
+}
+
+/// Read inputs and move players
+///
+/// see: https://github.com/cBournhonesque/lightyear/issues/492
+/// server can't currently detect if an input is missing, since already removed from input buffer.
+/// fixed in 0.14 branch
+pub(crate) fn player_movement(
+    mut q: Query<ApplyInputsQuery, With<Player>>,
+    tick_manager: Res<TickManager>,
+) {
+    let tick = tick_manager.tick();
+    for mut aiq in q.iter_mut() {
+        // if aiq.input_buffer.get(tick).is_none() {
+        //     // set to default? needs 0.14 branch.
+        // }
+        // if !aiq.action.get_pressed().is_empty() {
+        //     info!(
+        //         "🎹 {:?} {tick:?} = {:?}",
+        //         aiq.player.client_id,
+        //         aiq.action.get_pressed(),
+        //     );
+        // }
+        // check for missing inputs, and set them to default? or sustain for 1 tick?
+        apply_action_state_to_player_movement(aiq.action, 0, &mut aiq, tick);
+    }
+}

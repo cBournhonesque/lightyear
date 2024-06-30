@@ -1,10 +1,12 @@
 //! Module to handle replicating entities and components from server to client
+use bevy::ecs::entity::EntityHash;
 use std::fmt::Debug;
 use std::hash::Hash;
 
 use bevy::prelude::{Entity, Resource};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
+use hashbrown::HashMap;
 
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
@@ -26,6 +28,7 @@ pub mod components;
 pub(crate) mod archetypes;
 pub mod delta;
 pub mod entity_map;
+pub mod error;
 pub(crate) mod hierarchy;
 pub mod network_target;
 pub(crate) mod plugin;
@@ -153,6 +156,34 @@ impl Default for EntityActions {
     }
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub struct SendEntityActionsMessage {
+    sequence_id: MessageId,
+    group_id: ReplicationGroupId,
+    pub(crate) actions: HashMap<Entity, EntityActions, EntityHash>,
+}
+
+impl ToBytes for SendEntityActionsMessage {
+    fn len(&self) -> usize {
+        self.sequence_id.len() + self.group_id.len() + self.actions.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.sequence_id.to_bytes(buffer)?;
+        self.group_id.to_bytes(buffer)?;
+        self.actions.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError> {
+        Ok(Self {
+            sequence_id: MessageId::from_bytes(buffer)?,
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            actions: HashMap::<Entity, EntityActions, EntityHash>::from_bytes(buffer)?,
+        })
+    }
+}
+
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
 /// All the entity actions (Spawn/despawn/inserts/removals) for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
@@ -182,6 +213,45 @@ impl ToBytes for EntityActionsMessage {
             sequence_id: MessageId::from_bytes(buffer)?,
             group_id: ReplicationGroupId::from_bytes(buffer)?,
             actions: Vec::<(Entity, EntityActions)>::from_bytes(buffer)?,
+        })
+    }
+}
+
+/// Same as EntityUpdatesMessage, but avoids having to convert a hashmap into a vec
+#[derive(Clone, PartialEq, Debug)]
+pub struct SendEntityUpdatesMessage {
+    pub(crate) group_id: ReplicationGroupId,
+    /// The last tick for which we sent an EntityActionsMessage for this group
+    /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
+    /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
+    last_action_tick: Option<Tick>,
+    /// Updates containing the full component data
+    pub(crate) updates: HashMap<Entity, Vec<Bytes>, EntityHash>,
+    // /// Updates containing diffs with a previous value
+    // #[bitcode(with_serde)]
+    // diff_updates: Vec<(Entity, Vec<RawData>)>,
+}
+
+impl ToBytes for SendEntityUpdatesMessage {
+    fn len(&self) -> usize {
+        self.group_id.len() + self.last_action_tick.len() + self.updates.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.group_id.to_bytes(buffer)?;
+        self.last_action_tick.to_bytes(buffer)?;
+        self.updates.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            last_action_tick: Option::<Tick>::from_bytes(buffer)?,
+            updates: HashMap::<Entity, Vec<Bytes>, EntityHash>::from_bytes(buffer)?,
         })
     }
 }

@@ -66,7 +66,7 @@ pub struct ChannelRegistry {
 }
 
 impl ChannelRegistry {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(input_send_interval: Duration) -> Self {
         let mut registry = Self {
             builder_map: HashMap::new(),
             kind_map: TypeMapper::new(),
@@ -106,7 +106,7 @@ impl ChannelRegistry {
         });
         registry.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            send_frequency: Duration::default(),
+            send_frequency: input_send_interval,
             priority: 3.0,
         });
         registry
