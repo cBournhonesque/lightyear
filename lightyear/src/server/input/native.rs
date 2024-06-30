@@ -84,18 +84,16 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             FixedPostUpdate,
             clear_input_events::<A>.in_set(InputSystemSet::ClearInputEvents),
         );
-        app.add_systems(Last, handle_client_disconnect::<A>);
+        app.observe(handle_client_disconnect::<A>);
     }
 }
 
 /// Remove the client if the client disconnects
 fn handle_client_disconnect<A: UserAction>(
-    mut events: EventReader<DisconnectEvent>,
+    trigger: Trigger<DisconnectEvent>,
     mut input_buffers: ResMut<InputBuffers<A>>,
 ) {
-    for event in events.read() {
-        input_buffers.buffers.remove(&event.client_id);
-    }
+    input_buffers.buffers.remove(&trigger.event().client_id);
 }
 
 /// Read the message received from the client and emit the MessageEvent event

@@ -35,6 +35,9 @@ impl Plugin for ExampleServerPlugin {
         let client_ids = Arc::new(RwLock::new(HashSet::default()));
         app.add_systems(Startup, (init, start_server));
 
+        app.observe(handle_disconnect_event);
+        app.observe(handle_connect_event);
+
         start_netcode_authentication_task(
             self.game_server_addr,
             self.auth_backend_addr,
@@ -75,21 +78,23 @@ fn init(mut commands: Commands) {
 #[derive(Resource)]
 struct ClientIds(Arc<RwLock<HashSet<u64>>>);
 
-/// Update the list of connected client ids when a client connects or disconnects
-fn handle_connect_events(
-    client_ids: Res<ClientIds>,
-    mut connect_events: EventReader<ConnectEvent>,
-    mut disconnect_events: EventReader<DisconnectEvent>,
-) {
-    for event in connect_events.read() {
-        if let Netcode(client_id) = event.client_id {
-            client_ids.0.write().unwrap().insert(client_id);
-        }
+/// Update the list of connected client ids when a client disconnects
+///
+/// We use an Observer to handle disconnect events to avoid the perf cost of running
+/// the system every frame. We want to run the system only when we have a disconnection.
+fn handle_disconnect_event(trigger: Trigger<DisconnectEvent>, client_ids: Res<ClientIds>) {
+    if let Netcode(client_id) = trigger.event().client_id {
+        client_ids.0.write().unwrap().remove(&client_id);
     }
-    for event in disconnect_events.read() {
-        if let Netcode(client_id) = event.client_id {
-            client_ids.0.write().unwrap().remove(&client_id);
-        }
+}
+
+/// Update the list of connected client ids when a client connects
+///
+/// We use an Observer to handle disconnect events to avoid the perf cost of running
+/// the system every frame. We want to run the system only when we have a connection.
+fn handle_connect_event(trigger: Trigger<ConnectEvent>, client_ids: Res<ClientIds>) {
+    if let Netcode(client_id) = trigger.event().client_id {
+        client_ids.0.write().unwrap().insert(client_id);
     }
 }
 
