@@ -4,6 +4,8 @@ use crate::serialize::reader::Reader;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
+use hashbrown::HashMap;
+use std::hash::{BuildHasher, Hash};
 
 pub mod reader;
 pub(crate) mod varint;
@@ -150,6 +152,37 @@ impl<M: ToBytes> ToBytes for Vec<M> {
             vec.push(M::from_bytes(buffer)?);
         }
         Ok(vec)
+    }
+}
+
+impl<K: ToBytes + Eq + Hash, V: ToBytes, S: Default + BuildHasher> ToBytes for HashMap<K, V, S> {
+    fn len(&self) -> usize {
+        varint_len(self.len() as u64) + self.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_u64::<byteorder::NetworkEndian>(self.len() as u64)?;
+        self.iter().try_for_each(|(k, v)| {
+            k.to_bytes(buffer)?;
+            v.to_bytes(buffer)?;
+            Ok::<(), SerializationError>(())
+        })?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let len = buffer.read_u64::<byteorder::NetworkEndian>()? as usize;
+        // TODO: if we know the MIN_LEN we can preallocate
+        let mut res = HashMap::with_capacity_and_hasher(len, S::default());
+        for _ in 0..len {
+            let key = K::from_bytes(buffer)?;
+            let value = V::from_bytes(buffer)?;
+            res.insert(key, value);
+        }
+        Ok(res)
     }
 }
 
