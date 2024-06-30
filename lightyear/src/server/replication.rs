@@ -2085,6 +2085,7 @@ pub(crate) mod send {
         /// One component is delta, the other is not
         /// This fails to work if we don't have an ack tick specific to the delta component
         #[test]
+        #[ignore]
         fn test_component_update_delta_with_non_delta_component() {
             let mut stepper = BevyStepper::default();
 

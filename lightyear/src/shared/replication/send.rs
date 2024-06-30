@@ -24,9 +24,12 @@ use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::error::ReplicationError;
 use crate::shared::replication::plugin::ReplicationConfig;
 #[cfg(test)]
-use crate::utils::captures::Captures;
+use {
+    super::{EntityActionsMessage, EntityUpdatesMessage},
+    crate::utils::captures::Captures,
+};
 
-use super::{EntityActions, EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
+use super::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -56,13 +59,9 @@ pub(crate) struct ReplicationSender {
     /// when we buffered the message. (so that when it's acked, we know we only need to include updates that happened after that tick,
     /// for that replication group)
     pub(crate) updates_message_id_to_group_id: HashMap<MessageId, UpdateMessageMetadata>,
-    /// Messages that are being written. We need to hold a buffer of messages because components actions/updates
-    /// are being buffered individually but we want to group them inside a message
-    ///
-    /// We don't put this into group_channels because we would have to iterate through all the group_channels
-    /// to collect new replication messages
-    pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
-    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<Bytes>>>,
+    /// Group channels that have at least 1 replication update or action buffered
+    pub group_with_actions: EntityHashSet<ReplicationGroupId>,
+    pub group_with_updates: EntityHashSet<ReplicationGroupId>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 
@@ -90,8 +89,8 @@ impl ReplicationSender {
             updates_ack_receiver,
             updates_nack_receiver,
             updates_message_id_to_group_id: Default::default(),
-            pending_actions: EntityHashMap::default(),
-            pending_updates: EntityHashMap::default(),
+            group_with_actions: EntityHashSet::default(),
+            group_with_updates: EntityHashSet::default(),
             // pending_unique_components: EntityHashMap::default(),
             group_channels: Default::default(),
             replication_config,
@@ -304,9 +303,11 @@ impl ReplicationSender {
     /// Returns true if we should send a message
     // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
-        self.pending_actions
+        self.group_with_actions.insert(group_id);
+        self.group_channels
             .entry(group_id)
             .or_default()
+            .pending_actions
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Spawn;
@@ -321,9 +322,11 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         remote_entity: Entity,
     ) {
-        self.pending_actions
+        self.group_with_actions.insert(group_id);
+        self.group_channels
             .entry(group_id)
             .or_default()
+            .pending_actions
             .entry(local_entity)
             .or_default()
             .spawn = SpawnAction::Reuse(remote_entity);
@@ -331,9 +334,11 @@ impl ReplicationSender {
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
-        self.pending_actions
+        self.group_with_actions.insert(group_id);
+        self.group_channels
             .entry(group_id)
             .or_default()
+            .pending_actions
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Despawn;
@@ -350,9 +355,11 @@ impl ReplicationSender {
         component: Bytes,
         bevy_tick: BevyTick,
     ) {
-        self.pending_actions
+        self.group_with_actions.insert(group_id);
+        self.group_channels
             .entry(group_id)
             .or_default()
+            .pending_actions
             .entry(entity)
             .or_default()
             .insert
@@ -366,10 +373,11 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         kind: ComponentNetId,
     ) {
-        // TODO: is the pending_unique_components even necessary? how could we even happen multiple inserts/updates for the same component?
-        self.pending_actions
+        self.group_with_actions.insert(group_id);
+        self.group_channels
             .entry(group_id)
             .or_default()
+            .pending_actions
             .entry(entity)
             .or_default()
             .remove
@@ -383,9 +391,11 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         raw_data: Bytes,
     ) {
-        self.pending_updates
+        self.group_with_updates.insert(group_id);
+        self.group_channels
             .entry(group_id)
             .or_default()
+            .pending_updates
             .entry(entity)
             .or_default()
             .push(raw_data);
@@ -453,14 +463,15 @@ impl ReplicationSender {
         bevy_tick: BevyTick,
     ) -> Vec<(EntityActionsMessage, f32)> {
         // ) -> impl Iterator<Item = (EntityActionsMessage, f32)> + Captures<&()> {
-        self.pending_actions
+        self.group_with_actions
             .drain()
-            .map(|(group_id, mut actions)| {
-                trace!(?group_id, "pending actions: {:?}", actions);
+            .map(|group_id| {
+                // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
+                let channel = self.group_channels.get_mut(&group_id).unwrap();
+                let mut actions = std::mem::take(&mut channel.pending_actions);
                 // add any updates for that group
-                if let Some(updates) = self.pending_updates.remove(&group_id) {
-                    trace!(?group_id, "found updates for group: {:?}", updates);
-                    for (entity, components) in updates {
+                if self.group_with_updates.remove(&group_id) {
+                    for (entity, components) in channel.pending_updates.drain() {
                         actions
                             .entry(entity)
                             .or_default()
@@ -468,14 +479,13 @@ impl ReplicationSender {
                             .extend(components);
                     }
                 }
-                let channel = self.group_channels.entry(group_id).or_default();
-
                 // update the send tick so that we don't send updates immediately after an insert messagex.
                 // (which would happen because the send_tick is only set to Some(x) after an Update message is sent, so
                 // when an entity is first spawned the send_tick is still None)
                 // This is ok to do even if we don't get an actual send notification because EntityActions messages are
                 // guaranteed to be sent at some point. (since the actions channel is reliable)
                 channel.send_tick = Some(bevy_tick);
+                channel.ack_tick = Some(tick);
                 let priority = channel.accumulated_priority;
                 let message_id = channel.actions_next_send_message_id;
                 channel.actions_next_send_message_id += 1;
@@ -531,69 +541,73 @@ impl ReplicationSender {
         writer: &mut Writer,
         message_manager: &mut MessageManager,
     ) -> Result<(), PacketError> {
-        self.pending_actions
-            .drain()
-            .try_for_each(|(group_id, mut actions)| {
-                trace!(?group_id, "pending actions: {:?}", actions);
-                // add any updates for that group
-                if let Some(updates) = self.pending_updates.remove(&group_id) {
-                    trace!(?group_id, "found updates for group: {:?}", updates);
-                    for (entity, components) in updates {
-                        actions
-                            .entry(entity)
-                            .or_default()
-                            .updates
-                            .extend(components);
-                    }
+        self.group_with_actions.drain().try_for_each(|group_id| {
+            // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
+            let channel = self.group_channels.get_mut(&group_id).unwrap();
+            let mut actions = std::mem::take(&mut channel.pending_actions);
+            // add any updates for that group
+            if self.group_with_updates.remove(&group_id) {
+                // drain so that we keep the allocated memory
+                for (entity, components) in channel.pending_updates.drain() {
+                    actions
+                        .entry(entity)
+                        .or_default()
+                        .updates
+                        .extend(components);
                 }
-                let channel = self.group_channels.entry(group_id).or_default();
+            }
 
-                // update the send tick so that we don't send updates immediately after an insert messagex.
-                // (which would happen because the send_tick is only set to Some(x) after an Update message is sent, so
-                // when an entity is first spawned the send_tick is still None)
-                // This is ok to do even if we don't get an actual send notification because EntityActions messages are
-                // guaranteed to be sent at some point. (since the actions channel is reliable)
-                channel.send_tick = Some(bevy_tick);
-                //  We can consider that we received an ack for the current tick because the message is sent reliably,
-                //  so we know that we should eventually receive an ack.
-                //  Updates after this insert only get read if the insert was received, so this doesn't introduce any bad behaviour.
-                //  - For delta-compression: this is useful to compute future diffs from this Insert value immediately
-                //  - in general: this is useful to avoid sending too many unnecessary updates. For example:
-                //      - tick 3: C1 update
-                //      - tick 4: C2 insert. C1 update. (if we send all updates since last_ack) !!!! We need to update the ack from the Insert only AFTER all the Updates are prepared!!!
-                //      - tick 5: Before, we would send C1 update again, since we didn't receive an ack for C1 yet. But now we stop sending it because we know that the message from tick 4 will be received.
-                channel.ack_tick = Some(tick);
-                let priority = channel.accumulated_priority;
-                let message_id = channel.actions_next_send_message_id;
-                channel.actions_next_send_message_id += 1;
-                channel.last_action_tick = Some(tick);
-                let message = EntityActionsMessage {
-                    sequence_id: message_id,
-                    group_id,
-                    // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
-                    actions: Vec::from_iter(actions),
-                };
-                trace!("final action messages to send: {:?}", message);
+            // update the send tick so that we don't send updates immediately after an insert messagex.
+            // (which would happen because the send_tick is only set to Some(x) after an Update message is sent, so
+            // when an entity is first spawned the send_tick is still None)
+            // This is ok to do even if we don't get an actual send notification because EntityActions messages are
+            // guaranteed to be sent at some point. (since the actions channel is reliable)
+            channel.send_tick = Some(bevy_tick);
+            //  We can consider that we received an ack for the current tick because the message is sent reliably,
+            //  so we know that we should eventually receive an ack.
+            //  Updates after this insert only get read if the insert was received, so this doesn't introduce any bad behaviour.
+            //  - For delta-compression: this is useful to compute future diffs from this Insert value immediately
+            //  - in general: this is useful to avoid sending too many unnecessary updates. For example:
+            //      - tick 3: C1 update
+            //      - tick 4: C2 insert. C1 update. (if we send all updates since last_ack) !!!! We need to update the ack from the Insert only AFTER all the Updates are prepared!!!
+            //      - tick 5: Before, we would send C1 update again, since we didn't receive an ack for C1 yet. But now we stop sending it because we know that the message from tick 4 will be received.
+            channel.ack_tick = Some(tick);
+            let priority = channel.accumulated_priority;
+            let message_id = channel.actions_next_send_message_id;
+            channel.actions_next_send_message_id += 1;
+            channel.last_action_tick = Some(tick);
+            // we use SendEntityActionsMessage so that we don't have to convert the hashmap into a vec
+            let message = SendEntityActionsMessage {
+                sequence_id: message_id,
+                group_id,
+                actions,
+            };
+            trace!("final action messages to send: {:?}", message);
 
-                // TODO: we had to put this here because of the borrow checker, but it's not ideal,
-                //  the replication send should normally just an iterator of messages to send
-                //  Maybe the ReplicationSender should not be in ConnectionManager?
+            // TODO: we had to put this here because of the borrow checker, but it's not ideal,
+            //  the replication send should normally just an iterator of messages to send
+            //  Maybe the ReplicationSender should not be in ConnectionManager?
 
-                // buffer the message in the MessageManager
+            // buffer the message in the MessageManager
 
-                // message.emit_send_logs("EntityActionsChannel");
-                message.to_bytes(writer).map_err(SerializationError::from)?;
-                let message_bytes = writer.split();
-                let message_id = message_manager
-                    // TODO: use const type_id?
-                    .buffer_send_with_priority(
-                        message_bytes,
-                        ChannelKind::of::<EntityActionsChannel>(),
-                        priority,
-                    )?
-                    .expect("The entity actions channels should always return a message_id");
-                Ok::<(), PacketError>(())
-            })
+            // message.emit_send_logs("EntityActionsChannel");
+            message.to_bytes(writer).map_err(SerializationError::from)?;
+            let message_bytes = writer.split();
+            let message_id = message_manager
+                // TODO: use const type_id?
+                .buffer_send_with_priority(
+                    message_bytes,
+                    ChannelKind::of::<EntityActionsChannel>(),
+                    priority,
+                )?
+                .expect("The entity actions channels should always return a message_id");
+
+            // restore the hashmap that we took out, so that we can reuse the allocated memory
+            channel.pending_actions = message.actions;
+            channel.pending_actions.clear();
+
+            Ok::<(), PacketError>(())
+        })
     }
 
     /// Prepare the [`EntityUpdateMessage`] to send
@@ -604,9 +618,11 @@ impl ReplicationSender {
         tick: Tick,
         bevy_tick: BevyTick,
     ) -> impl Iterator<Item = (EntityUpdatesMessage, f32)> + Captures<&()> {
-        self.pending_updates.drain().map(|(group_id, updates)| {
+        self.group_with_updates.drain().map(|group_id| {
+            let channel = self.group_channels.get_mut(&group_id).unwrap();
+            let updates = std::mem::take(&mut channel.pending_updates);
+
             trace!(?group_id, "pending updates: {:?}", updates);
-            let channel = self.group_channels.entry(group_id).or_default();
             let priority = channel.accumulated_priority;
             (
                 EntityUpdatesMessage {
@@ -615,7 +631,6 @@ impl ReplicationSender {
                     //  that there is no constraint!
                     // SAFETY: the last action tick is always set because we send Actions before Updates
                     last_action_tick: channel.last_action_tick,
-                    // TODO: maybe we can just send the HashMap directly?
                     updates: Vec::from_iter(updates),
                 },
                 priority,
@@ -633,60 +648,60 @@ impl ReplicationSender {
         writer: &mut Writer,
         message_manager: &mut MessageManager,
     ) -> Result<(), PacketError> {
-        self.pending_updates
-            .drain()
-            .try_for_each(|(group_id, updates)| {
-                trace!(?group_id, "pending updates: {:?}", updates);
-                let channel = self.group_channels.entry(group_id).or_default();
-                let priority = channel.accumulated_priority;
-                let message = EntityUpdatesMessage {
+        self.group_with_updates.drain().try_for_each(|group_id| {
+            let channel = self.group_channels.get_mut(&group_id).unwrap();
+            let updates = std::mem::take(&mut channel.pending_updates);
+            trace!(?group_id, "pending updates: {:?}", updates);
+            let priority = channel.accumulated_priority;
+            let message = SendEntityUpdatesMessage {
+                group_id,
+                // TODO: as an optimization, we can use `last_action_tick = tick` to signify
+                //  that there is no constraint!
+                // SAFETY: the last action tick is always set because we send Actions before Updates
+                last_action_tick: channel.last_action_tick,
+                updates,
+            };
+
+            // message.emit_send_logs("EntityUpdatesChannel");
+            message.to_bytes(writer).map_err(SerializationError::from)?;
+            let message_bytes = writer.split();
+            let message_id = message_manager
+                // TODO: use const type_id?
+                .buffer_send_with_priority(
+                    message_bytes,
+                    ChannelKind::of::<EntityUpdatesChannel>(),
+                    priority,
+                )?
+                .expect("The entity actions channels should always return a message_id");
+
+            // keep track of the message_id -> group mapping, so we can handle receiving an ACK for that message_id later
+            debug!(
+                ?message_id,
+                ?group_id,
+                ?bevy_tick,
+                ?tick,
+                "Send replication update"
+            );
+            self.updates_message_id_to_group_id.insert(
+                message_id,
+                UpdateMessageMetadata {
                     group_id,
-                    // TODO: as an optimization, we can use `last_action_tick = tick` to signify
-                    //  that there is no constraint!
-                    // SAFETY: the last action tick is always set because we send Actions before Updates
-                    last_action_tick: channel.last_action_tick,
-                    // TODO: maybe we can just send the HashMap directly?
-                    updates: Vec::from_iter(updates),
-                };
+                    bevy_tick,
+                    tick,
+                },
+            );
+            // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
+            // so we can set the `send_tick` right away
+            // TODO: but doesn't that mean we double send it?
+            if !self.bandwidth_cap_enabled {
+                channel.send_tick = Some(bevy_tick);
+            }
 
-                // message.emit_send_logs("EntityUpdatesChannel");
-                message.to_bytes(writer).map_err(SerializationError::from)?;
-                let message_bytes = writer.split();
-                let message_id = message_manager
-                    // TODO: use const type_id?
-                    .buffer_send_with_priority(
-                        message_bytes,
-                        ChannelKind::of::<EntityUpdatesChannel>(),
-                        priority,
-                    )?
-                    .expect("The entity actions channels should always return a message_id");
-
-                // keep track of the message_id -> group mapping, so we can handle receiving an ACK for that message_id later
-                debug!(
-                    ?message_id,
-                    ?group_id,
-                    ?bevy_tick,
-                    ?tick,
-                    "Send replication update"
-                );
-                self.updates_message_id_to_group_id.insert(
-                    message_id,
-                    UpdateMessageMetadata {
-                        group_id,
-                        bevy_tick,
-                        tick,
-                    },
-                );
-                // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
-                // so we can set the `send_tick` right away
-                // TODO: but doesn't that mean we double send it?
-                if !self.bandwidth_cap_enabled {
-                    if let Some(channel) = self.group_channels.get_mut(&group_id) {
-                        channel.send_tick = Some(bevy_tick);
-                    }
-                }
-                Ok(())
-            })
+            // restore the hashmap that we took out, so that we can reuse the allocated memory
+            channel.pending_updates = message.updates;
+            channel.pending_updates.clear();
+            Ok(())
+        })
         // TODO: also return for each message a list of the components that have delta-compression data?
     }
 }
@@ -694,6 +709,13 @@ impl ReplicationSender {
 /// Channel to keep track of sending replication messages for a given Group
 #[derive(Debug)]
 pub struct GroupChannel {
+    /// Messages that are being written. We need to hold a buffer of messages because components actions/updates
+    /// are being buffered individually but we want to group them inside a message
+    ///
+    /// We don't put this into group_channels because we would have to iterate through all the group_channels
+    /// to collect new replication messages
+    pub pending_actions: EntityHashMap<Entity, EntityActions>,
+    pub pending_updates: EntityHashMap<Entity, Vec<Bytes>>,
     pub actions_next_send_message_id: MessageId,
 
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
@@ -728,6 +750,8 @@ pub struct GroupChannel {
 impl Default for GroupChannel {
     fn default() -> Self {
         Self {
+            pending_updates: EntityHashMap::default(),
+            pending_actions: EntityHashMap::default(),
             actions_next_send_message_id: MessageId(0),
             send_tick: None,
             ack_bevy_tick: None,
