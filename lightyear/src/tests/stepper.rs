@@ -103,7 +103,7 @@ impl BevyStepper {
             io: server_io,
         };
         let config = ServerConfig {
-            shared: shared_config.clone(),
+            shared: shared_config,
             net: vec![net_config],
             ping: PingConfig {
                 // send pings every tick, so that the acks are received every frame
@@ -129,7 +129,7 @@ impl BevyStepper {
             io: client_io,
         };
 
-        client_config.shared = shared_config.clone();
+        client_config.shared = shared_config;
         client_config.ping = PingConfig {
             // send pings every tick, so that the acks are received every frame
             ping_interval: Duration::default(),

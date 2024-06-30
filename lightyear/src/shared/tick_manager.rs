@@ -33,8 +33,7 @@ impl Plugin for TickManagerPlugin {
             // EVENTS
             .add_event::<TickEvent>()
             // RESOURCES
-            // TODO: avoid clone
-            .insert_resource(TickManager::from_config(self.config.clone()))
+            .insert_resource(TickManager::from_config(self.config))
             // SYSTEM SETS
             .configure_sets(FixedFirst, FixedUpdateSet::TickUpdate)
             // SYSTEMS
@@ -48,7 +47,7 @@ impl Plugin for TickManagerPlugin {
     }
 }
 
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub struct TickConfig {
     pub tick_duration: Duration,
 }

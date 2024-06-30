@@ -120,13 +120,13 @@ impl PredictionConfig {
         }
         // else, apply input delay up to the maximum input delay, and cover the rest with prediction
         // if not possible, add even more input delay
-        return if rtt_ticks
+        if rtt_ticks
             <= (self.maximum_predicted_ticks + self.maximum_input_delay_before_prediction) as f32
         {
             self.maximum_input_delay_before_prediction
         } else {
             rtt_ticks.ceil() as u16 - self.maximum_predicted_ticks
-        };
+        }
     }
 }
 

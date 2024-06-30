@@ -51,7 +51,7 @@ impl PluginGroup for ClientPlugins {
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
         let tick_interval = self.config.shared.tick.tick_duration;
-        let interpolation_config = self.config.interpolation.clone();
+        let interpolation_config = self.config.interpolation;
         let builder = builder
             .add(SetupPlugin {
                 config: self.config,
@@ -90,7 +90,7 @@ impl Plugin for SetupPlugin {
             app
                 // PLUGINS
                 .add_plugins(SharedPlugin {
-                    config: self.config.shared.clone(),
+                    config: self.config.shared,
                 });
         }
     }

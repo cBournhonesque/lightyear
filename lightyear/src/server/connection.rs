@@ -3,7 +3,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
 use bevy::ptr::Ptr;
-use bevy::utils::{Duration, HashMap, HashSet};
+use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
 use tracing::{debug, info, info_span, trace, trace_span};
@@ -179,24 +179,28 @@ impl ConnectionManager {
         Ok(())
     }
 
-    /// Find the list of clients that should receive the replication message
-    pub(crate) fn apply_replication(
-        &mut self,
+    /// Find the list of connected clients that match the provided [`NetworkTarget`]
+    pub(crate) fn connected_targets(
+        &self,
         target: NetworkTarget,
     ) -> Box<dyn Iterator<Item = ClientId>> {
-        let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
+        // TODO: avoid extra allocations ...
         match target {
             NetworkTarget::All => {
                 // TODO: maybe only send stuff when the client is time-synced ?
+                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
                 Box::new(connected_clients.into_iter())
             }
-            NetworkTarget::AllExceptSingle(client_id) => Box::new(
-                connected_clients
-                    .into_iter()
-                    .filter(move |id| *id != client_id),
-            ),
+            NetworkTarget::AllExceptSingle(client_id) => {
+                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
+                Box::new(
+                    connected_clients
+                        .into_iter()
+                        .filter(move |id| *id != client_id),
+                )
+            }
             NetworkTarget::AllExcept(client_ids) => {
-                let client_ids: HashSet<ClientId> = HashSet::from_iter(client_ids);
+                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
                 Box::new(
                     connected_clients
                         .into_iter()
@@ -210,11 +214,14 @@ impl ConnectionManager {
                     Box::new(std::iter::empty())
                 }
             }
-            NetworkTarget::Only(client_ids) => Box::new(
-                connected_clients
-                    .into_iter()
-                    .filter(move |id| client_ids.contains(id)),
-            ),
+            NetworkTarget::Only(client_ids) => {
+                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
+                Box::new(
+                    connected_clients
+                        .into_iter()
+                        .filter(move |id| client_ids.contains(id)),
+                )
+            }
             NetworkTarget::None => Box::new(std::iter::empty()),
         }
     }
@@ -253,9 +260,9 @@ impl ConnectionManager {
                 client_id,
                 client_entity,
                 &self.channel_registry,
-                self.replication_config.clone(),
-                self.packet_config.clone(),
-                self.ping_config.clone(),
+                self.replication_config,
+                self.packet_config,
+                self.ping_config,
             );
             self.events.add_connect_event(ConnectEvent {
                 client_id,
@@ -702,7 +709,7 @@ impl ConnectionManager {
         group_id: ReplicationGroupId,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        self.apply_replication(target).try_for_each(|client_id| {
+        self.connected_targets(target).try_for_each(|client_id| {
             // trace!(
             //     ?entity,
             //     ?client_id,
@@ -725,7 +732,7 @@ impl ConnectionManager {
     ) -> Result<(), ServerError> {
         let group_id = group.group_id(Some(entity));
         debug!(?entity, ?kind, "Sending RemoveComponent");
-        self.apply_replication(target).try_for_each(|client_id| {
+        self.connected_targets(target).try_for_each(|client_id| {
             // TODO: I don't think it's actually correct to only correct the changes since that action.
             //  what if we do:
             //  - Frame 1: update is ACKED
@@ -804,7 +811,7 @@ impl ConnectionManager {
             component_registry.erased_serialize(component_data, &mut self.writer, kind)?;
         };
         let raw_data = self.writer.split();
-        self.apply_replication(actual_target)
+        self.connected_targets(actual_target)
             .try_for_each(|client_id| {
                 // trace!(
                 //     ?entity,
@@ -844,7 +851,7 @@ impl ConnectionManager {
     ) -> Result<(), ServerError> {
         let mut num_targets = 0;
         let mut existing_bytes: Option<Bytes> = None;
-        self.apply_replication(target).try_for_each(|client_id| {
+        self.connected_targets(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             let replication_sender = &mut self.connections.get_mut(&client_id).ok_or(ServerError::ClientIdNotFound(client_id))?.replication_sender;
             let send_tick = replication_sender

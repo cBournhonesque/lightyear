@@ -99,7 +99,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                         commands.entity(child).insert(replication_target.clone());
                     }
                     if let Some(replicate_to_server) = replicate_to_server {
-                        commands.entity(child).insert(replicate_to_server.clone());
+                        commands.entity(child).insert(*replicate_to_server);
                     }
                     if let Some(controlled_by) = controlled_by {
                         commands.entity(child).insert(controlled_by.clone());

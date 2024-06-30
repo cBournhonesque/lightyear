@@ -163,6 +163,7 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 [`Replicating`]: prelude::Replicating
 [`SharedConfig`]: prelude::SharedConfig
  */
+#![allow(clippy::missing_transmute_annotations)]
 #![allow(unused_variables)]
 #![allow(clippy::too_many_arguments)]
 #![allow(dead_code)]
