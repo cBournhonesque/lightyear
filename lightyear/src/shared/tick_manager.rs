@@ -16,7 +16,7 @@ pub struct TickManagerPlugin {
 }
 
 // TODO: we actually don't need this on server-side..
-#[derive(Event, Debug)]
+#[derive(Event, Debug, Clone, Copy)]
 pub enum TickEvent {
     TickSnap { old_tick: Tick, new_tick: Tick },
 }
@@ -30,8 +30,6 @@ pub(crate) fn increment_tick(mut tick_manager: ResMut<TickManager>) {
 impl Plugin for TickManagerPlugin {
     fn build(&self, app: &mut App) {
         app
-            // EVENTS
-            .add_event::<TickEvent>()
             // RESOURCES
             .insert_resource(TickManager::from_config(self.config))
             // SYSTEM SETS

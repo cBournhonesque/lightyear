@@ -448,9 +448,6 @@ impl PreSpawnedPlayerObject {
 #[cfg(test)]
 mod tests {
     use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
-    use bevy::prelude::Entity;
-    use hashbrown::HashMap;
-
     use crate::client::prediction::resource::PredictionManager;
 
     use crate::prelude::*;
@@ -463,25 +460,28 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         // check default compute hash, with multiple entities sharing the same tick
-        stepper
+        let entity_1 = stepper
             .client_app
             .world_mut()
-            .spawn((Component1(1.0), PreSpawnedPlayerObject::default()));
-        stepper
+            .spawn((Component1(1.0), PreSpawnedPlayerObject::default()))
+            .id();
+        let entity_2 = stepper
             .client_app
             .world_mut()
-            .spawn((Component1(1.0), PreSpawnedPlayerObject::default()));
+            .spawn((Component1(1.0), PreSpawnedPlayerObject::default()))
+            .id();
         stepper.frame_step();
 
         let current_tick = stepper.client_app.world().resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world().resource::<PredictionManager>();
         let expected_hash: u64 = 1572575978495317502;
         assert_eq!(
-            prediction_manager.prespawn_hash_to_entities,
-            HashMap::from_iter(vec![(
-                expected_hash,
-                vec![Entity::from_raw(0), Entity::from_raw(1)]
-            )])
+            prediction_manager
+                .prespawn_hash_to_entities
+                .get(&expected_hash)
+                .unwrap()
+                .len(),
+            2
         );
         assert_eq!(
             prediction_manager.prespawn_tick_to_hash.heap.peek(),
@@ -496,7 +496,7 @@ mod tests {
             stepper
                 .client_app
                 .world()
-                .entity(Entity::from_raw(0))
+                .entity(entity_1)
                 .get::<PredictionHistory<Component1>>()
                 .unwrap()
                 .buffer
