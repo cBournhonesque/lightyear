@@ -955,7 +955,6 @@ impl ReplicationReceive for ConnectionManager {
 
 impl ReplicationSend for ConnectionManager {
     type Error = ServerError;
-    type ReplicateCache = EntityHashMap<Entity, ReplicateCache>;
 
     fn writer(&mut self) -> &mut Writer {
         &mut self.writer

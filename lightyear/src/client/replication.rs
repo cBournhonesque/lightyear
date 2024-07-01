@@ -23,14 +23,6 @@ pub(crate) mod receive {
                 self.tick_interval,
             ));
 
-            // TODO: currently we only support pre-spawned entities spawned during the FixedUpdate schedule
-            // // SYSTEM SETS
-            // .configure_sets(
-            //     PostUpdate,
-            //     // on client, the client hash component is not replicated to the server, so there's no ordering constraint
-            //     ReplicationSet::SetPreSpawnedHash.in_set(ReplicationSet::All),
-            // )
-
             app.configure_sets(
                 PostUpdate,
                 // only replicate entities once client is synced
@@ -62,11 +54,10 @@ pub(crate) mod send {
     };
     use crate::protocol::component::ComponentKind;
 
-    use crate::shared::replication::components::{DespawnTracker, Replicating, ReplicationGroupId};
+    use crate::shared::replication::components::{Replicating, ReplicationGroupId};
 
     use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
     use crate::shared::replication::error::ReplicationError;
-    use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
 
@@ -109,23 +100,16 @@ pub(crate) mod send {
                 .add_systems(
                     PostUpdate,
                     (
-                        // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
-                        //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
-                        //  It is ok to run it every frame because it creates at most one message per despawn
-                        // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-                        handle_replicating_remove
-                            .in_set(InternalReplicationSet::<ClientMarker>::BeforeBuffer),
                         replicate
                             .in_set(InternalReplicationSet::<ClientMarker>::BufferEntityUpdates)
                             .in_set(InternalReplicationSet::<ClientMarker>::BufferComponentUpdates),
-                        send_entity_despawn.in_set(
-                            InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals,
-                        ),
-                        (handle_replicating_add, buffer_replication_messages)
+                        buffer_replication_messages
                             .in_set(InternalReplicationSet::<ClientMarker>::AfterBuffer),
                         add_replicated_component_host_server.run_if(is_host_server),
                     ),
                 );
+
+            app.observe(send_entity_despawn);
         }
     }
 
@@ -172,14 +156,6 @@ pub(crate) mod send {
         pub replicating: Replicating,
     }
 
-    // TODO: replace this with observers
-    /// Metadata that holds Replicate-information from the previous send_interval's replication.
-    /// - when the entity gets despawned, we will use this to know how to replicate the despawn
-    #[derive(PartialEq, Debug)]
-    pub(crate) struct ReplicateCache {
-        pub(crate) replication_group: ReplicationGroup,
-    }
-
     /// Buffer the replication messages into channels
     fn buffer_replication_messages(
         change_tick: SystemChangeTick,
@@ -198,49 +174,10 @@ pub(crate) mod send {
             });
     }
 
-    /// For every entity that removes their ReplicationTarget component but are not despawned, remove the component
-    /// from our replicate cache (so that the entity's despawns are no longer replicated)
-    pub(crate) fn handle_replicating_remove(
-        mut sender: ResMut<ConnectionManager>,
-        mut query: RemovedComponents<Replicating>,
-        entity_check: &Entities,
-    ) {
-        for entity in query.read() {
-            // only do this for entities that still exist
-            if entity_check.contains(entity) {
-                debug!("handling replicating component remove (delete from replicate cache)");
-                sender.replicate_component_cache.remove(&entity);
-            }
-        }
-    }
-
-    /// This system does all the additional bookkeeping required after [`Replicating`] has been added:
-    /// - adds DespawnTracker to each entity that was ever replicated, so that we can track when they are despawned
-    /// (we have a distinction between removing Replicating, which just stops replication; and despawning the entity)
-    /// - adds ReplicateCache for that entity so that when it's removed, we can know how to replicate the despawn
-    /// - adds the ReplicateVisibility component if needed
-    pub(crate) fn handle_replicating_add(
-        mut sender: ResMut<ConnectionManager>,
-        mut commands: Commands,
-        // We use `(With<Replicating>, Without<DespawnTracker>)` as an optimization instead of
-        // `Added<Replicating>`
-        query: Query<(Entity, &ReplicationGroup), (With<Replicating>, Without<DespawnTracker>)>,
-    ) {
-        for (entity, group) in query.iter() {
-            debug!("Replicate component was added for entity {entity:?}");
-            commands.entity(entity).insert(DespawnTracker);
-            sender.replicate_component_cache.insert(
-                entity,
-                ReplicateCache {
-                    replication_group: group.clone(),
-                },
-            );
-        }
-    }
-
     // TODO: implement this with observers, OnAdd<ReplicateToServer>
-    /// In HostServer mode, we will add the Replicated component to the client->server replicated entities
-    /// so that the server can still react to them using observers.
+    // TODO: we should still emit ComponentSpawnEvent, etc. on the server?
+    /// In HostServer mode, we will add the [`Replicated`] component to the client->server replicated entities
+    /// so that the server can query them using the [`Replicated`] component
     fn add_replicated_component_host_server(
         mut commands: Commands,
         query: Query<
@@ -409,41 +346,26 @@ pub(crate) mod send {
     }
 
     /// Send entity despawn if:
-    /// - an entity that had a DespawnTracker was despawned
     /// - an entity with Replicating had the ReplicationToServerTarget removed
+    /// - an entity is despawned
     pub(crate) fn send_entity_despawn(
-        query: Query<(Entity, &ReplicationGroup), (With<Replicating>, Without<ReplicateToServer>)>,
-        // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
-        //  not just entities that had despawn tracker once
-        mut despawn_removed: RemovedComponents<DespawnTracker>,
+        // this covers both cases
+        trigger: Trigger<OnRemove, ReplicateToServer>,
+        // only replicate the despawn event if the entity still has Replicating at the time of despawn
+        // TODO: but how do we detect if both Replicating AND ReplicateToServer are removed at the same time?
+        //  in which case we don't want to replicate the despawn.
+        //  i.e. if a user wants to despawn an entity without replicating the despawn
+        //  I guess we can provide a command that first removes Replicating, and then despawns the entity.
+        query: Query<&ReplicationGroup, With<Replicating>>,
         mut sender: ResMut<ConnectionManager>,
     ) {
-        // Send entity-despawn for entities that have Replicating
-        // but where the `ReplicationToServerTarget` component has been removed
-        query.iter().for_each(|(entity, group)| {
-            trace!(
-                ?entity,
-                "send entity despawn because ReplicationToServerTarget was removed"
-            );
+        let entity = trigger.entity();
+        if let Ok(group) = query.get(entity) {
+            trace!(?entity, "send entity despawn");
             sender
                 .replication_sender
                 .prepare_entity_despawn(entity, group.group_id(Some(entity)));
-        });
-
-        // Despawn entities when the entity gets despawned on local world
-        for entity in despawn_removed.read() {
-            // only replicate the despawn if the entity still had a Replicating component
-            if let Some(replicate_cache) = sender.replicate_component_cache.remove(&entity) {
-                trace!(
-                    ?entity,
-                    "send entity despawn because DespawnTracker component was removed"
-                );
-                sender.replication_sender.prepare_entity_despawn(
-                    entity,
-                    replicate_cache.replication_group.group_id(Some(entity)),
-                );
-            }
-        }
+        };
     }
 
     /// This system sends updates for all components that were added or changed
@@ -570,42 +492,35 @@ pub(crate) mod send {
 
     /// Send component remove
     pub(crate) fn send_component_removed<C: Component>(
-        registry: Res<ComponentRegistry>,
+        trigger: Trigger<OnRemove, C>,
+        registry: Option<Res<ComponentRegistry>>,
         // only remove the component for entities that are being actively replicated
         query: Query<
             (&ReplicationGroup, Has<DisabledComponent<C>>),
             (With<Replicating>, With<ReplicateToServer>),
         >,
-        mut removed: RemovedComponents<C>,
         mut sender: ResMut<ConnectionManager>,
     ) {
-        let kind = registry.net_id::<C>();
-        removed.read().for_each(|entity| {
-            if let Ok((group, disabled)) = query.get(entity) {
-                // do not replicate components that are disabled
-                if disabled {
-                    return;
-                }
-                let group_id = group.group_id(Some(entity));
-                trace!(?entity, kind = ?std::any::type_name::<C>(), "Sending RemoveComponent");
+        let entity = trigger.entity();
+        if let Ok((group, disabled)) = query.get(entity) {
+            // do not replicate components that are disabled
+            if disabled {
+                return;
+            }
+            let group_id = group.group_id(Some(entity));
+            trace!(?entity, kind = ?std::any::type_name::<C>(), "Sending RemoveComponent");
+            if let Some(registry) = registry {
+                let kind = registry.net_id::<C>();
                 sender
                     .replication_sender
                     .prepare_component_remove(entity, group_id, kind);
             }
-        })
+        }
     }
 
     pub(crate) fn register_replicate_component_send<C: Component>(app: &mut App) {
-        app.add_systems(
-            PostUpdate,
-            (
-                // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
-                //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
-                //  It is ok to run it every frame because it creates at most one message per despawn
-                send_component_removed::<C>
-                    .in_set(InternalReplicationSet::<ClientMarker>::BufferDespawnsAndRemovals),
-            ),
-        );
+        // TODO: what if we remove and add within one replication_interval?
+        app.observe(send_component_removed::<C>);
     }
 
     #[cfg(test)]
@@ -1168,17 +1083,17 @@ pub(crate) mod send {
 }
 
 pub(crate) mod commands {
-    use crate::client::connection::ConnectionManager;
-
+    use crate::prelude::Replicating;
     use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {
-        let mut sender = world.resource_mut::<ConnectionManager>();
-        // remove the entity from the cache of entities that are being replicated
-        // so that if it gets despawned, the despawn won't be replicated
-        sender.replicate_component_cache.remove(&entity);
-        world.despawn(entity);
+        // remove replicating separately so that when we despawn the entity and trigger the observer
+        // the entity doesn't have replicating anymore
+        if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.remove::<Replicating>();
+            entity_mut.despawn();
+        }
     }
 
     pub trait DespawnReplicationCommandExt {

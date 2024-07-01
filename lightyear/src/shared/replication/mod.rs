@@ -329,7 +329,6 @@ pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
 /// The trait is made public because it is needed in the macros
 pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     type Error: std::error::Error;
-    type ReplicateCache;
     fn writer(&mut self) -> &mut Writer;
 
     /// Return the list of clients that connected to the server since we last sent any replication messages

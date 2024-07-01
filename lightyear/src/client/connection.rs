@@ -1,6 +1,5 @@
 //! Specify how a Client sends/receives messages with a Server
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::{Mut, Resource, World};
 use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
@@ -15,7 +14,6 @@ use crate::channel::senders::ChannelSend;
 use crate::client::config::ClientConfig;
 use crate::client::error::ClientError;
 use crate::client::message::ClientMessage;
-use crate::client::replication::send::ReplicateCache;
 use crate::client::sync::SyncConfig;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
@@ -77,10 +75,6 @@ pub struct ConnectionManager {
     pub ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
 
-    /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
-    /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
-    pub(crate) replicate_component_cache: EntityHashMap<ReplicateCache>,
-
     /// Used to read the leafwing InputMessages from other clients
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
@@ -114,7 +108,6 @@ impl Default for ConnectionManager {
             replication_receiver,
             ping_manager: PingManager::new(PingConfig::default()),
             sync_manager: SyncManager::new(SyncConfig::default(), PredictionConfig::default()),
-            replicate_component_cache: EntityHashMap::default(),
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
@@ -167,7 +160,6 @@ impl ConnectionManager {
             replication_receiver,
             ping_manager: PingManager::new(client_config.ping),
             sync_manager: SyncManager::new(client_config.sync, client_config.prediction),
-            replicate_component_cache: EntityHashMap::default(),
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
@@ -508,7 +500,6 @@ impl ReplicationReceive for ConnectionManager {
 
 impl ReplicationSend for ConnectionManager {
     type Error = ClientError;
-    type ReplicateCache = EntityHashMap<ReplicateCache>;
 
     fn writer(&mut self) -> &mut Writer {
         &mut self.writer
