@@ -192,6 +192,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         app.configure_sets(
             PostUpdate,
             (
+                SyncSet,
+                // run after SyncSet to make sure that the TickEvents are handled
                 (InputSystemSet::SendInputMessage, InputSystemSet::CleanUp)
                     .chain()
                     .run_if(should_run.clone().and_then(client_is_synced)),
@@ -285,8 +287,6 @@ pub enum InputSystemSet {
     PrepareInputMessage,
 
     // POST UPDATE
-    /// In case we suddenly changed the ticks during sync, we need to update out input buffers to the new ticks
-    ReceiveTickEvents,
     /// System Set to prepare the input message
     SendInputMessage,
     /// Clean up old values to prevent the buffers from growing indefinitely

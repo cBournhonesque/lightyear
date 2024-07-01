@@ -165,6 +165,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         app.configure_sets(
             PostUpdate,
             (
+                // create input messages after SyncSet to make sure that the TickEvents are handled
                 SyncSet,
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage.run_if(
