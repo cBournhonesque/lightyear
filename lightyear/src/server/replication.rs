@@ -3090,6 +3090,7 @@ pub(crate) mod commands {
 
     #[cfg(test)]
     mod tests {
+        use bevy::prelude::With;
         use bevy::utils::Duration;
 
         use crate::prelude::server::Replicate;
@@ -3109,12 +3110,19 @@ pub(crate) mod commands {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            assert!(stepper
+            let client_entity = stepper
                 .client_app
                 .world_mut()
-                .query::<&Component1>()
+                .query_filtered::<Entity, With<Component1>>()
                 .get_single(stepper.client_app.world())
-                .is_ok());
+                .unwrap();
+
+            // stepper
+            //     .client_app
+            //     .world_mut()
+            //     .entity_mut(client_entity)
+            //     .remove::<Component1>();
+            // stepper.frame_step();
 
             // if we remove the Replicate bundle directly, and then despawn the entity
             // the despawn still gets replicated
