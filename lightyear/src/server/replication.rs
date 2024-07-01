@@ -1119,7 +1119,16 @@ pub(crate) mod send {
             stepper.frame_step();
 
             // check that the entities were spawned
-            assert_eq!(stepper.client_app.world().entities().len(), 2);
+
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world_mut()
+                    .query_filtered::<(), With<Replicated>>()
+                    .iter(stepper.client_app.world())
+                    .len(),
+                2
+            );
         }
 
         #[test]
@@ -1180,7 +1189,7 @@ pub(crate) mod send {
         fn test_entity_spawn_preexisting_target() {
             let mut stepper = BevyStepper::default();
 
-            let client_entity = stepper.client_app.world_mut().spawn_empty().id();
+            let client_entity = stepper.client_app.world_mut().spawn(Component1(1.0)).id();
             stepper.frame_step();
             let server_entity = stepper
                 .server_app
@@ -1210,7 +1219,11 @@ pub(crate) mod send {
                 .world()
                 .get::<Replicated>(client_entity)
                 .is_some());
-            assert_eq!(stepper.client_app.world().entities().len(), 1);
+            assert!(stepper
+                .client_app
+                .world()
+                .get::<Component1>(client_entity)
+                .is_some());
         }
 
         /// Check that if we change the replication target on an entity that already has one

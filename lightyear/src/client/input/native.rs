@@ -46,6 +46,7 @@
 use bevy::prelude::{
     not, App, Condition, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate,
     IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
+    Trigger,
 };
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
@@ -164,12 +165,8 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         app.configure_sets(
             PostUpdate,
             (
+                // create input messages after SyncSet to make sure that the TickEvents are handled
                 SyncSet,
-                // handle tick events from sync before sending the message
-                InputSystemSet::ReceiveTickEvents.run_if(
-                    // there are no tick events in host-server mode
-                    client_is_synced.and_then(not(is_host_server)),
-                ),
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage.run_if(
                     // no need to send input messages via io if we are in host-server mode
@@ -198,12 +195,10 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             FixedPostUpdate,
             clear_input_events::<A>.in_set(InputSystemSet::ClearInputEvent),
         );
+        app.observe(receive_tick_events::<A>);
         app.add_systems(
             PostUpdate,
-            (
-                receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
-                prepare_input_message::<A>.in_set(InputSystemSet::SendInputMessage),
-            ),
+            (prepare_input_message::<A>.in_set(InputSystemSet::SendInputMessage),),
         );
 
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
@@ -225,8 +220,6 @@ pub enum InputSystemSet {
     ClearInputEvent,
 
     // POST UPDATE
-    /// In case we suddenly changed the ticks during sync, we need to update out input buffers to the new ticks
-    ReceiveTickEvents,
     /// System Set to prepare the input message (in Send SystemSet)
     SendInputMessage,
 }
@@ -256,22 +249,19 @@ fn write_input_event<A: UserAction>(
 /// Receive an [`TickEvent`] signifying that the local tick has been updated,
 /// and update the input buffer accordingly
 fn receive_tick_events<A: UserAction>(
-    mut tick_events: EventReader<TickEvent>,
+    trigger: Trigger<TickEvent>,
     mut input_manager: ResMut<InputManager<A>>,
 ) {
-    for tick_event in tick_events.read() {
-        match tick_event {
-            TickEvent::TickSnap { old_tick, new_tick } => {
-                // if the tick got updated, update our inputs to match our new ticks
-                if let Some(start_tick) = input_manager.input_buffer.start_tick {
-                    trace!(
-                        "Receive tick snap event {:?}. Updating input buffer start_tick!",
-                        tick_event
-                    );
-                    input_manager.input_buffer.start_tick =
-                        Some(start_tick + (*new_tick - *old_tick));
-                };
-            }
+    match trigger.event() {
+        TickEvent::TickSnap { old_tick, new_tick } => {
+            // if the tick got updated, update our inputs to match our new ticks
+            if let Some(start_tick) = input_manager.input_buffer.start_tick {
+                trace!(
+                    "Receive tick snap event {:?}. Updating input buffer start_tick!",
+                    trigger.event()
+                );
+                input_manager.input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+            };
         }
     }
 }

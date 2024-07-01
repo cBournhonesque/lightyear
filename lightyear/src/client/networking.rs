@@ -27,7 +27,6 @@ use crate::shared::config::Mode;
 use crate::shared::replication::components::Replicated;
 use crate::shared::run_conditions;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
-use crate::shared::tick_manager::TickEvent;
 use crate::transport::io::IoState;
 
 #[derive(Default)]
@@ -215,13 +214,13 @@ pub(crate) fn send(
 /// Also server sends the tick after FixedUpdate, so it makes sense that we would compare to the client tick after FixedUpdate
 /// So instead we update the sync manager at PostUpdate, after both ticks/time have been updated
 pub(crate) fn sync_update(
+    mut commands: Commands,
     config: Res<ClientConfig>,
     netclient: Res<ClientConnection>,
     connection: ResMut<ConnectionManager>,
     mut time_manager: ResMut<TimeManager>,
     mut tick_manager: ResMut<TickManager>,
     mut virtual_time: ResMut<Time<Virtual>>,
-    mut tick_events: EventWriter<TickEvent>,
 ) {
     let connection = connection.into_inner();
     // NOTE: this triggers change detection
@@ -234,7 +233,7 @@ pub(crate) fn sync_update(
         // TODO: how to adjust this for replication groups that have a custom send_interval?
         config.shared.server_replication_send_interval,
     ) {
-        tick_events.send(tick_event);
+        commands.trigger(tick_event);
     }
 
     if connection.sync_manager.is_synced() {
@@ -243,7 +242,7 @@ pub(crate) fn sync_update(
             tick_manager.deref_mut(),
             &connection.ping_manager,
         ) {
-            tick_events.send(tick_event);
+            commands.trigger(tick_event);
         }
         let relative_speed = time_manager.get_relative_speed();
         virtual_time.set_relative_speed(relative_speed);

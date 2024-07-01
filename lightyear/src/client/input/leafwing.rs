@@ -193,12 +193,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             PostUpdate,
             (
                 SyncSet,
-                // handle tick events from sync before sending the message
-                (
-                    InputSystemSet::ReceiveTickEvents,
-                    InputSystemSet::SendInputMessage,
-                    InputSystemSet::CleanUp,
-                )
+                // run after SyncSet to make sure that the TickEvents are handled
+                (InputSystemSet::SendInputMessage, InputSystemSet::CleanUp)
                     .chain()
                     .run_if(should_run.clone().and_then(client_is_synced)),
                 InternalMainSet::<ClientMarker>::Send,
@@ -259,11 +255,12 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             ),
         );
 
+        // if the client tick is updated because of a desync, update the ticks in the input buffers
+        app.observe(receive_tick_events::<A>);
         app.add_systems(
             PostUpdate,
             (
                 send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
-                receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
                 clean_buffers::<A>.in_set(InputSystemSet::CleanUp),
             ),
         );
@@ -290,8 +287,6 @@ pub enum InputSystemSet {
     PrepareInputMessage,
 
     // POST UPDATE
-    /// In case we suddenly changed the ticks during sync, we need to update out input buffers to the new ticks
-    ReceiveTickEvents,
     /// System Set to prepare the input message
     SendInputMessage,
     /// Clean up old values to prevent the buffers from growing indefinitely
@@ -654,35 +649,34 @@ fn send_input_messages<A: LeafwingUserAction>(
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<A: LeafwingUserAction>(
-    mut tick_events: EventReader<TickEvent>,
+    trigger: Trigger<TickEvent>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
     mut global_input_buffer: Option<ResMut<InputBuffer<A>>>,
     mut input_buffer_query: Query<&mut InputBuffer<A>>,
 ) {
-    for tick_event in tick_events.read() {
-        match tick_event {
-            TickEvent::TickSnap { old_tick, new_tick } => {
-                if let Some(ref mut global_input_buffer) = global_input_buffer {
-                    if let Some(start_tick) = global_input_buffer.start_tick {
-                        trace!(
-                            "Receive tick snap event {:?}. Updating global input buffer start_tick!",
-                            tick_event
-                        );
-                        global_input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
-                    }
+    match *trigger.event() {
+        TickEvent::TickSnap { old_tick, new_tick } => {
+            if let Some(ref mut global_input_buffer) = global_input_buffer {
+                if let Some(start_tick) = global_input_buffer.start_tick {
+                    trace!(
+                        "Receive tick snap event {:?}. Updating global input buffer start_tick!",
+                        trigger.event()
+                    );
+                    global_input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
                 }
-                for mut input_buffer in input_buffer_query.iter_mut() {
-                    if let Some(start_tick) = input_buffer.start_tick {
-                        input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
-                        debug!(
-                            "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
-                            tick_event, input_buffer.start_tick
-                        );
-                    }
+            }
+            for mut input_buffer in input_buffer_query.iter_mut() {
+                if let Some(start_tick) = input_buffer.start_tick {
+                    input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    debug!(
+                        "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
+                        trigger.event(),
+                        input_buffer.start_tick
+                    );
                 }
-                for mut message in message_buffer.0.iter_mut() {
-                    message.end_tick = message.end_tick + (*new_tick - *old_tick);
-                }
+            }
+            for mut message in message_buffer.0.iter_mut() {
+                message.end_tick = message.end_tick + (*new_tick - *old_tick);
             }
         }
     }
