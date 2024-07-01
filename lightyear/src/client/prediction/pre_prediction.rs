@@ -168,12 +168,13 @@ impl PrePredictionPlugin {
     ) {
         for entity in pre_predicted_entities.iter() {
             debug!(?entity, "removing replicate from pre-predicted entity");
+            // remove Replicating first so that we don't replicate a despawn
+            commands.entity(entity).remove::<Replicating>();
             commands
                 .entity(entity)
                 .remove::<(
                     ReplicationTarget,
                     ReplicateToServer,
-                    Replicating,
                     ReplicationGroup,
                     ReplicateHierarchy,
                 )>()
