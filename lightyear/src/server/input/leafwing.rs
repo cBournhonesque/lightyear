@@ -94,7 +94,8 @@ fn receive_input_message<A: LeafwingUserAction>(
     message_registry: Res<MessageRegistry>,
     mut connection_manager: ResMut<ConnectionManager>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
-    mut query: Query<&mut InputBuffer<A>>,
+    mut query: Query<Option<&mut InputBuffer<A>>>,
+    mut commands: Commands,
     mut events: EventWriter<MessageEvent<InputMessage<A>>>,
 ) {
     let kind = MessageKind::of::<InputMessage<A>>();
@@ -131,21 +132,28 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 | InputTarget::PrePredictedEntity(entity) => {
                                     // TODO Don't update input buffer if inputs arrived too late?
                                     debug!("received input for entity: {:?}", entity);
+
                                     if let Ok(mut buffer) = query.get_mut(*entity) {
-                                        debug!(
-                                            ?target,
-                                            "Update InputBuffer: {} using InputMessage: {}",
-                                            buffer.as_ref(),
-                                            message
-                                        );
-                                        buffer.update_from_message(message.end_tick, start, diffs);
-                                        // println!(
-                                        //     "received message: {}. input buffer: {}",
-                                        //     message,
-                                        //     buffer.as_ref()
-                                        // );
+                                        if let Some(mut buffer) = buffer {
+                                            debug!(
+                                                ?target,
+                                                "Update InputBuffer: {} using InputMessage: {}",
+                                                buffer.as_ref(),
+                                                message
+                                            );
+                                            buffer.update_from_message(
+                                                message.end_tick,
+                                                start,
+                                                diffs,
+                                            );
+                                        } else {
+                                            debug!("Adding InputBuffer and ActionState which are missing on the entity");
+                                            commands.entity(*entity).insert((
+                                                InputBuffer::<A>::default(),
+                                                ActionState::<A>::default(),
+                                            ));
+                                        }
                                     } else {
-                                        // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
                                         debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                                     }
                                 }
