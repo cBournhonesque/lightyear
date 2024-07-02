@@ -110,12 +110,12 @@ pub(crate) mod send {
                     compute_hash.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
                 );
             // SYSTEMS
-            app.add_systems(
-                PreUpdate,
-                // we need to add despawn trackers immediately for entities for which we add replicate
-                // TODO: why?
-                handle_replicating_add.after(ServerReplicationSet::ClientReplication),
-            );
+            // app.add_systems(
+            //     PreUpdate,
+            //     // we need to add despawn trackers immediately for entities for which we add replicate
+            //     // TODO: why? in case the entity is despawned in Update in the same frame?
+            //     handle_replicating_add.after(ServerReplicationSet::ClientReplication),
+            // );
             app.add_systems(
                 PostUpdate,
                 (
@@ -223,8 +223,6 @@ pub(crate) mod send {
         ///
         /// After the entity is first replicated, the replication group of the entity should not be modified.
         /// (but more entities can be added to the replication group)
-        // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
-        //  it just keeps living but doesn't receive any updates. Should we make this configurable?
         pub group: ReplicationGroup,
         /// How should the hierarchy of the entity (parents/children) be replicated?
         pub hierarchy: ReplicateHierarchy,
@@ -347,7 +345,6 @@ pub(crate) mod send {
         >,
     ) {
         for (entity, replication_target, group, visibility_mode) in query.iter() {
-            debug!("Replicate component was added for entity {entity:?}");
             commands.entity(entity).insert(DespawnTracker);
             let despawn_metadata = ReplicateCache {
                 replication_target: replication_target.target.clone(),
@@ -358,6 +355,7 @@ pub(crate) mod send {
             sender
                 .replicate_component_cache
                 .insert(entity, despawn_metadata);
+            trace!(?sender.replicate_component_cache, "Replicate component was added for entity {entity:?}");
         }
     }
 
@@ -663,7 +661,7 @@ pub(crate) mod send {
         mut sender: ResMut<ConnectionManager>,
     ) {
         for entity in despawn_removed.read() {
-            trace!("DespawnTracker component got removed, preparing entity despawn message!");
+            trace!(?entity, ?sender.replicate_component_cache, "DespawnTracker component got removed, preparing entity despawn message!");
             // TODO: we still don't want to replicate the despawn if the entity was not in the same room as the client!
             // only replicate the despawn if the entity still had a Replicate component
             if let Some(replicate_cache) = sender.replicate_component_cache.remove(&entity) {
