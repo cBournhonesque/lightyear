@@ -8,6 +8,7 @@
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use bevy::state::app::StatesPlugin;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::log::add_log_layer;
@@ -52,7 +53,7 @@ fn build_server_plugin() -> ServerPlugins {
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MinimalPlugins);
+        app.add_plugins((MinimalPlugins, StatesPlugin));
         app.add_plugins(LogPlugin {
             level: Level::INFO,
             filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),

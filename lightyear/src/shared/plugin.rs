@@ -107,7 +107,7 @@ impl Plugin for SharedPlugin {
         // RESOURCES
         // the SharedPlugin is called after the ClientConfig is inserted
         let input_send_interval =
-            if let Some(client_config) = app.world.get_resource::<ClientConfig>() {
+            if let Some(client_config) = app.world().get_resource::<ClientConfig>() {
                 // use the input_send_interval on the client
                 client_config.input.send_interval
             } else {
@@ -125,7 +125,7 @@ impl Plugin for SharedPlugin {
         // PLUGINS
         // we always keep running the tick_manager and time_manager even the client or server are stopped
         app.add_plugins(TickManagerPlugin {
-            config: self.config.tick.clone(),
+            config: self.config.tick,
         });
         app.add_plugins(TimePlugin);
     }
@@ -147,6 +147,6 @@ impl Plugin for SharedPlugin {
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
         // check that the protocol was built correctly
-        app.world.resource::<ComponentRegistry>().check();
+        app.world().resource::<ComponentRegistry>().check();
     }
 }

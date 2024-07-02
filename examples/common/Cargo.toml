@@ -29,5 +29,9 @@ rand = "0.8.5"
 serde = { version = "1.0.201", features = ["derive"] }
 
 # bevy
-bevy = { version = "0.13" }
+bevy = { version = "0.14.0-rc.3", default-features = true, features = [
+  "multi_threaded",
+  "bevy_state",
+  "serialize",
+] }
 bevy-inspector-egui = "0.24"

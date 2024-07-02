@@ -6,7 +6,7 @@ pub(crate) mod correction;
 pub(crate) mod despawn;
 pub mod diagnostics;
 pub mod plugin;
-mod pre_prediction;
+pub(crate) mod pre_prediction;
 pub mod predicted_history;
 pub mod prespawn;
 pub(crate) mod resource;

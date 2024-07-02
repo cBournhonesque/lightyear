@@ -5,7 +5,7 @@ use bevy::utils::Duration;
 use crate::shared::tick_manager::TickConfig;
 
 /// Configuration that has to be the same between the server and the client.
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub struct SharedConfig {
     /// how often does the server send replication updates to the client?
     /// A duration of 0 means that we send replication updates every frame

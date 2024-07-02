@@ -3,8 +3,6 @@ use std::fmt::Debug;
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 
 use crate::protocol::EventContext;
 use crate::serialize::reader::Reader;
@@ -21,8 +19,8 @@ wrapping_id!(MessageId);
 ///
 /// Every type that can be sent over the network must implement this trait.
 ///
-pub trait Message: EventContext + DeserializeOwned + Serialize {}
-impl<T: EventContext + DeserializeOwned + Serialize> Message for T {}
+pub trait Message: EventContext {}
+impl<T: EventContext> Message for T {}
 
 #[cfg(not(feature = "big_messages"))]
 pub type FragmentIndex = u8;

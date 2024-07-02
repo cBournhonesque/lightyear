@@ -33,12 +33,16 @@ pub enum ConnectionState {
 // TODO: add diagnostics methods?
 #[enum_dispatch]
 pub trait NetClient: Send + Sync {
-    // type Error;
-
-    /// Connect to server
+    /// Connect to server.
+    ///
+    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommands) to initiate the connection process, as it
+    /// also handles State transitions + additional stuff.
     fn connect(&mut self) -> Result<(), ConnectionError>;
 
     /// Disconnect from the server
+    ///
+    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommands) to initiate the disconnection process, as it
+    /// also handles State transitions + additional stuff.
     fn disconnect(&mut self) -> Result<(), ConnectionError>;
 
     /// Returns the [`ConnectionState`] of the client

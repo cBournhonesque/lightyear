@@ -4,12 +4,17 @@ use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect, Resource};
 use bevy::utils::HashSet;
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;
 use lightyear_macros::ChannelInternal;
 use serde::{Deserialize, Serialize};
 
 use crate::client::components::ComponentSyncMode;
 use crate::prelude::*;
+use crate::protocol::serialize::SerializeFns;
+use crate::serialize::reader::Reader;
+use crate::serialize::writer::Writer;
+use crate::serialize::SerializationError;
 use crate::shared::replication::delta::Diffable;
 
 // Messages
@@ -38,8 +43,23 @@ impl Add<Component1> for Component1 {
     }
 }
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[derive(Component, Clone, Debug, PartialEq, Reflect)]
 pub struct Component2(pub f32);
+
+pub(crate) fn serialize_component2(
+    data: &Component2,
+    writer: &mut Writer,
+) -> Result<(), SerializationError> {
+    writer.write_u32::<NetworkEndian>(data.0.to_bits())?;
+    Ok(())
+}
+
+pub(crate) fn deserialize_component2(
+    reader: &mut Reader,
+) -> Result<Component2, SerializationError> {
+    let data = f32::from_bits(reader.read_u32::<NetworkEndian>()?);
+    Ok(Component2(data))
+}
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Component3(pub f32);
@@ -122,8 +142,22 @@ impl Diffable for Component7 {
 #[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct Resource1(pub f32);
 
-#[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
+/// Resource where we provide our own serialization/deserialization functions
+#[derive(Resource, Debug, PartialEq, Clone, Reflect)]
 pub struct Resource2(pub f32);
+
+pub(crate) fn serialize_resource2(
+    data: &Resource2,
+    writer: &mut Writer,
+) -> Result<(), SerializationError> {
+    writer.write_u32::<NetworkEndian>(data.0.to_bits())?;
+    Ok(())
+}
+
+pub(crate) fn deserialize_resource2(reader: &mut Reader) -> Result<Resource2, SerializationError> {
+    let data = f32::from_bits(reader.read_u32::<NetworkEndian>()?);
+    Ok(Resource2(data))
+}
 
 // Inputs
 
@@ -159,8 +193,8 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
-        app.add_message::<Message2>(ChannelDirection::Bidirectional);
+        app.register_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<Message2>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(InputPlugin::<MyInput>::default());
         // components
@@ -169,8 +203,14 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(ComponentSyncMode::Full)
             .add_linear_interpolation_fn();
 
-        app.register_component::<Component2>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Simple);
+        app.register_component_custom_serde::<Component2>(
+            ChannelDirection::ServerToClient,
+            SerializeFns {
+                serialize: serialize_component2,
+                deserialize: deserialize_component2,
+            },
+        )
+        .add_prediction(ComponentSyncMode::Simple);
 
         app.register_component::<Component3>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
@@ -192,7 +232,13 @@ impl Plugin for ProtocolPlugin {
 
         // resources
         app.register_resource::<Resource1>(ChannelDirection::ServerToClient);
-        app.register_resource::<Resource2>(ChannelDirection::Bidirectional);
+        app.register_resource_custom_serde::<Resource2>(
+            ChannelDirection::Bidirectional,
+            SerializeFns {
+                serialize: serialize_resource2,
+                deserialize: deserialize_resource2,
+            },
+        );
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,

@@ -11,6 +11,7 @@ use bevy::prelude::{
     default, App, Commands, Mut, Plugin, PluginGroup, Real, Resource, TaskPoolOptions,
     TaskPoolPlugin, Time,
 };
+use bevy::state::app::StatesPlugin;
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::HashMap;
@@ -118,6 +119,7 @@ impl LocalBevyStepper {
             let mut client_app = App::new();
             client_app.add_plugins((
                 MinimalPlugins,
+                StatesPlugin,
                 #[cfg(feature = "bevy/trace_tracy")]
                 LogPlugin::default(),
             ));
@@ -142,7 +144,7 @@ impl LocalBevyStepper {
             client_app.add_plugins((ClientPlugins::new(config), ProtocolPlugin));
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
-                .world
+                .world_mut()
                 .get_resource_mut::<Time<Real>>()
                 .unwrap()
                 .update_with_instant(now);
@@ -157,6 +159,7 @@ impl LocalBevyStepper {
         let mut server_app = App::new();
         server_app.add_plugins((
             MinimalPlugins,
+            StatesPlugin,
             #[cfg(feature = "bevy/trace_tracy")]
             LogPlugin::default(),
         ));
@@ -174,7 +177,7 @@ impl LocalBevyStepper {
 
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app
-            .world
+            .world_mut()
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
@@ -210,7 +213,7 @@ impl LocalBevyStepper {
         self.client_apps
             .get(&client_id)
             .unwrap()
-            .world
+            .world()
             .resource::<R>()
     }
 
@@ -218,29 +221,31 @@ impl LocalBevyStepper {
         self.client_apps
             .get_mut(&client_id)
             .unwrap()
-            .world
+            .world_mut()
             .resource_mut::<R>()
     }
 
     pub fn init(&mut self) {
         self.server_app.finish();
+        self.server_app.cleanup();
         self.server_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_apps.values_mut().for_each(|client_app| {
             client_app.finish();
+            client_app.cleanup();
             let _ = client_app
-                .world
+                .world_mut()
                 .run_system_once(|mut commands: Commands| commands.connect_client());
         });
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
-            if self
-                .client_apps
-                .values()
-                .all(|c| c.world.resource::<client::ConnectionManager>().is_synced())
-            {
+            if self.client_apps.values().all(|c| {
+                c.world()
+                    .resource::<client::ConnectionManager>()
+                    .is_synced()
+            }) {
                 return;
             }
             self.frame_step();

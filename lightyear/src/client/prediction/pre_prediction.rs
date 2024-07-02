@@ -183,3 +183,144 @@ impl PrePredictionPlugin {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::server;
+    use crate::prelude::{client, ClientId};
+    use crate::tests::protocol::{Component1, Component2, Component3};
+    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+
+    /// Simple preprediction case
+    #[test]
+    fn test_pre_prediction() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn a pre-predicted entity on the client
+        let client_entity = stepper
+            .client_app
+            .world_mut()
+            .spawn((
+                client::Replicate::default(),
+                Component1(1.0),
+                PrePredicted::default(),
+            ))
+            .id();
+
+        // need to step multiple times because the server entity doesn't handle messages from future ticks
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // check that the server has received the entity
+        let server_entity = *stepper
+            .server_app
+            .world()
+            .resource::<server::ConnectionManager>()
+            .connection(ClientId::Netcode(TEST_CLIENT_ID))
+            .unwrap()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(client_entity)
+            .unwrap();
+
+        // insert Replicate on the server entity
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .insert(server::Replicate::default());
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the client entity has the Predicted component, and that a confirmed entity has been spawned
+        let predicted = stepper
+            .client_app
+            .world()
+            .get::<Predicted>(client_entity)
+            .unwrap();
+        let confirmed_entity = predicted.confirmed_entity.unwrap();
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<Confirmed>(confirmed_entity)
+            .is_some());
+    }
+
+    /// Test that PrePredicted works if ReplicateHierarchy is present.
+    /// In that case, both the parent but also the children should be pre-predicted.
+    #[test]
+    fn test_pre_prediction_hierarchy() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::DEBUG)
+        //     .init();
+        let mut stepper = BevyStepper::default();
+        let child = stepper.client_app.world_mut().spawn(Component3(0.0)).id();
+        let parent = stepper
+            .client_app
+            .world_mut()
+            .spawn((
+                Component2(0.0),
+                client::Replicate::default(),
+                PrePredicted::default(),
+            ))
+            .add_child(child)
+            .id();
+
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // check that both the parent and the child were replicated
+        let server_parent = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<Component2>>()
+            .get_single(stepper.server_app.world())
+            .expect("parent entity was not replicated");
+        let server_child = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<Component3>>()
+            .get_single(stepper.server_app.world())
+            .expect("child entity was not replicated");
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<Parent>(server_child)
+                .unwrap()
+                .get(),
+            server_parent
+        );
+
+        // add Replicate on the server side
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_parent)
+            .insert(server::Replicate::default());
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the client parent and child entity both have the Predicted component, and that a confirmed entity has been spawned
+        let parent_predicted = stepper.client_app.world().get::<Predicted>(parent).unwrap();
+        let confirmed_entity = parent_predicted.confirmed_entity.unwrap();
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<Confirmed>(confirmed_entity)
+            .is_some());
+
+        let child_predicted = stepper.client_app.world().get::<Predicted>(child).unwrap();
+        let confirmed_entity = child_predicted.confirmed_entity.unwrap();
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<Confirmed>(confirmed_entity)
+            .is_some());
+    }
+}

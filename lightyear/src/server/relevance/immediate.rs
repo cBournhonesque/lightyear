@@ -327,29 +327,35 @@ mod tests {
     #[test]
     fn test_multiple_relevance_gain() {
         let mut app = App::new();
-        app.world.init_resource::<RelevanceManager>();
-        let entity1 = app.world.spawn(CachedNetworkRelevance::default()).id();
-        let entity2 = app.world.spawn(CachedNetworkRelevance::default()).id();
+        app.world_mut().init_resource::<RelevanceManager>();
+        let entity1 = app
+            .world_mut()
+            .spawn(CachedNetworkRelevance::default())
+            .id();
+        let entity2 = app
+            .world_mut()
+            .spawn(CachedNetworkRelevance::default())
+            .id();
         let client = ClientId::Netcode(1);
 
-        app.world
+        app.world_mut()
             .resource_mut::<RelevanceManager>()
             .gain_relevance(client, entity1);
-        app.world
+        app.world_mut()
             .resource_mut::<RelevanceManager>()
             .gain_relevance(client, entity2);
 
         assert_eq!(
-            app.world
-                .resource_mut::<RelevanceManager>()
+            app.world()
+                .resource::<RelevanceManager>()
                 .events
                 .gained
                 .len(),
             1
         );
         assert_eq!(
-            app.world
-                .resource_mut::<RelevanceManager>()
+            app.world()
+                .resource::<RelevanceManager>()
                 .events
                 .gained
                 .get(&client)
@@ -357,18 +363,18 @@ mod tests {
                 .len(),
             2
         );
-        app.world
+        app.world_mut()
             .run_system_once(systems::update_relevance_from_events);
         assert_eq!(
-            app.world
-                .resource_mut::<RelevanceManager>()
+            app.world()
+                .resource::<RelevanceManager>()
                 .events
                 .gained
                 .len(),
             0
         );
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity1)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -378,7 +384,7 @@ mod tests {
             &ClientRelevance::Gained
         );
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity2)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -391,13 +397,13 @@ mod tests {
         // After we used the relevance events, check how they are updated for bookkeeping
         // - Lost -> removed from cache
         // - Gained -> Maintained
-        app.world
+        app.world_mut()
             .resource_mut::<RelevanceManager>()
             .lose_relevance(client, entity1);
-        app.world
+        app.world_mut()
             .run_system_once(systems::update_relevance_from_events);
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity1)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -407,7 +413,7 @@ mod tests {
             &ClientRelevance::Lost
         );
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity2)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -416,16 +422,17 @@ mod tests {
                 .unwrap(),
             &ClientRelevance::Gained
         );
-        app.world.run_system_once(systems::update_cached_relevance);
+        app.world_mut()
+            .run_system_once(systems::update_cached_relevance);
         assert!(app
-            .world
+            .world()
             .entity(entity1)
             .get::<CachedNetworkRelevance>()
             .unwrap()
             .clients_cache
             .is_empty());
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity2)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()

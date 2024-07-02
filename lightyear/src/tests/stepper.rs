@@ -4,6 +4,7 @@ use std::str::FromStr;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::input::InputPlugin;
 use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
+use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::Duration;
 use bevy::MinimalPlugins;
@@ -15,6 +16,7 @@ use crate::prelude::client::{
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
+use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
 
@@ -93,7 +95,7 @@ impl BevyStepper {
 
         // Setup server
         let mut server_app = App::new();
-        server_app.add_plugins(MinimalPlugins.build());
+        server_app.add_plugins((MinimalPlugins, StatesPlugin));
         let net_config = server::NetConfig::Netcode {
             config: NetcodeConfig::default()
                 .with_protocol_id(protocol_id)
@@ -101,7 +103,7 @@ impl BevyStepper {
             io: server_io,
         };
         let config = ServerConfig {
-            shared: shared_config.clone(),
+            shared: shared_config,
             net: vec![net_config],
             ping: PingConfig {
                 // send pings every tick, so that the acks are received every frame
@@ -115,7 +117,7 @@ impl BevyStepper {
 
         // Setup client
         let mut client_app = App::new();
-        client_app.add_plugins(MinimalPlugins.build());
+        client_app.add_plugins((MinimalPlugins, StatesPlugin));
         let net_config = client::NetConfig::Netcode {
             auth: Authentication::Manual {
                 server_addr: addr,
@@ -127,7 +129,7 @@ impl BevyStepper {
             io: client_io,
         };
 
-        client_config.shared = shared_config.clone();
+        client_config.shared = shared_config;
         client_config.ping = PingConfig {
             // send pings every tick, so that the acks are received every frame
             ping_interval: Duration::default(),
@@ -150,12 +152,12 @@ impl BevyStepper {
         // Initialize Real time (needed only for the first TimeSystem run)
         let now = bevy::utils::Instant::now();
         client_app
-            .world
+            .world_mut()
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
         server_app
-            .world
+            .world_mut()
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
@@ -170,7 +172,7 @@ impl BevyStepper {
     }
 
     pub(crate) fn interpolation_tick(&mut self) -> Tick {
-        self.client_app.world.resource_scope(
+        self.client_app.world_mut().resource_scope(
             |world: &mut World, manager: Mut<client::ConnectionManager>| {
                 manager
                     .sync_manager
@@ -179,27 +181,55 @@ impl BevyStepper {
         )
     }
 
+    pub(crate) fn set_client_tick(&mut self, tick: Tick) {
+        let new_time = WrappedTime::from_duration(self.tick_duration * (tick.0 as u32));
+
+        self.client_app
+            .world_mut()
+            .resource_mut::<TimeManager>()
+            .set_current_time(new_time);
+        self.client_app
+            .world_mut()
+            .resource_mut::<TickManager>()
+            .set_tick_to(tick);
+    }
+
+    pub(crate) fn set_server_tick(&mut self, tick: Tick) {
+        let new_time = WrappedTime::from_duration(self.tick_duration * (tick.0 as u32));
+
+        self.server_app
+            .world_mut()
+            .resource_mut::<TimeManager>()
+            .set_current_time(new_time);
+        self.server_app
+            .world_mut()
+            .resource_mut::<TickManager>()
+            .set_tick_to(tick);
+    }
+
     pub(crate) fn client_tick(&self) -> Tick {
-        self.client_app.world.resource::<TickManager>().tick()
+        self.client_app.world().resource::<TickManager>().tick()
     }
     pub(crate) fn server_tick(&self) -> Tick {
-        self.server_app.world.resource::<TickManager>().tick()
+        self.server_app.world().resource::<TickManager>().tick()
     }
     pub(crate) fn init(&mut self) {
         self.server_app.finish();
+        self.server_app.cleanup();
         self.server_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_app.finish();
+        self.client_app.cleanup();
         self.client_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .is_synced()
             {
@@ -211,17 +241,17 @@ impl BevyStepper {
 
     pub(crate) fn start(&mut self) {
         self.server_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self
                 .client_app
-                .world
+                .world()
                 .resource::<client::ConnectionManager>()
                 .is_synced()
             {
@@ -233,10 +263,10 @@ impl BevyStepper {
 
     pub(crate) fn stop(&mut self) {
         self.server_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.stop_server());
         self.client_app
-            .world
+            .world_mut()
             .run_system_once(|mut commands: Commands| commands.disconnect_client());
 
         // Advance the world to let the disconnection process complete

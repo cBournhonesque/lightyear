@@ -257,7 +257,7 @@ impl ReplicationSender {
     /// Do some internal bookkeeping:
     /// - handle tick wrapping
     pub(crate) fn cleanup(&mut self, tick: Tick) {
-        let delta = (u16::MAX / 3) as i16;
+        let delta = (u16::MAX / 4) as i16;
         // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
         // (meaning that there's no need when we receive the update to check if we have already received a previous action)
         for group_channel in self.group_channels.values_mut() {
@@ -847,7 +847,7 @@ mod tests {
             () => {
                 stepper
                     .server_app
-                    .world
+                    .world()
                     .resource::<ConnectionManager>()
                     .connections
                     .get(&ClientId::Netcode(TEST_CLIENT_ID))
@@ -857,7 +857,7 @@ mod tests {
         }
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((Component1(1.0), Replicate::default()))
             .id();
         stepper.frame_step();
@@ -865,7 +865,7 @@ mod tests {
         // send an update
         stepper
             .server_app
-            .world
+            .world_mut()
             .entity_mut(server_entity)
             .get_mut::<Component1>()
             .unwrap()

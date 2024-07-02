@@ -12,7 +12,7 @@ use crate::channel::builder::{
 
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::client::config::PacketConfig;
+use crate::client::config::ClientConfig;
 use crate::client::error::ClientError;
 use crate::client::message::ClientMessage;
 use crate::client::replication::send::ReplicateCache;
@@ -21,6 +21,7 @@ use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::packet::priority_manager::PriorityConfig;
+use crate::prelude::client::PredictionConfig;
 use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
@@ -112,7 +113,7 @@ impl Default for ConnectionManager {
             replication_sender,
             replication_receiver,
             ping_manager: PingManager::new(PingConfig::default()),
-            sync_manager: SyncManager::new(SyncConfig::default(), 0),
+            sync_manager: SyncManager::new(SyncConfig::default(), PredictionConfig::default()),
             replicate_component_cache: EntityHashMap::default(),
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
@@ -129,18 +130,14 @@ impl ConnectionManager {
         component_registry: &ComponentRegistry,
         message_registry: &MessageRegistry,
         channel_registry: &ChannelRegistry,
-        replication_config: ReplicationConfig,
-        packet_config: PacketConfig,
-        sync_config: SyncConfig,
-        ping_config: PingConfig,
-        input_delay_ticks: u16,
+        client_config: &ClientConfig,
     ) -> Self {
-        let bandwidth_cap_enabled = packet_config.bandwidth_cap_enabled;
+        let bandwidth_cap_enabled = client_config.packet.bandwidth_cap_enabled;
         // create the message manager and the channels
         let mut message_manager = MessageManager::new(
             channel_registry,
-            packet_config.nack_rtt_multiple,
-            packet_config.into(),
+            client_config.packet.nack_rtt_multiple,
+            client_config.packet.into(),
         );
         // get notified when a replication-update message gets acked/nacked
         let entity_updates_sender = &mut message_manager
@@ -157,7 +154,7 @@ impl ConnectionManager {
             update_acks_receiver,
             update_nacks_receiver,
             replication_update_send_receiver,
-            replication_config,
+            client_config.replication,
             bandwidth_cap_enabled,
         );
         let replication_receiver = ReplicationReceiver::new();
@@ -168,8 +165,8 @@ impl ConnectionManager {
             delta_manager: DeltaManager::default(),
             replication_sender,
             replication_receiver,
-            ping_manager: PingManager::new(ping_config),
-            sync_manager: SyncManager::new(sync_config, input_delay_ticks),
+            ping_manager: PingManager::new(client_config.ping),
+            sync_manager: SyncManager::new(client_config.sync, client_config.prediction),
             replicate_component_cache: EntityHashMap::default(),
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]

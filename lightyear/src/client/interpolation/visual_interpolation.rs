@@ -208,13 +208,13 @@ mod tests {
         stepper
             .client_app
             .add_systems(FixedUpdate, fixed_update_increment);
-        stepper.client_app.world.insert_resource(Toggle(true));
+        stepper.client_app.world_mut().insert_resource(Toggle(true));
         stepper
             .client_app
             .add_plugins(VisualInterpolationPlugin::<Component1>::default());
         let entity = stepper
             .client_app
-            .world
+            .world_mut()
             .spawn((
                 Component1(0.0),
                 VisualInterpolateStatus::<Component1>::default(),
@@ -240,7 +240,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -262,7 +262,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.33,
@@ -273,7 +273,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -284,7 +284,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -296,7 +296,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.66,
@@ -307,7 +307,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -318,7 +318,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -330,7 +330,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.00,
@@ -341,7 +341,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -364,7 +364,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.33,
@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -403,7 +403,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.33,
@@ -414,7 +414,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -425,7 +425,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -437,19 +437,19 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.66,
             max_relative = 0.1
         );
 
-        stepper.client_app.world.resource_mut::<Toggle>().0 = false;
+        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = false;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -460,7 +460,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -472,7 +472,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.00,
@@ -483,7 +483,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -494,7 +494,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -506,18 +506,18 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.33,
             max_relative = 0.1
         );
-        stepper.client_app.world.resource_mut::<Toggle>().0 = true;
+        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = true;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -540,7 +540,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.66,
@@ -556,7 +556,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -566,7 +566,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -578,7 +578,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.75,
@@ -589,7 +589,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -600,7 +600,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -612,7 +612,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.5,
@@ -623,7 +623,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -634,7 +634,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -646,7 +646,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.25,
@@ -657,7 +657,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -668,7 +668,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -680,7 +680,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.0,
@@ -691,7 +691,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -702,7 +702,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -714,7 +714,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.75,
@@ -730,7 +730,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -740,7 +740,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -752,7 +752,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.75,
@@ -763,7 +763,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -774,7 +774,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -786,7 +786,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.5,
@@ -797,7 +797,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -808,7 +808,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -820,19 +820,19 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.25,
             max_relative = 0.1
         );
 
-        stepper.client_app.world.resource_mut::<Toggle>().0 = false;
+        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = false;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -843,7 +843,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -855,7 +855,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.0,
@@ -866,7 +866,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -877,7 +877,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -889,19 +889,19 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.75,
             max_relative = 0.1
         );
 
-        stepper.client_app.world.resource_mut::<Toggle>().0 = true;
+        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = true;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<Component1>()
                 .unwrap()
@@ -912,7 +912,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
@@ -924,7 +924,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.5,
