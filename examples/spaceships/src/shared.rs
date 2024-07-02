@@ -115,9 +115,7 @@ pub struct ApplyInputsQuery {
     pub ex_force: &'static mut ExternalForce,
     pub ang_vel: &'static mut AngularVelocity,
     pub rot: &'static Rotation,
-    pub action: &'static ActionState<PlayerActions>,
     pub player: &'static Player,
-    pub input_buffer: &'static InputBuffer<PlayerActions>,
 }
 
 /// applies forces based on action state inputs

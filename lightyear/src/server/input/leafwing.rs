@@ -198,8 +198,10 @@ fn update_action_state<A: LeafwingUserAction>(
 
     for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
         // the state on the server is only updated from client inputs!
-        *action_state = input_buffer.pop(tick).unwrap_or_default();
-        debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
+        if let Some(new_action_state) = input_buffer.pop(tick) {
+            debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
+            *action_state = new_action_state
+        }
     }
 }
 
