@@ -61,13 +61,12 @@ pub(crate) mod send {
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
     use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
     use crate::shared::replication::components::{
-        Controlled, DespawnTracker, Replicating, ReplicationGroupId, ReplicationTarget,
+        Cached, Controlled, Replicating, ReplicationGroupId, ReplicationTarget,
         ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
     use bevy::ecs::component::ComponentTicks;
-    use bevy::ecs::entity::Entities;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
 
@@ -111,29 +110,14 @@ pub(crate) mod send {
                 );
             // SYSTEMS
             app.add_systems(
-                PreUpdate,
-                // we need to add despawn trackers immediately for entities for which we add replicate
-                // TODO: why?
-                handle_replicating_add.after(ServerReplicationSet::ClientReplication),
-            );
-            app.add_systems(
                 PostUpdate,
                 (
-                    // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
-                    //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
-                    //  It is ok to run it every frame because it creates at most one message per despawn
-                    // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
-                    handle_replicating_remove
-                        .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
                     // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
                     //  be careful that newly_connected_client is cleared every send_interval, not every frame.
                     replicate
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferEntityUpdates)
                         .in_set(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates),
-                    replicate_entity_local_despawn
-                        .in_set(InternalReplicationSet::<ServerMarker>::BufferDespawnsAndRemovals),
                     (
-                        handle_replicating_add,
                         handle_replication_target_update,
                         buffer_replication_messages,
                     )
@@ -147,6 +131,8 @@ pub(crate) mod send {
                     // .after(InternalMainSet::<ServerMarker>::SendMessages)
                     .run_if(is_host_server),
             );
+
+            app.observe(replicate_entity_local_despawn);
         }
     }
 
@@ -320,56 +306,29 @@ pub(crate) mod send {
         pub(crate) replication_clients_cache: Vec<ClientId>,
     }
 
-    /// For every entity that removes their ReplicationTarget component but are not despawned, remove the component
-    /// from our replicate cache (so that the entity's despawns are no longer replicated)
-    pub(crate) fn handle_replicating_remove(
-        mut sender: ResMut<ConnectionManager>,
-        mut query: RemovedComponents<Replicating>,
-        entity_check: &Entities,
-    ) {
-        for entity in query.read() {
-            // only do this for entities that still exist
-            if entity_check.contains(entity) {
-                debug!("handling replicating component remove (delete from replicate cache)");
-                sender.replicate_component_cache.remove(&entity);
-                // TODO: should we also remove the replicate-visibility? or should we keep it?
-                // commands.entity(entity).remove::<ReplicateVisibility>();
-            }
-        }
-    }
-
-    /// This system does all the additional bookkeeping required after [`Replicating`] has been added:
-    /// - adds DespawnTracker to each entity that was ever replicated, so that we can track when they are despawned
-    /// (we have a distinction between removing Replicating, which just stops replication; and despawning the entity)
-    /// - adds ReplicateCache for that entity so that when it's removed, we can know how to replicate the despawn
-    /// - adds the ReplicateVisibility component if needed
-    pub(crate) fn handle_replicating_add(
-        mut sender: ResMut<ConnectionManager>,
+    /// Keep a cached version of the [`ReplicationTarget`] component so that when it gets updated
+    /// we can compute a diff with the previous value.
+    ///
+    /// This needs to run after we compute the diff, so after the `replicate` system runs
+    pub(crate) fn handle_replication_target_update(
         mut commands: Commands,
-        // We use `(With<Replicating>, Without<DespawnTracker>)` as an optimization instead of
-        // `Added<Replicating>`
-        query: Query<
+        mut query: Query<
             (
                 Entity,
                 &ReplicationTarget,
-                &ReplicationGroup,
-                &NetworkRelevanceMode,
+                Option<&mut Cached<ReplicationTarget>>,
             ),
-            (With<Replicating>, Without<DespawnTracker>),
+            Changed<ReplicationTarget>,
         >,
     ) {
-        for (entity, replication_target, group, visibility_mode) in query.iter() {
-            debug!("Replicate component was added for entity {entity:?}");
-            commands.entity(entity).insert(DespawnTracker);
-            let despawn_metadata = ReplicateCache {
-                replication_target: replication_target.target.clone(),
-                replication_group: group.clone(),
-                network_relevance_mode: *visibility_mode,
-                replication_clients_cache: vec![],
-            };
-            sender
-                .replicate_component_cache
-                .insert(entity, despawn_metadata);
+        for (entity, replication_target, cached) in query.iter_mut() {
+            if let Some(mut cached) = cached {
+                cached.value = replication_target.clone();
+            } else {
+                commands.entity(entity).insert(Cached {
+                    value: replication_target.clone(),
+                });
+            }
         }
     }
 
@@ -416,6 +375,7 @@ pub(crate) mod send {
                     g.group_id(Some(entity.id()))
                 });
                 let priority = group.map_or(1.0, |g| g.priority());
+                let cached_replication_target = entity_ref.get::<Cached<ReplicationTarget>>();
                 let visibility = entity_ref.get::<CachedNetworkRelevance>();
                 let sync_target = entity_ref.get::<SyncTarget>();
                 let target_entity = entity_ref.get::<TargetEntity>();
@@ -448,6 +408,7 @@ pub(crate) mod send {
                     entity.id(),
                     group_id,
                     &replication_target,
+                    cached_replication_target,
                     visibility,
                     &mut sender,
                 );
@@ -457,6 +418,7 @@ pub(crate) mod send {
                     &component_registry,
                     entity.id(),
                     &replication_target,
+                    cached_replication_target,
                     group_id,
                     priority,
                     controlled_by,
@@ -526,6 +488,7 @@ pub(crate) mod send {
         component_registry: &ComponentRegistry,
         entity: Entity,
         replication_target: &Ref<ReplicationTarget>,
+        cached_replication_target: Option<&Cached<ReplicationTarget>>,
         group_id: ReplicationGroupId,
         priority: f32,
         controlled_by: Option<&ControlledBy>,
@@ -580,10 +543,11 @@ pub(crate) mod send {
                     target = replication_target.target.clone();
                 } else if replication_target.is_changed() {
                     target = replication_target.target.clone();
-                    if let Some(cached_replicate) = sender.replicate_component_cache.get(&entity) {
+                    // if the replication target changed (for example from [1] to [1, 2]), do not replicate again to [1]
+                    if let Some(cached_target) = cached_replication_target {
                         // do not re-send a spawn message to the clients for which we already have
                         // replicated the entity
-                        target.exclude(&cached_replicate.replication_target)
+                        target.exclude(&cached_target.value.target)
                     }
                 }
 
@@ -669,37 +633,38 @@ pub(crate) mod send {
     /// Despawn entities when the entity gets despawned on local world
     /// Needs to run once per frame instead of every send_interval because the RemovedComponents Events are present only for 1 frame
     pub(crate) fn replicate_entity_local_despawn(
-        // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
-        //  not just entities that had despawn tracker once
-        mut despawn_removed: RemovedComponents<DespawnTracker>,
-        mut sender: ResMut<ConnectionManager>,
+        // we use the removal of ReplicationGroup to detect the despawn
+        trigger: Trigger<OnRemove, ReplicationGroup>,
+        // only replicate despawns to entities that still had Replicating at the time of their despawn
+        query: Query<
+            (
+                &ReplicationGroup,
+                &ReplicationTarget,
+                Option<&CachedNetworkRelevance>,
+            ),
+            With<Replicating>,
+        >,
+        sender: Option<ResMut<ConnectionManager>>,
     ) {
-        for entity in despawn_removed.read() {
-            trace!("DespawnTracker component got removed, preparing entity despawn message!");
-            // TODO: we still don't want to replicate the despawn if the entity was not in the same room as the client!
-            // only replicate the despawn if the entity still had a Replicate component
-            if let Some(replicate_cache) = sender.replicate_component_cache.remove(&entity) {
-                // TODO: DO NOT SEND ENTITY DESPAWN TO THE CLIENT WHO JUST DISCONNECTED!
-                let mut network_target = replicate_cache.replication_target;
-
-                // TODO: for this to work properly, we need the replicate stored in `sender.get_mut_replicate_component_cache()`
-                //  to be updated for every replication change! Wait for observers instead.
-                //  How did it work on the `main` branch? was there something else making it work? Maybe the
-                //  update replicate ran before
-                if replicate_cache.network_relevance_mode
-                    == NetworkRelevanceMode::InterestManagement
-                {
-                    // if the mode was room, only replicate the despawn to clients that were in the same room
-                    network_target.intersection(&NetworkTarget::Only(
-                        replicate_cache.replication_clients_cache,
-                    ));
+        let entity = trigger.entity();
+        if let Ok((replication_group, network_target, cached_relevance)) = query.get(entity) {
+            if let Some(mut sender) = sender {
+                trace!(?entity, "Replicate entity despawn");
+                // only send the despawn to clients who were in the target of the entity
+                let mut target = network_target.clone().target;
+                // only send the despawn to clients that had visibility of the entity
+                if let Some(network_relevance) = cached_relevance {
+                    // TODO: optimize this in cases like All/None/Single/ExceptSingle
+                    target.intersection(&NetworkTarget::Only(
+                        network_relevance.clients_cache.keys().copied().collect(),
+                    ))
                 }
-                trace!(?entity, ?network_target, "send entity despawn");
+                trace!(?entity, ?target, "send entity despawn");
                 let _ = sender
                     .prepare_entity_despawn(
                         entity,
-                        replicate_cache.replication_group.group_id(Some(entity)),
-                        network_target,
+                        replication_group.group_id(Some(entity)),
+                        target,
                     )
                     // TODO: bubble up errors to user via ConnectionEvents?
                     .inspect_err(|e| {
@@ -716,6 +681,7 @@ pub(crate) mod send {
         entity: Entity,
         group_id: ReplicationGroupId,
         replication_target: &Ref<ReplicationTarget>,
+        cached_replication_target: Option<&Cached<ReplicationTarget>>,
         visibility: Option<&CachedNetworkRelevance>,
         sender: &mut ConnectionManager,
     ) {
@@ -743,8 +709,9 @@ pub(crate) mod send {
         };
         // 2. if the replication target changed, find the clients that were removed in the new replication target
         if replication_target.is_changed() && !replication_target.is_added() {
-            if let Some(cache) = sender.replicate_component_cache.get_mut(&entity) {
-                let mut new_despawn = cache.replication_target.clone();
+            if let Some(cached_target) = cached_replication_target {
+                // get targets that we had before but not anymore
+                let mut new_despawn = cached_target.value.target.clone();
                 new_despawn.exclude(&replication_target.target);
                 target.union(&new_despawn);
             }
@@ -979,27 +946,6 @@ pub(crate) mod send {
                 let _ = sender.prepare_component_remove(entity, kind, group, target);
             }
         })
-    }
-
-    /// Update the replication_target in the cache when the ReplicationTarget component changes
-    pub(crate) fn handle_replication_target_update(
-        mut sender: ResMut<ConnectionManager>,
-        target_query: Query<
-            (Entity, Ref<ReplicationTarget>),
-            (
-                Changed<ReplicationTarget>,
-                With<Replicating>,
-                With<DespawnTracker>,
-            ),
-        >,
-    ) {
-        for (entity, replication_target) in target_query.iter() {
-            if replication_target.is_changed() && !replication_target.is_added() {
-                if let Some(replicate_cache) = sender.replicate_component_cache.get_mut(&entity) {
-                    replicate_cache.replication_target = replication_target.target.clone();
-                }
-            }
-        }
     }
 
     pub(crate) fn register_replicate_component_send<C: Component>(app: &mut App) {
@@ -2889,42 +2835,6 @@ pub(crate) mod send {
                 .is_none());
         }
 
-        #[test]
-        fn test_replicating_add() {
-            let mut stepper = BevyStepper::default();
-
-            let server_entity = stepper
-                .server_app
-                .world_mut()
-                .spawn(Replicate::default())
-                .id();
-            stepper.frame_step();
-
-            // check that a DespawnTracker was added
-            assert!(stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<DespawnTracker>()
-                .is_some());
-            // check that a ReplicateCache was added
-            assert_eq!(
-                stepper
-                    .server_app
-                    .world()
-                    .resource::<ConnectionManager>()
-                    .replicate_component_cache
-                    .get(&server_entity)
-                    .expect("ReplicateCache missing"),
-                &ReplicateCache {
-                    replication_target: NetworkTarget::All,
-                    replication_group: ReplicationGroup::new_from_entity(),
-                    network_relevance_mode: NetworkRelevanceMode::All,
-                    replication_clients_cache: vec![],
-                }
-            );
-        }
-
         /// Check that if we switch the visibility mode, the entity gets spawned
         /// to the clients that now have visibility
         #[test]
@@ -3065,17 +2975,17 @@ pub(crate) mod send {
 }
 
 pub(crate) mod commands {
-    use crate::server::connection::ConnectionManager;
-
+    use crate::prelude::Replicating;
     use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {
-        let mut sender = world.resource_mut::<ConnectionManager>();
-        // remove the entity from the cache of entities that are being replicated
-        // so that if it gets despawned, the despawn won't be replicated
-        sender.replicate_component_cache.remove(&entity);
-        world.despawn(entity);
+        // remove replicating separately so that when we despawn the entity and trigger the observer
+        // the entity doesn't have replicating anymore
+        if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.remove::<Replicating>();
+            entity_mut.despawn();
+        }
     }
 
     pub trait DespawnReplicationCommandExt {
@@ -3090,7 +3000,7 @@ pub(crate) mod commands {
 
     #[cfg(test)]
     mod tests {
-        use bevy::utils::Duration;
+        use bevy::prelude::With;
 
         use crate::prelude::server::Replicate;
         use crate::tests::protocol::*;
@@ -3098,11 +3008,8 @@ pub(crate) mod commands {
 
         use super::*;
 
-        // TODO: simplify tests, we don't need a client-server connection here
         #[test]
         fn test_despawn() {
-            let tick_duration = Duration::from_millis(10);
-            let frame_duration = Duration::from_millis(10);
             let mut stepper = BevyStepper::default();
 
             let entity = stepper
@@ -3112,15 +3019,15 @@ pub(crate) mod commands {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            assert!(stepper
+            let client_entity = stepper
                 .client_app
                 .world_mut()
-                .query::<&Component1>()
+                .query_filtered::<Entity, With<Component1>>()
                 .get_single(stepper.client_app.world())
-                .is_ok());
+                .unwrap();
 
-            // if we remove the Replicate component, and then despawn the entity
-            // the despawn still gets replicated
+            // if we remove the Replicate bundle directly, and then despawn the entity
+            // the despawn still gets replicated (because we removed ReplicationTarget while Replicating is still present)
             stepper
                 .server_app
                 .world_mut()
