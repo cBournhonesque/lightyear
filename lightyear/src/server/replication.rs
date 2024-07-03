@@ -51,7 +51,6 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
-    use crate::prelude::server::RoomManager;
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponent, NetworkRelevanceMode,
         OverrideTargetComponent, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
@@ -645,7 +644,7 @@ pub(crate) mod send {
             ),
             With<Replicating>,
         >,
-        mut sender: Option<ResMut<ConnectionManager>>,
+        sender: Option<ResMut<ConnectionManager>>,
     ) {
         let entity = trigger.entity();
         if let Ok((replication_group, network_target, cached_relevance)) = query.get(entity) {
@@ -3027,62 +3026,50 @@ pub(crate) mod commands {
                 .get_single(stepper.client_app.world())
                 .unwrap();
 
-            // stepper
-            //     .client_app
-            //     .world_mut()
-            //     .entity_mut(client_entity)
-            //     .remove::<Component1>();
-            // stepper.frame_step();
-
             // if we remove the Replicate bundle directly, and then despawn the entity
-            // the despawn still gets replicated
+            // the despawn still gets replicated (because we removed ReplicationTarget while Replicating is still present)
             stepper
                 .server_app
                 .world_mut()
                 .entity_mut(entity)
-                .remove::<Component1>();
-            // stepper
-            //     .server_app
-            //     .world_mut()
-            //     .entity_mut(entity)
-            //     .remove::<Replicate>();
-            // stepper.server_app.world_mut().entity_mut(entity).despawn();
+                .remove::<Replicate>();
+            stepper.server_app.world_mut().entity_mut(entity).despawn();
             stepper.frame_step();
             stepper.frame_step();
-            //
-            // assert!(stepper
-            //     .client_app
-            //     .world_mut()
-            //     .query::<&Component1>()
-            //     .get_single(stepper.client_app.world())
-            //     .is_err());
-            //
-            // // spawn a new entity
-            // let entity = stepper
-            //     .server_app
-            //     .world_mut()
-            //     .spawn((Component1(1.0), Replicate::default()))
-            //     .id();
-            // stepper.frame_step();
-            // stepper.frame_step();
-            // assert!(stepper
-            //     .client_app
-            //     .world_mut()
-            //     .query::<&Component1>()
-            //     .get_single(stepper.client_app.world())
-            //     .is_ok());
-            //
-            // // apply the command to remove replicate
-            // despawn_without_replication(entity, stepper.server_app.world_mut());
-            // stepper.frame_step();
-            // stepper.frame_step();
-            // // now the despawn should not have been replicated
-            // assert!(stepper
-            //     .client_app
-            //     .world_mut()
-            //     .query::<&Component1>()
-            //     .get_single(stepper.client_app.world())
-            //     .is_ok());
+
+            assert!(stepper
+                .client_app
+                .world_mut()
+                .query::<&Component1>()
+                .get_single(stepper.client_app.world())
+                .is_err());
+
+            // spawn a new entity
+            let entity = stepper
+                .server_app
+                .world_mut()
+                .spawn((Component1(1.0), Replicate::default()))
+                .id();
+            stepper.frame_step();
+            stepper.frame_step();
+            assert!(stepper
+                .client_app
+                .world_mut()
+                .query::<&Component1>()
+                .get_single(stepper.client_app.world())
+                .is_ok());
+
+            // apply the command to remove replicate
+            despawn_without_replication(entity, stepper.server_app.world_mut());
+            stepper.frame_step();
+            stepper.frame_step();
+            // now the despawn should not have been replicated
+            assert!(stepper
+                .client_app
+                .world_mut()
+                .query::<&Component1>()
+                .get_single(stepper.client_app.world())
+                .is_ok());
         }
     }
 }
