@@ -52,6 +52,7 @@ impl PlayerBundle {
                 },
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(id),
+                    ..default()
                 },
                 // the default is: the replication group id is a u64 value generated from the entity (`entity.to_bits()`)
                 group: ReplicationGroup::default(),
@@ -78,6 +79,7 @@ impl TailBundle {
                 },
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(id),
+                    ..default()
                 },
                 // replicate this entity within the same replication group as the parent
                 group: ReplicationGroup::default().set_id(parent.to_bits()),
@@ -149,13 +151,13 @@ impl PlayerPosition {
     }
 }
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerColor(pub(crate) Color);
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct TailLength(pub(crate) f32);
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 // tail inflection points, from front (point closest to the head) to back (tail end point)
 pub struct TailPoints(pub(crate) VecDeque<(Vec2, Direction)>);
 
@@ -229,7 +231,7 @@ pub struct Message1(pub usize);
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Default, Reflect)]
 // To simplify, we only allow one direction at a time
 pub enum Direction {
     #[default]
