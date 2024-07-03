@@ -143,7 +143,7 @@ impl Plugin for SharedPlugin {
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
         app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
             .add_map_entities();
-        app.register_component::<Controlled>(ChannelDirection::Bidirectional)
+        app.register_component::<Controlled>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
         // check that the protocol was built correctly

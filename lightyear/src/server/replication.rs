@@ -271,7 +271,11 @@ pub(crate) mod send {
             // also insert [`Controlled`] on the entity if it's controlled by the local client
             if let Some(controlled_by) = controlled_by {
                 if controlled_by.is_changed() && controlled_by.targets(&local_client) {
-                    commands.entity(entity).insert(Controlled);
+                    commands
+                        .entity(entity)
+                        // NOTE: do not replicate this Controlled to other clients, or they will
+                        // think they control this entity
+                        .insert((Controlled, DisabledComponent::<Controlled>::default()));
                 }
             }
             if (replication_target.is_changed()) && replication_target.target.targets(&local_client)
