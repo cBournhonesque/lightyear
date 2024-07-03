@@ -15,7 +15,7 @@ use crate::client::prediction::despawn::{
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
 use crate::client::prediction::predicted_history::{
-    add_prespawned_component_history, update_prediction_history,
+    add_prespawned_component_history, apply_component_removal, update_prediction_history,
 };
 use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
@@ -176,6 +176,7 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {
+    app.observe(apply_component_removal::<C>);
     app.add_systems(
         PreUpdate,
         (
@@ -295,21 +296,17 @@ impl Plugin for PredictionPlugin {
         app.add_systems(
             PreUpdate,
             (
-                (
-                    // - we first check if the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted
-                    // - then we check if it is a PrePredicted entity. If match, remove ShouldBePredicted
-                    // - then we check if we should spawn a new predicted entity
-                    spawn_predicted_entity
-                        .after(PreSpawnedPlayerObjectSet::Spawn)
-                        .after(PrePredictionSet::Spawn),
-                    // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
-                    //  not at every fixed-update tick, since it only depends on server messages
-                    despawn_confirmed,
-                )
+                // - we first check if the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted
+                // - then we check if it is a PrePredicted entity. If match, remove ShouldBePredicted
+                // - then we check if we should spawn a new predicted entity
+                spawn_predicted_entity
+                    .after(PreSpawnedPlayerObjectSet::Spawn)
+                    .after(PrePredictionSet::Spawn)
                     .in_set(PredictionSet::SpawnPrediction),
                 run_rollback.in_set(PredictionSet::Rollback),
             ),
         );
+        app.observe(despawn_confirmed);
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)

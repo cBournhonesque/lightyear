@@ -1,8 +1,8 @@
 use bevy::ecs::system::EntityCommands;
 use bevy::ecs::world::Command;
 use bevy::prelude::{
-    Commands, Component, DespawnRecursiveExt, Entity, Query, Reflect, RemovedComponents, Res,
-    ResMut, With, Without, World,
+    Commands, Component, DespawnRecursiveExt, Entity, OnRemove, Query, Reflect, Res, ResMut,
+    Trigger, With, Without, World,
 };
 use tracing::{debug, error, trace};
 
@@ -87,20 +87,18 @@ impl PredictionDespawnCommandsExt for EntityCommands<'_> {
 
 /// Despawn predicted entities when the confirmed entity gets despawned
 pub(crate) fn despawn_confirmed(
+    trigger: Trigger<OnRemove, Confirmed>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
-    mut query: RemovedComponents<Confirmed>,
 ) {
-    for confirmed_entity in query.read() {
-        if let Some(predicted) = manager
-            .predicted_entity_map
-            .get_mut()
-            .confirmed_to_predicted
-            .remove(&confirmed_entity)
-        {
-            if let Some(entity_mut) = commands.get_entity(predicted) {
-                entity_mut.despawn_recursive();
-            }
+    if let Some(predicted) = manager
+        .predicted_entity_map
+        .get_mut()
+        .confirmed_to_predicted
+        .remove(&trigger.entity())
+    {
+        if let Some(entity_mut) = commands.get_entity(predicted) {
+            entity_mut.despawn_recursive();
         }
     }
 }

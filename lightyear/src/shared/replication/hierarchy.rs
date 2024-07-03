@@ -139,31 +139,27 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
     /// Update ParentSync if the parent has been removed
     ///
     /// This only runs on the sending side
-    fn removal_system(
-        mut removed_parents: RemovedComponents<Parent>,
+    fn handle_parent_remove(
+        trigger: Trigger<OnRemove, Parent>,
         mut hierarchy: Query<&mut ParentSync, With<ReplicateHierarchy>>,
     ) {
-        for entity in removed_parents.read() {
-            if let Ok(mut parent_sync) = hierarchy.get_mut(entity) {
-                parent_sync.0 = None;
-            }
+        if let Ok(mut parent_sync) = hierarchy.get_mut(trigger.entity()) {
+            parent_sync.0 = None;
         }
     }
 }
 
 impl<R: ReplicationSend> Plugin for HierarchySendPlugin<R> {
     fn build(&self, app: &mut App) {
+        app.observe(Self::handle_parent_remove);
         app.add_systems(
             PostUpdate,
             (
-                (
-                    // we copy PrePredicted to children before we set the correct value of the PrePredicted entity
-                    Self::propagate_replicate.before(PrePredictionSet::Fill),
-                    Self::update_parent_sync,
-                )
-                    .chain(),
-                Self::removal_system,
+                // we copy PrePredicted to children before we set the correct value of the PrePredicted entity
+                Self::propagate_replicate.before(PrePredictionSet::Fill),
+                Self::update_parent_sync,
             )
+                .chain()
                 // we don't need to run these every frame, only every send_interval
                 .in_set(InternalReplicationSet::<R::SetMarker>::SendMessages)
                 // run before the replication-send systems

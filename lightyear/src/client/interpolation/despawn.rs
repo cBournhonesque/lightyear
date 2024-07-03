@@ -22,8 +22,7 @@ pub(crate) fn removed_components<C: SyncComponent>(
 
 /// Despawn interpolated entities when the confirmed entity gets despawned
 // TODO: we should despawn interpolated only when it reaches the latest confirmed snapshot?
-//  might not be super straightforward because RemovedComponents lasts only one frame. I suppose
-//  we could add a DespawnedMarker, and the entity would get despawned as soon as it reaches the end of interpolation...
+//  I suppose  we could add a DespawnedMarker, and the entity would get despawned as soon as it reaches the end of interpolation...
 //  not super priority but would be a nice to have
 pub(crate) fn despawn_interpolated(
     trigger: Trigger<OnRemove, Confirmed>,

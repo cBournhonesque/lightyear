@@ -3,7 +3,7 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, With,
+    Commands, Component, DetectChanges, Entity, OnRemove, Or, Query, Ref, Res, Trigger, With,
     Without,
 };
 use tracing::{debug, trace};
@@ -220,10 +220,10 @@ fn add_history<C: SyncComponent>(
 }
 
 /// If ComponentSyncMode::Full, we store every update on the predicted entity in the PredictionHistory
+///
+/// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: SyncComponent>(
     mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
-    mut removed_component: RemovedComponents<T>,
-    mut removed_entities: Query<&mut PredictionHistory<T>, Without<T>>,
     tick_manager: Res<TickManager>,
     rollback: Res<Rollback>,
 ) {
@@ -237,9 +237,36 @@ pub(crate) fn update_prediction_history<T: SyncComponent>(
             history.add_update(tick, component.deref().clone());
         }
     }
-    for entity in removed_component.read() {
-        if let Ok(mut history) = removed_entities.get_mut(entity) {
-            history.add_remove(tick);
+}
+
+/// Handle component removals:
+/// - If the component was removed from the Confirmed entity, also remove it from the Predicted entity
+/// - If the component was removed from the Predicted entity, add the Removal to the history
+pub(crate) fn apply_component_removal<C: SyncComponent>(
+    trigger: Trigger<OnRemove, C>,
+    mut commands: Commands,
+    // TODO: why do I need these options? why are these resources not present when the observer runs?
+    tick_manager: Option<Res<TickManager>>,
+    rollback: Option<Res<Rollback>>,
+    mut predicted_query: Query<&mut PredictionHistory<C>>,
+    confirmed_query: Query<&Confirmed>,
+) {
+    // TODO: do not run this if component-sync-mode == ONCE
+    // Components that are removed from the Confirmed entity also get removed from the Predicted entity
+    if let Ok(confirmed) = confirmed_query.get(trigger.entity()) {
+        if let Some(p) = confirmed.predicted {
+            commands.entity(p).remove::<C>();
+        }
+    }
+    // TODO: do not run this if component-sync-mode != FULL
+    // if the component was removed from the Predicted entity, add the Removal to the history
+    if let Ok(mut history) = predicted_query.get_mut(trigger.entity()) {
+        if let Some(tick_manager) = tick_manager {
+            if let Some(rollback) = rollback {
+                // tick for which we will record the history (either the current client tick or the current rollback tick)
+                let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
+                history.add_remove(tick);
+            }
         }
     }
 }
@@ -247,7 +274,6 @@ pub(crate) fn update_prediction_history<T: SyncComponent>(
 /// If ComponentSyncMode == Simple, when we receive a server update we want to apply it to the predicted entity
 #[allow(clippy::type_complexity)]
 pub(crate) fn apply_confirmed_update<C: SyncComponent>(
-    mut commands: Commands,
     component_registry: Res<ComponentRegistry>,
     manager: Res<PredictionManager>,
     mut predicted_entities: Query<
@@ -259,8 +285,6 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
         ),
     >,
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
-    mut removed_component: RemovedComponents<C>,
-    removed_entities: Query<&Confirmed>,
 ) {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.predicted {
@@ -275,14 +299,6 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
                     let _ = manager.map_entities(&mut component, component_registry.as_ref());
                     *predicted_component = component;
                 }
-            }
-        }
-    }
-    // Components that are removed from the Confirmed entity also get removed from the Predicted entity
-    for entity in removed_component.read() {
-        if let Ok(confirmed) = removed_entities.get(entity) {
-            if let Some(p) = confirmed.predicted {
-                commands.entity(p).remove::<C>();
             }
         }
     }
