@@ -81,10 +81,13 @@ pub enum TargetEntity {
 }
 
 /// Component that defines how the hierarchy of an entity (parent/children) should be replicated
+///
+/// If the component is absent, the [`Parent`]/[`Children`] components will not be replicated.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ReplicateHierarchy {
     /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
+    ///
     /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
     /// and `ParentSync` components to the children yourself
     pub recursive: bool,

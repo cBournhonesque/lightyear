@@ -631,7 +631,6 @@ pub(crate) mod send {
     }
 
     /// Despawn entities when the entity gets despawned on local world
-    /// Needs to run once per frame instead of every send_interval because the RemovedComponents Events are present only for 1 frame
     pub(crate) fn replicate_entity_local_despawn(
         // we use the removal of ReplicationGroup to detect the despawn
         trigger: Trigger<OnRemove, ReplicationGroup>,
