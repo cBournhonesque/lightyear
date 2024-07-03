@@ -109,6 +109,11 @@ pub(crate) mod send {
                     ),
                 );
 
+            // TODO: since we use observers, we could buffer a component add/remove/add within a single replication interval!
+            //  need to use a hashmap in the buffer logic to have only a single add or remove..
+            //  if we have an Add and we already had buffered a remove, keep only the Add (because at the time of sending,
+            //    the component is there)
+            // TODO: or maybe don't use observers for buffering component removes..
             app.observe(send_entity_despawn);
         }
     }
@@ -493,13 +498,15 @@ pub(crate) mod send {
     /// Send component remove
     pub(crate) fn send_component_removed<C: Component>(
         trigger: Trigger<OnRemove, C>,
+        // TODO: despawn/respawn the observers if we are not connected/ready to send?
+        // need to use options because this system could get triggered when those resources don't exist
         registry: Option<Res<ComponentRegistry>>,
+        sender: Option<ResMut<ConnectionManager>>,
         // only remove the component for entities that are being actively replicated
         query: Query<
             (&ReplicationGroup, Has<DisabledComponent<C>>),
             (With<Replicating>, With<ReplicateToServer>),
         >,
-        mut sender: ResMut<ConnectionManager>,
     ) {
         let entity = trigger.entity();
         if let Ok((group, disabled)) = query.get(entity) {
@@ -510,10 +517,12 @@ pub(crate) mod send {
             let group_id = group.group_id(Some(entity));
             trace!(?entity, kind = ?std::any::type_name::<C>(), "Sending RemoveComponent");
             if let Some(registry) = registry {
-                let kind = registry.net_id::<C>();
-                sender
-                    .replication_sender
-                    .prepare_component_remove(entity, group_id, kind);
+                if let Some(mut sender) = sender {
+                    let kind = registry.net_id::<C>();
+                    sender
+                        .replication_sender
+                        .prepare_component_remove(entity, group_id, kind);
+                }
             }
         }
     }

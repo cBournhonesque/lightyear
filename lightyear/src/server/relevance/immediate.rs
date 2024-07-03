@@ -23,7 +23,6 @@ fn my_system(
 }
 ```
 */
-use crate::prelude::server::ConnectionManager;
 use crate::prelude::{is_started, ClientId};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 use bevy::ecs::entity::EntityHashSet;
@@ -212,52 +211,6 @@ pub(super) mod systems {
             // error!("replicate.clients_cache: {0:?}", replicate.clients_cache);
         }
     }
-
-    /// Whenever the relevance of an entity changes, update the replication metadata cache
-    /// so that we can correctly replicate the despawn to the correct clients
-    pub(super) fn update_replication_cache(
-        mut sender: ResMut<ConnectionManager>,
-        mut query: Query<(
-            Entity,
-            Ref<NetworkRelevanceMode>,
-            Option<&CachedNetworkRelevance>,
-        )>,
-    ) {
-        for (entity, relevance_mode, cached_relevance) in query.iter_mut() {
-            match relevance_mode.as_ref() {
-                NetworkRelevanceMode::InterestManagement => {
-                    if relevance_mode.is_changed() {
-                        if let Some(cache) = sender.replicate_component_cache.get_mut(&entity) {
-                            cache.network_relevance_mode = NetworkRelevanceMode::InterestManagement;
-                            if let Some(replicate_relevance) = cached_relevance {
-                                cache.replication_clients_cache = replicate_relevance
-                                    .clients_cache
-                                    .iter()
-                                    .filter_map(|(client, relevance)| {
-                                        if *relevance != ClientRelevance::Lost {
-                                            Some(*client)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .collect();
-                            } else {
-                                cache.replication_clients_cache.clear();
-                            }
-                        }
-                    }
-                }
-                NetworkRelevanceMode::All => {
-                    if relevance_mode.is_changed() && !relevance_mode.is_added() {
-                        if let Some(cache) = sender.replicate_component_cache.get_mut(&entity) {
-                            cache.network_relevance_mode = NetworkRelevanceMode::All;
-                            cache.replication_clients_cache.clear();
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// System sets related to Network Relevance
@@ -310,8 +263,6 @@ impl Plugin for NetworkRelevancePlugin {
                 systems::add_cached_network_relevance
                     .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
                 systems::update_relevance_from_events.in_set(NetworkRelevanceSet::UpdateRelevance),
-                systems::update_replication_cache
-                    .in_set(InternalReplicationSet::<ServerMarker>::AfterBuffer),
                 systems::update_cached_relevance.in_set(NetworkRelevanceSet::RelevanceCleanup),
             ),
         );

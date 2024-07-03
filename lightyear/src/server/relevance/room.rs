@@ -50,7 +50,6 @@ use crate::connection::id::ClientId;
 use crate::prelude::is_started;
 
 use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceManager};
-use crate::shared::replication::components::DespawnTracker;
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
@@ -134,9 +133,6 @@ pub enum RoomSystemSets {
     /// Use all the room events that happened, and use those to update
     /// the replication caches
     UpdateReplicationCaches,
-    /// Perform bookkeeping for the rooms
-    /// (remove despawned entities, update the replication caches, etc.)
-    RoomBookkeeping,
 }
 
 impl Plugin for RoomPlugin {
@@ -151,28 +147,24 @@ impl Plugin for RoomPlugin {
                     // the room events must be processed before the relevance events
                     RoomSystemSets::UpdateReplicationCaches,
                     NetworkRelevanceSet::UpdateRelevance,
-                    RoomSystemSets::RoomBookkeeping,
                 )
                     .run_if(is_started)
                     .chain(),
                 // the room systems can run every send_interval
-                (
-                    RoomSystemSets::UpdateReplicationCaches,
-                    RoomSystemSets::RoomBookkeeping,
-                )
+                RoomSystemSets::UpdateReplicationCaches
                     .in_set(InternalReplicationSet::<ServerMarker>::SendMessages), // .run_if(is_server_ready_to_send),
             ),
         );
         // SYSTEMS
-        app.observe(systems::handle_client_disconnect);
         app.add_systems(
             PostUpdate,
             (
                 systems::buffer_room_relevance_events
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
-                systems::clean_entity_despawns.in_set(RoomSystemSets::RoomBookkeeping),
             ),
         );
+        app.observe(systems::handle_client_disconnect);
+        app.observe(systems::clean_entity_despawns);
     }
 }
 
@@ -406,6 +398,7 @@ impl RoomEvents {
 
 pub(super) mod systems {
     use super::*;
+    use crate::prelude::ReplicationGroup;
     use crate::server::events::DisconnectEvent;
     use bevy::prelude::Trigger;
 
@@ -480,12 +473,11 @@ pub(super) mod systems {
 
     /// Clear out the room metadata for any entity that was ever replicated
     pub fn clean_entity_despawns(
+        // we use the removal of ReplicationGroup to detect if the entity was despawned
+        trigger: Trigger<OnRemove, ReplicationGroup>,
         mut room_manager: ResMut<RoomManager>,
-        mut despawned: RemovedComponents<DespawnTracker>,
     ) {
-        for entity in despawned.read() {
-            room_manager.entity_despawn(entity);
-        }
+        room_manager.entity_despawn(trigger.entity());
     }
 }
 
@@ -502,7 +494,6 @@ mod tests {
         add_cached_network_relevance, update_relevance_from_events,
     };
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
-    use crate::server::replication::send::handle_replicating_add;
     use crate::shared::replication::components::NetworkRelevanceMode;
     use crate::tests::stepper::{BevyStepper, Step};
 
@@ -534,10 +525,6 @@ mod tests {
                 ..Default::default()
             })
             .id();
-        stepper
-            .server_app
-            .world_mut()
-            .run_system_once(handle_replicating_add);
 
         stepper.frame_step();
         stepper.frame_step();
@@ -709,10 +696,6 @@ mod tests {
                 ..Default::default()
             })
             .id();
-        stepper
-            .server_app
-            .world_mut()
-            .run_system_once(handle_replicating_add);
         stepper
             .server_app
             .world_mut()

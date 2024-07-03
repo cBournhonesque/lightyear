@@ -39,7 +39,6 @@ use crate::server::config::PacketConfig;
 use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
 use crate::server::relevance::error::RelevanceError;
-use crate::server::replication::send::ReplicateCache;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
@@ -65,11 +64,6 @@ pub struct ConnectionManager {
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents,
     pub(crate) delta_manager: DeltaManager,
-
-    // NOTE: we put this here because we only need one per world, not one per connection
-    /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
-    /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
-    pub(crate) replicate_component_cache: EntityHashMap<Entity, ReplicateCache>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
@@ -109,7 +103,6 @@ impl ConnectionManager {
             channel_registry,
             events: ServerEvents::new(),
             delta_manager: DeltaManager::default(),
-            replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             replication_config,
