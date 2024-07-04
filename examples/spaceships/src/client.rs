@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
+use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::Controlled;
@@ -27,7 +28,9 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             FixedUpdate,
             (
-                player_movement,
+                // in host-server, we don't want to run the movement logic twice
+                // disable this because we also run the movement logic in the server
+                player_movement.run_if(not(is_host_server)),
                 // we don't spawn bullets during rollback.
                 // if we have the inputs early (so not in rb) then we spawn,
                 // otherwise we rely on normal server replication to spawn them
@@ -171,7 +174,14 @@ fn handle_hit_event(
 
 // only apply movements to predicted entities
 fn player_movement(
-    mut q: Query<ApplyInputsQuery, (With<Player>, With<Predicted>)>,
+    mut q: Query<
+        (
+            &ActionState<PlayerActions>,
+            &InputBuffer<PlayerActions>,
+            ApplyInputsQuery,
+        ),
+        (With<Player>, With<Predicted>),
+    >,
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
 ) {
@@ -183,12 +193,7 @@ fn player_movement(
         .map(|rb| tick_manager.tick_or_rollback_tick(rb))
         .unwrap_or(tick_manager.tick());
 
-    for mut aiq in q.iter_mut() {
-        let ApplyInputsQueryItem {
-            input_buffer,
-            action: action_state,
-            ..
-        } = aiq;
+    for (action_state, input_buffer, mut aiq) in q.iter_mut() {
         // is the current ActionState for real?
         if input_buffer.get(tick).is_some() {
             // Got an exact input for this tick, staleness = 0, the happy path.

@@ -278,6 +278,11 @@ fn rebuild_server_connections(world: &mut World) {
         server_config.packet,
         server_config.ping,
     );
+    // // make sure the previous replication metadata is ported over to the new manager
+    // if let Some(mut previous_manager) = world.get_resource_mut::<ConnectionManager>() {
+    //     connection_manager.replicate_component_cache =
+    //         std::mem::take(&mut previous_manager.replicate_component_cache);
+    // }
     world.insert_resource(connection_manager);
 
     // rebuild the server connections and insert them

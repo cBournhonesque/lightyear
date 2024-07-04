@@ -221,8 +221,6 @@ pub(crate) mod send {
         ///
         /// After the entity is first replicated, the replication group of the entity should not be modified.
         /// (but more entities can be added to the replication group)
-        // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
-        //  it just keeps living but doesn't receive any updates. Should we make this configurable?
         pub group: ReplicationGroup,
         /// How should the hierarchy of the entity (parents/children) be replicated?
         pub hierarchy: ReplicateHierarchy,
@@ -260,12 +258,20 @@ pub(crate) mod send {
             Entity,
             Ref<ReplicationTarget>,
             &SyncTarget,
+            Option<Ref<ControlledBy>>,
             Option<&PrePredicted>,
         )>,
         connection: Res<ClientConnection>,
     ) {
         let local_client = connection.id();
-        for (entity, replication_target, sync_target, pre_predicted) in query.iter() {
+        for (entity, replication_target, sync_target, controlled_by, pre_predicted) in query.iter()
+        {
+            // also insert [`Controlled`] on the entity if it's controlled by the local client
+            if let Some(controlled_by) = controlled_by {
+                if controlled_by.is_changed() && controlled_by.targets(&local_client) {
+                    commands.entity(entity).insert(Controlled);
+                }
+            }
             if (replication_target.is_changed()) && replication_target.target.targets(&local_client)
             {
                 if pre_predicted.is_some_and(|pre_predicted| pre_predicted.client_entity.is_none())

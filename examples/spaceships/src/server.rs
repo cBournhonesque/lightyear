@@ -277,11 +277,11 @@ pub(crate) fn handle_hit_event(
 /// server can't currently detect if an input is missing, since already removed from input buffer.
 /// fixed in 0.14 branch
 pub(crate) fn player_movement(
-    mut q: Query<ApplyInputsQuery, With<Player>>,
+    mut q: Query<(&ActionState<PlayerActions>, ApplyInputsQuery), With<Player>>,
     tick_manager: Res<TickManager>,
 ) {
     let tick = tick_manager.tick();
-    for mut aiq in q.iter_mut() {
+    for (action_state, mut aiq) in q.iter_mut() {
         // if aiq.input_buffer.get(tick).is_none() {
         //     // set to default? needs 0.14 branch.
         // }
@@ -293,6 +293,6 @@ pub(crate) fn player_movement(
         //     );
         // }
         // check for missing inputs, and set them to default? or sustain for 1 tick?
-        apply_action_state_to_player_movement(aiq.action, 0, &mut aiq, tick);
+        apply_action_state_to_player_movement(action_state, 0, &mut aiq, tick);
     }
 }
