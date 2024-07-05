@@ -34,9 +34,6 @@ pub enum Mode {
     /// Run only the server, but can support a local player
     /// This means that the ServerPlugin and ClientPlugin are running in the same App.
     HostServer,
-    // /// We will run both the client and server plugins in the same app, but all server plugins are disabled.
-    // /// This is useful so that we can switch at runtime between separate and host-server mode
-    // ClientOnly,
 }
 
 impl Default for SharedConfig {
