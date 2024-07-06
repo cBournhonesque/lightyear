@@ -185,7 +185,9 @@ impl Apps {
             cc.shared.server_replication_send_interval = replication_interval
         });
         self.update_lightyear_server_config(|sc: &mut ServerConfig| {
-            sc.shared.server_replication_send_interval = replication_interval
+            // the server replication currently needs to be overwritten in both places...
+            sc.shared.server_replication_send_interval = replication_interval;
+            sc.replication.send_interval = replication_interval;
         });
         self
     }
