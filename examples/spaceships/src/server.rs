@@ -1,10 +1,11 @@
 use std::f32::consts::TAU;
 
+use avian2d::prelude::*;
+use bevy::color::palettes::css;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 use bevy::utils::HashMap;
-use bevy_xpbd_2d::prelude::*;
 use client::Rollback;
 use leafwing_input_manager::action_diff::ActionDiff;
 use leafwing_input_manager::prelude::*;
@@ -106,7 +107,7 @@ fn init(mut commands: Commands) {
         let radius = 10.0 + i as f32 * 4.0;
         let angle: f32 = i as f32 * (TAU / NUM_BALLS as f32);
         let pos = Vec2::new(125.0 * angle.cos(), 125.0 * angle.sin());
-        commands.spawn(BallBundle::new(radius, pos, Color::GOLD));
+        commands.spawn(BallBundle::new(radius, pos, css::GOLD.into()));
     }
 }
 
@@ -146,10 +147,11 @@ pub(crate) fn handle_connections(
         let replicate = Replicate {
             sync: SyncTarget {
                 prediction: NetworkTarget::All,
-                ..Default::default()
+                ..default()
             },
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(client_id),
+                ..default()
             },
             // make sure that all entities that are predicted are part of the same replication group
             group: REPLICATION_GROUP,
@@ -158,18 +160,18 @@ pub(crate) fn handle_connections(
         // pick color and x,y pos for player
 
         let available_colors = [
-            Color::LIME_GREEN,
-            Color::PINK,
-            Color::YELLOW,
-            Color::CYAN,
-            Color::CRIMSON,
-            Color::GOLD,
-            Color::ORANGE_RED,
-            Color::SILVER,
-            Color::SALMON,
-            Color::YELLOW_GREEN,
-            Color::WHITE,
-            Color::RED,
+            css::LIMEGREEN,
+            css::PINK,
+            css::YELLOW,
+            css::AQUA,
+            css::CRIMSON,
+            css::GOLD,
+            css::ORANGE_RED,
+            css::SILVER,
+            css::SALMON,
+            css::YELLOW_GREEN,
+            css::WHITE,
+            css::RED,
         ];
         let col = available_colors[player_n % available_colors.len()];
         let angle: f32 = player_n as f32 * 5.0;
@@ -187,7 +189,7 @@ pub(crate) fn handle_connections(
                 replicate,
                 PhysicsBundle::player_ship(),
                 Weapon::new((FIXED_TIMESTEP_HZ / 5.0) as u16),
-                ColorComponent(col),
+                ColorComponent(col.into()),
             ))
             .id();
 
@@ -247,10 +249,10 @@ pub(crate) fn handle_hit_event(
     client_q: Query<&ControlledEntities, Without<Player>>,
     mut player_q: Query<(&Player, &mut Score)>,
 ) {
-    let client_id_to_player_entity = |client_id: ClientId| -> Option<&Entity> {
+    let client_id_to_player_entity = |client_id: ClientId| -> Option<Entity> {
         if let Ok(e) = connection_manager.client_entity(client_id) {
             if let Ok(controlled_entities) = client_q.get(e) {
-                return controlled_entities.0.iter().next();
+                return controlled_entities.entities().next();
             }
         }
         None
@@ -259,11 +261,11 @@ pub(crate) fn handle_hit_event(
     for ev in events.read() {
         // did they hit a player?
         if let Some(victim_entity) = ev.victim_client_id.and_then(client_id_to_player_entity) {
-            if let Ok((player, mut score)) = player_q.get_mut(*victim_entity) {
+            if let Ok((player, mut score)) = player_q.get_mut(victim_entity) {
                 score.0 -= 1;
             }
             if let Some(shooter_entity) = client_id_to_player_entity(ev.bullet_owner) {
-                if let Ok((player, mut score)) = player_q.get_mut(*shooter_entity) {
+                if let Ok((player, mut score)) = player_q.get_mut(shooter_entity) {
                     score.0 += 1;
                 }
             }

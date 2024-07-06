@@ -1,5 +1,5 @@
+use avian2d::prelude::*;
 use bevy::prelude::*;
-use bevy_xpbd_2d::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::client;
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
-use lightyear::utils::bevy_xpbd_2d::*;
+use lightyear::utils::avian2d::*;
 
 use crate::shared::color_from_id;
 

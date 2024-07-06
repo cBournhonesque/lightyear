@@ -1,8 +1,8 @@
+use avian2d::prelude::{Position, Rotation};
 /// Utility plugin to display a text label next to an entity.
 ///
 /// Label will track parent position, ignoring rotation.
 use bevy::prelude::*;
-use bevy_xpbd_2d::components::{Position, Rotation};
 use lightyear::{
     client::{
         interpolation::{plugin::InterpolationSet, VisualInterpolateStatus},
@@ -44,7 +44,7 @@ impl Default for EntityLabel {
             inherit_rotation: false,
             z: 10.0,
             size: 13.0,
-            color: Color::ANTIQUE_WHITE,
+            color: bevy::color::palettes::css::ANTIQUE_WHITE.into(),
         }
     }
 }

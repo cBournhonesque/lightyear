@@ -7,9 +7,9 @@ use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
-use bevy_xpbd_2d::parry::shape::{Ball, SharedShape};
-use bevy_xpbd_2d::prelude::*;
-use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
+use avian2d::parry::shape::{Ball, SharedShape};
+use avian2d::prelude::*;
+use avian2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
@@ -238,7 +238,7 @@ pub fn shared_player_firing(
                     player.client_id,
                     bullet_origin,
                     bullet_linvel,
-                    color.0 * 5.0, // bloom!
+                    (color.0.to_linear() * 5.0).into(), // bloom!
                     current_tick,
                 ),
                 PhysicsBundle::bullet(),

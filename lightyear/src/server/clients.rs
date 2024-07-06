@@ -9,7 +9,19 @@ use bevy::prelude::*;
 
 /// List of entities under the control of a client
 #[derive(Component, Default, Debug, Deref, DerefMut, PartialEq)]
-pub struct ControlledEntities(pub EntityHashMap<Lifetime>);
+pub struct ControlledEntities(pub(crate) EntityHashMap<Lifetime>);
+
+impl ControlledEntities {
+    /// Check if the entity is controlled by the client
+    pub fn contains(&self, entity: &Entity) -> bool {
+        self.0.contains_key(entity)
+    }
+
+    /// Get the list of entities controlled by the client
+    pub fn entities(&self) -> impl Iterator<Item = Entity> {
+        self.0.keys().copied()
+    }
+}
 
 pub(crate) struct ClientsMetadataPlugin;
 

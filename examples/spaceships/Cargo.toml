@@ -16,11 +16,11 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 lightyear_examples_common = { path = "../common" }
 bevy_screen_diagnostics = "0.5.0"
 leafwing-input-manager = "0.13"
-bevy_xpbd_2d = { version = "0.4", features = ["serialize"] }
+avian2d = { version = "0.1.0", features = ["serialize", "f32", "parry-f32"] }
 lightyear = { path = "../../lightyear", features = [
     "webtransport",
     "leafwing",
-    "xpbd_2d",
+    "avian2d",
 ] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }

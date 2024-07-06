@@ -1,11 +1,11 @@
 //! Implement lightyear traits for some common bevy types
 use crate::shared::replication::delta::Diffable;
-use bevy_xpbd_2d::components::*;
-use bevy_xpbd_2d::math::Scalar;
+use avian2d::math::Scalar;
 use tracing::trace;
 
 pub mod position {
     use super::*;
+    use avian2d::dynamics::Position;
 
     pub fn lerp(start: &Position, other: &Position, t: f32) -> Position {
         let u = Scalar::from(t);
@@ -38,6 +38,7 @@ pub mod position {
 }
 
 pub mod rotation {
+    use avian2d::dynamics::Rotation;
 
     use super::*;
 
@@ -45,7 +46,7 @@ pub mod rotation {
         let u = Scalar::from(t);
         let shortest_angle =
             ((((other.as_degrees() - start.as_degrees()) % 360.0) + 540.0) % 360.0) - 180.0;
-        let res = Rotation::from_degrees(start.as_degrees() + shortest_angle * u);
+        let res = Rotation::degrees(start.as_degrees() + shortest_angle * u);
         // // as_radians() returns a value between -Pi and Pi
         // // add Pi to get positive values, for interpolation
         // let res = Rotation::from_radians(
@@ -64,6 +65,7 @@ pub mod rotation {
 }
 
 pub mod linear_velocity {
+    use avian2d::dynamics::LinearVelocity;
 
     use super::*;
 
@@ -82,6 +84,7 @@ pub mod linear_velocity {
 }
 
 pub mod angular_velocity {
+    use avian2d::dynamics::AngularVelocity;
 
     use super::*;
 

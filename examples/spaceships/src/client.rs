@@ -1,7 +1,7 @@
+use avian2d::prelude::*;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;

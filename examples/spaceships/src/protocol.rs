@@ -1,6 +1,6 @@
+use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use bevy_xpbd_2d::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
@@ -11,7 +11,7 @@ use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::client::{self, LeafwingInputConfig};
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
-use lightyear::utils::bevy_xpbd_2d::*;
+use lightyear::utils::avian2d::*;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::shared::color_from_id;

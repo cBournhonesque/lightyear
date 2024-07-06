@@ -6,6 +6,10 @@ use crate::entity_label::*;
 /// Renders entities using gizmos to draw outlines
 use crate::protocol::*;
 use crate::shared::*;
+use avian2d::parry::shape::{Ball, SharedShape};
+use avian2d::prelude::*;
+use avian2d::{PhysicsSchedule, PhysicsStepSet};
+use bevy::color::palettes::css;
 use bevy::core_pipeline::bloom::BloomSettings;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
@@ -15,9 +19,6 @@ use bevy::time::common_conditions::on_timer;
 use bevy_screen_diagnostics::ScreenEntityDiagnosticsPlugin;
 use bevy_screen_diagnostics::ScreenFrameDiagnosticsPlugin;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
-use bevy_xpbd_2d::parry::shape::{Ball, SharedShape};
-use bevy_xpbd_2d::prelude::*;
-use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
@@ -39,7 +40,7 @@ pub struct SpaceshipsRendererPlugin;
 impl Plugin for SpaceshipsRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init_camera);
-        app.insert_resource(ClearColor(Color::DARK_GRAY));
+        app.insert_resource(ClearColor(css::DARK_GRAY.into()));
         let draw_shadows = false;
         // draw last to ensure all the interpolation/syncing stuff has happened
         app.add_systems(
@@ -108,7 +109,7 @@ fn add_player_visual_components(
             TransformBundle::default(),
             EntityLabel {
                 text: format!("{}\n{}", player.nickname, score.0),
-                color: Color::ANTIQUE_WHITE.with_a(0.8),
+                color: css::ANTIQUE_WHITE.with_a(0.8),
                 offset: Vec2::Y * -45.0,
                 ..Default::default()
             },
@@ -398,7 +399,7 @@ pub fn insert_bullet_mesh(
             .shape()
             .as_ball()
             .expect("Bullets expected to be balls.");
-        let ball = bevy::math::prelude::Circle::new(ball.radius);
+        let ball = Circle::new(ball.radius);
         let mesh = Mesh::from(ball);
         let mesh_handle = Mesh2dHandle(meshes.add(mesh));
         commands.entity(entity).insert((MaterialMesh2dBundle {
