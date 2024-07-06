@@ -1,12 +1,11 @@
 use std::collections::VecDeque;
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Reflect, Vec2,
 };
-use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace};
 
@@ -94,10 +93,16 @@ impl TailBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(ClientId);
 
-#[derive(
-    Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Reflect,
-)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Reflect)]
 pub struct PlayerPosition(pub(crate) Vec2);
+
+impl Add for PlayerPosition {
+    type Output = PlayerPosition;
+    #[inline]
+    fn add(self, rhs: PlayerPosition) -> PlayerPosition {
+        PlayerPosition(self.0.add(rhs.0))
+    }
+}
 
 impl Mul<f32> for &PlayerPosition {
     type Output = PlayerPosition;

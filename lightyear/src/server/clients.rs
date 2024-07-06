@@ -18,8 +18,8 @@ impl ControlledEntities {
     }
 
     /// Get the list of entities controlled by the client
-    pub fn entities(&self) -> impl Iterator<Item = Entity> {
-        self.0.keys().copied()
+    pub fn entities(&self) -> Vec<Entity> {
+        self.0.keys().copied().collect()
     }
 }
 

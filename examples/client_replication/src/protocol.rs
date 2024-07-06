@@ -1,8 +1,7 @@
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
-use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::ComponentSyncMode;
@@ -58,8 +57,16 @@ impl CursorBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct PlayerPosition(Vec2);
+
+impl Add for PlayerPosition {
+    type Output = PlayerPosition;
+    #[inline]
+    fn add(self, rhs: PlayerPosition) -> PlayerPosition {
+        PlayerPosition(self.0.add(rhs.0))
+    }
+}
 
 impl Mul<f32> for &PlayerPosition {
     type Output = PlayerPosition;
@@ -72,8 +79,16 @@ impl Mul<f32> for &PlayerPosition {
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct CursorPosition(pub Vec2);
+
+impl Add for CursorPosition {
+    type Output = CursorPosition;
+    #[inline]
+    fn add(self, rhs: CursorPosition) -> CursorPosition {
+        CursorPosition(self.0.add(rhs.0))
+    }
+}
 
 impl Mul<f32> for &CursorPosition {
     type Output = CursorPosition;

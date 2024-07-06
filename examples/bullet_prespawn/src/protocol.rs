@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 

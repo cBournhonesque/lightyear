@@ -18,7 +18,7 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
 lightyear_examples_common = { path = "../common" }
-bevy_screen_diagnostics = "0.5.0"
+bevy_screen_diagnostics = "0.6"
 leafwing-input-manager = "0.13.3"
 lightyear = { path = "../../lightyear", features = [
     "webtransport",
@@ -35,6 +35,5 @@ bevy = { version = "0.14", features = [
     "bevy_state",
     "serialize",
 ] }
-derive_more = { version = "0.99", features = ["add", "mul"] }
 rand = "0.8.1"
 metrics-exporter-prometheus = { version = "0.15.1", optional = true }

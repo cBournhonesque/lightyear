@@ -252,7 +252,7 @@ pub(crate) fn handle_hit_event(
     let client_id_to_player_entity = |client_id: ClientId| -> Option<Entity> {
         if let Ok(e) = connection_manager.client_entity(client_id) {
             if let Ok(controlled_entities) = client_q.get(e) {
-                return controlled_entities.entities().next();
+                return controlled_entities.entities().pop();
             }
         }
         None

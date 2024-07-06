@@ -66,6 +66,7 @@ pub(crate) fn handle_connections(
             },
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(client_id),
+                ..default()
             },
             ..default()
         };
@@ -94,8 +95,8 @@ pub(crate) fn handle_disconnections(
         debug!("Client {:?} disconnected", disconnection.client_id);
         if let Ok(client_entity) = manager.client_entity(disconnection.client_id) {
             if let Ok(controlled_entities) = client_query.get(client_entity) {
-                for entity in controlled_entities.iter() {
-                    commands.entity(*entity).despawn();
+                for entity in controlled_entities.entities() {
+                    commands.entity(entity).despawn();
                 }
             }
         }

@@ -128,6 +128,7 @@ pub(crate) fn replicate_players(
                 },
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(client_id),
+                    ..default()
                 },
                 ..default()
             };
@@ -163,6 +164,7 @@ pub(crate) fn replicate_cursors(
                 },
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(client_id),
+                    ..default()
                 },
                 ..default()
             });
