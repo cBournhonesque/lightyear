@@ -10,7 +10,9 @@ use std::time::Duration;
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use bevy::render::RenderPlugin;
 use bevy::state::app::StatesPlugin;
+use bevy::winit::{WakeUp, WinitPlugin};
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
@@ -373,7 +375,12 @@ fn server_app(
     if !settings.server.headless {
         app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
     } else {
-        app.add_plugins((MinimalPlugins, StatesPlugin));
+        app.add_plugins((
+            // TODO: cannot use MinimalPlugins because avian requires render/assets plugin
+            // MinimalPlugins,
+            // StatesPlugin,
+            DefaultPlugins.build().disable::<LogPlugin>(),
+        ));
     }
     app.add_plugins(LogPlugin {
         level: Level::INFO,

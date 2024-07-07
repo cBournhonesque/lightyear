@@ -14,28 +14,38 @@ use bevy::utils::Duration;
 
 #[derive(Clone, Copy, Debug, Reflect)]
 pub struct ReplicationConfig {
-    /// By default, we will send all component updates since the last time we sent an update for a given entity.
-    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
-    /// we won't be sending anything since the component wasn't updated after that.
-    ///
-    /// This helps save bandwidth, but can cause the client to have delayed eventual consistency in the
-    /// case of packet loss.
-    ///
-    /// If this is set to true, we will instead send all updates since the last time we received an ACK from the client.
-    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
-    /// we will send the update again even if the component wasn't updated, because we still haven't
-    /// received an ACK from the client.
-    pub send_updates_since_last_ack: bool,
+    /// How do send component updates?
+    pub send_updates_mode: SendUpdatesMode,
     /// How often we send replication updates.
     ///
     /// Set to `Duration::default()` to send updates every frame.
     pub send_interval: Duration,
 }
 
+#[derive(Clone, Copy, Debug, Reflect)]
+pub enum SendUpdatesMode {
+    /// We send all the updates that happened since the last tick when we received an ACK from the remote
+    ///
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we will send the update again even if the component wasn't updated, because we still haven't
+    /// received an ACK from the client.
+    SinceLastAck,
+    // TODO: this is currently bugged because we need to maintain a `send_tick` / `ack_tick` per (entity, component)
+    /// We send all the updates that happened since the last tick where we **sent** an update.
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we won't be sending anything since the component wasn't updated after that.
+    ///
+    /// 99% of the time the packets don't get lost so this is fine to do, and allows us to save bandwidth
+    /// by not sending the same update multiple time.
+    ///
+    /// If we receive a NACK (i.e. the packet got lost), we will send the updates since the last ACK.
+    SinceLastSend,
+}
+
 impl Default for ReplicationConfig {
     fn default() -> Self {
         Self {
-            send_updates_since_last_ack: true,
+            send_updates_mode: SendUpdatesMode::SinceLastAck,
             send_interval: Duration::default(),
         }
     }

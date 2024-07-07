@@ -65,7 +65,6 @@ use crate::prelude::{
 };
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
-use crate::shared::ping::manager::PingManager;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
@@ -100,9 +99,9 @@ pub struct LeafwingInputConfig<A> {
 /// - we apply the TickUpdateEvents (from doing sync) during PostUpdate. During this phase,
 /// we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
 #[derive(Debug, Resource)]
-struct MessageBuffer<A>(Vec<InputMessage<A>>);
+struct MessageBuffer<A: LeafwingUserAction>(Vec<InputMessage<A>>);
 
-impl<A> Default for MessageBuffer<A> {
+impl<A: LeafwingUserAction> Default for MessageBuffer<A> {
     fn default() -> Self {
         Self(Vec::default())
     }
@@ -373,7 +372,7 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
 /// We do not need to buffer inputs during rollback, as they have already been buffered
 fn buffer_action_state<A: LeafwingUserAction>(
     config: Res<ClientConfig>,
-    ping_manager: Res<PingManager>,
+    connection_manager: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
     // mut global_input_buffer: ResMut<InputBuffer<A>>,
     // global_action_state: Option<Res<ActionState<A>>>,
@@ -382,10 +381,10 @@ fn buffer_action_state<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
-    let input_delay_ticks = config
-        .prediction
-        .input_delay_ticks(ping_manager.rtt(), config.shared.tick.tick_duration)
-        as i16;
+    let input_delay_ticks = config.prediction.input_delay_ticks(
+        connection_manager.ping_manager.rtt(),
+        config.shared.tick.tick_duration,
+    ) as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(
@@ -535,7 +534,6 @@ fn prepare_input_message<A: LeafwingUserAction>(
     mut message_buffer: ResMut<MessageBuffer<A>>,
     channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,
-    ping_manager: Res<PingManager>,
     input_config: Res<LeafwingInputConfig<A>>,
     tick_manager: Res<TickManager>,
     input_buffer_query: Query<
@@ -548,10 +546,10 @@ fn prepare_input_message<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
-    let input_delay_ticks = config
-        .prediction
-        .input_delay_ticks(ping_manager.rtt(), config.shared.tick.tick_duration)
-        as i16;
+    let input_delay_ticks = config.prediction.input_delay_ticks(
+        connection.ping_manager.rtt(),
+        config.shared.tick.tick_duration,
+    ) as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?tick, "prepare_input_message");
@@ -662,12 +660,12 @@ fn receive_tick_events<A: LeafwingUserAction>(
                         "Receive tick snap event {:?}. Updating global input buffer start_tick!",
                         trigger.event()
                     );
-                    global_input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    global_input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
                 }
             }
             for mut input_buffer in input_buffer_query.iter_mut() {
                 if let Some(start_tick) = input_buffer.start_tick {
-                    input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
                     debug!(
                         "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
                         trigger.event(),
@@ -675,8 +673,8 @@ fn receive_tick_events<A: LeafwingUserAction>(
                     );
                 }
             }
-            for mut message in message_buffer.0.iter_mut() {
-                message.end_tick = message.end_tick + (*new_tick - *old_tick);
+            for message in message_buffer.0.iter_mut() {
+                message.end_tick = message.end_tick + (new_tick - old_tick);
             }
         }
     }

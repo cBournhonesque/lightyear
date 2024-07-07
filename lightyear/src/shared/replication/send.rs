@@ -22,7 +22,7 @@ use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::error::ReplicationError;
-use crate::shared::replication::plugin::ReplicationConfig;
+use crate::shared::replication::plugin::{ReplicationConfig, SendUpdatesMode};
 #[cfg(test)]
 use {
     super::{EntityActionsMessage, EntityUpdatesMessage},
@@ -132,10 +132,9 @@ impl ReplicationSender {
     /// We will send all updates that happened after this bevy tick.
     pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId) -> Option<BevyTick> {
         self.group_channels.get(&group_id).and_then(|channel| {
-            if self.replication_config.send_updates_since_last_ack {
-                channel.ack_bevy_tick
-            } else {
-                channel.send_tick
+            match self.replication_config.send_updates_mode {
+                SendUpdatesMode::SinceLastSend => channel.send_tick,
+                SendUpdatesMode::SinceLastAck => channel.ack_bevy_tick,
             }
         })
     }
@@ -152,26 +151,28 @@ impl ReplicationSender {
                 ..
             }) = self.updates_message_id_to_group_id.remove(&message_id)
             {
-                if let Some(channel) = self.group_channels.get_mut(&group_id) {
-                    // when we know an update message has been lost, we need to reset our send_tick
-                    // to our previous ack_tick
-                    trace!(
+                if let SendUpdatesMode::SinceLastSend = self.replication_config.send_updates_mode {
+                    if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                        // when we know an update message has been lost, we need to reset our send_tick
+                        // to our previous ack_tick
+                        trace!(
                         "Update channel send_tick back to ack_tick because a message has been lost"
                     );
-                    // only reset the send tick if the bevy_tick of the message that was lost is
-                    // newer than the current ack_tick
-                    // (otherwise it just means we lost some old message, and we don't need to do anything)
-                    if channel
-                        .ack_bevy_tick
-                        .is_some_and(|ack_tick| bevy_tick.is_newer_than(ack_tick, world_tick))
-                    {
-                        channel.send_tick = channel.ack_bevy_tick;
-                    }
+                        // only reset the send tick if the bevy_tick of the message that was lost is
+                        // newer than the current ack_tick
+                        // (otherwise it just means we lost some old message, and we don't need to do anything)
+                        if channel
+                            .ack_bevy_tick
+                            .is_some_and(|ack_tick| bevy_tick.is_newer_than(ack_tick, world_tick))
+                        {
+                            channel.send_tick = channel.ack_bevy_tick;
+                        }
 
-                    // TODO: if all clients lost a given message, than we can immediately drop the delta-compression data
-                    //  for that tick
-                } else {
-                    error!("Received an update message-id nack but the corresponding group channel does not exist");
+                        // TODO: if all clients lost a given message, than we can immediately drop the delta-compression data
+                        //  for that tick
+                    } else {
+                        error!("Received an update message-id nack but the corresponding group channel does not exist");
+                    }
                 }
             } else {
                 // NOTE: this happens when a message-id is split between multiple packets (fragmented messages)
@@ -909,7 +910,10 @@ mod tests {
             rx_ack,
             rx_nack,
             rx_send,
-            ReplicationConfig::default(),
+            ReplicationConfig {
+                send_updates_mode: SendUpdatesMode::SinceLastSend,
+                ..default()
+            },
             false,
         );
         let group_1 = ReplicationGroupId(0);

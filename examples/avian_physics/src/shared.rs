@@ -1,6 +1,4 @@
-use avian2d::parry::shape::Ball;
 use avian2d::prelude::*;
-use avian2d::{PhysicsSchedule, PhysicsStepSet};
 use bevy::color::palettes::css;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
@@ -256,7 +254,7 @@ pub(crate) fn draw_confirmed_shadows(
 ) {
     for (position, rotation, velocity, confirmed) in confirmed_q.iter() {
         let speed = velocity.length() / MAX_VELOCITY;
-        let ghost_col = css::GRAY.with_a(speed);
+        let ghost_col = css::GRAY.with_alpha(speed);
         gizmos.rect_2d(
             Vec2::new(position.x, position.y),
             rotation.as_radians(),
