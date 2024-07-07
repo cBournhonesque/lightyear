@@ -8,7 +8,7 @@ use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::server::MessageEvent;
-use crate::prelude::{is_started, InputMessage, MessageRegistry, Mode, TickManager};
+use crate::prelude::{server::is_started, InputMessage, MessageRegistry, Mode, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::server::config::ServerConfig;

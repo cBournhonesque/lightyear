@@ -1,0 +1,33 @@
+//! Common client-related run conditions
+use crate::client::connection::ConnectionManager;
+use crate::connection::client::{ClientConnection, ConnectionState, NetClient};
+use bevy::prelude::Res;
+
+/// Returns true if the client is connected
+///
+/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>`
+/// to avoid having a frame of delay since the `StateTransition` schedule runs after `PreUpdate`.
+/// We also check both the networking state and the io state (in case the io gets disconnected)
+pub fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
+    netclient.map_or(false, |c| matches!(c.state(), ConnectionState::Connected))
+}
+
+/// Returns true if the client is disconnected.
+///
+/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>`
+/// to avoid having a frame of delay since the `StateTransition` schedule runs after `PreUpdate`
+pub fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
+    netclient.as_ref().map_or(true, |c| {
+        matches!(c.state(), ConnectionState::Disconnected { .. })
+    })
+}
+
+/// Run condition if the client is connected and synced (i.e. the client tick is synced with the server)
+pub fn is_synced(
+    netclient: Option<Res<ClientConnection>>,
+    connection: Option<Res<ConnectionManager>>,
+) -> bool {
+    netclient.map_or(false, |c| matches!(c.state(), ConnectionState::Connected)) &&
+        // TODO: check if this correct; in host-server mode, the client is always synced
+        connection.map_or(false, |c| c.sync_manager.is_synced())
+}

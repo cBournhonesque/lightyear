@@ -3,14 +3,16 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::client::connection::ConnectionManager;
-use crate::client::sync::client_is_synced;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 pub(crate) mod receive {
     use super::*;
-    use crate::prelude::{is_connected, is_host_server};
+    use crate::prelude::{
+        client::{is_connected, is_synced},
+        is_host_server,
+    };
     #[derive(Default)]
     pub struct ClientReplicationReceivePlugin {
         pub tick_interval: Duration,
@@ -32,7 +34,7 @@ pub(crate) mod receive {
                 // NOTE: we always need to add this condition if we don't enable replication, because
                 InternalReplicationSet::<ClientMarker>::All.run_if(
                     is_connected
-                        .and_then(client_is_synced)
+                        .and_then(is_synced)
                         .and_then(not(is_host_server)),
                 ),
             );
@@ -49,8 +51,9 @@ pub(crate) mod send {
     use crate::prelude::client::{ClientConfig, NetClient};
 
     use crate::prelude::{
-        is_connected, is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy,
-        Replicated, ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
+        client::{is_connected, is_synced},
+        is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy, Replicated,
+        ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
 
@@ -92,7 +95,7 @@ pub(crate) mod send {
                     // NOTE: we always need to add this condition if we don't enable replication, because
                     InternalReplicationSet::<ClientMarker>::All.run_if(
                         is_connected
-                            .and_then(client_is_synced)
+                            .and_then(is_synced)
                             .and_then(not(is_host_server)),
                     ),
                 )

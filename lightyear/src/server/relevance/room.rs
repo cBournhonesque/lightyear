@@ -47,7 +47,7 @@ use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use crate::connection::id::ClientId;
-use crate::prelude::is_started;
+use crate::prelude::server::is_started;
 
 use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceManager};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};

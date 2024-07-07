@@ -22,8 +22,7 @@ use crate::client::prediction::prespawn::{
 };
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::client::sync::client_is_synced;
-use crate::prelude::{is_connected, is_host_server, PreSpawnedPlayerObject};
+use crate::prelude::{client::is_synced, is_host_server, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
@@ -250,9 +249,7 @@ impl Plugin for PredictionPlugin {
         // we only run prediction:
         // - if we're not in host-server mode
         // - after the client is synced
-        let should_prediction_run = not(is_host_server)
-            .and_then(is_connected)
-            .and_then(client_is_synced);
+        let should_prediction_run = not(is_host_server).and_then(is_synced);
 
         // REFLECTION
         app.register_type::<Predicted>()

@@ -5,7 +5,7 @@ use bevy::utils::HashMap;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
 use crate::prelude::server::DisconnectEvent;
-use crate::prelude::{is_started, ClientId, MessageRegistry, TickManager, UserAction};
+use crate::prelude::{server::is_started, ClientId, MessageRegistry, TickManager, UserAction};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
