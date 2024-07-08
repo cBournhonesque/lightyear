@@ -1,3 +1,4 @@
+//! This module contains the various types of receivers available to receive messages over a channel
 use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
 

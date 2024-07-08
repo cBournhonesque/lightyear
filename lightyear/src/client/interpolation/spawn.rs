@@ -9,7 +9,7 @@ use crate::client::interpolation::Interpolated;
 use crate::shared::replication::components::ShouldBeInterpolated;
 
 /// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added
-pub fn spawn_interpolated_entity(
+pub(crate) fn spawn_interpolated_entity(
     config: Res<ClientConfig>,
     connection: Res<ConnectionManager>,
     mut manager: ResMut<InterpolationManager>,
