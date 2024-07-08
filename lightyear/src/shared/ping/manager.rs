@@ -11,7 +11,7 @@ use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Config for the ping manager, which sends regular pings to the remote machine in order
 /// to compute network statistics (RTT, jitter)
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub struct PingConfig {
     /// The duration to wait before sending a ping message to the remote host,
     /// in order to estimate RTT time
@@ -83,7 +83,7 @@ pub type SyncStatsBuffer = ReadyBuffer<WrappedTime, SyncStats>;
 impl PingManager {
     pub fn new(config: PingConfig) -> Self {
         Self {
-            config: config.clone(),
+            config,
             // pings
             ping_timer: Stopwatch::new(),
             ping_store: PingStore::new(),

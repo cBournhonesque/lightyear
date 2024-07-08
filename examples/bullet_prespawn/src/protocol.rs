@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -126,7 +125,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());

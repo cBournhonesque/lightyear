@@ -1,24 +1,18 @@
 /*! Handles syncing the time between the client and the server
 */
-use bevy::prelude::{Reflect, Res, SystemSet};
+use bevy::prelude::{Reflect, SystemSet};
 use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
 use tracing::{debug, trace};
 
-use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::packet::packet::PacketId;
+use crate::prelude::client::PredictionConfig;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickEvent};
 use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
-
-/// Run condition to run systems only if the client is synced
-pub fn client_is_synced(connection: Option<Res<ConnectionManager>>) -> bool {
-    // TODO: check if this correct; in host-server mode, the client is always synced
-    connection.map_or(false, |c| c.sync_manager.is_synced())
-}
 
 /// SystemSet that holds systems that update the client's tick/time to match the server's tick/time
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -31,7 +25,7 @@ pub struct SyncSet;
 ///     for tick T sent from the client arrive on the server at tick T
 /// - the interpolation tick/time: this is the interpolation timeline, which runs behind the server time so that interpolation
 ///     always has at least one packet to interpolate towards
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub struct SyncConfig {
     /// How much multiple of jitter do we apply as margin when computing the time
     /// a packet will get received by the server
@@ -95,7 +89,7 @@ impl SentPacketStore {
 /// right after the connection is established
 pub struct SyncManager {
     config: SyncConfig,
-    input_delay_ticks: u16,
+    prediction_config: PredictionConfig,
     /// whether the handshake is finalized
     pub(crate) synced: bool,
 
@@ -120,10 +114,10 @@ pub struct SyncManager {
 
 // TODO: split into PredictionTime Manager, InterpolationTime Manager
 impl SyncManager {
-    pub fn new(config: SyncConfig, input_delay_ticks: u16) -> Self {
+    pub fn new(config: SyncConfig, prediction_config: PredictionConfig) -> Self {
         Self {
             config,
-            input_delay_ticks,
+            prediction_config,
             synced: false,
             // time
             server_time_estimate: WrappedTime::default(),
@@ -174,47 +168,6 @@ impl SyncManager {
             self.update_interpolation_time(interpolation_delay, server_send_interval, tick_manager);
         }
         None
-    }
-
-    /// In unified mode:
-    /// - we don't want to update the prediction time, because it's the same as the server time
-    /// - we still want to measure the interpolation time, because we might add a fake latency so
-    /// server packets aren't received by the local client instantly!
-    pub(crate) fn update_unified(
-        &mut self,
-        time_manager: &TimeManager,
-        tick_manager: &TickManager,
-        ping_manager: &PingManager,
-        interpolation_delay: &InterpolationDelay,
-        server_send_interval: Duration,
-    ) {
-        // TODO: we are in PostUpdate, so this seems incorrect? this uses the previous-frame's delta,
-        //  but instead we want to add the duration since the start of frame?
-        self.duration_since_latest_received_server_tick += time_manager.delta();
-        self.server_time_estimate += time_manager.delta();
-        self.interpolation_time += time_manager.delta().mul_f32(self.interpolation_speed_ratio);
-
-        // check if we are ready to finalize the handshake
-        if !self.synced && ping_manager.sync_stats.len() >= self.config.handshake_pings as usize {
-            self.synced = true;
-            self.interpolation_time = self.interpolation_objective(
-                interpolation_delay,
-                server_send_interval,
-                tick_manager,
-            );
-            debug!(
-                "interpolation_tick: {:?}",
-                self.interpolation_tick(tick_manager)
-            );
-            let tick_duration = tick_manager.config.tick_duration;
-            let rtt = ping_manager.rtt();
-            // recompute the server time estimate (using the rtt we just computed)
-            self.update_server_time_estimate(tick_duration, rtt);
-        }
-
-        if self.synced {
-            self.update_interpolation_time(interpolation_delay, server_send_interval, tick_manager);
-        }
     }
 
     pub(crate) fn is_synced(&self) -> bool {
@@ -318,7 +271,12 @@ impl SyncManager {
         self.server_time_estimate() + rtt
     }
 
-    /// how far ahead of the server should I be? (for prediction)
+    /// How far ahead of the server should I be? (for prediction)
+    ///
+    /// We want the input packets for tick T sent from the client to arrive on the server at tick T.
+    /// So the client should be ahead by RTT/2 - input_delay_ticks
+    ///
+    /// This could be a negative value
     fn client_ahead_minimum(
         &self,
         tick_duration: Duration,
@@ -330,6 +288,9 @@ impl SyncManager {
         let input_delay = tick_duration * input_delay_ticks as u32;
         ChronoDuration::nanoseconds(
             jitter.as_nanos() as i64 * self.config.jitter_multiple_margin as i64
+                // TODO: this should actually be `n * client_input_send_interval`
+                //  in our case we send input messages in FixedUpdate, so roughly every tick_duration
+                //  so this should be fine
                 + tick_duration.as_nanos() as i64 * self.config.tick_margin as i64
                 - input_delay.as_nanos() as i64,
         )
@@ -349,6 +310,8 @@ impl SyncManager {
 
         // TODO: client_ideal_time must be higher than server_time in raw value (not wrapping)
         //  so that wrapping with Ticks still works!! Need to update this
+
+        // TODO: is there a problem if the client_time is lower than server time? maybe not actually!
 
         // if the ideal time is too close to the server time (probably because of input delay)
         // make sure that the client time is still ahead of the server time
@@ -459,11 +422,14 @@ impl SyncManager {
         let current_prediction_time = self.current_prediction_time(tick_manager, time_manager);
 
         // client ideal time
+        let input_delay_ticks = self
+            .prediction_config
+            .input_delay_ticks(rtt, tick_manager.config.tick_duration);
         let client_ideal_time = self.client_ideal_time(
             rtt,
             tick_manager.config.tick_duration,
             jitter,
-            self.input_delay_ticks,
+            input_delay_ticks,
         );
 
         let error = current_prediction_time - client_ideal_time;
@@ -551,8 +517,11 @@ impl SyncManager {
         self.update_server_time_estimate(tick_duration, rtt);
 
         // Compute how many ticks the client must be compared to server
+        let input_delay_ticks = self
+            .prediction_config
+            .input_delay_ticks(rtt, tick_manager.config.tick_duration);
         let client_ideal_time =
-            self.client_ideal_time(rtt, tick_duration, jitter, self.input_delay_ticks);
+            self.client_ideal_time(rtt, tick_duration, jitter, input_delay_ticks);
 
         // TODO: client_ideal_time must be higher than server_time in raw value (not wrapping)
         //  so that wrapping with Ticks still works
@@ -574,7 +543,7 @@ impl SyncManager {
                 ?jitter,
                 ?delta_tick,
                 predicted_server_receive_time = ?self.predicted_server_receive_time(rtt),
-                client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter, self.input_delay_ticks),
+                client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter, input_delay_ticks),
                 ?client_ideal_time,
                 ?client_ideal_tick,
                 server_tick = ?self.latest_received_server_tick,
@@ -591,7 +560,7 @@ mod tests {
     use bevy::prelude::*;
     use bevy::utils::Duration;
 
-    use crate::client::input::native::{InputManager, InputSystemSet};
+    use crate::client::input::native::InputManager;
     use crate::prelude::server::Replicate;
     use crate::prelude::*;
     use crate::server::events::InputEvent;
@@ -614,6 +583,8 @@ mod tests {
         }
     }
 
+    /// Check that after a big tick discrepancy between server/client, the client tick gets updated
+    /// to match the server tick
     #[test]
     fn test_sync_after_tick_wrap() {
         let tick_duration = Duration::from_millis(10);
@@ -623,25 +594,20 @@ mod tests {
         let new_tick = Tick(u16::MAX - 1000);
         let new_time = WrappedTime::from_duration(tick_duration * (new_tick.0 as u32));
 
-        stepper.client_app.add_systems(
-            FixedPreUpdate,
-            press_input.in_set(InputSystemSet::BufferInputs),
-        );
-
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<TimeManager>()
             .set_current_time(new_time);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<TickManager>()
             .set_tick_to(new_tick);
 
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((Component1(0.0), Replicate::default()))
             .id();
 
@@ -651,12 +617,12 @@ mod tests {
         }
         stepper
             .server_app
-            .world
+            .world_mut()
             .entity_mut(server_entity)
             .insert(Component1(1.0));
         dbg!(&stepper.server_tick());
         dbg!(&stepper.client_tick());
-        dbg!(&stepper.server_app.world.get::<Component1>(server_entity));
+        dbg!(&stepper.server_app.world().get::<Component1>(server_entity));
 
         // make sure the client receives the replication message
         for i in 0..5 {
@@ -665,7 +631,7 @@ mod tests {
 
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -674,7 +640,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .get::<Component1>(client_entity)
                 .unwrap(),
             &Component1(1.0)

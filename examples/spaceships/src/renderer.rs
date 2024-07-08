@@ -1,11 +1,10 @@
-use std::f32::consts::PI;
-use std::f32::consts::TAU;
-use std::time::Duration;
-
 use crate::entity_label::*;
 /// Renders entities using gizmos to draw outlines
 use crate::protocol::*;
 use crate::shared::*;
+use avian2d::parry::shape::SharedShape;
+use avian2d::prelude::*;
+use bevy::color::palettes::css;
 use bevy::core_pipeline::bloom::BloomSettings;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
@@ -15,9 +14,6 @@ use bevy::time::common_conditions::on_timer;
 use bevy_screen_diagnostics::ScreenEntityDiagnosticsPlugin;
 use bevy_screen_diagnostics::ScreenFrameDiagnosticsPlugin;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
-use bevy_xpbd_2d::parry::shape::{Ball, SharedShape};
-use bevy_xpbd_2d::prelude::*;
-use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
@@ -33,15 +29,19 @@ use lightyear::{
     },
     shared::run_conditions::is_server,
 };
+use std::f32::consts::PI;
+use std::f32::consts::TAU;
+use std::time::Duration;
 
 pub struct SpaceshipsRendererPlugin;
 
 impl Plugin for SpaceshipsRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init_camera);
-        app.insert_resource(ClearColor(Color::DARK_GRAY));
+        app.insert_resource(ClearColor::default());
+        // app.insert_resource(ClearColor(css::DARK_GRAY.into()));
         let draw_shadows = false;
-        // draw last to ensure all the interpolation/synching stuff has happened
+        // draw last to ensure all the interpolation/syncing stuff has happened
         app.add_systems(
             Last,
             (
@@ -108,7 +108,7 @@ fn add_player_visual_components(
             TransformBundle::default(),
             EntityLabel {
                 text: format!("{}\n{}", player.nickname, score.0),
-                color: Color::ANTIQUE_WHITE.with_a(0.8),
+                color: css::ANTIQUE_WHITE.with_alpha(0.8).into(),
                 offset: Vec2::Y * -45.0,
                 ..Default::default()
             },
@@ -133,7 +133,7 @@ fn update_player_visual_components(
     tick_manager: Res<TickManager>,
 ) {
     for (e, player, mut label, input_buffer, score) in q.iter_mut() {
-        // hopefully this is +ve, ie we have received remote player inputs before they are needed.
+        // hopefully this is positive, ie we have received remote player inputs before they are needed.
         // this can happen because of input_delay. The server receives inputs in advance of
         // needing them, and rebroadcasts to other players.
         let num_buffered_inputs = if let Some(end_tick) = input_buffer.end_tick() {
@@ -205,7 +205,7 @@ pub(crate) fn draw_confirmed_shadows(
             continue;
         };
         let speed = velocity.length() / MAX_VELOCITY;
-        let ghost_col = color.0.with_a(0.2 + speed * 0.8);
+        let ghost_col = color.0.with_alpha(0.2 + speed * 0.8);
         render_shape(collider.shape(), position, rotation, &mut gizmos, ghost_col);
         gizmos.line_2d(**position, **pred_pos, ghost_col);
     }
@@ -238,7 +238,7 @@ fn draw_predicted_entities(
         // render prespawned translucent until acknowledged by the server
         // (at which point the PreSpawnedPlayerObject component is removed)
         let col = if prespawned {
-            color.0.with_a(0.5)
+            color.0.with_alpha(0.5)
         } else {
             color.0
         };
@@ -275,7 +275,7 @@ fn draw_predicted_entities(
                 position,
                 rotation,
                 &mut gizmos,
-                col * 2.5, // bloom
+                (col.to_linear() * 2.5).into(), // bloom
             );
         }
     }
@@ -321,7 +321,7 @@ fn draw_confirmed_entities(
                     position,
                     rotation,
                     &mut gizmos,
-                    col.0.with_a(0.7),
+                    col.0.with_alpha(0.7),
                 );
             }
         }
@@ -353,18 +353,18 @@ pub fn render_shape(
     render_color: Color,
 ) {
     if let Some(triangle) = shape.as_triangle() {
-        let p1 = pos.0 + rot.rotate(Vec2::new(triangle.a[0], triangle.a[1]));
-        let p2 = pos.0 + rot.rotate(Vec2::new(triangle.b[0], triangle.b[1]));
-        let p3 = pos.0 + rot.rotate(Vec2::new(triangle.c[0], triangle.c[1]));
+        let p1 = pos.0 + rot * Vec2::new(triangle.a[0], triangle.a[1]);
+        let p2 = pos.0 + rot * Vec2::new(triangle.b[0], triangle.b[1]);
+        let p3 = pos.0 + rot * Vec2::new(triangle.c[0], triangle.c[1]);
         gizmos.line_2d(p1, p2, render_color);
         gizmos.line_2d(p2, p3, render_color);
         gizmos.line_2d(p3, p1, render_color);
     } else if let Some(poly) = shape.as_convex_polygon() {
         let last_p = poly.points().last().unwrap();
-        let mut start_p = pos.0 + rot.rotate(Vec2::new(last_p.x, last_p.y));
+        let mut start_p = pos.0 + (rot * Vec2::new(last_p.x, last_p.y));
         for i in 0..poly.points().len() {
             let p = poly.points()[i];
-            let tmp = pos.0 + rot.rotate(Vec2::new(p.x, p.y));
+            let tmp = pos.0 + (rot * Vec2::new(p.x, p.y));
             gizmos.line_2d(start_p, tmp, render_color);
             start_p = tmp;
         }
@@ -374,16 +374,16 @@ pub fn render_shape(
             .into_iter()
             .map(|p| Vec3::new(p.x, p.y, 0.0))
             .collect();
-        let mut start_p = pos.0 + rot.rotate(points.last().unwrap().truncate());
+        let mut start_p = pos.0 + (rot * points.last().unwrap().truncate());
         for point in &points {
-            let tmp = pos.0 + rot.rotate(point.truncate());
+            let tmp = pos.0 + (rot * point.truncate());
             gizmos.line_2d(start_p, tmp, render_color);
             start_p = tmp;
         }
     } else if let Some(ball) = shape.as_ball() {
         gizmos.circle_2d(pos.0, ball.radius, render_color);
     } else {
-        panic!("unimplented render");
+        panic!("unimplemented render");
     }
 }
 
@@ -398,7 +398,7 @@ pub fn insert_bullet_mesh(
             .shape()
             .as_ball()
             .expect("Bullets expected to be balls.");
-        let ball = bevy::math::prelude::Circle::new(ball.radius);
+        let ball = Circle::new(ball.radius);
         let mesh = Mesh::from(ball);
         let mesh_handle = Mesh2dHandle(meshes.add(mesh));
         commands.entity(entity).insert((MaterialMesh2dBundle {
@@ -438,7 +438,7 @@ impl Explosion {
         }
         // starts at 0.0, once max_age reached, is 1.0.
         let progress = (age.as_secs_f32() / self.max_age.as_secs_f32()).clamp(0.0, 1.0);
-        let color = self.color.with_a(1.0 - progress);
+        let color = self.color.with_alpha(1.0 - progress);
         let radius = self.initial_radius + (1.0 - progress) * self.initial_radius * 3.0;
         Some((color, radius))
     }

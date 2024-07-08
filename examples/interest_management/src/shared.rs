@@ -1,9 +1,9 @@
-use std::ops::Deref;
-
+use bevy::color::palettes::css::GREEN;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionState;
+use std::ops::Deref;
 
 use lightyear::client::components::Confirmed;
 use lightyear::prelude::*;
@@ -64,7 +64,7 @@ pub(crate) fn draw_boxes(
 /// System that draws circles
 pub(crate) fn draw_circles(mut gizmos: Gizmos, circles: Query<&Position, With<CircleMarker>>) {
     for position in &circles {
-        gizmos.circle_2d(*position.deref(), 1.0, Color::GREEN);
+        gizmos.circle_2d(*position.deref(), 1.0, GREEN);
     }
 }
 

@@ -32,7 +32,11 @@ fn main() {
     );
     // use input delay and a correction function to smooth over rollback errors
     apps.update_lightyear_client_config(|config| {
-        config.prediction.input_delay_ticks = settings.input_delay_ticks;
+        // guarantee that we use this amount of input delay ticks
+        config.prediction.minimum_input_delay_ticks = settings.input_delay_ticks;
+        // TODO: this doesn't work properly for now
+        // config.prediction.maximum_input_delay_before_prediction = settings.input_delay_ticks;
+        config.prediction.maximum_predicted_ticks = settings.max_prediction_ticks;
         config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
     });
     // add `ClientPlugins` and `ServerPlugins` plugin groups
@@ -61,11 +65,17 @@ pub struct MySettings {
     /// If false, we will predict the client's entities but simple interpolate everything else.
     pub(crate) predict_all: bool,
 
-    /// By how many ticks an input press will be delayed?
+    /// By how many ticks an input press will be delayed before we apply client-prediction?
+    ///
     /// This can be useful as a tradeoff between input delay and prediction accuracy.
     /// If the input delay is greater than the RTT, then there won't ever be any mispredictions/rollbacks.
     /// See [this article](https://www.snapnet.dev/docs/core-concepts/input-delay-vs-rollback/) for more information.
     pub(crate) input_delay_ticks: u16,
+
+    /// What is the maximum number of ticks that we will rollback for?
+    /// After applying input delay, we will try cover `max_prediction_ticks` ticks of latency using client-side prediction
+    /// Any more latency beyond that will use more input delay.
+    pub(crate) max_prediction_ticks: u16,
 
     /// If visual correction is enabled, we don't instantly snapback to the corrected position
     /// when we need to rollback. Instead we interpolated between the current position and the

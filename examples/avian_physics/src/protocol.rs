@@ -1,6 +1,5 @@
+use avian2d::prelude::*;
 use bevy::prelude::*;
-use bevy_xpbd_2d::prelude::*;
-use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +8,7 @@ use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::client;
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
-use lightyear::utils::bevy_xpbd_2d::*;
+use lightyear::utils::avian2d::*;
 
 use crate::shared::color_from_id;
 
@@ -161,7 +160,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());

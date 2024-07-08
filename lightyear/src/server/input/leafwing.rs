@@ -8,7 +8,7 @@ use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::server::MessageEvent;
-use crate::prelude::{is_started, InputMessage, MessageRegistry, Mode, TickManager};
+use crate::prelude::{server::is_started, InputMessage, MessageRegistry, Mode, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::server::config::ServerConfig;
@@ -70,7 +70,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         );
 
         // TODO: register this in Plugin::finish by checking if the client plugin is already registered?
-        if app.world.resource::<ServerConfig>().shared.mode != Mode::HostServer {
+        if app.world().resource::<ServerConfig>().shared.mode != Mode::HostServer {
             // we don't want to add this plugin in HostServer mode because it's already added on the client side
             // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
             app.add_plugins(InputManagerPlugin::<A>::server());
@@ -94,7 +94,8 @@ fn receive_input_message<A: LeafwingUserAction>(
     message_registry: Res<MessageRegistry>,
     mut connection_manager: ResMut<ConnectionManager>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
-    mut query: Query<&mut InputBuffer<A>>,
+    mut query: Query<Option<&mut InputBuffer<A>>>,
+    mut commands: Commands,
     mut events: EventWriter<MessageEvent<InputMessage<A>>>,
 ) {
     let kind = MessageKind::of::<InputMessage<A>>();
@@ -131,21 +132,28 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 | InputTarget::PrePredictedEntity(entity) => {
                                     // TODO Don't update input buffer if inputs arrived too late?
                                     debug!("received input for entity: {:?}", entity);
-                                    if let Ok(mut buffer) = query.get_mut(*entity) {
-                                        debug!(
-                                            ?target,
-                                            "Update InputBuffer: {} using InputMessage: {}",
-                                            buffer.as_ref(),
-                                            message
-                                        );
-                                        buffer.update_from_message(message.end_tick, start, diffs);
-                                        // println!(
-                                        //     "received message: {}. input buffer: {}",
-                                        //     message,
-                                        //     buffer.as_ref()
-                                        // );
+
+                                    if let Ok(buffer) = query.get_mut(*entity) {
+                                        if let Some(mut buffer) = buffer {
+                                            debug!(
+                                                ?target,
+                                                "Update InputBuffer: {} using InputMessage: {}",
+                                                buffer.as_ref(),
+                                                message
+                                            );
+                                            buffer.update_from_message(
+                                                message.end_tick,
+                                                start,
+                                                diffs,
+                                            );
+                                        } else {
+                                            debug!("Adding InputBuffer and ActionState which are missing on the entity");
+                                            commands.entity(*entity).insert((
+                                                InputBuffer::<A>::default(),
+                                                ActionState::<A>::default(),
+                                            ));
+                                        }
                                     } else {
-                                        // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
                                         debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                                     }
                                 }
@@ -197,10 +205,16 @@ fn update_action_state<A: LeafwingUserAction>(
     let tick = tick_manager.tick();
 
     for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
-        // the state on the server is only updated from client inputs!
-        if let Some(new_action_state) = input_buffer.pop(tick) {
+        // We only apply the ActionState from the buffer if we have one.
+        // If we don't (because the input packet is late or lost), we won't do anything.
+        // This is equivalent to considering that the player will keep playing the last action they played.
+        if let Some(action) = input_buffer.get(tick) {
+            *action_state = action.clone();
             debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
-            *action_state = new_action_state
+            // remove all the previous values
+            // we keep the current value in the InputBuffer so that if future messages are lost, we can still
+            // fallback on the last known value
+            input_buffer.pop(tick - 1);
         }
     }
 }
@@ -226,7 +240,7 @@ mod tests {
         // create an entity on server
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((
                 ActionState::<LeafwingInput1>::default(),
                 Replicate::default(),
@@ -239,7 +253,7 @@ mod tests {
         // check that the server entity got a ActionDiffBuffer added to it
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .is_some());
@@ -247,7 +261,7 @@ mod tests {
         // check that the entity is replicated
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -255,14 +269,14 @@ mod tests {
             .unwrap();
         assert!(stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<ActionState<LeafwingInput1>>()
             .is_some());
         // add an InputMap to the client entity
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(client_entity)
             .insert(InputMap::<LeafwingInput1>::new([(
                 LeafwingInput1::Jump,
@@ -272,7 +286,7 @@ mod tests {
         // check that the client entity got an InputBuffer added to it
         assert!(stepper
             .client_app
-            .world
+            .world()
             .entity(client_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .is_some());
@@ -280,7 +294,7 @@ mod tests {
         // update the ActionState on the client by pressing on the button once
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyA);
         debug!("before press");
@@ -293,7 +307,7 @@ mod tests {
         // for the client's tick
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .unwrap()
@@ -302,7 +316,7 @@ mod tests {
             .pressed(&LeafwingInput1::Jump));
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .release(KeyCode::KeyA);
         // TODO: how come I need to frame_step() twice to see the release action?
@@ -310,7 +324,7 @@ mod tests {
         stepper.frame_step();
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .unwrap()

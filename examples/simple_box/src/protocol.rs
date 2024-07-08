@@ -4,14 +4,13 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
 use bevy::prelude::{App, Plugin};
-use derive_more::Add;
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::ComponentSyncMode;
@@ -45,8 +44,16 @@ impl PlayerBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct PlayerPosition(Vec2);
+
+impl Add for PlayerPosition {
+    type Output = PlayerPosition;
+    #[inline]
+    fn add(self, rhs: PlayerPosition) -> PlayerPosition {
+        PlayerPosition(self.0.add(rhs.0))
+    }
+}
 
 impl Mul<f32> for &PlayerPosition {
     type Output = PlayerPosition;
@@ -113,7 +120,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components

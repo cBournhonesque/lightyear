@@ -1,7 +1,7 @@
+use avian2d::prelude::*;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
@@ -132,16 +132,17 @@ fn handle_new_player(
         // is this our own entity?
         if is_controlled {
             info!("Own player replicated to us, adding inputmap {entity:?}");
-            commands
-                .entity(entity)
-                .insert(InputMap::new([
-                    (PlayerActions::Up, KeyCode::ArrowUp),
-                    (PlayerActions::Down, KeyCode::ArrowDown),
-                    (PlayerActions::Left, KeyCode::ArrowLeft),
-                    (PlayerActions::Right, KeyCode::ArrowRight),
-                    (PlayerActions::Fire, KeyCode::Space),
-                ]))
-                .insert(ActionState::<PlayerActions>::default());
+            commands.entity(entity).insert(InputMap::new([
+                (PlayerActions::Up, KeyCode::ArrowUp),
+                (PlayerActions::Down, KeyCode::ArrowDown),
+                (PlayerActions::Left, KeyCode::ArrowLeft),
+                (PlayerActions::Right, KeyCode::ArrowRight),
+                (PlayerActions::Up, KeyCode::KeyW),
+                (PlayerActions::Down, KeyCode::KeyS),
+                (PlayerActions::Left, KeyCode::KeyA),
+                (PlayerActions::Right, KeyCode::KeyD),
+                (PlayerActions::Fire, KeyCode::Space),
+            ]));
         } else {
             info!("Remote player replicated to us: {entity:?}");
         }

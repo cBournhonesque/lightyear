@@ -60,7 +60,6 @@ pub struct InterpolatedCorrector;
 // }
 
 #[derive(Component, Debug)]
-#[component(storage = "SparseSet")]
 pub struct Correction<C: Component> {
     /// This is what the original predicted value was before any correction was applied
     pub original_prediction: C,

@@ -27,10 +27,6 @@ impl Replicated {
     }
 }
 
-/// Component inserted to each replicable entities, to detect when they are despawned
-#[derive(Component, Clone, Copy)]
-pub(crate) struct DespawnTracker;
-
 /// Marker component to indicate that the entity is under the control of the local peer
 #[derive(Component, Clone, Copy, PartialEq, Debug, Reflect, Serialize, Deserialize)]
 #[reflect(Component)]
@@ -49,6 +45,14 @@ pub struct Replicating;
 pub struct ReplicationTarget {
     /// Which clients should this entity be replicated to
     pub target: NetworkTarget,
+}
+
+/// Keeps track of the last known state of a component, so that we can compute
+/// the delta between the old and new state.
+#[derive(Component, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct Cached<C> {
+    pub value: C,
 }
 
 impl Default for ReplicationTarget {
@@ -77,10 +81,13 @@ pub enum TargetEntity {
 }
 
 /// Component that defines how the hierarchy of an entity (parent/children) should be replicated
+///
+/// If the component is absent, the [`Parent`](bevy::prelude::Parent)/[`Children`](bevy::prelude::Children) components will not be replicated.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ReplicateHierarchy {
     /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
+    ///
     /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
     /// and `ParentSync` components to the children yourself
     pub recursive: bool,

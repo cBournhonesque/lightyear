@@ -330,12 +330,12 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         // Create a confirmed entity on the server
 //         let server_entity = stepper
 //             .server_app
-//             .world
+//             .world_mut()
 //             .spawn((Component1(0.0), ShouldBeInterpolated))
 //             .id();
 //
 //         // Set the latest received server tick
-//         let confirmed_tick = stepper.client_app.world.resource_mut::<ClientConnectionManager>()
+//         let confirmed_tick = stepper.client_app.world_mut().resource_mut::<ClientConnectionManager>()
 //             .replication_receiver
 //             .remote_entity_map
 //             .get_confirmed_tick(confirmed_entity)
@@ -346,8 +346,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         let tick = stepper.client_tick();
 //         let interpolated = stepper
 //             .client_app
-//             .world
-//             .get::<Confirmed>(confirmed)
+//             .world()//             .get::<Confirmed>(confirmed)
 //             .unwrap()
 //             .interpolated
 //             .unwrap();
@@ -355,8 +354,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<Component1>(confirmed)
+//                 .world()//                 .get::<Component1>(confirmed)
 //                 .unwrap(),
 //             &Component1(0.0)
 //         );
@@ -365,8 +363,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<Interpolated>(interpolated)
+//                 .world()//                 .get::<Interpolated>(interpolated)
 //                 .unwrap()
 //                 .confirmed_entity,
 //             confirmed
@@ -377,8 +374,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<ConfirmedHistory<Component1>>(interpolated)
+//                 .world()//                 .get::<ConfirmedHistory<Component1>>(interpolated)
 //                 .unwrap(),
 //             &history,
 //         );
@@ -386,8 +382,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<Component1>(interpolated)
+//                 .world()//                 .get::<Component1>(interpolated)
 //                 .unwrap(),
 //             &Component1(0.0)
 //         );
@@ -396,8 +391,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
 //                 .unwrap(),
 //             &InterpolateStatus::<Component1> {
 //                 start: None,
@@ -421,8 +415,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
 //                 .unwrap(),
 //             &InterpolateStatus::<Component1> {
 //                 start: (Tick(0), Component1(0.0)).into(),
@@ -438,7 +431,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         //     .set_latest_received_server_tick(Tick(2));
 //         stepper
 //             .client_app
-//             .world
+//             .world_mut()
 //             .get_entity_mut(confirmed)
 //             .unwrap()
 //             .get_mut::<Component1>()
@@ -450,8 +443,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
 //                 .unwrap(),
 //             &InterpolateStatus::<Component1> {
 //                 start: (Tick(0), Component1(0.0)).into(),
@@ -463,8 +455,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<Component1>(interpolated)
+//                 .world()//                 .get::<Component1>(interpolated)
 //                 .unwrap(),
 //             &Component1(1.0)
 //         );
@@ -472,8 +463,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
 //                 .unwrap(),
 //             &InterpolateStatus::<Component1> {
 //                 start: (Tick(2), Component1(2.0)).into(),
@@ -485,8 +475,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<Component1>(interpolated)
+//                 .world()//                 .get::<Component1>(interpolated)
 //                 .unwrap(),
 //             &Component1(2.0)
 //         );
@@ -514,7 +503,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         //     .set_latest_received_server_tick(Tick(1));
 //         stepper
 //             .client_app
-//             .world
+//             .world_mut()
 //             .get_entity_mut(confirmed)
 //             .unwrap()
 //             .get_mut::<Component1>()
@@ -526,8 +515,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
 //                 .unwrap(),
 //             &InterpolateStatus::<Component1> {
 //                 start: (Tick(1), Component1(1.0)).into(),

@@ -22,7 +22,7 @@ use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
 use crate::shared::replication::error::ReplicationError;
-use crate::shared::replication::plugin::ReplicationConfig;
+use crate::shared::replication::plugin::{ReplicationConfig, SendUpdatesMode};
 #[cfg(test)]
 use {
     super::{EntityActionsMessage, EntityUpdatesMessage},
@@ -35,7 +35,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
-/// When a [`EntityUpdatesMessage`] message gets buffered (and we have access to its [`MessageId`]),
+/// When a [`EntityUpdatesMessage`](super::EntityUpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.
 /// It is useful when we get notified that the message was acked or lost.
 #[derive(Debug, PartialEq)]
@@ -132,10 +132,9 @@ impl ReplicationSender {
     /// We will send all updates that happened after this bevy tick.
     pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId) -> Option<BevyTick> {
         self.group_channels.get(&group_id).and_then(|channel| {
-            if self.replication_config.send_updates_since_last_ack {
-                channel.ack_bevy_tick
-            } else {
-                channel.send_tick
+            match self.replication_config.send_updates_mode {
+                SendUpdatesMode::SinceLastSend => channel.send_tick,
+                SendUpdatesMode::SinceLastAck => channel.ack_bevy_tick,
             }
         })
     }
@@ -152,26 +151,28 @@ impl ReplicationSender {
                 ..
             }) = self.updates_message_id_to_group_id.remove(&message_id)
             {
-                if let Some(channel) = self.group_channels.get_mut(&group_id) {
-                    // when we know an update message has been lost, we need to reset our send_tick
-                    // to our previous ack_tick
-                    trace!(
+                if let SendUpdatesMode::SinceLastSend = self.replication_config.send_updates_mode {
+                    if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                        // when we know an update message has been lost, we need to reset our send_tick
+                        // to our previous ack_tick
+                        trace!(
                         "Update channel send_tick back to ack_tick because a message has been lost"
                     );
-                    // only reset the send tick if the bevy_tick of the message that was lost is
-                    // newer than the current ack_tick
-                    // (otherwise it just means we lost some old message, and we don't need to do anything)
-                    if channel
-                        .ack_bevy_tick
-                        .is_some_and(|ack_tick| bevy_tick.is_newer_than(ack_tick, world_tick))
-                    {
-                        channel.send_tick = channel.ack_bevy_tick;
-                    }
+                        // only reset the send tick if the bevy_tick of the message that was lost is
+                        // newer than the current ack_tick
+                        // (otherwise it just means we lost some old message, and we don't need to do anything)
+                        if channel
+                            .ack_bevy_tick
+                            .is_some_and(|ack_tick| bevy_tick.is_newer_than(ack_tick, world_tick))
+                        {
+                            channel.send_tick = channel.ack_bevy_tick;
+                        }
 
-                    // TODO: if all clients lost a given message, than we can immediately drop the delta-compression data
-                    //  for that tick
-                } else {
-                    error!("Received an update message-id nack but the corresponding group channel does not exist");
+                        // TODO: if all clients lost a given message, than we can immediately drop the delta-compression data
+                        //  for that tick
+                    } else {
+                        error!("Received an update message-id nack but the corresponding group channel does not exist");
+                    }
                 }
             } else {
                 // NOTE: this happens when a message-id is split between multiple packets (fragmented messages)
@@ -257,7 +258,7 @@ impl ReplicationSender {
     /// Do some internal bookkeeping:
     /// - handle tick wrapping
     pub(crate) fn cleanup(&mut self, tick: Tick) {
-        let delta = (u16::MAX / 3) as i16;
+        let delta = (u16::MAX / 4) as i16;
         // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
         // (meaning that there's no need when we receive the update to check if we have already received a previous action)
         for group_channel in self.group_channels.values_mut() {
@@ -531,7 +532,7 @@ impl ReplicationSender {
         });
     }
 
-    /// Prepare the [`EntityActionsMessage`] messages to send.
+    /// Prepare the [`EntityActionsMessage`](super::EntityActionsMessage) messages to send.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn send_actions_messages(
         &mut self,
@@ -639,7 +640,7 @@ impl ReplicationSender {
         // TODO: also return for each message a list of the components that have delta-compression data?
     }
 
-    /// Buffer the [`EntityUpdatesMessage`] to send in the [`MessageManager`]
+    /// Buffer the [`EntityUpdatesMessage`](super::EntityUpdatesMessage) to send in the [`MessageManager`]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn send_updates_messages(
         &mut self,
@@ -847,7 +848,7 @@ mod tests {
             () => {
                 stepper
                     .server_app
-                    .world
+                    .world()
                     .resource::<ConnectionManager>()
                     .connections
                     .get(&ClientId::Netcode(TEST_CLIENT_ID))
@@ -857,7 +858,7 @@ mod tests {
         }
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn((Component1(1.0), Replicate::default()))
             .id();
         stepper.frame_step();
@@ -865,7 +866,7 @@ mod tests {
         // send an update
         stepper
             .server_app
-            .world
+            .world_mut()
             .entity_mut(server_entity)
             .get_mut::<Component1>()
             .unwrap()
@@ -909,7 +910,10 @@ mod tests {
             rx_ack,
             rx_nack,
             rx_send,
-            ReplicationConfig::default(),
+            ReplicationConfig {
+                send_updates_mode: SendUpdatesMode::SinceLastSend,
+                ..default()
+            },
             false,
         );
         let group_1 = ReplicationGroupId(0);

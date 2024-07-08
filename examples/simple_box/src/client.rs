@@ -182,7 +182,11 @@ pub(crate) fn receive_player_id_insert(mut reader: EventReader<ComponentInsertEv
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
-        color.0.set_s(0.3);
+        let hsva = Hsva {
+            saturation: 0.4,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
     }
 }
 
@@ -193,7 +197,11 @@ pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
 ) {
     for mut color in interpolated.iter_mut() {
-        color.0.set_s(0.1);
+        let hsva = Hsva {
+            saturation: 0.1,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
     }
 }
 
@@ -229,7 +237,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                             ..default()
                         },
                         border_color: BorderColor(Color::BLACK),
-                        background_color: Color::rgb(0.15, 0.15, 0.15).into(),
+                        image: UiImage::default().with_color(Color::srgb(0.15, 0.15, 0.15)),
                         ..default()
                     },
                     On::<Pointer<Click>>::run(|| {}),
@@ -240,7 +248,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                             "Connect",
                             TextStyle {
                                 font_size: 20.0,
-                                color: Color::rgb(0.9, 0.9, 0.9),
+                                color: Color::srgb(0.9, 0.9, 0.9),
                                 ..default()
                             },
                         ),

@@ -7,9 +7,7 @@ use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
-use bevy_xpbd_2d::parry::shape::{Ball, SharedShape};
-use bevy_xpbd_2d::prelude::*;
-use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
+use avian2d::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
@@ -143,7 +141,7 @@ pub fn apply_action_state_to_player_movement(
 
     if action.pressed(&PlayerActions::Up) {
         ex_force
-            .apply_force(rot.rotate(Vec2::Y * THRUSTER_POWER))
+            .apply_force(*rot * (Vec2::Y * THRUSTER_POWER))
             .with_persistence(false);
     }
     let desired_ang_vel = if action.pressed(&PlayerActions::Left) {
@@ -224,9 +222,8 @@ pub fn shared_player_firing(
         // and inherits the speed of the ship.
         let bullet_spawn_offset = Vec2::Y * (2.0 + (SHIP_LENGTH + BULLET_SIZE) / 2.0);
 
-        let bullet_origin = player_position.0 + player_rotation.rotate(bullet_spawn_offset);
-        let bullet_linvel =
-            player_rotation.rotate(Vec2::Y * weapon.bullet_speed) + player_velocity.0;
+        let bullet_origin = player_position.0 + player_rotation * bullet_spawn_offset;
+        let bullet_linvel = player_rotation * (Vec2::Y * weapon.bullet_speed) + player_velocity.0;
 
         // the default hashing algorithm uses the tick and component list. in order to disambiguate
         // between two players spawning a bullet on the same tick, we add client_id to the mix.
@@ -238,7 +235,7 @@ pub fn shared_player_firing(
                     player.client_id,
                     bullet_origin,
                     bullet_linvel,
-                    color.0 * 5.0, // bloom!
+                    (color.0.to_linear() * 5.0).into(), // bloom!
                     current_tick,
                 ),
                 PhysicsBundle::bullet(),

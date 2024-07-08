@@ -24,7 +24,7 @@ fn main() {
     let mut apps = Apps::new(settings.common, cli);
     // for this example, we will use input delay and a correction function
     apps.update_lightyear_client_config(|config| {
-        config.prediction.input_delay_ticks = settings.input_delay_ticks;
+        config.prediction.minimum_input_delay_ticks = settings.input_delay_ticks;
         config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
     })
     // add `ClientPlugins` and `ServerPlugins` plugin groups

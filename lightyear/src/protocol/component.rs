@@ -8,6 +8,8 @@ use std::ops::{Add, Mul};
 use bevy::prelude::{App, Component, EntityWorldMut, Mut, Resource, TypePath, World};
 use bevy::ptr::Ptr;
 use bevy::utils::HashMap;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use tracing::{debug, error, trace};
 
@@ -20,7 +22,7 @@ use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, Message, Tick};
 use crate::protocol::delta::ErasedDeltaFns;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
-use crate::protocol::serialize::ErasedSerializeFns;
+use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::serialize::reader::Reader;
 use crate::serialize::SerializationError;
 use crate::shared::events::connection::ConnectionEvents;
@@ -258,10 +260,21 @@ impl ComponentRegistry {
         }
     }
 
-    pub(crate) fn register_component<C: Message>(&mut self) {
+    pub(crate) fn register_component<C: Message + Serialize + DeserializeOwned>(&mut self) {
         let component_kind = self.kind_map.add::<C>();
         self.serialize_fns_map
             .insert(component_kind, ErasedSerializeFns::new::<C>());
+    }
+
+    pub(crate) fn register_component_custom_serde<C: Message>(
+        &mut self,
+        serialize_fns: SerializeFns<C>,
+    ) {
+        let component_kind = self.kind_map.add::<C>();
+        self.serialize_fns_map.insert(
+            component_kind,
+            ErasedSerializeFns::new_custom_serde::<C>(serialize_fns),
+        );
     }
 }
 
@@ -325,7 +338,7 @@ mod serialize {
             net_id.to_bytes(writer)?;
             // SAFETY: the ErasedSerializeFns corresponds to type C
             unsafe {
-                (erased_fns.serialize)(component, writer)?;
+                (erased_fns.erased_serialize)(erased_fns, component, writer)?;
             }
             Ok(())
         }
@@ -625,7 +638,10 @@ mod delta {
 
     impl ComponentRegistry {
         /// Register delta compression functions for a component
-        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self) {
+        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self)
+        where
+            C::Delta: Serialize + DeserializeOwned,
+        {
             let kind = ComponentKind::of::<C>();
             let delta_kind = ComponentKind::of::<DeltaMessage<C::Delta>>();
             // add the delta as a message
@@ -804,8 +820,8 @@ mod delta {
 }
 
 fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirection) {
-    let is_client = app.world.get_resource::<ClientConfig>().is_some();
-    let is_server = app.world.get_resource::<ServerConfig>().is_some();
+    let is_client = app.world().get_resource::<ClientConfig>().is_some();
+    let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
         ChannelDirection::ClientToServer => {
             if is_client {
@@ -842,9 +858,18 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
 pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
-    fn register_component<C: Component + Message + PartialEq>(
+    fn register_component<C: Component + Message + Serialize + DeserializeOwned + PartialEq>(
         &mut self,
         direction: ChannelDirection,
+    ) -> ComponentRegistration<'_, C>;
+
+    /// Registers the component in the Registry: this component can now be sent over the network.
+    ///
+    /// You need to provide your own [`SerializeFns`]
+    fn register_component_custom_serde<C: Component + Message + PartialEq>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
 
     /// Enable prediction systems for this component.
@@ -877,11 +902,10 @@ pub trait AppComponentExt {
     /// Add a `Interpolation` behaviour to this component.
     fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>);
 
-    // TODO: let the user decide what the BaseValue should be for the initial replication
-    //  so that instead of sending the full value we just send a diff from the BaseValue,
-    //  or a flag that indicates that the receiver should just use the BaseValue
     /// Enable delta compression when serializing this component
-    fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self);
+    fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self)
+    where
+        C::Delta: Serialize + DeserializeOwned;
 }
 
 pub struct ComponentRegistration<'a, C> {
@@ -896,7 +920,7 @@ impl<C> ComponentRegistration<'_, C> {
     where
         C: MapEntities + 'static,
     {
-        let mut registry = self.app.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
         registry.add_map_entities::<C>();
         self
     }
@@ -983,6 +1007,7 @@ impl<C> ComponentRegistration<'_, C> {
     pub fn add_delta_compression(self) -> Self
     where
         C: Component + PartialEq + Diffable,
+        C::Delta: Serialize + DeserializeOwned,
     {
         self.app.add_delta_compression::<C>();
         self
@@ -990,11 +1015,11 @@ impl<C> ComponentRegistration<'_, C> {
 }
 
 impl AppComponentExt for App {
-    fn register_component<C: Component + Message + PartialEq>(
+    fn register_component<C: Component + Message + PartialEq + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C> {
-        self.world
+        self.world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
                 if !registry.is_registered::<C>() {
                     registry.register_component::<C>();
@@ -1009,30 +1034,50 @@ impl AppComponentExt for App {
         }
     }
 
+    fn register_component_custom_serde<C: Component + Message + PartialEq>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<C>,
+    ) -> ComponentRegistration<'_, C> {
+        self.world_mut()
+            .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
+                if !registry.is_registered::<C>() {
+                    registry.register_component_custom_serde::<C>(serialize_fns);
+                }
+                registry.set_replication_fns::<C>(world);
+                debug!("register component {}", std::any::type_name::<C>());
+            });
+        register_component_send::<C>(self, direction);
+        ComponentRegistration {
+            app: self,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_prediction_mode::<C>(prediction_mode);
 
         // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_prediction_systems::<C>(self, prediction_mode);
         }
     }
 
     fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_linear_correction::<C>();
         // TODO: register correction systems only if correction is enabled?
     }
 
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_correction::<C>(correction_fn);
     }
 
     fn add_should_rollback_fn<C: SyncComponent>(&mut self, rollback_check: ShouldRollbackFn<C>) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_should_rollback::<C>(rollback_check);
     }
 
@@ -1040,20 +1085,20 @@ impl AppComponentExt for App {
         &mut self,
         interpolation_mode: ComponentSyncMode,
     ) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
         // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_prepare_interpolation_systems::<C>(self, interpolation_mode);
         }
     }
 
     fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
         // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_prepare_interpolation_systems::<C>(self, interpolation_mode);
             if interpolation_mode == ComponentSyncMode::Full {
@@ -1064,17 +1109,20 @@ impl AppComponentExt for App {
     }
 
     fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_linear_interpolation::<C>();
     }
 
     fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation::<C>(interpolation_fn);
     }
 
-    fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+    fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self)
+    where
+        C::Delta: Serialize + DeserializeOwned,
+    {
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_delta_compression::<C>();
     }
 }
@@ -1094,5 +1142,31 @@ impl TypeKind for ComponentKind {}
 impl From<TypeId> for ComponentKind {
     fn from(type_id: TypeId) -> Self {
         Self(type_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::serialize::writer::Writer;
+    use crate::tests::protocol::*;
+
+    #[test]
+    fn test_custom_serde() {
+        let mut registry = ComponentRegistry::default();
+        registry.register_component_custom_serde::<Component2>(SerializeFns {
+            serialize: serialize_component2,
+            deserialize: deserialize_component2,
+        });
+        let component = Component2(1.0);
+        let mut writer = Writer::default();
+        registry.serialize(&component, &mut writer).unwrap();
+        let data = writer.to_bytes();
+
+        let mut reader = Reader::from(data);
+        let read = registry
+            .deserialize(&mut reader, &mut EntityMap::default())
+            .unwrap();
+        assert_eq!(component, read);
     }
 }

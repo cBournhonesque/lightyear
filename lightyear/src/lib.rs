@@ -22,14 +22,14 @@ fn run_client_app() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ClientPlugins::new(ClientConfig::default()))
-        .run()
+        .run();
 }
 
 fn run_server_app() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ServerPlugins::new(ServerConfig::default()))
-        .run()
+        .run();
 }
 ```
 In general, you will have to modify some parts of the [`ClientConfig`](prelude::client::ClientConfig) and [`ServerConfig`](prelude::server::ServerConfig) to fit your game.
@@ -163,6 +163,7 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 [`Replicating`]: prelude::Replicating
 [`SharedConfig`]: prelude::SharedConfig
  */
+#![allow(clippy::missing_transmute_annotations)]
 #![allow(unused_variables)]
 #![allow(clippy::too_many_arguments)]
 #![allow(dead_code)]
@@ -237,7 +238,7 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         #[cfg(feature = "leafwing")]
-        pub use crate::client::input::leafwing::{LeafwingInputConfig, ToggleActions};
+        pub use crate::client::input::leafwing::LeafwingInputConfig;
         pub use crate::client::input::native::{InputConfig, InputManager, InputSystemSet};
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{
@@ -258,6 +259,7 @@ pub mod prelude {
         pub use crate::client::prediction::Predicted;
         pub use crate::client::replication::commands::DespawnReplicationCommandExt;
         pub use crate::client::replication::send::Replicate;
+        pub use crate::client::run_conditions::{is_connected, is_disconnected, is_synced};
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
             Authentication, ClientConnection, IoConfig, NetClient, NetConfig,
@@ -293,6 +295,7 @@ pub mod prelude {
             send::{ControlledBy, Replicate, ServerFilter, SyncTarget},
             ReplicationSet, ServerReplicationSet,
         };
+        pub use crate::server::run_conditions::{is_started, is_stopped};
     }
 
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]

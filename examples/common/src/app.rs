@@ -10,6 +10,9 @@ use std::time::Duration;
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use bevy::render::RenderPlugin;
+use bevy::state::app::StatesPlugin;
+use bevy::winit::{WakeUp, WinitPlugin};
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
@@ -49,6 +52,18 @@ pub enum Cli {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
     },
+}
+
+/// App that is Send.
+/// Used as a convenient workaround to send an App to a separate thread,
+/// if we know that the App doesn't contain NonSend resources.
+struct SendApp(App);
+
+unsafe impl Send for SendApp {}
+impl SendApp {
+    fn run(&mut self) {
+        self.0.run();
+    }
 }
 
 impl Default for Cli {
@@ -172,7 +187,9 @@ impl Apps {
             cc.shared.server_replication_send_interval = replication_interval
         });
         self.update_lightyear_server_config(|sc: &mut ServerConfig| {
-            sc.shared.server_replication_send_interval = replication_interval
+            // the server replication currently needs to be overwritten in both places...
+            sc.shared.server_replication_send_interval = replication_interval;
+            sc.replication.send_interval = replication_interval;
         });
         self
     }
@@ -296,16 +313,19 @@ impl Apps {
     /// Start running the apps.
     pub fn run(self) {
         match self {
-            Apps::Client { mut app, .. } => app.run(),
-            Apps::Server { mut app, .. } => app.run(),
+            Apps::Client { mut app, .. } => {
+                app.run();
+            }
+            Apps::Server { mut app, .. } => {
+                app.run();
+            }
             Apps::ClientAndServer {
                 mut client_app,
-                mut server_app,
+                server_app,
                 ..
             } => {
-                std::thread::spawn(move || {
-                    server_app.run();
-                });
+                let mut send_app = SendApp(server_app);
+                std::thread::spawn(move || send_app.run());
                 client_app.run();
             }
             Apps::HostServer { mut app, .. } => {
@@ -319,14 +339,21 @@ impl Apps {
 /// Takes in a `net_config` parameter so that we configure the network transport.
 fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, ClientConfig) {
     let mut app = App::new();
-    // https://github.com/bevyengine/bevy/issues/10157
-    app.insert_resource(bevy::asset::AssetMetaCheck::Never);
 
-    app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-        level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: None,
-    }));
+    app.add_plugins(
+        DefaultPlugins
+            .build()
+            .set(AssetPlugin {
+                // https://github.com/bevyengine/bevy/issues/10157
+                meta_check: bevy::asset::AssetMetaCheck::Never,
+                ..default()
+            })
+            .set(LogPlugin {
+                level: Level::INFO,
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
+                ..default()
+            }),
+    );
     if settings.client.inspector {
         app.add_plugins(WorldInspectorPlugin::new());
     }
@@ -348,17 +375,22 @@ fn server_app(
     if !settings.server.headless {
         app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
     } else {
-        app.add_plugins(MinimalPlugins);
+        app.add_plugins((
+            // TODO: cannot use MinimalPlugins because avian requires render/assets plugin
+            // MinimalPlugins,
+            // StatesPlugin,
+            DefaultPlugins.build().disable::<LogPlugin>(),
+        ));
     }
     app.add_plugins(LogPlugin {
         level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: Some(add_log_layer),
+        ..default()
     });
 
-    if settings.server.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
+    // if settings.server.inspector {
+    //     app.add_plugins(WorldInspectorPlugin::new());
+    // }
 
     // configure the network configuration
     let mut net_configs = get_server_net_configs(&settings);
@@ -389,11 +421,11 @@ fn combined_app(
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
         level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: Some(add_log_layer),
+        ..default()
     }));
-    if settings.client.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
+    // if settings.client.inspector {
+    //     app.add_plugins(WorldInspectorPlugin::new());
+    // }
 
     // server config
     let mut net_configs = get_server_net_configs(&settings);

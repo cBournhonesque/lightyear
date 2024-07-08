@@ -20,6 +20,9 @@ impl Plugin for SharedPlugin {
         app.register_type::<PlayerId>();
         app.register_type::<PlayerPosition>();
         app.register_type::<PlayerParent>();
+        app.register_type::<PlayerColor>();
+        app.register_type::<TailPoints>();
+        app.register_type::<TailLength>();
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Startup, init);
             app.add_systems(Update, draw_snakes);

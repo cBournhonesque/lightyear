@@ -1,7 +1,8 @@
+use avian2d::prelude::*;
+use bevy::color::palettes::css;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy::utils::HashMap;
-use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
@@ -68,7 +69,7 @@ fn init(mut commands: Commands, global: Res<Global>) {
     // the ball is server-authoritative
     commands.spawn(BallBundle::new(
         Vec2::new(0.0, 0.0),
-        Color::AZURE,
+        css::AZURE.into(),
         // if true, we predict the ball on clients
         global.predict_all,
     ));
@@ -146,6 +147,7 @@ pub(crate) fn replicate_players(
                 sync: sync_target,
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(client_id),
+                    ..default()
                 },
                 // make sure that all entities that are predicted are part of the same replication group
                 group: REPLICATION_GROUP,

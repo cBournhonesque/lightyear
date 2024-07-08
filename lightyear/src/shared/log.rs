@@ -1,21 +1,16 @@
 #![allow(clippy::type_complexity)]
 //! Log plugin that also potentially emits metrics to Prometheus.
 //! This cannot be used in conjunction with Bevy's `LogPlugin`
-use bevy::log::BoxedSubscriber;
+use bevy::app::App;
+use bevy::log::BoxedLayer;
 #[cfg(feature = "metrics")]
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 
-pub fn add_log_layer(subscriber: BoxedSubscriber) -> BoxedSubscriber {
-    // let fmt_layer = tracing_subscriber::fmt::Layer::default()
-    //     // log span enters
-    //     .with_span_events(tracing_subscriber::fmt::format::FmtSpan::ENTER)
-    //     // .with_max_level(self.level)
-    //     .with_writer(std::io::stderr);
-
+pub fn add_log_layer(app: &mut App) -> Option<BoxedLayer> {
     // add metrics_tracing_context support
     #[cfg(feature = "metrics")]
     {
-        let subscriber = subscriber.with(MetricsLayer::new());
+        let metrics_layer = MetricsLayer::new();
         // create a prometheus exporter with tracing context support
         let builder = metrics_exporter_prometheus::PrometheusBuilder::new();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -38,8 +33,10 @@ pub fn add_log_layer(subscriber: BoxedSubscriber) -> BoxedSubscriber {
             .spawn(move || runtime.block_on(exporter))
             .unwrap();
         metrics::set_boxed_recorder(Box::new(traced_recorder));
+        Some(metrics_layer.boxed())
     }
-    // let new_subscriber = tracing_subscriber::Layer::with_subscriber(fmt_layer, subscriber);
-    // Box::new(new_subscriber)
-    Box::new(subscriber)
+    #[cfg(not(feature = "metrics"))]
+    {
+        None
+    }
 }

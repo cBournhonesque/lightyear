@@ -4,7 +4,7 @@ use bevy::app::{App, PreUpdate};
 use bevy::prelude::{EventWriter, IntoSystemConfigs, Res, ResMut};
 use tracing::{error, trace};
 
-use crate::prelude::{is_started, Message};
+use crate::prelude::{server::is_started, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
 use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;

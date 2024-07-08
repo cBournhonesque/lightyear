@@ -1,7 +1,7 @@
 //! Defines the server bevy systems and run conditions
 use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::{
-    is_started, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
+    server::is_started, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
@@ -60,7 +60,7 @@ impl Plugin for ServerNetworkingPlugin {
         // STARTUP
         // create the server connection resources to avoid some systems panicking
         // TODO: remove this when possible?
-        app.world.run_system_once(rebuild_server_connections);
+        app.world_mut().run_system_once(rebuild_server_connections);
 
         // ON_START
         app.add_systems(OnEnter(NetworkingState::Started), on_start);
@@ -191,20 +191,20 @@ pub(crate) fn receive(world: &mut World) {
                                             if !connection_manager.events.is_empty() {
                                                 // Connection / Disconnection events
                                                 if connection_manager.events.has_connections() {
-                                                    let mut connect_event_writer =
-                                                        world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
                                                     for connect_event in connection_manager.events.iter_connections() {
                                                         debug!("Client connected event: {}", connect_event.client_id);
-                                                        connect_event_writer.send(connect_event);
+                                                        world.resource_mut::<Events<ConnectEvent>>().send(connect_event);
+                                                        // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
+                                                        world.trigger(connect_event);
                                                     }
                                                 }
 
                                                 if connection_manager.events.has_disconnections() {
-                                                    let mut connect_event_writer =
-                                                        world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
                                                     for disconnect_event in connection_manager.events.iter_disconnections() {
                                                         debug!("Client disconnected event: {}", disconnect_event.client_id);
-                                                        connect_event_writer.send(disconnect_event);
+                                                        world.resource_mut::<Events<DisconnectEvent>>().send(disconnect_event);
+                                                        // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
+                                                        world.trigger(disconnect_event);
                                                     }
                                                 }
                                             }
@@ -321,10 +321,10 @@ pub trait ServerCommands {
 
 impl ServerCommands for Commands<'_, '_> {
     fn start_server(&mut self) {
-        self.insert_resource(NextState::<NetworkingState>(Some(NetworkingState::Started)));
+        self.insert_resource(NextState::Pending(NetworkingState::Started));
     }
 
     fn stop_server(&mut self) {
-        self.insert_resource(NextState::<NetworkingState>(Some(NetworkingState::Stopped)));
+        self.insert_resource(NextState::Pending(NetworkingState::Stopped));
     }
 }

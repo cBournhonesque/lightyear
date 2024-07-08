@@ -24,11 +24,11 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {}
 
     fn finish(&self, app: &mut App) {
-        app.world
+        app.world_mut()
             .resource_mut::<MessageRegistry>()
             .add_message::<InputMessage<A>>(MessageType::NativeInput);
-        let is_client = app.world.get_resource::<ClientConfig>().is_some();
-        let is_server = app.world.get_resource::<ServerConfig>().is_some();
+        let is_client = app.world().get_resource::<ClientConfig>().is_some();
+        let is_server = app.world().get_resource::<ServerConfig>().is_some();
         if is_client {
             app.add_plugins(crate::client::input::native::InputPlugin::<A>::default());
         }

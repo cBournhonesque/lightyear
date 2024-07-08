@@ -30,7 +30,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         // leafwing messages have special handling so we register them as LeafwingInput
         // we still use `add_message_internal` because we want to emit events contain the message
         // so the user can inspect them and re-broadcast them to other players
-        app.add_message_internal::<InputMessage<A>>(
+        app.register_message_internal::<InputMessage<A>>(
             ChannelDirection::Bidirectional,
             MessageType::LeafwingInput,
         )
@@ -42,9 +42,11 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         // Note: this is necessary because
         // - so that the server entity has an ActionState on the server when the ActionState is added on the client
         //   (we only replicate it once when ActionState is first added)
+        // - we don't need to replicate from server->client because we will add ActionState on any entity
+        //   where the client adds an InputMap
         app.register_component::<ActionState<A>>(ChannelDirection::ClientToServer);
-        let is_client = app.world.get_resource::<ClientConfig>().is_some();
-        let is_server = app.world.get_resource::<ServerConfig>().is_some();
+        let is_client = app.world().get_resource::<ClientConfig>().is_some();
+        let is_server = app.world().get_resource::<ServerConfig>().is_some();
         if is_client {
             app.add_plugins(
                 crate::client::input::leafwing::LeafwingInputPlugin::<A>::new(self.config),

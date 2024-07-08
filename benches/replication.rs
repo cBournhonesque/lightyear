@@ -77,8 +77,7 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                         elapsed += instant.elapsed();
                         // dbg!(stepper
                         //     .server_app
-                        //     .world
-                        //     .resource::<ConnectionManager>()
+                        //     .world()                        //     .resource::<ConnectionManager>()
                         //     .connection(ClientId::Netcode(0))
                         //     .unwrap()
                         //     .message_manager
@@ -90,8 +89,7 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                         //         .client_apps
                         //         .get(&ClientId::Netcode(0))
                         //         .unwrap()
-                        //         .world
-                        //         .entities()
+                        //         .world()                        //         .entities()
                         //         .len(),
                         //     *n as u32
                         // );
@@ -125,7 +123,7 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
                         // update the entities
                         for mut component in stepper
                             .server_app
-                            .world
+                            .world()
                             .query_filtered::<&mut Component1, With<Replicating>>()
                             .iter_mut(&mut stepper.server_app.world)
                         {
@@ -146,7 +144,7 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
                                 .client_apps
                                 .get(&ClientId::Netcode(0))
                                 .unwrap()
-                                .world
+                                .world()
                                 .entities()
                                 .len(),
                             *n as u32
@@ -201,7 +199,7 @@ fn receive_float_insert(criterion: &mut Criterion) {
                                 .client_apps
                                 .get(&ClientId::Netcode(0))
                                 .unwrap()
-                                .world
+                                .world()
                                 .entities()
                                 .len(),
                             *n as u32
@@ -236,7 +234,7 @@ fn receive_float_update(criterion: &mut Criterion) {
                         // update the entities
                         for mut component in stepper
                             .server_app
-                            .world
+                            .world()
                             .query_filtered::<&mut Component1, With<Replicating>>()
                             .iter_mut(&mut stepper.server_app.world)
                         {
@@ -256,7 +254,7 @@ fn receive_float_update(criterion: &mut Criterion) {
                                 .client_apps
                                 .get(&ClientId::Netcode(0))
                                 .unwrap()
-                                .world
+                                .world()
                                 .entities()
                                 .len(),
                             *n as u32
@@ -306,7 +304,7 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
                                     .client_apps
                                     .get(&ClientId::Netcode(i as u64))
                                     .unwrap()
-                                    .world
+                                    .world()
                                     .entities()
                                     .len(),
                                 FIXED_NUM_ENTITIES as u32

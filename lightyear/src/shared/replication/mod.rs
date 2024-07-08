@@ -32,6 +32,7 @@ pub mod error;
 pub(crate) mod hierarchy;
 pub mod network_target;
 pub(crate) mod plugin;
+pub(crate) mod prespawn;
 pub(crate) mod receive;
 pub(crate) mod resources;
 pub(crate) mod send;
@@ -328,7 +329,6 @@ pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
 /// The trait is made public because it is needed in the macros
 pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
     type Error: std::error::Error;
-    type ReplicateCache;
     fn writer(&mut self) -> &mut Writer;
 
     /// Return the list of clients that connected to the server since we last sent any replication messages

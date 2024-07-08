@@ -549,13 +549,13 @@ pub(super) mod test_utils {
     ) {
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource_mut::<ConnectionManager>()
             .sync_manager
             .duration_since_latest_received_server_tick = Duration::default();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .get_mut::<Confirmed>()
             .unwrap()
@@ -584,24 +584,28 @@ mod unit_tests {
         let mut stepper = BevyStepper::default();
 
         // add predicted/confirmed entities
-        let confirmed = stepper.client_app.world.spawn(Confirmed::default()).id();
+        let confirmed = stepper
+            .client_app
+            .world_mut()
+            .spawn(Confirmed::default())
+            .id();
         let predicted = stepper
             .client_app
-            .world
+            .world_mut()
             .spawn(Predicted {
                 confirmed_entity: Some(confirmed),
             })
             .id();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .get_mut::<Confirmed>()
             .unwrap()
             .predicted = Some(predicted);
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component1(1.0));
         stepper.frame_step();
@@ -610,7 +614,7 @@ mod unit_tests {
         let tick = stepper.client_tick();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .get_mut::<Component1>()
             .unwrap()
@@ -619,12 +623,12 @@ mod unit_tests {
         received_confirmed_update(&mut stepper, confirmed, tick);
         stepper
             .client_app
-            .world
+            .world_mut()
             .run_system_once(check_rollback::<Component1>);
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Rollback>()
                 .get_rollback_tick(),
             Some(tick + 1)
@@ -634,24 +638,24 @@ mod unit_tests {
         // reset rollback state
         stepper
             .client_app
-            .world
+            .world()
             .resource::<Rollback>()
             .set_non_rollback();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .remove::<Component1>();
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
         stepper
             .client_app
-            .world
+            .world_mut()
             .run_system_once(check_rollback::<Component1>);
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Rollback>()
                 .get_rollback_tick(),
             Some(tick + 1)
@@ -661,29 +665,29 @@ mod unit_tests {
         // reset rollback state
         stepper
             .client_app
-            .world
+            .world()
             .resource::<Rollback>()
             .set_non_rollback();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(predicted)
             .remove::<Component1>();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component1(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
         stepper
             .client_app
-            .world
+            .world_mut()
             .run_system_once(check_rollback::<Component1>);
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Rollback>()
                 .get_rollback_tick(),
             Some(tick + 1)
@@ -693,12 +697,12 @@ mod unit_tests {
         // reset rollback state
         stepper
             .client_app
-            .world
+            .world_mut()
             .resource::<Rollback>()
             .set_non_rollback();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(predicted)
             .get_mut::<PredictionHistory<Component1>>()
             .unwrap()
@@ -707,11 +711,11 @@ mod unit_tests {
         received_confirmed_update(&mut stepper, confirmed, tick);
         stepper
             .client_app
-            .world
+            .world_mut()
             .run_system_once(check_rollback::<Component1>);
         assert!(!stepper
             .client_app
-            .world
+            .world()
             .resource::<Rollback>()
             .is_rollback());
     }
@@ -747,17 +751,21 @@ mod integration_tests {
             .client_app
             .add_systems(FixedUpdate, increment_component);
         // add predicted/confirmed entities
-        let confirmed = stepper.client_app.world.spawn(Confirmed::default()).id();
+        let confirmed = stepper
+            .client_app
+            .world_mut()
+            .spawn(Confirmed::default())
+            .id();
         let predicted = stepper
             .client_app
-            .world
+            .world_mut()
             .spawn(Predicted {
                 confirmed_entity: Some(confirmed),
             })
             .id();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .get_mut::<Confirmed>()
             .unwrap()
@@ -776,7 +784,7 @@ mod integration_tests {
         // insert component on confirmed
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component1(0.0));
         stepper.frame_step();
@@ -785,7 +793,7 @@ mod integration_tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .get::<Component1>(predicted)
                 .unwrap(),
             &Component1(1.0)
@@ -798,7 +806,7 @@ mod integration_tests {
         // check that the component got removed on predicted
         assert!(stepper
             .client_app
-            .world
+            .world()
             .get::<Component1>(predicted)
             .is_none());
 
@@ -806,7 +814,7 @@ mod integration_tests {
         let tick = stepper.client_tick();
         stepper
             .client_app
-            .world
+            .world_mut()
             .get_mut::<Component1>(confirmed)
             .unwrap()
             .0 = -10.0;
@@ -818,7 +826,7 @@ mod integration_tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .get_mut::<Component1>(predicted)
                 .unwrap()
                 .0,
@@ -837,7 +845,7 @@ mod integration_tests {
         // add a new component to Predicted
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(predicted)
             .insert(Component1(1.0));
         stepper.frame_step();
@@ -850,7 +858,7 @@ mod integration_tests {
         // check that rollback happened: the component got removed from predicted
         assert!(stepper
             .client_app
-            .world
+            .world()
             .get::<Component1>(predicted)
             .is_none());
     }
@@ -865,7 +873,7 @@ mod integration_tests {
         // insert component on confirmed
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component1(0.0));
         stepper.frame_step();
@@ -874,7 +882,7 @@ mod integration_tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .get::<Component1>(predicted)
                 .unwrap(),
             &Component1(1.0)
@@ -888,7 +896,7 @@ mod integration_tests {
         // remove the component on confirmed and create a rollback situation
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .remove::<Component1>();
         let tick = stepper.client_tick();
@@ -899,7 +907,7 @@ mod integration_tests {
         // predicted got the component removed
         assert!(stepper
             .client_app
-            .world
+            .world_mut()
             .get_mut::<Component1>(predicted)
             .is_none());
     }
@@ -914,14 +922,14 @@ mod integration_tests {
         // check that predicted does not have the component
         assert!(stepper
             .client_app
-            .world
+            .world_mut()
             .get_mut::<Component1>(predicted)
             .is_none());
 
         // create a rollback situation (confirmed doesn't have a component that predicted has)
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component1(1.0));
         let tick = stepper.client_tick();
@@ -932,7 +940,7 @@ mod integration_tests {
         // predicted got the component re-added
         stepper
             .client_app
-            .world
+            .world_mut()
             .get_mut::<Component1>(predicted)
             .unwrap()
             .0 = 4.0;

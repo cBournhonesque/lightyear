@@ -39,10 +39,7 @@ it just caches the room metadata to keep track of the relevance of entities.
 
 use bevy::app::App;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{
-    Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate,
-    RemovedComponents, ResMut, Resource, SystemSet,
-};
+use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
 
@@ -50,11 +47,10 @@ use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use crate::connection::id::ClientId;
-use crate::prelude::is_started;
+use crate::prelude::server::is_started;
 
 use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceManager};
-use crate::shared::replication::components::DespawnTracker;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
+use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
@@ -137,9 +133,6 @@ pub enum RoomSystemSets {
     /// Use all the room events that happened, and use those to update
     /// the replication caches
     UpdateReplicationCaches,
-    /// Perform bookkeeping for the rooms
-    /// (remove despawned entities, update the replication caches, etc.)
-    RoomBookkeeping,
 }
 
 impl Plugin for RoomPlugin {
@@ -154,31 +147,24 @@ impl Plugin for RoomPlugin {
                     // the room events must be processed before the relevance events
                     RoomSystemSets::UpdateReplicationCaches,
                     NetworkRelevanceSet::UpdateRelevance,
-                    RoomSystemSets::RoomBookkeeping,
                 )
                     .run_if(is_started)
                     .chain(),
                 // the room systems can run every send_interval
-                (
-                    RoomSystemSets::UpdateReplicationCaches,
-                    RoomSystemSets::RoomBookkeeping,
-                )
+                RoomSystemSets::UpdateReplicationCaches
                     .in_set(InternalReplicationSet::<ServerMarker>::SendMessages), // .run_if(is_server_ready_to_send),
             ),
         );
         // SYSTEMS
         app.add_systems(
-            PreUpdate,
-            systems::handle_client_disconnect.after(InternalMainSet::<ServerMarker>::EmitEvents),
-        );
-        app.add_systems(
             PostUpdate,
             (
                 systems::buffer_room_relevance_events
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
-                systems::clean_entity_despawns.in_set(RoomSystemSets::RoomBookkeeping),
             ),
         );
+        app.observe(systems::handle_client_disconnect);
+        app.observe(systems::clean_entity_despawns);
     }
 }
 
@@ -412,17 +398,16 @@ impl RoomEvents {
 
 pub(super) mod systems {
     use super::*;
+    use crate::prelude::ReplicationGroup;
     use crate::server::events::DisconnectEvent;
-    use bevy::prelude::EventReader;
+    use bevy::prelude::Trigger;
 
     /// Clear the internal room buffers when a client disconnects
     pub fn handle_client_disconnect(
+        trigger: Trigger<DisconnectEvent>,
         mut room_manager: ResMut<RoomManager>,
-        mut disconnect_events: EventReader<DisconnectEvent>,
     ) {
-        for event in disconnect_events.read() {
-            room_manager.client_disconnect(event.client_id);
-        }
+        room_manager.client_disconnect(trigger.event().client_id);
     }
 
     // TODO: (perf) split this into 4 separate functions that access RoomManager in parallel?
@@ -488,12 +473,11 @@ pub(super) mod systems {
 
     /// Clear out the room metadata for any entity that was ever replicated
     pub fn clean_entity_despawns(
+        // we use the removal of ReplicationGroup to detect if the entity was despawned
+        trigger: Trigger<OnRemove, ReplicationGroup>,
         mut room_manager: ResMut<RoomManager>,
-        mut despawned: RemovedComponents<DespawnTracker>,
     ) {
-        for entity in despawned.read() {
-            room_manager.entity_despawn(entity);
-        }
+        room_manager.entity_despawn(trigger.entity());
     }
 }
 
@@ -510,7 +494,6 @@ mod tests {
         add_cached_network_relevance, update_relevance_from_events,
     };
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
-    use crate::server::replication::send::handle_replicating_add;
     use crate::shared::replication::components::NetworkRelevanceMode;
     use crate::tests::stepper::{BevyStepper, Step};
 
@@ -529,23 +512,19 @@ mod tests {
         let room_id = RoomId(0);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
 
         // Spawn an entity on server
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
             })
             .id();
-        stepper
-            .server_app
-            .world
-            .run_system_once(handle_replicating_add);
 
         stepper.frame_step();
         stepper.frame_step();
@@ -553,19 +532,19 @@ mod tests {
         // Check room states
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .has_client_id(client_id, room_id));
 
         // Add the entity in the same room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .events
             .entity_enter_room
@@ -575,23 +554,23 @@ mod tests {
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<CachedNetworkRelevance>()
             .is_some());
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
 
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -604,13 +583,13 @@ mod tests {
         // Check room states
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .has_entity(server_entity, room_id));
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -623,14 +602,14 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Events<EntitySpawnEvent>>()
                 .len(),
             1
         );
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -640,12 +619,12 @@ mod tests {
         // Remove the entity from the room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_entity(server_entity, room_id);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .events
             .entity_leave_room
@@ -654,16 +633,16 @@ mod tests {
             .contains(&room_id));
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -674,7 +653,7 @@ mod tests {
         // after bookkeeping, the entity should not have any clients in its replication cache
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<CachedNetworkRelevance>()
             .unwrap()
@@ -686,12 +665,16 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Events<EntityDespawnEvent>>()
                 .len(),
             1
         );
-        assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_entity)
+            .is_none());
     }
 
     #[test]
@@ -707,7 +690,7 @@ mod tests {
         // Spawn an entity on server
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
@@ -715,11 +698,7 @@ mod tests {
             .id();
         stepper
             .server_app
-            .world
-            .run_system_once(handle_replicating_add);
-        stepper
-            .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
 
@@ -729,19 +708,19 @@ mod tests {
         // Check room states
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .has_entity(server_entity, room_id));
 
         // Add the client in the same room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .events
             .client_enter_room
@@ -751,16 +730,16 @@ mod tests {
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -773,13 +752,13 @@ mod tests {
         // Check room states
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .has_entity(server_entity, room_id));
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -792,14 +771,14 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Events<EntitySpawnEvent>>()
                 .len(),
             1
         );
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -809,12 +788,12 @@ mod tests {
         // Remove the client from the room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_client(client_id, room_id);
         assert!(stepper
             .server_app
-            .world
+            .world()
             .resource::<RoomManager>()
             .events
             .client_leave_room
@@ -823,16 +802,16 @@ mod tests {
             .contains(&room_id));
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -843,7 +822,7 @@ mod tests {
         // after bookkeeping, the entity should not have any clients in its replication cache
         assert!(stepper
             .server_app
-            .world
+            .world()
             .entity(server_entity)
             .get::<CachedNetworkRelevance>()
             .unwrap()
@@ -855,12 +834,16 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<Events<EntityDespawnEvent>>()
                 .len(),
             1
         );
-        assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_entity)
+            .is_none());
     }
 
     /// The client is in a room with the entity
@@ -874,14 +857,14 @@ mod tests {
         let room_id = RoomId(0);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
 
         // Spawn an entity on server, in the same room
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
@@ -889,26 +872,26 @@ mod tests {
             .id();
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(add_cached_network_relevance);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -920,7 +903,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -932,38 +915,38 @@ mod tests {
         // client leaves previous room and joins new room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_client(client_id, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, new_room_id);
         // entity leaves previous room and joins new room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_entity(server_entity, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -984,18 +967,18 @@ mod tests {
         let new_room_id = RoomId(1);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, new_room_id);
         // Spawn an entity on server, in room 1
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
@@ -1003,26 +986,26 @@ mod tests {
             .id();
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(add_cached_network_relevance);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -1034,7 +1017,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -1045,27 +1028,27 @@ mod tests {
         // entity leaves previous room and joins new room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_entity(server_entity, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -1086,13 +1069,13 @@ mod tests {
         let new_room_id = RoomId(1);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, room_id);
         // Spawn an entity on server, in room 1
         let server_entity = stepper
             .server_app
-            .world
+            .world_mut()
             .spawn(Replicate {
                 relevance_mode: NetworkRelevanceMode::InterestManagement,
                 ..Default::default()
@@ -1100,31 +1083,31 @@ mod tests {
             .id();
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(add_cached_network_relevance);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -1136,7 +1119,7 @@ mod tests {
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -1147,27 +1130,27 @@ mod tests {
         // client leaves previous room and joins new room
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .remove_client(client_id, room_id);
         stepper
             .server_app
-            .world
+            .world_mut()
             .resource_mut::<RoomManager>()
             .add_client(client_id, new_room_id);
         // Run update replication cache once
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(buffer_room_relevance_events);
         stepper
             .server_app
-            .world
+            .world_mut()
             .run_system_once(update_relevance_from_events);
         assert_eq!(
             stepper
                 .server_app
-                .world
+                .world()
                 .entity(server_entity)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()

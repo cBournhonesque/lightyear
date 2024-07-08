@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_macros"
-version = "0.15.1"
+version = "0.16.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
@@ -24,4 +24,4 @@ serde = { version = "1.0.188", features = ["derive"] }
 
 [dev-dependencies]
 lightyear = { path = "../lightyear" }
-bevy = { version = "0.13", default-features = false }
+bevy = { version = "0.14", default-features = false }

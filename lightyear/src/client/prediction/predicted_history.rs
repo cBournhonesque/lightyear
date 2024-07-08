@@ -3,7 +3,7 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, With,
+    Commands, Component, DetectChanges, Entity, OnRemove, Or, Query, Ref, Res, Trigger, With,
     Without,
 };
 use tracing::{debug, trace};
@@ -220,10 +220,10 @@ fn add_history<C: SyncComponent>(
 }
 
 /// If ComponentSyncMode::Full, we store every update on the predicted entity in the PredictionHistory
+///
+/// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: SyncComponent>(
     mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
-    mut removed_component: RemovedComponents<T>,
-    mut removed_entities: Query<&mut PredictionHistory<T>, Without<T>>,
     tick_manager: Res<TickManager>,
     rollback: Res<Rollback>,
 ) {
@@ -237,9 +237,45 @@ pub(crate) fn update_prediction_history<T: SyncComponent>(
             history.add_update(tick, component.deref().clone());
         }
     }
-    for entity in removed_component.read() {
-        if let Ok(mut history) = removed_entities.get_mut(entity) {
-            history.add_remove(tick);
+}
+
+/// If a component is removed on the Predicted entity, and the ComponentSyncMode == FULL
+/// Add the removal to the history (for potential rollbacks)
+pub(crate) fn apply_component_removal_predicted<C: SyncComponent>(
+    trigger: Trigger<OnRemove, C>,
+    // TODO: why do I need these options? why are these resources not present when the observer runs?
+    tick_manager: Option<Res<TickManager>>,
+    rollback: Option<Res<Rollback>>,
+    mut predicted_query: Query<&mut PredictionHistory<C>>,
+) {
+    // TODO: do not run this if component-sync-mode != FULL
+    // if the component was removed from the Predicted entity, add the Removal to the history
+    if let Ok(mut history) = predicted_query.get_mut(trigger.entity()) {
+        if let Some(tick_manager) = tick_manager {
+            if let Some(rollback) = rollback {
+                // tick for which we will record the history (either the current client tick or the current rollback tick)
+                let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
+                history.add_remove(tick);
+            }
+        }
+    }
+}
+
+/// If the component was removed from the Confirmed entity:
+/// - if the ComponentSyncMode == ONCE, do nothing (we only care about replicating the component once)
+/// - if the ComponentSyncMode == SIMPLE, remove the component from the Predicted entity
+/// - if the ComponentSyncMode == FULL, do nothing. We might get a rollback by comparing with the history.
+pub(crate) fn apply_component_removal_confirmed<C: SyncComponent>(
+    trigger: Trigger<OnRemove, C>,
+    mut commands: Commands,
+    confirmed_query: Query<&Confirmed>,
+) {
+    // Components that are removed from the Confirmed entity also get removed from the Predicted entity
+    if let Ok(confirmed) = confirmed_query.get(trigger.entity()) {
+        if let Some(p) = confirmed.predicted {
+            if let Some(mut commands) = commands.get_entity(p) {
+                commands.remove::<C>();
+            }
         }
     }
 }
@@ -247,7 +283,6 @@ pub(crate) fn update_prediction_history<T: SyncComponent>(
 /// If ComponentSyncMode == Simple, when we receive a server update we want to apply it to the predicted entity
 #[allow(clippy::type_complexity)]
 pub(crate) fn apply_confirmed_update<C: SyncComponent>(
-    mut commands: Commands,
     component_registry: Res<ComponentRegistry>,
     manager: Res<PredictionManager>,
     mut predicted_entities: Query<
@@ -259,8 +294,6 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
         ),
     >,
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
-    mut removed_component: RemovedComponents<C>,
-    removed_entities: Query<&Confirmed>,
 ) {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.predicted {
@@ -275,14 +308,6 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
                     let _ = manager.map_entities(&mut component, component_registry.as_ref());
                     *predicted_component = component;
                 }
-            }
-        }
-    }
-    // Components that are removed from the Confirmed entity also get removed from the Predicted entity
-    for entity in removed_component.read() {
-        if let Ok(confirmed) = removed_entities.get(entity) {
-            if let Some(p) = confirmed.predicted {
-                commands.entity(p).remove::<C>();
             }
         }
     }
@@ -356,17 +381,21 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         let tick = stepper.client_tick();
-        let confirmed = stepper.client_app.world.spawn(Confirmed::default()).id();
+        let confirmed = stepper
+            .client_app
+            .world_mut()
+            .spawn(Confirmed::default())
+            .id();
         let predicted = stepper
             .client_app
-            .world
+            .world_mut()
             .spawn(Predicted {
                 confirmed_entity: Some(confirmed),
             })
             .id();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .get_mut::<Confirmed>()
             .unwrap()
@@ -375,14 +404,14 @@ mod tests {
         // 1. Add the history for ComponentSyncMode::Full that was added to the confirmed entity
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component1(1.0));
         stepper.frame_step();
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(predicted)
                 .get_mut::<PredictionHistory<Component1>>()
                 .expect("Expected prediction history to be added")
@@ -393,7 +422,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(predicted)
                 .get::<Component1>()
                 .expect("Expected component to be added to predicted entity"),
@@ -405,14 +434,14 @@ mod tests {
         let tick = stepper.client_tick();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(predicted)
             .insert(Component5(1.0));
         stepper.frame_step();
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(predicted)
                 .get_mut::<PredictionHistory<Component5>>()
                 .expect("Expected prediction history to be added")
@@ -423,7 +452,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(predicted)
                 .get::<Component5>()
                 .expect("Expected component to be added to predicted entity"),
@@ -435,15 +464,14 @@ mod tests {
         let tick = stepper.client_tick();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component2(1.0));
         stepper.frame_step();
         assert!(
             stepper
                 .client_app
-                .world
-                .entity(predicted)
+                .world()                .entity(predicted)
                 .get::<PredictionHistory<Component2>>()
                 .is_none(),
             "Expected component value to not be added to prediction history for ComponentSyncMode::Simple"
@@ -451,7 +479,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(predicted)
                 .get::<Component2>()
                 .expect("Expected component to be added to predicted entity"),
@@ -463,15 +491,14 @@ mod tests {
         let tick = stepper.client_tick();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component3(1.0));
         stepper.frame_step();
         assert!(
             stepper
                 .client_app
-                .world
-                .entity(predicted)
+                .world()                .entity(predicted)
                 .get::<PredictionHistory<Component3>>()
                 .is_none(),
             "Expected component value to not be added to prediction history for ComponentSyncMode::Once"
@@ -479,7 +506,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(predicted)
                 .get::<Component3>()
                 .expect("Expected component to be added to predicted entity"),
@@ -500,17 +527,21 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         // add predicted, component
-        let confirmed = stepper.client_app.world.spawn(Confirmed::default()).id();
+        let confirmed = stepper
+            .client_app
+            .world_mut()
+            .spawn(Confirmed::default())
+            .id();
         let predicted = stepper
             .client_app
-            .world
+            .world_mut()
             .spawn(Predicted {
                 confirmed_entity: Some(confirmed),
             })
             .id();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .get_mut::<Confirmed>()
             .unwrap()
@@ -519,13 +550,13 @@ mod tests {
         // 1. Updating ComponentSyncMode::Full on predicted component
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component1(1.0));
         stepper.frame_step();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(predicted)
             .get_mut::<Component1>()
             .unwrap()
@@ -535,7 +566,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(predicted)
                 .get_mut::<PredictionHistory<Component1>>()
                 .expect("Expected prediction history to be added")
@@ -547,13 +578,13 @@ mod tests {
         // 2. Updating ComponentSyncMode::Simple on confirmed entity
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .insert(Component2(1.0));
         stepper.frame_step();
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .get_mut::<Component2>()
             .unwrap()
@@ -563,7 +594,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(predicted)
                 .get::<Component2>()
                 .expect("Expected component to be added to predicted entity"),
@@ -574,7 +605,7 @@ mod tests {
         // 3. Removing ComponentSyncMode::Full on predicted entity
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(predicted)
             .remove::<Component1>();
         stepper.frame_step();
@@ -582,7 +613,7 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(predicted)
                 .get_mut::<PredictionHistory<Component1>>()
                 .expect("Expected prediction history to be added")
@@ -594,7 +625,7 @@ mod tests {
         // 4. Removing ComponentSyncMode::Simple on confirmed entity
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(confirmed)
             .remove::<Component2>();
         let tick = stepper.client_tick();
@@ -602,7 +633,7 @@ mod tests {
         assert!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(predicted)
                 .get::<Component2>()
                 .is_none(),
@@ -613,23 +644,23 @@ mod tests {
         let rollback_tick = Tick(10);
         stepper
             .client_app
-            .world
+            .world_mut()
             .insert_resource(Rollback::new(RollbackState::ShouldRollback {
                 current_tick: rollback_tick,
             }));
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(predicted)
             .insert(Component1(3.0));
         stepper
             .client_app
-            .world
+            .world_mut()
             .run_system_once(update_prediction_history::<Component1>);
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(predicted)
                 .get_mut::<PredictionHistory<Component1>>()
                 .expect("Expected prediction history to be added")
@@ -641,17 +672,17 @@ mod tests {
         // 6. Removing ComponentSyncMode::Full on predicted entity during rollback
         stepper
             .client_app
-            .world
+            .world_mut()
             .entity_mut(predicted)
             .remove::<Component1>();
         stepper
             .client_app
-            .world
+            .world_mut()
             .run_system_once(update_prediction_history::<Component1>);
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world_mut()
                 .entity_mut(predicted)
                 .get_mut::<PredictionHistory<Component1>>()
                 .expect("Expected prediction history to be added")

@@ -1,7 +1,6 @@
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 
 use bevy::prelude::*;
-use derive_more::{Add, Mul};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::Actionlike;
@@ -38,6 +37,7 @@ impl PlayerBundle {
             },
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(id),
+                ..default()
             },
             ..default()
         };
@@ -71,8 +71,16 @@ impl PlayerBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct Position(pub(crate) Vec2);
+
+impl Add for Position {
+    type Output = Position;
+    #[inline]
+    fn add(self, rhs: Position) -> Position {
+        Position(self.0.add(rhs.0))
+    }
+}
 
 impl Mul<f32> for &Position {
     type Output = Position;
@@ -128,7 +136,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(LeafwingInputPlugin::<Inputs>::default());
         // components

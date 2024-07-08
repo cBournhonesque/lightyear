@@ -11,7 +11,6 @@ use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
 use bevy::prelude::{App, Plugin};
-use derive_more::Add;
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::ComponentSyncMode;

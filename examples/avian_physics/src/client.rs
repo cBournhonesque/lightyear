@@ -1,7 +1,7 @@
+use avian2d::prelude::*;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -76,16 +76,16 @@ pub(crate) fn handle_connection(
                 (PlayerActions::Right, KeyCode::KeyD),
             ]),
         ));
-        commands.spawn((PlayerBundle::new(
-            client_id,
-            Vec2::new(50.0, y),
-            InputMap::new([
-                (PlayerActions::Up, KeyCode::ArrowUp),
-                (PlayerActions::Down, KeyCode::ArrowDown),
-                (PlayerActions::Left, KeyCode::ArrowLeft),
-                (PlayerActions::Right, KeyCode::ArrowRight),
-            ]),
-        ),));
+        // commands.spawn((PlayerBundle::new(
+        //     client_id,
+        //     Vec2::new(50.0, y),
+        //     InputMap::new([
+        //         (PlayerActions::Up, KeyCode::ArrowUp),
+        //         (PlayerActions::Down, KeyCode::ArrowDown),
+        //         (PlayerActions::Left, KeyCode::ArrowLeft),
+        //         (PlayerActions::Right, KeyCode::ArrowRight),
+        //     ]),
+        // ),));
     }
 }
 
@@ -177,7 +177,11 @@ fn player_movement(
 // - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut ColorComponent, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
-        color.0.set_s(0.4);
+        let hsva = Hsva {
+            saturation: 0.4,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
     }
 }
 
@@ -187,6 +191,10 @@ pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
 ) {
     for mut color in interpolated.iter_mut() {
-        color.0.set_s(0.1);
+        let hsva = Hsva {
+            saturation: 0.1,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
     }
 }

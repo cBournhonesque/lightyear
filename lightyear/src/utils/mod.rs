@@ -8,9 +8,9 @@ pub(crate) mod sequence_buffer;
 
 pub mod bevy;
 
-#[cfg_attr(docsrs, doc(cfg(feature = "xpbd_2d")))]
-#[cfg(feature = "xpbd_2d")]
-pub mod bevy_xpbd_2d;
+#[cfg_attr(docsrs, doc(cfg(feature = "avian2d")))]
+#[cfg(feature = "avian2d")]
+pub mod avian2d;
 
 pub(crate) mod captures;
 pub(crate) mod pool;

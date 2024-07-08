@@ -9,7 +9,7 @@ use crate::client::interpolation::interpolate::{
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
 use crate::client::interpolation::Interpolated;
-use crate::client::sync::client_is_synced;
+use crate::client::run_conditions::is_synced;
 use crate::prelude::is_host_server;
 
 use super::interpolation_history::{
@@ -17,7 +17,7 @@ use super::interpolation_history::{
 };
 
 // TODO: maybe this is not an enum and user can specify multiple values, and we use the max delay between all of them?
-#[derive(Clone, Reflect)]
+#[derive(Clone, Copy, Reflect)]
 pub struct InterpolationDelay {
     /// The minimum delay that we will apply for interpolation
     /// This should be big enough so that the interpolated entity always has a server snapshot
@@ -59,7 +59,7 @@ impl InterpolationDelay {
 }
 
 /// Config to specify how the snapshot interpolation should behave
-#[derive(Clone, Reflect)]
+#[derive(Clone, Copy, Reflect)]
 pub struct InterpolationConfig {
     pub delay: InterpolationDelay,
     // How long are we keeping the history of the confirmed entities so we can interpolate between them?
@@ -107,8 +107,6 @@ pub enum InterpolationSet {
     SpawnInterpolation,
     /// Add component history for all interpolated entities' interpolated components
     SpawnHistory,
-    /// Set to handle interpolated/confirmed entities/components getting despawned
-    Despawn,
     /// Update component history, interpolation status
     PrepareInterpolation,
     /// Interpolate between last 2 server states. Has to be overriden if
@@ -131,18 +129,16 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         Update,
-        (
-            add_component_history::<C>.in_set(InterpolationSet::SpawnHistory),
-            removed_components::<C>.in_set(InterpolationSet::Despawn),
-        ),
+        add_component_history::<C>.in_set(InterpolationSet::SpawnHistory),
     );
+    app.observe(removed_components::<C>);
     match interpolation_mode {
         ComponentSyncMode::Full => {
             app.add_systems(
                 Update,
                 (
                     apply_confirmed_update_mode_full::<C>,
-                    update_interpolate_status::<C>.run_if(client_is_synced),
+                    update_interpolate_status::<C>.run_if(is_synced),
                     // TODO: that means we could insert the component twice, here and then in interpolate...
                     //  need to optimize this
                     insert_interpolated_component::<C>,
@@ -173,7 +169,7 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
-        let should_run_interpolation = not(is_host_server).and_then(client_is_synced);
+        let should_run_interpolation = not(is_host_server).and_then(is_synced);
 
         // REFLECT
         app.register_type::<InterpolationConfig>()
@@ -188,7 +184,6 @@ impl Plugin for InterpolationPlugin {
             (
                 InterpolationSet::SpawnInterpolation,
                 InterpolationSet::SpawnHistory,
-                InterpolationSet::Despawn,
                 InterpolationSet::PrepareInterpolation,
                 InterpolationSet::Interpolate,
             )
@@ -202,10 +197,8 @@ impl Plugin for InterpolationPlugin {
         // SYSTEMS
         app.add_systems(
             Update,
-            (
-                spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
-                despawn_interpolated.in_set(InterpolationSet::Despawn),
-            ),
+            spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
         );
+        app.observe(despawn_interpolated);
     }
 }

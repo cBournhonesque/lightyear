@@ -23,8 +23,7 @@ fn my_system(
 }
 ```
 */
-use crate::prelude::server::ConnectionManager;
-use crate::prelude::{is_started, ClientId};
+use crate::prelude::{server::is_started, ClientId};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::*;
@@ -212,52 +211,6 @@ pub(super) mod systems {
             // error!("replicate.clients_cache: {0:?}", replicate.clients_cache);
         }
     }
-
-    /// Whenever the relevance of an entity changes, update the replication metadata cache
-    /// so that we can correctly replicate the despawn to the correct clients
-    pub(super) fn update_replication_cache(
-        mut sender: ResMut<ConnectionManager>,
-        mut query: Query<(
-            Entity,
-            Ref<NetworkRelevanceMode>,
-            Option<&CachedNetworkRelevance>,
-        )>,
-    ) {
-        for (entity, relevance_mode, cached_relevance) in query.iter_mut() {
-            match relevance_mode.as_ref() {
-                NetworkRelevanceMode::InterestManagement => {
-                    if relevance_mode.is_changed() {
-                        if let Some(cache) = sender.replicate_component_cache.get_mut(&entity) {
-                            cache.network_relevance_mode = NetworkRelevanceMode::InterestManagement;
-                            if let Some(replicate_relevance) = cached_relevance {
-                                cache.replication_clients_cache = replicate_relevance
-                                    .clients_cache
-                                    .iter()
-                                    .filter_map(|(client, relevance)| {
-                                        if *relevance != ClientRelevance::Lost {
-                                            Some(*client)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .collect();
-                            } else {
-                                cache.replication_clients_cache.clear();
-                            }
-                        }
-                    }
-                }
-                NetworkRelevanceMode::All => {
-                    if relevance_mode.is_changed() && !relevance_mode.is_added() {
-                        if let Some(cache) = sender.replicate_component_cache.get_mut(&entity) {
-                            cache.network_relevance_mode = NetworkRelevanceMode::All;
-                            cache.replication_clients_cache.clear();
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// System sets related to Network Relevance
@@ -310,8 +263,6 @@ impl Plugin for NetworkRelevancePlugin {
                 systems::add_cached_network_relevance
                     .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
                 systems::update_relevance_from_events.in_set(NetworkRelevanceSet::UpdateRelevance),
-                systems::update_replication_cache
-                    .in_set(InternalReplicationSet::<ServerMarker>::AfterBuffer),
                 systems::update_cached_relevance.in_set(NetworkRelevanceSet::RelevanceCleanup),
             ),
         );
@@ -327,29 +278,35 @@ mod tests {
     #[test]
     fn test_multiple_relevance_gain() {
         let mut app = App::new();
-        app.world.init_resource::<RelevanceManager>();
-        let entity1 = app.world.spawn(CachedNetworkRelevance::default()).id();
-        let entity2 = app.world.spawn(CachedNetworkRelevance::default()).id();
+        app.world_mut().init_resource::<RelevanceManager>();
+        let entity1 = app
+            .world_mut()
+            .spawn(CachedNetworkRelevance::default())
+            .id();
+        let entity2 = app
+            .world_mut()
+            .spawn(CachedNetworkRelevance::default())
+            .id();
         let client = ClientId::Netcode(1);
 
-        app.world
+        app.world_mut()
             .resource_mut::<RelevanceManager>()
             .gain_relevance(client, entity1);
-        app.world
+        app.world_mut()
             .resource_mut::<RelevanceManager>()
             .gain_relevance(client, entity2);
 
         assert_eq!(
-            app.world
-                .resource_mut::<RelevanceManager>()
+            app.world()
+                .resource::<RelevanceManager>()
                 .events
                 .gained
                 .len(),
             1
         );
         assert_eq!(
-            app.world
-                .resource_mut::<RelevanceManager>()
+            app.world()
+                .resource::<RelevanceManager>()
                 .events
                 .gained
                 .get(&client)
@@ -357,18 +314,18 @@ mod tests {
                 .len(),
             2
         );
-        app.world
+        app.world_mut()
             .run_system_once(systems::update_relevance_from_events);
         assert_eq!(
-            app.world
-                .resource_mut::<RelevanceManager>()
+            app.world()
+                .resource::<RelevanceManager>()
                 .events
                 .gained
                 .len(),
             0
         );
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity1)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -378,7 +335,7 @@ mod tests {
             &ClientRelevance::Gained
         );
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity2)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -391,13 +348,13 @@ mod tests {
         // After we used the relevance events, check how they are updated for bookkeeping
         // - Lost -> removed from cache
         // - Gained -> Maintained
-        app.world
+        app.world_mut()
             .resource_mut::<RelevanceManager>()
             .lose_relevance(client, entity1);
-        app.world
+        app.world_mut()
             .run_system_once(systems::update_relevance_from_events);
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity1)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -407,7 +364,7 @@ mod tests {
             &ClientRelevance::Lost
         );
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity2)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
@@ -416,16 +373,17 @@ mod tests {
                 .unwrap(),
             &ClientRelevance::Gained
         );
-        app.world.run_system_once(systems::update_cached_relevance);
+        app.world_mut()
+            .run_system_once(systems::update_cached_relevance);
         assert!(app
-            .world
+            .world()
             .entity(entity1)
             .get::<CachedNetworkRelevance>()
             .unwrap()
             .clients_cache
             .is_empty());
         assert_eq!(
-            app.world
+            app.world()
                 .entity(entity2)
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
