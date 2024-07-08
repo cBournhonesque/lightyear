@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.16.1"
+version = "0.16.2"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.76"
@@ -79,7 +79,7 @@ serde = { version = "1", features = ["derive"] }
 chacha20poly1305 = { version = "0.10", features = ["std"] }
 
 # derive
-lightyear_macros = { version = "0.16.1", path = "../macros" }
+lightyear_macros = { version = "0.16.2", path = "../macros" }
 
 # tracing
 tracing = "0.1.40"
@@ -191,7 +191,6 @@ features = [
     "metrics",
     "webtransport",
     "leafwing",
-    "xpbd_2d",
     "websocket",
     "steam",
     "zstd",
