@@ -43,11 +43,7 @@
 //! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
-use bevy::prelude::{
-    not, App, Condition, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate,
-    IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
-    Trigger,
-};
+use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 use tracing::{debug, error, trace};
@@ -58,7 +54,8 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::rollback::Rollback;
-use crate::client::sync::{client_is_synced, SyncSet};
+use crate::client::run_conditions::is_synced;
+use crate::client::sync::SyncSet;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
 use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, Tick, TickManager};
@@ -170,7 +167,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage.run_if(
                     // no need to send input messages via io if we are in host-server mode
-                    client_is_synced.and_then(not(is_host_server)),
+                    is_synced.and_then(not(is_host_server)),
                 ),
                 InternalMainSet::<ClientMarker>::Send,
             )

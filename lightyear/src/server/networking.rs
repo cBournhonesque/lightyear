@@ -1,7 +1,7 @@
 //! Defines the server bevy systems and run conditions
 use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::{
-    is_started, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
+    server::is_started, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;

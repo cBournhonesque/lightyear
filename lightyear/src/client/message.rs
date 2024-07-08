@@ -6,7 +6,7 @@ use tracing::error;
 
 use crate::client::connection::ConnectionManager;
 use crate::client::events::MessageEvent;
-use crate::prelude::{is_connected, Message};
+use crate::prelude::{client::is_connected, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};

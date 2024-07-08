@@ -37,6 +37,7 @@ impl PlayerBundle {
             },
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(id),
+                ..default()
             },
             ..default()
         };

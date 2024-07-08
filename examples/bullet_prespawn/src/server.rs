@@ -82,6 +82,7 @@ pub(crate) fn replicate_players(
                 // - when the client disconnects, this entity will be despawned
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(client_id),
+                    ..default()
                 },
                 // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
                 group: ReplicationGroup::new_id(client_id.to_bits()),

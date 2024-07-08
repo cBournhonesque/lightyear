@@ -10,7 +10,9 @@ use std::time::Duration;
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use bevy::render::RenderPlugin;
 use bevy::state::app::StatesPlugin;
+use bevy::winit::{WakeUp, WinitPlugin};
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
@@ -185,7 +187,9 @@ impl Apps {
             cc.shared.server_replication_send_interval = replication_interval
         });
         self.update_lightyear_server_config(|sc: &mut ServerConfig| {
-            sc.shared.server_replication_send_interval = replication_interval
+            // the server replication currently needs to be overwritten in both places...
+            sc.shared.server_replication_send_interval = replication_interval;
+            sc.replication.send_interval = replication_interval;
         });
         self
     }
@@ -350,9 +354,9 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
                 ..default()
             }),
     );
-    // if settings.client.inspector {
-    //     app.add_plugins(WorldInspectorPlugin::new());
-    // }
+    if settings.client.inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
     let client_config = ClientConfig {
         shared: shared_config(Mode::Separate),
         net: net_config,
@@ -371,7 +375,12 @@ fn server_app(
     if !settings.server.headless {
         app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
     } else {
-        app.add_plugins((MinimalPlugins, StatesPlugin));
+        app.add_plugins((
+            // TODO: cannot use MinimalPlugins because avian requires render/assets plugin
+            // MinimalPlugins,
+            // StatesPlugin,
+            DefaultPlugins.build().disable::<LogPlugin>(),
+        ));
     }
     app.add_plugins(LogPlugin {
         level: Level::INFO,

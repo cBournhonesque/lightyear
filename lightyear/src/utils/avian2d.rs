@@ -1,11 +1,11 @@
 //! Implement lightyear traits for some common bevy types
 use crate::shared::replication::delta::Diffable;
 use avian2d::math::Scalar;
+use avian2d::prelude::*;
 use tracing::trace;
 
 pub mod position {
     use super::*;
-    use avian2d::dynamics::Position;
 
     pub fn lerp(start: &Position, other: &Position, t: f32) -> Position {
         let u = Scalar::from(t);
@@ -38,8 +38,6 @@ pub mod position {
 }
 
 pub mod rotation {
-    use avian2d::dynamics::Rotation;
-
     use super::*;
 
     pub fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {
@@ -65,8 +63,6 @@ pub mod rotation {
 }
 
 pub mod linear_velocity {
-    use avian2d::dynamics::LinearVelocity;
-
     use super::*;
 
     pub fn lerp(start: &LinearVelocity, other: &LinearVelocity, t: f32) -> LinearVelocity {
@@ -84,8 +80,6 @@ pub mod linear_velocity {
 }
 
 pub mod angular_velocity {
-    use avian2d::dynamics::AngularVelocity;
-
     use super::*;
 
     pub fn lerp(start: &AngularVelocity, other: &AngularVelocity, t: f32) -> AngularVelocity {

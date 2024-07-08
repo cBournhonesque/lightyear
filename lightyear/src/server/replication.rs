@@ -7,7 +7,7 @@ use crate::client::interpolation::Interpolated;
 use crate::client::prediction::Predicted;
 use crate::connection::client::NetClient;
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{is_started, PrePredicted};
+use crate::prelude::{server::is_started, PrePredicted};
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::prediction::compute_hash;
@@ -2319,6 +2319,9 @@ pub(crate) mod send {
         /// We can emulate this by adding some delay on the server receiving client packets via the link conditioner.
         #[test]
         fn test_component_update_delta_non_idempotent_slow_ack() {
+            // tracing_subscriber::FmtSubscriber::builder()
+            //     .with_max_level(tracing::Level::DEBUG)
+            //     .init();
             let mut stepper = BevyStepper::default();
             stepper.stop();
 

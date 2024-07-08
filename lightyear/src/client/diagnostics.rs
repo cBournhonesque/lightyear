@@ -7,9 +7,8 @@ use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::is_host_server;
+use crate::prelude::{client::is_disconnected, is_host_server};
 use crate::shared::ping::diagnostics::PingDiagnosticsPlugin;
-use crate::shared::run_conditions::is_disconnected;
 use crate::transport::io::IoDiagnosticsPlugin;
 
 // TODO: ideally make this a plugin group? but nested plugin groups are not supported

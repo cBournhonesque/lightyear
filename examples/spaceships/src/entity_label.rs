@@ -74,7 +74,7 @@ fn label_added(
         ts.font_size = label.size;
         ts_sub.font_size = label.size * 0.85;
         ts.color = label.color;
-        ts_sub.color = label.color.with_a(0.6);
+        ts_sub.color = label.color.with_alpha(0.6);
         commands
             .spawn((
                 EntityLabelChild,
@@ -121,7 +121,7 @@ fn label_changed(
                     text.sections[2].value.clone_from(&label.sub_text);
                 }
                 text.sections[2].style.font_size = label.size * 0.6;
-                text.sections[2].style.color = label.color.with_a(0.5);
+                text.sections[2].style.color = label.color.with_alpha(0.5);
 
                 *transform =
                     Transform::from_translation(Vec3::new(label.offset.x, label.offset.y, label.z));

@@ -239,25 +239,15 @@ pub(crate) fn update_prediction_history<T: SyncComponent>(
     }
 }
 
-/// Handle component removals:
-/// - If the component was removed from the Confirmed entity, also remove it from the Predicted entity
-/// - If the component was removed from the Predicted entity, add the Removal to the history
-pub(crate) fn apply_component_removal<C: SyncComponent>(
+/// If a component is removed on the Predicted entity, and the ComponentSyncMode == FULL
+/// Add the removal to the history (for potential rollbacks)
+pub(crate) fn apply_component_removal_predicted<C: SyncComponent>(
     trigger: Trigger<OnRemove, C>,
-    mut commands: Commands,
     // TODO: why do I need these options? why are these resources not present when the observer runs?
     tick_manager: Option<Res<TickManager>>,
     rollback: Option<Res<Rollback>>,
     mut predicted_query: Query<&mut PredictionHistory<C>>,
-    confirmed_query: Query<&Confirmed>,
 ) {
-    // TODO: do not run this if component-sync-mode == ONCE
-    // Components that are removed from the Confirmed entity also get removed from the Predicted entity
-    if let Ok(confirmed) = confirmed_query.get(trigger.entity()) {
-        if let Some(p) = confirmed.predicted {
-            commands.entity(p).remove::<C>();
-        }
-    }
     // TODO: do not run this if component-sync-mode != FULL
     // if the component was removed from the Predicted entity, add the Removal to the history
     if let Ok(mut history) = predicted_query.get_mut(trigger.entity()) {
@@ -266,6 +256,25 @@ pub(crate) fn apply_component_removal<C: SyncComponent>(
                 // tick for which we will record the history (either the current client tick or the current rollback tick)
                 let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
                 history.add_remove(tick);
+            }
+        }
+    }
+}
+
+/// If the component was removed from the Confirmed entity:
+/// - if the ComponentSyncMode == ONCE, do nothing (we only care about replicating the component once)
+/// - if the ComponentSyncMode == SIMPLE, remove the component from the Predicted entity
+/// - if the ComponentSyncMode == FULL, do nothing. We might get a rollback by comparing with the history.
+pub(crate) fn apply_component_removal_confirmed<C: SyncComponent>(
+    trigger: Trigger<OnRemove, C>,
+    mut commands: Commands,
+    confirmed_query: Query<&Confirmed>,
+) {
+    // Components that are removed from the Confirmed entity also get removed from the Predicted entity
+    if let Ok(confirmed) = confirmed_query.get(trigger.entity()) {
+        if let Some(p) = confirmed.predicted {
+            if let Some(mut commands) = commands.get_entity(p) {
+                commands.remove::<C>();
             }
         }
     }
