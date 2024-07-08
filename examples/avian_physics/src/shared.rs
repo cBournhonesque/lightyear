@@ -199,7 +199,7 @@ pub(crate) fn after_physics_log(
         tick_manager.tick_or_rollback_tick(r.as_ref())
     });
     for (entity, position, rotation) in players.iter() {
-        error!(
+        trace!(
             ?tick,
             ?entity,
             ?position,
@@ -208,7 +208,7 @@ pub(crate) fn after_physics_log(
         );
     }
     for (position, rotation) in ball.iter() {
-        error!(?tick, ?position, ?rotation, "Ball after physics update");
+        trace!(?tick, ?position, ?rotation, "Ball after physics update");
     }
 }
 
@@ -228,8 +228,8 @@ pub(crate) fn last_log(
 ) {
     let tick = tick_manager.tick();
     for (entity, position, rotation, correction, rotation_correction) in players.iter() {
-        error!(?tick, ?entity, ?position, ?correction, "Player LAST update");
-        error!(
+        trace!(?tick, ?entity, ?position, ?correction, "Player LAST update");
+        trace!(
             ?tick,
             ?entity,
             rotation = ?rotation.as_degrees(),
@@ -238,12 +238,12 @@ pub(crate) fn last_log(
         );
     }
     for (position, rotation) in ball.iter() {
-        error!(?tick, ?position, ?rotation, "Ball LAST update");
+        trace!(?tick, ?position, ?rotation, "Ball LAST update");
     }
 }
 
 pub(crate) fn log() {
-    error!("run physics schedule!");
+    trace!("run physics schedule!");
 }
 
 /// System that draws the outlines of confirmed entities, with lines to the centre of their predicted location.

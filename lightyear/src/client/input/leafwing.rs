@@ -448,7 +448,7 @@ fn get_non_rollback_action_state<A: LeafwingUserAction>(
         // This is equivalent to considering that the remote player will keep playing the last action they played.
         if let Some(action) = input_buffer.get(tick) {
             *action_state = action.clone();
-            error!(
+            debug!(
                 ?entity,
                 ?tick,
                 "fetched action state {:?} from input buffer: {}",
@@ -680,7 +680,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
             for mut input_buffer in input_buffer_query.iter_mut() {
                 if let Some(start_tick) = input_buffer.start_tick {
                     input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
-                    error!(
+                    debug!(
                         "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
                         trigger.event(),
                         input_buffer.start_tick
