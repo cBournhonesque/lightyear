@@ -76,16 +76,16 @@ pub(crate) fn handle_connection(
                 (PlayerActions::Right, KeyCode::KeyD),
             ]),
         ));
-        commands.spawn((PlayerBundle::new(
-            client_id,
-            Vec2::new(50.0, y),
-            InputMap::new([
-                (PlayerActions::Up, KeyCode::ArrowUp),
-                (PlayerActions::Down, KeyCode::ArrowDown),
-                (PlayerActions::Left, KeyCode::ArrowLeft),
-                (PlayerActions::Right, KeyCode::ArrowRight),
-            ]),
-        ),));
+        // commands.spawn((PlayerBundle::new(
+        //     client_id,
+        //     Vec2::new(50.0, y),
+        //     InputMap::new([
+        //         (PlayerActions::Up, KeyCode::ArrowUp),
+        //         (PlayerActions::Down, KeyCode::ArrowDown),
+        //         (PlayerActions::Left, KeyCode::ArrowLeft),
+        //         (PlayerActions::Right, KeyCode::ArrowRight),
+        //     ]),
+        // ),));
     }
 }
 

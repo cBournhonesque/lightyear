@@ -210,7 +210,7 @@ fn update_action_state<A: LeafwingUserAction>(
         // This is equivalent to considering that the player will keep playing the last action they played.
         if let Some(action) = input_buffer.get(tick) {
             *action_state = action.clone();
-            debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
+            error!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
             // remove all the previous values
             // we keep the current value in the InputBuffer so that if future messages are lost, we can still
             // fallback on the last known value

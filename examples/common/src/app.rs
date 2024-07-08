@@ -354,9 +354,9 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
                 ..default()
             }),
     );
-    // if settings.client.inspector {
-    //     app.add_plugins(WorldInspectorPlugin::new());
-    // }
+    if settings.client.inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
     let client_config = ClientConfig {
         shared: shared_config(Mode::Separate),
         net: net_config,

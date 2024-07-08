@@ -117,8 +117,13 @@ impl<A: LeafwingUserAction> InputMessage<A> {
         let mut tick = start_tick + 1;
         while tick <= self.end_tick {
             let diffs = ActionDiff::<A>::create(
-                input_buffer.get(tick - 1).unwrap(),
-                input_buffer.get(tick).unwrap(),
+                // TODO: if the input_delay changes, this could leave gaps in the InputBuffer, which we will fill with Default
+                input_buffer
+                    .get(tick - 1)
+                    .unwrap_or(&ActionState::<A>::default()),
+                input_buffer
+                    .get(tick)
+                    .unwrap_or(&ActionState::<A>::default()),
             );
             inputs.push(diffs);
             tick += 1;

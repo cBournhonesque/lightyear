@@ -275,18 +275,16 @@ pub(crate) fn handle_hit_event(
 
 /// Read inputs and move players
 ///
+/// If we didn't receive the input for a given player, we do nothing (which is the default behaviour from lightyear),
+/// which means that we will be using the last known input for that player
+/// (i.e. we consider that the player kept pressing the same keys).
 /// see: https://github.com/cBournhonesque/lightyear/issues/492
-/// server can't currently detect if an input is missing, since already removed from input buffer.
-/// fixed in 0.14 branch
 pub(crate) fn player_movement(
     mut q: Query<(&ActionState<PlayerActions>, ApplyInputsQuery), With<Player>>,
     tick_manager: Res<TickManager>,
 ) {
     let tick = tick_manager.tick();
     for (action_state, mut aiq) in q.iter_mut() {
-        // if aiq.input_buffer.get(tick).is_none() {
-        //     // set to default? needs 0.14 branch.
-        // }
         // if !aiq.action.get_pressed().is_empty() {
         //     info!(
         //         "🎹 {:?} {tick:?} = {:?}",

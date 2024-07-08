@@ -45,7 +45,7 @@ pub enum SendUpdatesMode {
 impl Default for ReplicationConfig {
     fn default() -> Self {
         Self {
-            send_updates_mode: SendUpdatesMode::SinceLastAck,
+            send_updates_mode: SendUpdatesMode::SinceLastSend,
             send_interval: Duration::default(),
         }
     }

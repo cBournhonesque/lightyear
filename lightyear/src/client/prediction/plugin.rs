@@ -15,7 +15,8 @@ use crate::client::prediction::despawn::{
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
 use crate::client::prediction::predicted_history::{
-    add_prespawned_component_history, apply_component_removal, update_prediction_history,
+    add_prespawned_component_history, apply_component_removal_confirmed,
+    apply_component_removal_predicted, update_prediction_history,
 };
 use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
@@ -77,6 +78,13 @@ pub struct PredictionConfig {
 
 impl Default for PredictionConfig {
     // TODO: the settings of 0/3/7 do not work! investigate!
+    /// The defaults are to not use any input delay, but to use as much client-prediction as there is latency.
+    ///
+    /// Other reasonable defaults would be:
+    /// - `minimum_input_delay_ticks`: no minimum input delay
+    /// - `minimum_input_delay_before_prediction`: 3 ticks (or about 50ms at 60Hz), cover 50ms of latency with input delay
+    /// - `maximum_predicted_ticks`: 7 ticks (or about 100ms at 60Hz), cover the next 100ms of latency with prediction
+    /// (the rest will be covered by more input delay)
     fn default() -> Self {
         Self {
             always_rollback: false,
@@ -175,7 +183,6 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {
-    app.observe(apply_component_removal::<C>);
     app.add_systems(
         PreUpdate,
         (
@@ -185,6 +192,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
     );
     match prediction_mode {
         ComponentSyncMode::Full => {
+            app.observe(apply_component_removal_predicted::<C>);
             app.add_systems(
                 PreUpdate,
                 // restore to the corrected state (as the visual state might be interpolating
@@ -215,6 +223,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             );
         }
         ComponentSyncMode::Simple => {
+            app.observe(apply_component_removal_confirmed::<C>);
             app.add_systems(
                 PreUpdate,
                 (

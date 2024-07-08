@@ -357,9 +357,11 @@ fn on_disconnect(
 ) {
     info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
-    received_entities
-        .iter()
-        .for_each(|e| commands.entity(e).despawn_recursive());
+    received_entities.iter().for_each(|e| {
+        if let Some(commands) = commands.get_entity(e) {
+            commands.despawn_recursive();
+        }
+    });
 
     // set synced to false
     connection_manager.sync_manager.synced = false;

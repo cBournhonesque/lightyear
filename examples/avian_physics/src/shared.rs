@@ -86,7 +86,7 @@ impl Plugin for SharedPlugin {
             ),
         );
         // add a log at the start of the physics schedule
-        app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
+        app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::First));
 
         app.add_systems(FixedPostUpdate, after_physics_log);
         app.add_systems(Last, last_log);
@@ -193,13 +193,13 @@ pub(crate) fn after_physics_log(
         (Entity, &Position, &Rotation),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
-    ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
+    ball: Query<(&Position, &Rotation), (With<BallMarker>, Without<Confirmed>)>,
 ) {
     let tick = rollback.map_or(tick_manager.tick(), |r| {
         tick_manager.tick_or_rollback_tick(r.as_ref())
     });
     for (entity, position, rotation) in players.iter() {
-        debug!(
+        error!(
             ?tick,
             ?entity,
             ?position,
@@ -207,8 +207,8 @@ pub(crate) fn after_physics_log(
             "Player after physics update"
         );
     }
-    for position in ball.iter() {
-        debug!(?tick, ?position, "Ball after physics update");
+    for (position, rotation) in ball.iter() {
+        error!(?tick, ?position, ?rotation, "Ball after physics update");
     }
 }
 
@@ -224,12 +224,12 @@ pub(crate) fn last_log(
         ),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
-    ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
+    ball: Query<(&Position, &Rotation), (With<BallMarker>, Without<Confirmed>)>,
 ) {
     let tick = tick_manager.tick();
     for (entity, position, rotation, correction, rotation_correction) in players.iter() {
-        debug!(?tick, ?entity, ?position, ?correction, "Player LAST update");
-        debug!(
+        error!(?tick, ?entity, ?position, ?correction, "Player LAST update");
+        error!(
             ?tick,
             ?entity,
             rotation = ?rotation.as_degrees(),
@@ -237,13 +237,13 @@ pub(crate) fn last_log(
             "Player LAST update"
         );
     }
-    for position in ball.iter() {
-        debug!(?tick, ?position, "Ball LAST update");
+    for (position, rotation) in ball.iter() {
+        error!(?tick, ?position, ?rotation, "Ball LAST update");
     }
 }
 
 pub(crate) fn log() {
-    debug!("run physics schedule!");
+    error!("run physics schedule!");
 }
 
 /// System that draws the outlines of confirmed entities, with lines to the centre of their predicted location.

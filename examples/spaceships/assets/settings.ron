@@ -1,12 +1,14 @@
 MySettings(
   server_replication_send_interval: 20,
   input_delay_ticks: 6,
+  // do not set a limit on the amount of prediction
+  max_prediction_ticks: 100,
   correction_ticks_factor: 1.5,
   predict_all: true,
   show_confirmed: true,
   common: Settings(
     client: ClientSettings(
-            inspector: false,
+            inspector: true,
             client_id: 0,
             client_port: 0, // the OS will assign a random open port
             server_addr: "127.0.0.1",

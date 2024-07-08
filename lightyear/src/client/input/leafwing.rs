@@ -303,13 +303,16 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
     mut commands: Commands,
     // player-controlled entities are the ones that have an InputMap
     player_entities: Query<
-        Entity,
+        (Entity, Has<ActionState<A>>),
         (
             Without<InputBuffer<A>>,
-            Or<(
-                (Added<ActionState<A>>, With<InputMap<A>>),
-                (Added<InputMap<A>>, With<ActionState<A>>),
-            )>,
+            Added<InputMap<A>>,
+            // TODO: is this needed? should we just add when InputMap is added?
+            // Or<(
+
+            // (Added<ActionState<A>>, With<InputMap<A>>),
+            // Added<InputMap<A>>,
+            // )>,
         ),
     >,
     remote_entities: Query<
@@ -324,14 +327,18 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
     // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
     //  maybe provide the "controlled" component? or just use With<InputMap>?
 
-    for entity in player_entities.iter() {
+    for (entity, has_action_state) in player_entities.iter() {
         trace!(?entity, "adding actions state buffer");
         commands.entity(entity).insert((
             // input buffer needed to rollback to a previous ActionState
             InputBuffer::<A>::default(),
-            // make sure that the server entity has an ActionState component
+            // make sure that the server entity has an ActionState component (if we use PrePrediction),
+            // but don't replicate any updates after we replicated the initial component spawn
             ReplicateOnceComponent::<ActionState<A>>::default(),
         ));
+        if !has_action_state {
+            commands.entity(entity).insert(ActionState::<A>::default());
+        }
     }
     for entity in remote_entities.iter() {
         trace!(?entity, "adding actions state buffer");
@@ -397,6 +404,8 @@ fn buffer_action_state<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
+    // TODO: if the input delay changes, this could override a previous tick's input in the InputBuffer
+    //  or leave gaps
     let input_delay_ticks = config.prediction.input_delay_ticks(
         connection_manager.ping_manager.rtt(),
         config.shared.tick.tick_duration,
@@ -439,7 +448,7 @@ fn get_non_rollback_action_state<A: LeafwingUserAction>(
         // This is equivalent to considering that the remote player will keep playing the last action they played.
         if let Some(action) = input_buffer.get(tick) {
             *action_state = action.clone();
-            debug!(
+            error!(
                 ?entity,
                 ?tick,
                 "fetched action state {:?} from input buffer: {}",
@@ -671,7 +680,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
             for mut input_buffer in input_buffer_query.iter_mut() {
                 if let Some(start_tick) = input_buffer.start_tick {
                     input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
-                    debug!(
+                    error!(
                         "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
                         trigger.event(),
                         input_buffer.start_tick

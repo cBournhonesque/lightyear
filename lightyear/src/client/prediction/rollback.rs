@@ -192,7 +192,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 }),
             };
             if should_rollback {
-                debug!(
+                error!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, current_tick
