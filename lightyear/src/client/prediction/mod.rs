@@ -2,15 +2,15 @@
 use bevy::prelude::{Component, Entity, Reflect};
 use std::fmt::Debug;
 
-pub(crate) mod correction;
-pub(crate) mod despawn;
+pub mod correction;
+pub mod despawn;
 pub mod diagnostics;
 pub mod plugin;
-pub(crate) mod pre_prediction;
+pub mod pre_prediction;
 pub mod predicted_history;
 pub mod prespawn;
 pub(crate) mod resource;
-pub(crate) mod rollback;
+pub mod rollback;
 pub mod spawn;
 
 /// Marks an entity that is being predicted by the client

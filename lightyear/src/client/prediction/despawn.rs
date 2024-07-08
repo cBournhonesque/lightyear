@@ -104,7 +104,7 @@ pub(crate) fn despawn_confirmed(
 }
 
 #[derive(Component)]
-pub struct RemovedCache<C: Component>(pub Option<C>);
+pub(crate) struct RemovedCache<C: Component>(pub Option<C>);
 
 #[allow(clippy::type_complexity)]
 /// Instead of despawning the entity, we remove all components except the history and the predicted marker

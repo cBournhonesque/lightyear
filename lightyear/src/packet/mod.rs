@@ -20,9 +20,9 @@ Packets that are over the maximum packet size will be fragmented into multiple [
 */
 
 /// Manages the [`PacketHeader`](header::PacketHeader) which includes important packet information
-pub mod header;
+pub(crate) mod header;
 
-pub mod message;
+pub(crate) mod message;
 
 /// Manages sending and receiving [`Packets`](packet::Packet) over the network
 pub mod message_manager;

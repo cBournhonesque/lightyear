@@ -11,12 +11,12 @@ pub use visual_interpolation::{VisualInterpolateStatus, VisualInterpolationPlugi
 use crate::client::components::LerpFn;
 
 mod despawn;
-mod interpolate;
+pub mod interpolate;
 pub mod interpolation_history;
 pub mod plugin;
 mod resource;
 mod spawn;
-mod visual_interpolation;
+pub mod visual_interpolation;
 
 /// Interpolator that performs linear interpolation.
 pub struct LinearInterpolator;
