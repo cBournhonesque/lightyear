@@ -8,7 +8,7 @@ use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::server::MessageEvent;
-use crate::prelude::{is_started, InputMessage, MessageRegistry, Mode, TickManager};
+use crate::prelude::{server::is_started, InputMessage, MessageRegistry, Mode, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::server::config::ServerConfig;
@@ -133,7 +133,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                     // TODO Don't update input buffer if inputs arrived too late?
                                     debug!("received input for entity: {:?}", entity);
 
-                                    if let Ok(mut buffer) = query.get_mut(*entity) {
+                                    if let Ok(buffer) = query.get_mut(*entity) {
                                         if let Some(mut buffer) = buffer {
                                             debug!(
                                                 ?target,

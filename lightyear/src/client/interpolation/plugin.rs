@@ -9,7 +9,7 @@ use crate::client::interpolation::interpolate::{
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
 use crate::client::interpolation::Interpolated;
-use crate::client::sync::client_is_synced;
+use crate::client::run_conditions::is_synced;
 use crate::prelude::is_host_server;
 
 use super::interpolation_history::{
@@ -138,7 +138,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
                 Update,
                 (
                     apply_confirmed_update_mode_full::<C>,
-                    update_interpolate_status::<C>.run_if(client_is_synced),
+                    update_interpolate_status::<C>.run_if(is_synced),
                     // TODO: that means we could insert the component twice, here and then in interpolate...
                     //  need to optimize this
                     insert_interpolated_component::<C>,
@@ -169,7 +169,7 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
-        let should_run_interpolation = not(is_host_server).and_then(client_is_synced);
+        let should_run_interpolation = not(is_host_server).and_then(is_synced);
 
         // REFLECT
         app.register_type::<InterpolationConfig>()

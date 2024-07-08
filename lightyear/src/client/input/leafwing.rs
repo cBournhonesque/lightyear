@@ -55,7 +55,8 @@ use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
-use crate::client::sync::{client_is_synced, SyncSet};
+use crate::client::run_conditions::is_synced;
+use crate::client::sync::SyncSet;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
@@ -65,7 +66,6 @@ use crate::prelude::{
 };
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
-use crate::shared::ping::manager::PingManager;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
@@ -100,9 +100,9 @@ pub struct LeafwingInputConfig<A> {
 /// - we apply the TickUpdateEvents (from doing sync) during PostUpdate. During this phase,
 /// we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
 #[derive(Debug, Resource)]
-struct MessageBuffer<A>(Vec<InputMessage<A>>);
+struct MessageBuffer<A: LeafwingUserAction>(Vec<InputMessage<A>>);
 
-impl<A> Default for MessageBuffer<A> {
+impl<A: LeafwingUserAction> Default for MessageBuffer<A> {
     fn default() -> Self {
         Self(Vec::default())
     }
@@ -190,13 +190,17 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             InputSystemSet::BufferClientInputs.run_if(should_run.clone()),
         );
         app.configure_sets(
+            FixedPostUpdate,
+            InputSystemSet::PrepareInputMessage.run_if(should_run.clone().and_then(is_synced)),
+        );
+        app.configure_sets(
             PostUpdate,
             (
                 SyncSet,
                 // run after SyncSet to make sure that the TickEvents are handled
                 (InputSystemSet::SendInputMessage, InputSystemSet::CleanUp)
                     .chain()
-                    .run_if(should_run.clone().and_then(client_is_synced)),
+                    .run_if(should_run.clone().and_then(is_synced)),
                 InternalMainSet::<ClientMarker>::Send,
             )
                 .chain(),
@@ -299,13 +303,16 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
     mut commands: Commands,
     // player-controlled entities are the ones that have an InputMap
     player_entities: Query<
-        Entity,
+        (Entity, Has<ActionState<A>>),
         (
             Without<InputBuffer<A>>,
-            Or<(
-                (Added<ActionState<A>>, With<InputMap<A>>),
-                (Added<InputMap<A>>, With<ActionState<A>>),
-            )>,
+            Added<InputMap<A>>,
+            // TODO: is this needed? should we just add when InputMap is added?
+            // Or<(
+
+            // (Added<ActionState<A>>, With<InputMap<A>>),
+            // Added<InputMap<A>>,
+            // )>,
         ),
     >,
     remote_entities: Query<
@@ -320,14 +327,18 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
     // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
     //  maybe provide the "controlled" component? or just use With<InputMap>?
 
-    for entity in player_entities.iter() {
+    for (entity, has_action_state) in player_entities.iter() {
         trace!(?entity, "adding actions state buffer");
         commands.entity(entity).insert((
             // input buffer needed to rollback to a previous ActionState
             InputBuffer::<A>::default(),
-            // make sure that the server entity has an ActionState component
+            // make sure that the server entity has an ActionState component (if we use PrePrediction),
+            // but don't replicate any updates after we replicated the initial component spawn
             ReplicateOnceComponent::<ActionState<A>>::default(),
         ));
+        if !has_action_state {
+            commands.entity(entity).insert(ActionState::<A>::default());
+        }
     }
     for entity in remote_entities.iter() {
         trace!(?entity, "adding actions state buffer");
@@ -341,27 +352,38 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<A: LeafwingUserAction>(
+    config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
-    global_input_buffer: Res<InputBuffer<A>>,
-    global_action_state: Option<ResMut<ActionState<A>>>,
+    connection_manager: Res<ConnectionManager>,
+    // global_input_buffer: Res<InputBuffer<A>>,
+    // global_action_state: Option<ResMut<ActionState<A>>>,
     mut action_state_query: Query<
         (Entity, &mut ActionState<A>, &InputBuffer<A>),
         With<InputMap<A>>,
     >,
 ) {
+    let input_delay_ticks = config.prediction.input_delay_ticks(
+        connection_manager.ping_manager.rtt(),
+        config.shared.tick.tick_duration,
+    ) as i16;
+    let delayed_tick = tick_manager.tick() + input_delay_ticks;
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
         //  the problem is that the Leafwing Plugin works on ActionState directly...
-        *action_state = input_buffer
-            .get_last()
-            .unwrap_or(&ActionState::<A>::default())
-            .clone();
-        let end_tick = input_buffer.end_tick();
-        debug!(current_tick = ?tick_manager.tick(), ?end_tick, "restored delayed action state: {:?}", action_state.get_pressed());
+        if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
+            *action_state = delayed_action_state.clone();
+            debug!(
+                ?entity,
+                ?delayed_tick,
+                "fetched delayed action state {:?} from input buffer: {}",
+                action_state.get_pressed(),
+                input_buffer
+            );
+        }
     }
-    if let Some(mut action_state) = global_action_state {
-        *action_state = global_input_buffer.get_last().unwrap().clone();
-    }
+    // if let Some(mut action_state) = global_action_state {
+    //     *action_state = global_input_buffer.get_last().unwrap().clone();
+    // }
 }
 
 /// Write the value of the ActionState in the InputBuffer.
@@ -373,7 +395,7 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
 /// We do not need to buffer inputs during rollback, as they have already been buffered
 fn buffer_action_state<A: LeafwingUserAction>(
     config: Res<ClientConfig>,
-    ping_manager: Res<PingManager>,
+    connection_manager: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
     // mut global_input_buffer: ResMut<InputBuffer<A>>,
     // global_action_state: Option<Res<ActionState<A>>>,
@@ -382,34 +404,19 @@ fn buffer_action_state<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
-    let input_delay_ticks = config
-        .prediction
-        .input_delay_ticks(ping_manager.rtt(), config.shared.tick.tick_duration)
-        as i16;
+    // TODO: if the input delay changes, this could override a previous tick's input in the InputBuffer
+    //  or leave gaps
+    let input_delay_ticks = config.prediction.input_delay_ticks(
+        connection_manager.ping_manager.rtt(),
+        config.shared.tick.tick_duration,
+    ) as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        trace!(
-            ?entity,
-            ?tick,
-            delay = ?input_delay_ticks,
-            "ACTION_STATE: JUST PRESSED: {:?}/ JUST RELEASED: {:?}/ PRESSED: {:?}/ RELEASED: {:?}",
-            action_state.get_just_pressed(),
-            action_state.get_just_released(),
-            action_state.get_pressed(),
-            action_state.get_released(),
-        );
-        trace!(?entity, ?tick, "set action state in input buffer");
         input_buffer.set(tick, action_state);
-        // println!(
-        //     "Set ActionState {:?} for tick {:?} in buffer {}",
-        //     action_state.get_pressed(),
-        //     tick,
-        //     input_buffer.as_ref()
-        // );
         debug!(
             ?entity,
             current_tick = ?tick_manager.tick(),
-            buffer_tick = ?tick,
+            delayed_tick = ?tick,
             "set action state in input buffer: {}",
             input_buffer.as_ref()
         );
@@ -535,7 +542,6 @@ fn prepare_input_message<A: LeafwingUserAction>(
     mut message_buffer: ResMut<MessageBuffer<A>>,
     channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,
-    ping_manager: Res<PingManager>,
     input_config: Res<LeafwingInputConfig<A>>,
     tick_manager: Res<TickManager>,
     input_buffer_query: Query<
@@ -548,10 +554,10 @@ fn prepare_input_message<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
-    let input_delay_ticks = config
-        .prediction
-        .input_delay_ticks(ping_manager.rtt(), config.shared.tick.tick_duration)
-        as i16;
+    let input_delay_ticks = config.prediction.input_delay_ticks(
+        connection.ping_manager.rtt(),
+        config.shared.tick.tick_duration,
+    ) as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?tick, "prepare_input_message");
@@ -627,7 +633,13 @@ fn prepare_input_message<A: LeafwingUserAction>(
         }
     }
 
-    debug!(?tick, ?num_tick, "sending input message: {}", message);
+    debug!(
+        ?tick,
+        ?num_tick,
+        "sending input message for {:?}: {}",
+        A::short_type_path(),
+        message
+    );
     message_buffer.0.push(message);
 
     // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
@@ -662,12 +674,12 @@ fn receive_tick_events<A: LeafwingUserAction>(
                         "Receive tick snap event {:?}. Updating global input buffer start_tick!",
                         trigger.event()
                     );
-                    global_input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    global_input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
                 }
             }
             for mut input_buffer in input_buffer_query.iter_mut() {
                 if let Some(start_tick) = input_buffer.start_tick {
-                    input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
                     debug!(
                         "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
                         trigger.event(),
@@ -675,8 +687,8 @@ fn receive_tick_events<A: LeafwingUserAction>(
                     );
                 }
             }
-            for mut message in message_buffer.0.iter_mut() {
-                message.end_tick = message.end_tick + (*new_tick - *old_tick);
+            for message in message_buffer.0.iter_mut() {
+                message.end_tick = message.end_tick + (new_tick - old_tick);
             }
         }
     }
@@ -933,6 +945,9 @@ mod tests {
     /// Check that ActionStates are stored correctly in the InputBuffer
     #[test]
     fn test_buffer_inputs_with_delay() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::INFO)
+        //     .init();
         let mut stepper = build_stepper_with_input_delay(1);
         let (server_entity, client_entity) = setup(&mut stepper);
 
@@ -942,6 +957,7 @@ mod tests {
             .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyA);
+        // info!("PRESS KEY");
         stepper.frame_step();
         let client_tick = stepper.client_tick();
         // check that the action state got buffered without any press (because the input is delayed)
@@ -956,7 +972,7 @@ mod tests {
             .unwrap()
             .get_pressed()
             .is_empty());
-        // after FixedUpdate runs, the ActionState should be stayed to the delayed action
+        // after FixedUpdate runs, the ActionState should be the delayed action
         assert!(stepper
             .client_app
             .world()
@@ -966,6 +982,7 @@ mod tests {
             .pressed(&LeafwingInput1::Jump));
 
         // release the key
+        // info!("RELEASE KEY");
         stepper
             .client_app
             .world_mut()

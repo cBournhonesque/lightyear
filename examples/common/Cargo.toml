@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_examples_common"
-version = "0.15.1"
+version = "0.16.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.76"
@@ -13,7 +13,7 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
 [dependencies]
-lightyear = { version = "0.15.1", path = "../../lightyear", features = [
+lightyear = { version = "0.16.0", path = "../../lightyear", features = [
     "steam",
     "webtransport",
     "websocket",
@@ -34,4 +34,4 @@ bevy = { version = "0.14", default-features = true, features = [
     "bevy_state",
     "serialize",
 ] }
-bevy-inspector-egui = "0.24"
+bevy-inspector-egui = "0.25"

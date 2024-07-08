@@ -450,7 +450,6 @@ impl<Ctx> NetcodeClient<Ctx> {
                     "client should disconnect -> {:?}",
                     self.should_disconnect_state
                 );
-                // dbg!(self.should_disconnect_state);
                 if self.connect_to_next_server().is_ok() {
                     return;
                 };

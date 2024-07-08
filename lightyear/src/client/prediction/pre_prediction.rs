@@ -10,11 +10,11 @@ use crate::client::prediction::prespawn::PreSpawnedPlayerObjectSet;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
-use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
 use crate::prelude::{
-    ReplicateHierarchy, Replicating, ReplicationGroup, ReplicationTarget, ShouldBePredicted,
+    client::is_synced, ReplicateHierarchy, Replicating, ReplicationGroup, ReplicationTarget,
+    ShouldBePredicted,
 };
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -48,7 +48,7 @@ impl Plugin for PrePredictionPlugin {
                 PrePredictionSet::Clean,
             )
                 .chain()
-                .run_if(client_is_synced),
+                .run_if(is_synced),
         );
         app.add_systems(
             PreUpdate,

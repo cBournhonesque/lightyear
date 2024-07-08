@@ -80,6 +80,7 @@ fn spawn_player_entity(
         },
         controlled_by: ControlledBy {
             target: NetworkTarget::Single(client_id),
+            ..default()
         },
         relevance_mode: if dedicated_server {
             NetworkRelevanceMode::InterestManagement

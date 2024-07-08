@@ -15,6 +15,7 @@ use crate::client::io::ClientIoEvent;
 use crate::client::networking::utils::AppStateExt;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
+use crate::client::run_conditions::is_disconnected;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, ConnectionState, DisconnectReason, NetClient};
 use crate::connection::server::IoConfig;
@@ -25,7 +26,6 @@ use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
 use crate::shared::config::Mode;
 use crate::shared::replication::components::Replicated;
-use crate::shared::run_conditions;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::transport::io::IoState;
 
@@ -50,7 +50,7 @@ impl Plugin for ClientNetworkingPlugin {
                     InternalMainSet::<ClientMarker>::EmitEvents.in_set(MainSet::EmitEvents),
                 )
                     .chain()
-                    .run_if(not(is_host_server.or_else(run_conditions::is_disconnected))),
+                    .run_if(not(is_host_server.or_else(is_disconnected))),
             )
             .configure_sets(
                 PostUpdate,
@@ -60,7 +60,7 @@ impl Plugin for ClientNetworkingPlugin {
                     SyncSet,
                     InternalMainSet::<ClientMarker>::Send.in_set(MainSet::Send),
                 )
-                    .run_if(not(is_host_server.or_else(run_conditions::is_disconnected)))
+                    .run_if(not(is_host_server.or_else(is_disconnected)))
                     .chain(),
             )
             // SYSTEMS
@@ -70,7 +70,7 @@ impl Plugin for ClientNetworkingPlugin {
                     // we are running the listen_io_state in a different set because it can impact the run_condition for the
                     // Receive system set
                     .before(InternalMainSet::<ClientMarker>::Receive)
-                    .run_if(not(is_host_server.or_else(run_conditions::is_disconnected))),
+                    .run_if(not(is_host_server.or_else(is_disconnected))),
             )
             .add_systems(
                 PreUpdate,
@@ -357,9 +357,11 @@ fn on_disconnect(
 ) {
     info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
-    received_entities
-        .iter()
-        .for_each(|e| commands.entity(e).despawn_recursive());
+    received_entities.iter().for_each(|e| {
+        if let Some(commands) = commands.get_entity(e) {
+            commands.despawn_recursive();
+        }
+    });
 
     // set synced to false
     connection_manager.sync_manager.synced = false;

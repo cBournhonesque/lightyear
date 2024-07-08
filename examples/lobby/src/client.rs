@@ -184,7 +184,11 @@ mod game {
     /// - keep track of it in the Global resource
     pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
         for mut color in predicted.iter_mut() {
-            color.0.set_s(0.3);
+            let hsva = Hsva {
+                saturation: 0.4,
+                ..Hsva::from(color.0)
+            };
+            color.0 = Color::from(hsva);
         }
     }
 
@@ -195,7 +199,11 @@ mod game {
         mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
     ) {
         for mut color in interpolated.iter_mut() {
-            color.0.set_s(0.1);
+            let hsva = Hsva {
+                saturation: 0.1,
+                ..Hsva::from(color.0)
+            };
+            color.0 = Color::from(hsva);
         }
     }
 }

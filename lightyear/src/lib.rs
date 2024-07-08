@@ -259,6 +259,7 @@ pub mod prelude {
         pub use crate::client::prediction::Predicted;
         pub use crate::client::replication::commands::DespawnReplicationCommandExt;
         pub use crate::client::replication::send::Replicate;
+        pub use crate::client::run_conditions::{is_connected, is_disconnected, is_synced};
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
             Authentication, ClientConnection, IoConfig, NetClient, NetConfig,
@@ -294,6 +295,7 @@ pub mod prelude {
             send::{ControlledBy, Replicate, ServerFilter, SyncTarget},
             ReplicationSet, ServerReplicationSet,
         };
+        pub use crate::server::run_conditions::{is_started, is_stopped};
     }
 
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]

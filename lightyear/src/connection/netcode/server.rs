@@ -621,7 +621,6 @@ impl<Ctx> NetcodeServer<Ctx> {
             .connection_request_handler
             .handle_request(crate::prelude::ClientId::Netcode(token.client_id))
         {
-            // dbg!(&denied_reason);
             debug!("server denied connection request. handle_connection_request_fn returned false");
             self.send_to_addr(
                 DeniedPacket::create(denied_reason),

@@ -23,7 +23,7 @@ fn my_system(
 }
 ```
 */
-use crate::prelude::{is_started, ClientId};
+use crate::prelude::{server::is_started, ClientId};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::*;
