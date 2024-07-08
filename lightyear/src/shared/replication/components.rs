@@ -82,7 +82,7 @@ pub enum TargetEntity {
 
 /// Component that defines how the hierarchy of an entity (parent/children) should be replicated
 ///
-/// If the component is absent, the [`Parent`]/[`Children`] components will not be replicated.
+/// If the component is absent, the [`Parent`](bevy::prelude::Parent)/[`Children`](bevy::prelude::Children) components will not be replicated.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ReplicateHierarchy {

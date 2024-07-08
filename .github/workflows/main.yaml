@@ -53,7 +53,7 @@ jobs:
         run: cargo clippy -p lightyear --no-deps --tests -- -D warnings -A clippy::module_inception -A clippy::wrong_self_convention -A clippy::assign-op-pattern
 
       - name: Rustdoc
-        run: cargo rustdoc -p lightyear --features=metrics,webtransport,leafwing,xpbd_2d,websocket,steam,zstd,bevy_xpbd_2d/2d,bevy_xpbd_2d/f32 -- --document-private-items -D warnings --cfg docsrc
+        run: cargo rustdoc -p lightyear --features=metrics,webtransport,leafwing,avian2d,websocket,steam,zstd,avian2d/2d,avian2d/f32,avian2d/parry-f32 -- --document-private-items -D warnings --cfg docsrc
 
   doctest:
     name: Doctest

@@ -35,7 +35,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
-/// When a [`EntityUpdatesMessage`] message gets buffered (and we have access to its [`MessageId`]),
+/// When a [`EntityUpdatesMessage`](super::EntityUpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.
 /// It is useful when we get notified that the message was acked or lost.
 #[derive(Debug, PartialEq)]
@@ -532,7 +532,7 @@ impl ReplicationSender {
         });
     }
 
-    /// Prepare the [`EntityActionsMessage`] messages to send.
+    /// Prepare the [`EntityActionsMessage`](super::EntityActionsMessage) messages to send.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn send_actions_messages(
         &mut self,
@@ -640,7 +640,7 @@ impl ReplicationSender {
         // TODO: also return for each message a list of the components that have delta-compression data?
     }
 
-    /// Buffer the [`EntityUpdatesMessage`] to send in the [`MessageManager`]
+    /// Buffer the [`EntityUpdatesMessage`](super::EntityUpdatesMessage) to send in the [`MessageManager`]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn send_updates_messages(
         &mut self,
