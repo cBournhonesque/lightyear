@@ -242,21 +242,28 @@ impl ComponentRegistry {
     /// Check that the protocol is correct:
     /// - emits warnings for every component that has prediction/interpolation metadata but wasn't registered
     pub fn check(&self) {
-        let mut errors = false;
         for component_kind in self.prediction_map.keys() {
             if !self.serialize_fns_map.contains_key(component_kind) {
-                errors = true;
-                error!("A component has prediction metadata but wasn't registered");
+                panic!(
+                    "A component has prediction metadata but wasn't registered for serialization"
+                );
             }
         }
-        for component_kind in self.interpolation_map.keys() {
+        for (component_kind, interpolation_data) in &self.interpolation_map {
             if !self.serialize_fns_map.contains_key(component_kind) {
-                errors = true;
-                error!("A component has interpolation metadata but wasn't registered");
+                panic!("A component has interpolation metadata but wasn't registered for serialization");
+            } else {
+                if interpolation_data.interpolation_mode == ComponentSyncMode::Full
+                    && interpolation_data.interpolation.is_none()
+                {
+                    let name = self
+                        .serialize_fns_map
+                        .get(component_kind)
+                        .unwrap()
+                        .type_name;
+                    panic!("The Component {name:?} was registered for interpolation with ComponentSyncMode::FULL but no interpolation function was provided!");
+                }
             }
-        }
-        if errors {
-            panic!("Detected some errors in the ComponentRegistry");
         }
     }
 
