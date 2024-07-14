@@ -66,7 +66,7 @@ seahash = "4.1.0"
 leafwing-input-manager = { version = "0.14", optional = true }
 
 # physics
-avian2d = { version = "0.1", optional = true, default-features = false }
+avian2d = { version = "0.1.1", optional = true, default-features = false }
 
 # serialization
 bincode = { version = "2.0.0-rc.3", features = ["serde"] }
@@ -194,8 +194,5 @@ features = [
     "websocket",
     "steam",
     "zstd",
-    "avian2d/2d",
-    "avian2d/f32",
-    "avian2d/parry-f32"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
