@@ -1,15 +1,22 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
-use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut};
+use bevy::prelude::{
+    App, Commands, Event, EventWriter, Events, IntoSystemConfigs, PreUpdate, Res, ResMut, Trigger,
+};
 use byteorder::WriteBytesExt;
 use bytes::Bytes;
 use tracing::error;
 
 use crate::client::connection::ConnectionManager;
 use crate::client::events::MessageEvent;
-use crate::prelude::{client::is_connected, Message};
+use crate::connection::client::ClientConnection;
+use crate::connection::server::ServerConnections;
+use crate::packet::message::SendMessage;
+use crate::prelude::server::ServerConfig;
+use crate::prelude::{client::is_connected, is_host_server, Channel, ChannelKind, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
+use crate::shared::message::MessageSend;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
@@ -77,8 +84,81 @@ fn read_message<M: Message>(
     }
 }
 
+#[derive(Event)]
+struct SendMessageTrigger<M: Message> {
+    message: Option<M>,
+    channel_kind: ChannelKind,
+    network_target: Option<NetworkTarget>,
+}
+
+// TODO: maybe it would be cleaner to use events even when sending messages?
+//  and then have a single type-erased system that goes through all events?
+//  in host-server, it would just forward them to the server?
+/// In host-server mode, the client networking plugins (receive/send) are inactive,
+/// so when the client sends a message to the server, we should send it directly as a
+/// MessageEvent to the server
+fn handle_client_to_server_message<M: Message>(
+    mut trigger: Trigger<SendMessageTrigger<M>>,
+    client_connection: Res<ClientConnection>,
+    mut client_manager: ResMut<ConnectionManager>,
+    mut server_events: Option<Events<crate::server::events::MessageEvent<M>>>,
+    server_config: Option<Res<ServerConfig>>,
+    server_connections: Option<Res<ServerConnections>>,
+    mut server_manager: Option<ResMut<crate::server::connection::ConnectionManager>>,
+) {
+    let mut target = std::mem::take(&mut trigger.event_mut().network_target).unwrap();
+    // if we are in host-server mode, we should send the message directly to the server
+    if is_host_server(server_config, server_connections) {
+        let client_id = client_connection.client.id();
+        // rebroadcast the message if needed
+        if trigger.event().network_target != NetworkTarget::None {
+            target.exclude(NetworkTarget::Single(client_id));
+            let _ = server_manager
+                .unwrap()
+                .erased_send_message_to_target::<M>(
+                    trigger.event().message.as_ref().unwrap(),
+                    trigger.event().channel_kind,
+                    target,
+                )
+                .inspect_err(|e| {
+                    error!(
+                        "Could not rebroadcast host-client message to other clients: {:?}",
+                        e
+                    )
+                });
+        }
+        // send the message directly to the server's Events queue
+        if let Some(mut server_events) = server_events {
+            // SAFETY: we know that there is a message in the event
+            // We just had an option to avoid a copy.
+            let message = std::mem::take(&mut trigger.event_mut().message).unwrap();
+            server_events.send(crate::server::events::MessageEvent::new(message, client_id));
+        }
+    } else {
+        // not in host-server mode, serialize and send the message as normal
+        let _ = client_manager
+            .erased_send_message_to_target(
+                trigger.event().message.as_ref().unwrap(),
+                trigger.event().channel_kind,
+                target,
+            )
+            .inspect_err(|e| {
+                error!("Could not send message to server: {:?}", e);
+            });
+    }
+}
+
+/// Send a message from client to server
+///
+/// We use a trigger `SendMessageTrigger<M>` instead of directly serializing the message
+/// in case we are in host-server mode. In that situation, we just add the message directly
+/// the server's Event queue.
+pub(crate) fn add_client_send_message_to_server<M: Message>(app: &mut App) {
+    app.observe(handle_client_to_server_message::<M>);
+}
+
 /// Register a message that can be sent from server to client
-pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
+pub(crate) fn add_client_receive_message_from_server<M: Message>(app: &mut App) {
     app.add_event::<MessageEvent<M>>();
     app.add_systems(
         PreUpdate,
@@ -86,6 +166,7 @@ pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
             .in_set(InternalMainSet::<ClientMarker>::EmitEvents)
             .run_if(is_connected),
     );
+    // send messages from client to server in host-server mode
 }
 
 // impl ClientMessage {
@@ -189,10 +270,38 @@ pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
 //     }
 // }
 
+// pub struct ClientToServerSendMessageCommand
+//
+// pub trait ClientToServerMessageCommands {
+//     /// Send a [`Message`] to the server using a specific [`Channel`].
+//     ///
+//     /// The server will re-broadcast the message to the clients specified in the [`NetworkTarget`].
+//     fn send_message_with_target<C: Channel, M: Message>(&mut self, message: &M, target: NetworkTarget);
+//
+//     /// Send a [`Message`] to the server using a specific [`Channel`].
+//     fn send_message<C: Channel, M: Message>(&mut self);
+// }
+//
+// impl ClientToServerMessageCommands for Commands<'_, '_> {
+//     fn send_message_with_target<C: Channel, M: Message>(&mut self, message: &M, target: NetworkTarget) {
+//         self.trigger(SendMessageTrigger {
+//             message: Some(message),
+//             channel_kind: ChannelKind::of::<C>(),
+//             network_target: Some(target),
+//         });
+//     }
+//
+//     fn send_message<C: Channel, M: Message>(&mut self) {
+//         todo!()
+//     }
+// }
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::serialize::writer::Writer;
+    use crate::tests::host_server_stepper::HostServerStepper;
+    use crate::tests::protocol::{Channel1, Message1};
 
     #[test]
     fn client_message_serde() {
@@ -207,5 +316,17 @@ mod tests {
         let mut reader = Reader::from(bytes);
         let result = ClientMessage::from_bytes(&mut reader).unwrap();
         assert_eq!(data, result);
+    }
+
+    #[test]
+    fn client_send_message_as_host_server() {
+        let mut stepper = HostServerStepper::default();
+        // send a message from the local client to the server
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<crate::prelude::client::ConnectionManager>()
+            .send_message::<Channel1, Message1>(&Message1("a".to_string()))
+            .unwrap();
     }
 }
