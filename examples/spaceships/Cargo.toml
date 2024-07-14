@@ -2,8 +2,8 @@
 name = "spaceships"
 version = "0.0.0"
 authors = [
-    "Charles Bournhonesque <charlesbour@gmail.com>",
-    "Richard Jones <rj@metabrew.com>",
+  "Charles Bournhonesque <charlesbour@gmail.com>",
+  "Richard Jones <rj@metabrew.com>",
 ]
 edition = "2021"
 rust-version = "1.65"
@@ -16,20 +16,26 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 lightyear_examples_common = { path = "../common" }
 bevy_screen_diagnostics = "0.6"
 leafwing-input-manager = "0.14"
-avian2d = { version = "0.1.0", features = ["serialize", "f32", "parry-f32", "enhanced-determinism"] }
+avian2d = { version = "0.1.1", default-features = false, features = [
+  "2d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+] }
 lightyear = { path = "../../lightyear", features = [
-    "webtransport",
-    "leafwing",
-    "avian2d",
+  "webtransport",
+  "leafwing",
+  "avian2d",
 ] }
 serde = { version = "1.0", features = ["derive"] }
 anyhow = { version = "1.0", features = [] }
 tracing = "0.1"
 tracing-subscriber = "0.3.17"
 bevy = { version = "0.14", features = [
-    "multi_threaded",
-    "bevy_state",
-    "serialize",
+  "multi_threaded",
+  "bevy_state",
+  "serialize",
 ] }
 
 rand = "0.8.1"

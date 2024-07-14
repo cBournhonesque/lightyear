@@ -11,6 +11,7 @@ use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::scene::ScenePlugin;
 use bevy::state::app::StatesPlugin;
 use bevy::winit::{WakeUp, WinitPlugin};
 use bevy::DefaultPlugins;
@@ -375,12 +376,7 @@ fn server_app(
     if !settings.server.headless {
         app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
     } else {
-        app.add_plugins((
-            // TODO: cannot use MinimalPlugins because avian requires render/assets plugin
-            // MinimalPlugins,
-            // StatesPlugin,
-            DefaultPlugins.build().disable::<LogPlugin>(),
-        ));
+        app.add_plugins((MinimalPlugins, StatesPlugin));
     }
     app.add_plugins(LogPlugin {
         level: Level::INFO,
@@ -388,9 +384,9 @@ fn server_app(
         ..default()
     });
 
-    // if settings.server.inspector {
-    //     app.add_plugins(WorldInspectorPlugin::new());
-    // }
+    if settings.server.inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
 
     // configure the network configuration
     let mut net_configs = get_server_net_configs(&settings);
