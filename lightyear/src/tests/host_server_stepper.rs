@@ -105,7 +105,7 @@ impl HostServerStepper {
                 .with_key(private_key),
             io: server_io,
         };
-        let mut shared_host_server = shared_config.clone();
+        let mut shared_host_server = shared_config;
         shared_host_server.mode = Mode::HostServer;
         let config = ServerConfig {
             shared: shared_config,
