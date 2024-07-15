@@ -193,6 +193,8 @@ pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
 mod tests {
     use super::*;
     use crate::serialize::writer::Writer;
+    use crate::tests::host_server_stepper::HostServerStepper;
+    use crate::tests::protocol::{Channel1, Message2};
 
     #[test]
     fn client_message_serde() {
@@ -207,5 +209,18 @@ mod tests {
         let mut reader = Reader::from(bytes);
         let result = ClientMessage::from_bytes(&mut reader).unwrap();
         assert_eq!(data, result);
+    }
+
+    #[test]
+    fn client_send_message_as_host_server() {
+        let mut stepper = HostServerStepper::default();
+
+        let message = Message2(1);
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<crate::prelude::client::ConnectionManager>()
+            .send_message::<Channel1, _>(&message)
+            .unwrap()
     }
 }
