@@ -60,16 +60,21 @@ impl Plugin for ServerNetworkingPlugin {
                     .in_set(InternalMainSet::<ServerMarker>::Send),
             );
 
-        // STARTUP
-        // create the server connection resources to avoid some systems panicking
-        // TODO: remove this when possible?
-        app.world_mut().run_system_once(rebuild_server_connections);
-
         // ON_START
         app.add_systems(OnEnter(NetworkingState::Started), on_start);
 
         // ON_STOP
         app.add_systems(OnEnter(NetworkingState::Stopped), on_stop);
+    }
+
+    // This runs after all plugins have run build() and finish()
+    // so we are sure that the ComponentRegistry/MessageRegistry have been built
+    fn cleanup(&self, app: &mut App) {
+        // TODO: update all systems that need these to only run when needed, so that we don't have to create
+        //  a ConnectionManager or a NetConfig at startup
+        // Create the server connection resources to avoid some systems panicking
+        // TODO: remove this when possible?
+        app.world_mut().run_system_once(rebuild_server_connections);
     }
 }
 
@@ -267,10 +272,7 @@ pub(crate) fn send_host_server(
             connection
                 .local_messages_to_send
                 .drain(..)
-                .try_for_each(|message| {
-                    dbg!(&message);
-                    client_manager.receive_message(Reader::from(message))
-                })
+                .try_for_each(|message| client_manager.receive_message(Reader::from(message)))
         })
         .inspect_err(|e| error!("Error sending messages to local client: {:?}", e));
 }

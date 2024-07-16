@@ -150,7 +150,7 @@ impl ConnectionManager {
         client_id: ClientId,
         message: &M,
     ) -> Result<(), ServerError> {
-        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
     }
 
     /// Update the priority of a `ReplicationGroup` that is replicated to a given client

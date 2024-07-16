@@ -46,11 +46,15 @@ impl Plugin for ClientNetworkingPlugin {
             .configure_sets(
                 PreUpdate,
                 (
-                    InternalMainSet::<ClientMarker>::Receive.in_set(MainSet::Receive),
+                    InternalMainSet::<ClientMarker>::Receive
+                        .in_set(MainSet::Receive)
+                        // do not receive packets when running in host-server mode
+                        .run_if(not(is_host_server)),
+                    // we still want to emit events when running in host-server mode
                     InternalMainSet::<ClientMarker>::EmitEvents.in_set(MainSet::EmitEvents),
                 )
                     .chain()
-                    .run_if(not(is_host_server.or_else(is_disconnected))),
+                    .run_if(not(is_disconnected)),
             )
             .configure_sets(
                 PostUpdate,

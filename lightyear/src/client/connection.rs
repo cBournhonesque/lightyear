@@ -92,7 +92,6 @@ pub struct ConnectionManager {
 // NOTE: useful when we sometimes need to create a temporary fake ConnectionManager
 impl Default for ConnectionManager {
     fn default() -> Self {
-        dbg!("default");
         let replication_sender = ReplicationSender::new(
             crossbeam_channel::unbounded().1,
             crossbeam_channel::unbounded().1,
@@ -132,7 +131,6 @@ impl ConnectionManager {
         channel_registry: &ChannelRegistry,
         client_config: &ClientConfig,
     ) -> Self {
-        dbg!("new");
         let bandwidth_cap_enabled = client_config.packet.bandwidth_cap_enabled;
         // create the message manager and the channels
         let mut message_manager = MessageManager::new(
@@ -484,7 +482,6 @@ impl ConnectionManager {
                     .entry(net_id)
                     .or_default()
                     .push(single_data);
-                dbg!(&self.received_messages);
             }
         }
         Ok(())
