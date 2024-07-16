@@ -294,7 +294,16 @@ impl ConnectionManager {
             .iter_mut()
             .filter(|(id, _)| target.targets(id))
             // NOTE: this clone is O(1), it just increments the reference count
-            .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
+            .try_for_each(|(_, c)| {
+                // for local clients, we don't want to buffer messages in the MessageManager since
+                // there is no io
+                if c.is_local_client() {
+                    c.local_messages_to_send.push(message.clone())
+                } else {
+                    c.buffer_message(message.clone(), channel)?;
+                }
+                Ok::<(), ServerError>(())
+            })
     }
 
     pub(crate) fn erased_send_message_to_target<M: Message>(
@@ -410,6 +419,8 @@ pub struct Connection {
     pub(crate) messages_to_rebroadcast: Vec<(Bytes, NetworkTarget, ChannelKind)>,
     /// True if this connection corresponds to a local client when running in host-server mode
     is_local_client: bool,
+    /// Messages to send to the local client (we don't buffer them in the MessageManager because there is no io)
+    pub(crate) local_messages_to_send: Vec<Bytes>,
 }
 
 impl Connection {
@@ -462,6 +473,7 @@ impl Connection {
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_rebroadcast: vec![],
             is_local_client: false,
+            local_messages_to_send: vec![],
         }
     }
 

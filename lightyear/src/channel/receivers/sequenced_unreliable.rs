@@ -15,6 +15,7 @@ const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
 /// Sequenced Unreliable receiver:
 /// do not return messages in order, but ignore the messages that are older than the most recent one received
+#[derive(Debug)]
 pub struct SequencedUnreliableReceiver {
     /// Buffer of the messages that we received, but haven't processed yet
     recv_message_buffer: VecDeque<(Tick, Bytes)>,

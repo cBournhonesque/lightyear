@@ -9,6 +9,7 @@ use crate::prelude::Tick;
 use crate::shared::time_manager::WrappedTime;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
+#[derive(Debug)]
 pub struct FragmentReceiver {
     fragment_messages: HashMap<MessageId, FragmentConstructor>,
 }

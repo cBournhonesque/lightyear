@@ -19,6 +19,7 @@ use crate::channel::stats::send::ChannelSendStats;
 use crate::prelude::ChannelKind;
 
 /// A ChannelContainer is a struct that implements the [`Channel`] trait
+#[derive(Debug)]
 pub struct ChannelContainer {
     pub setting: ChannelSettings,
     pub(crate) receiver: ChannelReceiver,

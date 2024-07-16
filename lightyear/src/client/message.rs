@@ -60,6 +60,7 @@ fn read_message<M: Message>(
         return;
     };
     if let Some(message_list) = connection.received_messages.remove(&net) {
+        dbg!(&message_list);
         for message in message_list {
             let mut reader = Reader::from(message);
             // we have to re-decode the net id
@@ -83,9 +84,7 @@ pub(crate) fn add_client_receive_message_from_server<M: Message>(app: &mut App) 
     app.add_event::<MessageEvent<M>>();
     app.add_systems(
         PreUpdate,
-        read_message::<M>
-            .in_set(InternalMainSet::<ClientMarker>::EmitEvents)
-            .run_if(is_connected),
+        read_message::<M>.in_set(InternalMainSet::<ClientMarker>::EmitEvents), // .run_if(is_connected),
     );
 }
 

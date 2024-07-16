@@ -1,9 +1,11 @@
 //! Defines the server bevy systems and run conditions
 use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::{
-    server::is_started, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
+    is_host_server, server::is_started, ChannelRegistry, MainSet, MessageRegistry, TickManager,
+    TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
+use crate::serialize::reader::Reader;
 use crate::server::clients::ControlledEntities;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
@@ -54,7 +56,8 @@ impl Plugin for ServerNetworkingPlugin {
             )
             .add_systems(
                 PostUpdate,
-                send.in_set(InternalMainSet::<ServerMarker>::Send),
+                (send, send_host_server.run_if(is_host_server))
+                    .in_set(InternalMainSet::<ServerMarker>::Send),
             );
 
         // STARTUP
@@ -248,6 +251,28 @@ pub(crate) fn send(
         .unwrap_or_else(|e: ServerError| {
             error!("Error sending packets: {}", e);
         });
+}
+
+/// When running in host-server mode, we also need to send messages to the local client.
+/// We do this directly without io.
+pub(crate) fn send_host_server(
+    mut connection_manager: ResMut<ConnectionManager>,
+    mut client_manager: ResMut<crate::client::connection::ConnectionManager>,
+) {
+    let _ = connection_manager
+        .connections
+        .iter_mut()
+        .filter(|(_, connection)| connection.is_local_client())
+        .try_for_each(|(_, connection)| {
+            connection
+                .local_messages_to_send
+                .drain(..)
+                .try_for_each(|message| {
+                    dbg!(&message);
+                    client_manager.receive_message(Reader::from(message))
+                })
+        })
+        .inspect_err(|e| error!("Error sending messages to local client: {:?}", e));
 }
 
 /// Bevy [`State`] representing the networking state of the server.

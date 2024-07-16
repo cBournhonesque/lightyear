@@ -61,6 +61,7 @@ pub trait ChannelSend {
 }
 
 /// Enum dispatch lets us derive ChannelSend on each enum variant
+#[derive(Debug)]
 #[enum_dispatch(ChannelSend)]
 pub enum ChannelSender {
     UnorderedUnreliableWithAcks(unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender),

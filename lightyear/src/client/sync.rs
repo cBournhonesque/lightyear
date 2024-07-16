@@ -87,6 +87,7 @@ impl SentPacketStore {
 
 /// In charge of syncing the client's tick/time with the server's tick/time
 /// right after the connection is established
+#[derive(Debug)]
 pub struct SyncManager {
     config: SyncConfig,
     prediction_config: PredictionConfig,

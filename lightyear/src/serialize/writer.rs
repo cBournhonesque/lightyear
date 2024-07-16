@@ -8,6 +8,7 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use std::io::Write;
 
+#[derive(Debug)]
 pub struct Writer(bytes::buf::Writer<BytesMut>);
 
 impl Write for Writer {

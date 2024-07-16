@@ -63,7 +63,7 @@ use super::sync::SyncManager;
 ///    connection.send_message_to_target::<MyChannel, MyMessage>("Hello, server!", NetworkTarget::Single(2));
 /// }
 /// ```
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct ConnectionManager {
     pub(crate) component_registry: ComponentRegistry,
     pub(crate) message_registry: MessageRegistry,
@@ -92,6 +92,7 @@ pub struct ConnectionManager {
 // NOTE: useful when we sometimes need to create a temporary fake ConnectionManager
 impl Default for ConnectionManager {
     fn default() -> Self {
+        dbg!("default");
         let replication_sender = ReplicationSender::new(
             crossbeam_channel::unbounded().1,
             crossbeam_channel::unbounded().1,
@@ -131,6 +132,7 @@ impl ConnectionManager {
         channel_registry: &ChannelRegistry,
         client_config: &ClientConfig,
     ) -> Self {
+        dbg!("new");
         let bandwidth_cap_enabled = client_config.packet.bandwidth_cap_enabled;
         // create the message manager and the channels
         let mut message_manager = MessageManager::new(
@@ -372,7 +374,6 @@ impl ConnectionManager {
         tick_manager: &TickManager,
     ) -> Result<(), ClientError> {
         let _span = trace_span!("receive").entered();
-        let message_registry = world.resource::<MessageRegistry>();
         self.message_manager
             .channels
             .iter_mut()
@@ -420,10 +421,11 @@ impl ConnectionManager {
                         let updates = EntityUpdatesMessage::from_bytes(&mut reader)?;
                         self.replication_receiver.recv_updates(updates, tick);
                     } else {
+                        // TODO: this code is copy-pasted from self.receive_message because of borrow checker limitations
                         // identify the type of message
                         let net_id = NetId::from_bytes(&mut reader)?;
                         let single_data = reader.consume();
-                        match message_registry.message_type(net_id) {
+                        match self.message_registry.message_type(net_id) {
                             #[cfg(feature = "leafwing")]
                             MessageType::LeafwingInput => {
                                 self.received_leafwing_input_messages
@@ -457,6 +459,33 @@ impl ConnectionManager {
                     &mut self.events,
                 );
             });
+        }
+        Ok(())
+    }
+
+    /// Receive a message from the server
+    pub(crate) fn receive_message(&mut self, mut reader: Reader) -> Result<(), SerializationError> {
+        // identify the type of message
+        let net_id = NetId::from_bytes(&mut reader)?;
+        let single_data = reader.consume();
+        match self.message_registry.message_type(net_id) {
+            #[cfg(feature = "leafwing")]
+            MessageType::LeafwingInput => {
+                self.received_leafwing_input_messages
+                    .entry(net_id)
+                    .or_default()
+                    .push(single_data);
+            }
+            MessageType::NativeInput => {
+                todo!()
+            }
+            MessageType::Normal => {
+                self.received_messages
+                    .entry(net_id)
+                    .or_default()
+                    .push(single_data);
+                dbg!(&self.received_messages);
+            }
         }
         Ok(())
     }

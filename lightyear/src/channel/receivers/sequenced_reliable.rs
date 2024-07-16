@@ -13,6 +13,7 @@ use crate::shared::time_manager::TimeManager;
 
 /// Sequenced Reliable receiver: make sure that all messages are received,
 /// do not return them in order, but ignore the messages that are older than the most recent one received
+#[derive(Debug)]
 pub struct SequencedReliableReceiver {
     // TODO: optimize via ring buffer?
     // TODO: actually do we even need a buffer? we might just need a buffer of 1

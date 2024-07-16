@@ -16,6 +16,7 @@ use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::{TimeManager, WrappedTime};
 
+#[derive(Debug)]
 pub struct FragmentAck {
     data: FragmentData,
     acked: bool,
@@ -23,6 +24,7 @@ pub struct FragmentAck {
 }
 
 /// A message that has not been acked yet
+#[derive(Debug)]
 pub enum UnackedMessage {
     Single {
         bytes: Bytes,
@@ -33,6 +35,7 @@ pub enum UnackedMessage {
     Fragmented(Vec<FragmentAck>),
 }
 
+#[derive(Debug)]
 pub struct UnackedMessageWithPriority {
     pub unacked_message: UnackedMessage,
     pub base_priority: f32,
@@ -40,6 +43,7 @@ pub struct UnackedMessageWithPriority {
 }
 
 /// A sender that makes sure to resend messages until it receives an ack
+#[derive(Debug)]
 pub struct ReliableSender {
     /// Settings for reliability
     reliable_settings: ReliableSettings,

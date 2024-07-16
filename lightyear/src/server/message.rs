@@ -63,86 +63,6 @@ fn read_message<M: Message>(
     }
 }
 
-// /// Observer Trigger to send a message.
-// ///
-// /// If we are running in host-server mode, the messages that are destined to the local client will be
-// /// sent directly to the client's Event queue.
-// #[derive(Event)]
-// struct SendMessageTrigger<M: Message> {
-//     message: Option<M>,
-//     channel_kind: ChannelKind,
-//     network_target: Option<NetworkTarget>,
-// }
-//
-// // TODO: maybe it would be cleaner to use events even when sending messages?
-// //  and then have a single type-erased system that goes through all events?
-// //  in host-server, it would just forward them to the server?
-// /// In host-server mode, the client networking plugins (receive/send) are inactive,
-// /// so when the client sends a message to the server, we should send it directly as a
-// /// MessageEvent to the server
-// fn handle_server_send_message_to_client<M: Message>(
-//     mut trigger: Trigger<SendMessageTrigger<M>>,
-//     client_connection: Option<Res<ClientConnection>>,
-//     mut client_events: Option<Events<crate::client::events::MessageEvent<M>>>,
-//     server_config: Option<Res<ServerConfig>>,
-//     server_connections: Option<Res<ServerConnections>>,
-//     mut server_manager: ResMut<ConnectionManager>,
-// ) {
-//     let mut target = std::mem::take(&mut trigger.event_mut().network_target).unwrap();
-//     // if we are in host-server mode, the messages destined to the local client should be
-//     // sent directly to the client's Events queue
-//     if is_host_server(server_config, server_connections) {
-//         let client_id = client_connection
-//             .expect("We are running in host-server mode but could not access the client connection")
-//             .client
-//             .id();
-//         let send_to_local_client = target.targets(&client_id);
-//         target.exclude(NetworkTarget::Single(client_id));
-//         // send the message normally to other clients
-//         if !target.is_empty() {
-//             let _ = server_manager
-//                 .erased_send_message_to_target::<M>(
-//                     trigger.event().message.as_ref().unwrap(),
-//                     trigger.event().channel_kind,
-//                     target,
-//                 )
-//                 .inspect_err(|e| {
-//                     error!(
-//                         "Could not rebroadcast host-client message to other clients: {:?}",
-//                         e
-//                     )
-//                 });
-//         }
-//         // send the message directly to the local client's Events queue
-//         if let Some(mut client_events) = client_events {
-//             // SAFETY: we know that there is a message in the event
-//             // We just had an option to avoid a copy.
-//             let message = std::mem::take(&mut trigger.event_mut().message).unwrap();
-//             client_events.send(crate::client::events::MessageEvent::new(message, ()));
-//         }
-//     } else {
-//         // not in host-server mode, serialize and send the message as normal
-//         let _ = server_manager
-//             .erased_send_message_to_target(
-//                 trigger.event().message.as_ref().unwrap(),
-//                 trigger.event().channel_kind,
-//                 target,
-//             )
-//             .inspect_err(|e| {
-//                 error!("Could not send message to clients: {:?}", e);
-//             });
-//     }
-// }
-//
-// /// Send a message from server to clients
-// ///
-// /// We use a trigger `SendMessageTrigger<M>` instead of directly serializing the message
-// /// in case we are in host-server mode. In that situation, we just add the message directly
-// /// the local client's Event queue.
-// pub(crate) fn add_server_send_message_to_client<M: Message>(app: &mut App) {
-//     app.observe(handle_server_send_message_to_client::<M>);
-// }
-
 /// Register a message that can be sent from client to server
 pub(crate) fn add_server_receive_message_from_client<M: Message>(app: &mut App) {
     app.add_event::<MessageEvent<M>>();
@@ -257,3 +177,56 @@ pub(crate) fn add_server_receive_message_from_client<M: Message>(app: &mut App) 
 
 // TODO: another option is to add ClientMessage and ServerMessage to ProtocolMessage
 // then we can keep the shared logic in connection.mod. We just lose 1 bit everytime...
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::ClientId;
+    use crate::tests::host_server_stepper::{HostServerStepper, Step, LOCAL_CLIENT_ID};
+    use crate::tests::protocol::{Channel1, Message1};
+    use bevy::app::Update;
+    use bevy::prelude::{EventReader, ResMut, Resource};
+
+    #[derive(Resource, Default)]
+    struct Counter(usize);
+
+    /// System to check that we received the message on the server
+    fn count_messages(
+        mut counter: ResMut<Counter>,
+        mut events: EventReader<crate::client::events::MessageEvent<Message1>>,
+    ) {
+        for event in events.read() {
+            assert_eq!(event.message().0, "a".to_string());
+            counter.0 += 1;
+        }
+    }
+
+    /// In host-server mode, the server is sending a message to the local client
+    #[test]
+    fn server_send_message_to_local_client() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::ERROR)
+            .init();
+        let mut stepper = HostServerStepper::default();
+
+        stepper.server_app.init_resource::<Counter>();
+        stepper.server_app.add_systems(Update, count_messages);
+
+        // send a message from the local client to the server
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<crate::prelude::server::ConnectionManager>()
+            .send_message::<Channel1, Message1>(
+                ClientId::Local(LOCAL_CLIENT_ID),
+                &Message1("a".to_string()),
+            )
+            .unwrap();
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // verify that the server received the message
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+    }
+}

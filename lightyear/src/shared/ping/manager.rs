@@ -32,6 +32,7 @@ impl Default for PingConfig {
 
 /// The [`PingManager`] is responsible for sending regular pings to the remote machine,
 /// and monitor pongs in order to estimate statistics (rtt, jitter) about the connection.
+#[derive(Debug)]
 pub struct PingManager {
     config: PingConfig,
     /// Timer to send regular pings to the remote
@@ -57,6 +58,7 @@ pub struct PingManager {
 }
 
 /// Connection stats aggregated over several [`SyncStats`]
+#[derive(Debug)]
 pub struct FinalStats {
     pub rtt: Duration,
     pub jitter: Duration,

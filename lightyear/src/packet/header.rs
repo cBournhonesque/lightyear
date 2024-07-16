@@ -97,7 +97,7 @@ const MAX_NACK_SECONDS: i64 = 3;
 
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct PacketHeaderManager {
     // Local packet id which we'll bump each time we send a new packet over the network.
     // (we always increment the packet_id, even when we resend a lost packet)
@@ -262,6 +262,7 @@ impl PacketHeaderManager {
 }
 
 /// Data structure to keep track of the ids of the received packets
+#[derive(Debug)]
 pub struct ReceiveBuffer {
     /// The packet id of the most recent packet received
     last_recv_packet_id: Option<PacketId>,

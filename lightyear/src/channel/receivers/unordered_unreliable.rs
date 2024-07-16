@@ -11,6 +11,7 @@ use crate::shared::time_manager::{TimeManager, WrappedTime};
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
+#[derive(Debug)]
 pub struct UnorderedUnreliableReceiver {
     recv_message_buffer: VecDeque<(Tick, Bytes)>,
     fragment_receiver: FragmentReceiver,

@@ -6,6 +6,7 @@ use crate::serialize::SerializationError;
 use crate::shared::tick_manager::Tick;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
+#[derive(Debug)]
 pub(crate) struct FragmentSender {
     pub(crate) fragment_size: usize,
 }
