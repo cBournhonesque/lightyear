@@ -24,14 +24,6 @@ pub fn is_host_server(
     config: Option<Res<ServerConfig>>,
     server: Option<Res<ServerConnections>>,
 ) -> bool {
-    // let b = config.as_ref().map_or(false, |config| {
-    //     matches!(config.shared.mode, Mode::HostServer)
-    // });
-    // let c = server
-    //     .as_ref()
-    //     .map_or(false, |server| server.is_listening());
-    // dbg!(b);
-    // dbg!(c);
     config.map_or(false, |config| {
         matches!(config.shared.mode, Mode::HostServer)
             && server.map_or(false, |server| server.is_listening())

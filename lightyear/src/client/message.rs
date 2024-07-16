@@ -190,32 +190,6 @@ pub(crate) fn add_client_receive_message_from_server<M: Message>(app: &mut App) 
 //     }
 // }
 
-// pub struct ClientToServerSendMessageCommand
-//
-// pub trait ClientToServerMessageCommands {
-//     /// Send a [`Message`] to the server using a specific [`Channel`].
-//     ///
-//     /// The server will re-broadcast the message to the clients specified in the [`NetworkTarget`].
-//     fn send_message_with_target<C: Channel, M: Message>(&mut self, message: &M, target: NetworkTarget);
-//
-//     /// Send a [`Message`] to the server using a specific [`Channel`].
-//     fn send_message<C: Channel, M: Message>(&mut self);
-// }
-//
-// impl ClientToServerMessageCommands for Commands<'_, '_> {
-//     fn send_message_with_target<C: Channel, M: Message>(&mut self, message: &M, target: NetworkTarget) {
-//         self.trigger(SendMessageTrigger {
-//             message: Some(message),
-//             channel_kind: ChannelKind::of::<C>(),
-//             network_target: Some(target),
-//         });
-//     }
-//
-//     fn send_message<C: Channel, M: Message>(&mut self) {
-//         todo!()
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;

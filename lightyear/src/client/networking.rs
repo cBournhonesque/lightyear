@@ -219,7 +219,6 @@ pub(crate) fn send_host_server(
     mut client_manager: ResMut<ConnectionManager>,
     mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
 ) {
-    dbg!("send host server");
     let _ = client_manager
         .send_packets_host_server(netcode.id(), server_manager.as_mut())
         .inspect_err(|e| {

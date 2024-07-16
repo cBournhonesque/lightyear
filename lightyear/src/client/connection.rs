@@ -256,13 +256,7 @@ impl ConnectionManager {
         self.message_registry.serialize(message, &mut self.writer)?;
         let message_bytes = self.writer.split();
 
-        // // TODO: i know channel names never change so i should be able to get them as static
-        // let channel_name = self
-        //     .message_manager
-        //     .channel_registry
-        //     .name(&channel_kind)
-        //     .ok_or::<ClientError>(MessageError::NotRegistered.into())?;
-
+        // TODO: emit logs/metrics about the message being buffered?
         self.messages_to_send.push((message_bytes, channel_kind));
         Ok(())
     }
@@ -310,7 +304,6 @@ impl ConnectionManager {
         self.messages_to_send
             .drain(..)
             .try_for_each(|(message_bytes, channel_kind)| {
-                dbg!(&message_bytes);
                 server_manager
                     .connection_mut(local_client_id)?
                     .receive_message(
@@ -359,7 +352,7 @@ impl ConnectionManager {
             .drain(..)
             .try_for_each(|(message_bytes, channel_kind)| {
                 self.message_manager
-                    .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
+                    .buffer_send(message_bytes, channel_kind)?;
                 Ok::<(), ClientError>(())
             })?;
 
