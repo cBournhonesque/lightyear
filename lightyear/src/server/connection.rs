@@ -503,6 +503,9 @@ impl Connection {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) {
+        if self.is_local_client() {
+            return;
+        }
         self.message_manager
             .update(time_manager, &self.ping_manager, tick_manager);
         self.replication_sender.update(world_tick);

@@ -42,6 +42,7 @@ pub enum InternalReplicationSet<M> {
     All,
     _Marker(std::marker::PhantomData<M>),
     SendMessage,
+    EmitEvents,
 }
 
 /// Main SystemSets used by lightyear to receive and send data
