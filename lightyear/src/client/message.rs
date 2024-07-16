@@ -1,4 +1,5 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
+
 use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut};
 use byteorder::WriteBytesExt;
 use bytes::Bytes;
@@ -78,7 +79,7 @@ fn read_message<M: Message>(
 }
 
 /// Register a message that can be sent from server to client
-pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
+pub(crate) fn add_client_receive_message_from_server<M: Message>(app: &mut App) {
     app.add_event::<MessageEvent<M>>();
     app.add_systems(
         PreUpdate,
@@ -193,8 +194,9 @@ pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
 mod tests {
     use super::*;
     use crate::serialize::writer::Writer;
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{Channel1, Message2};
+    use crate::tests::host_server_stepper::{HostServerStepper, Step};
+    use crate::tests::protocol::{Channel1, Message1};
+    use bevy::prelude::{EventReader, Resource, Update};
 
     #[test]
     fn client_message_serde() {
@@ -211,16 +213,41 @@ mod tests {
         assert_eq!(data, result);
     }
 
+    #[derive(Resource, Default)]
+    struct Counter(usize);
+
+    /// System to check that we received the message on the server
+    fn count_messages(
+        mut counter: ResMut<Counter>,
+        mut events: EventReader<crate::server::events::MessageEvent<Message1>>,
+    ) {
+        for event in events.read() {
+            assert_eq!(event.message().0, "a".to_string());
+            counter.0 += 1;
+        }
+    }
+
     #[test]
     fn client_send_message_as_host_server() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
         let mut stepper = HostServerStepper::default();
 
-        let message = Message2(1);
+        stepper.server_app.init_resource::<Counter>();
+        stepper.server_app.add_systems(Update, count_messages);
+
+        // send a message from the local client to the server
         stepper
             .server_app
             .world_mut()
             .resource_mut::<crate::prelude::client::ConnectionManager>()
-            .send_message::<Channel1, _>(&message)
-            .unwrap()
+            .send_message::<Channel1, Message1>(&Message1("a".to_string()))
+            .unwrap();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // verify that the server received the message
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
     }
 }
