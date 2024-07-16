@@ -68,9 +68,13 @@ impl Plugin for SharedPlugin {
         app.add_systems(Startup, init);
 
         // physics
-        app.add_plugins(PhysicsPlugins::new(FixedUpdate))
-            .insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)))
-            .insert_resource(Gravity(Vec2::ZERO));
+        app.add_plugins(
+            PhysicsPlugins::new(FixedUpdate)
+                .build()
+                .disable::<ColliderHierarchyPlugin>(),
+        )
+        .insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)))
+        .insert_resource(Gravity(Vec2::ZERO));
         app.configure_sets(
             FixedUpdate,
             (

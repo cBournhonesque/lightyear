@@ -57,10 +57,10 @@ impl Plugin for ClientNetworkingPlugin {
                 // run sync before send because some send systems need to know if the client is synced
                 // we don't send packets every frame, but on a timer instead
                 (
-                    SyncSet,
+                    SyncSet.run_if(not(is_host_server)),
                     InternalMainSet::<ClientMarker>::Send.in_set(MainSet::Send),
                 )
-                    .run_if(not(is_host_server.or_else(is_disconnected)))
+                    .run_if(not(is_disconnected))
                     .chain(),
             )
             // SYSTEMS
@@ -76,10 +76,15 @@ impl Plugin for ClientNetworkingPlugin {
                 PreUpdate,
                 (listen_io_state, receive).in_set(InternalMainSet::<ClientMarker>::Receive),
             )
+            // TODO: make HostServer a computed state?
             .add_systems(
                 PostUpdate,
                 (
-                    send.in_set(InternalMainSet::<ClientMarker>::Send),
+                    (
+                        send.run_if(not(is_host_server)),
+                        send_host_server.run_if(is_host_server),
+                    )
+                        .in_set(InternalMainSet::<ClientMarker>::Send),
                     // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
                     sync_update.in_set(SyncSet),
                 ),
@@ -205,6 +210,23 @@ pub(crate) fn send(
 
     // no need to clear the connection, because we already std::mem::take it
     // client.connection.clear();
+}
+
+/// Send messages in host-server mode
+/// We cannot use the normal `send` function because there is no IO available
+pub(crate) fn send_host_server(
+    netcode: Res<ClientConnection>,
+    mut client_manager: ResMut<ConnectionManager>,
+    mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
+) {
+    let _ = client_manager
+        .send_packets_host_server(netcode.id(), server_manager.as_mut())
+        .inspect_err(|e| {
+            error!(
+                "Error sending messages from local client to server in host-server mode: {}",
+                e
+            )
+        });
 }
 
 /// Update the sync manager.
@@ -335,14 +357,16 @@ fn on_connect_host_server(
     mut commands: Commands,
     netcode: Res<ClientConnection>,
     mut metadata: ResMut<HostServerMetadata>,
-    mut server_connect_event_writer: ResMut<Events<crate::server::events::ConnectEvent>>,
+    mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
 ) {
     // spawn an entity for the client
     let client_entity = commands.spawn(ControlledEntities::default()).id();
-    server_connect_event_writer.send(crate::server::events::ConnectEvent {
-        client_id: netcode.id(),
-        entity: client_entity,
-    });
+    // start a server connection for that client (which will also send a ConnectEvent on the server)
+    server_manager.add(netcode.id(), client_entity);
+    server_manager
+        .connection_mut(netcode.id())
+        .unwrap()
+        .set_local_client();
     metadata.client_entity = Some(client_entity);
 }
 

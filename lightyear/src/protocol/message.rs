@@ -3,7 +3,7 @@ use std::any::TypeId;
 use std::fmt::Debug;
 
 use crate::client::config::ClientConfig;
-use crate::client::message::add_server_to_client_message;
+use crate::client::message::add_client_receive_message_from_server;
 use crate::prelude::{client, server};
 use bevy::prelude::{App, Resource, TypePath};
 use bevy::utils::HashMap;
@@ -19,7 +19,7 @@ use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::ToBytes;
-use crate::server::message::add_client_to_server_message;
+use crate::server::message::add_server_receive_message_from_client;
 use crate::shared::replication::entity_map::EntityMap;
 use crate::shared::replication::resources::DespawnResource;
 
@@ -108,12 +108,12 @@ fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection)
     match direction {
         ChannelDirection::ClientToServer => {
             if is_server {
-                add_client_to_server_message::<M>(app);
+                add_server_receive_message_from_client::<M>(app);
             }
         }
         ChannelDirection::ServerToClient => {
             if is_client {
-                add_server_to_client_message::<M>(app);
+                add_client_receive_message_from_server::<M>(app);
             }
         }
         ChannelDirection::Bidirectional => {

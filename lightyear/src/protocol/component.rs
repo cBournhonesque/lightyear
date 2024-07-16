@@ -252,17 +252,15 @@ impl ComponentRegistry {
         for (component_kind, interpolation_data) in &self.interpolation_map {
             if !self.serialize_fns_map.contains_key(component_kind) {
                 panic!("A component has interpolation metadata but wasn't registered for serialization");
-            } else {
-                if interpolation_data.interpolation_mode == ComponentSyncMode::Full
-                    && interpolation_data.interpolation.is_none()
-                {
-                    let name = self
-                        .serialize_fns_map
-                        .get(component_kind)
-                        .unwrap()
-                        .type_name;
-                    panic!("The Component {name:?} was registered for interpolation with ComponentSyncMode::FULL but no interpolation function was provided!");
-                }
+            } else if interpolation_data.interpolation_mode == ComponentSyncMode::Full
+                && interpolation_data.interpolation.is_none()
+            {
+                let name = self
+                    .serialize_fns_map
+                    .get(component_kind)
+                    .unwrap()
+                    .type_name;
+                panic!("The Component {name:?} was registered for interpolation with ComponentSyncMode::FULL but no interpolation function was provided!");
             }
         }
     }

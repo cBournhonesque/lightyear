@@ -61,6 +61,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             (
                 // TODO: ideally we have a Flush between add_action_diff_buffer and Tick?
                 add_action_diff_buffer::<A>.in_set(InputSystemSet::AddBuffers),
+                // TODO: can disable this in host-server mode!
                 receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs),
             ),
         );
