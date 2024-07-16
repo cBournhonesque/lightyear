@@ -228,6 +228,7 @@ pub(crate) fn send(
     connection_manager
         .connections
         .iter_mut()
+        .filter(|(_, connection)| !connection.is_local_client())
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 info_span!("send_packets_to_client", client_id = ?client_id).entered();

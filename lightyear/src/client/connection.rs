@@ -13,7 +13,6 @@ use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::client::config::ClientConfig;
 use crate::client::error::ClientError;
-use crate::client::message::ClientMessage;
 use crate::client::sync::SyncConfig;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
@@ -23,11 +22,12 @@ use crate::prelude::client::PredictionConfig;
 use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
-use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
+use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
+use crate::server::error::ServerError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
@@ -81,7 +81,12 @@ pub struct ConnectionManager {
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
     pub(crate) writer: Writer,
-    // TODO: maybe don't do any replication until connection is synced?
+
+    /// Internal buffer of the messages that we want to send.
+    /// We use this so that:
+    /// - in host server mode, we deserialize the bytes and push them to the server's Message Events queue directly
+    /// - in non-host server mode, we buffer the bytes to the message manager as usual
+    pub(crate) messages_to_send: Vec<(Bytes, ChannelKind)>,
 }
 
 // NOTE: useful when we sometimes need to create a temporary fake ConnectionManager
@@ -113,6 +118,7 @@ impl Default for ConnectionManager {
             received_leafwing_input_messages: HashMap::default(),
             received_messages: HashMap::default(),
             writer: Writer::with_capacity(0),
+            messages_to_send: Vec::default(),
         }
     }
 }
@@ -165,6 +171,7 @@ impl ConnectionManager {
             received_leafwing_input_messages: HashMap::default(),
             received_messages: HashMap::default(),
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
+            messages_to_send: Vec::default(),
         }
     }
 
@@ -219,12 +226,14 @@ impl ConnectionManager {
         Ok(())
     }
 
-    /// Send a message to the server
+    /// Send a [`Message`] to the server using a specific [`Channel`]
     pub fn send_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::None)
     }
 
-    /// Send a message to the server, the message should be re-broadcasted according to the `target`
+    /// Send a [`Message`] to the server using a specific [`Channel`]
+    ///
+    /// The message will be sent to the server and re-broadcasted to all clients that match the [`NetworkTarget`]
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
         message: &M,
@@ -233,35 +242,28 @@ impl ConnectionManager {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
     }
 
+    /// Serialize a message and buffer it internally so that it can be sent later
     fn erased_send_message_to_target<M: Message>(
         &mut self,
         message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
+        // write the target first
+        // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
+        target.to_bytes(&mut self.writer)?;
+        // then write the message
         self.message_registry.serialize(message, &mut self.writer)?;
         let message_bytes = self.writer.split();
-        self.buffer_message(message_bytes, channel_kind, target)
-    }
 
-    pub(crate) fn buffer_message(
-        &mut self,
-        message: Bytes,
-        channel: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ClientError> {
-        // TODO: i know channel names never change so i should be able to get them as static
-        let channel_name = self
-            .message_manager
-            .channel_registry
-            .name(&channel)
-            .ok_or::<ClientError>(MessageError::NotRegistered.into())?;
-        // TODO: doesn't this serialize the bytes twice? fix this..
-        let message = ClientMessage { message, target };
-        message.to_bytes(&mut self.writer)?;
-        let message_bytes = self.writer.split();
-        // message.emit_send_logs(&channel_name);
-        self.message_manager.buffer_send(message_bytes, channel)?;
+        // // TODO: i know channel names never change so i should be able to get them as static
+        // let channel_name = self
+        //     .message_manager
+        //     .channel_registry
+        //     .name(&channel_kind)
+        //     .ok_or::<ClientError>(MessageError::NotRegistered.into())?;
+
+        self.messages_to_send.push((message_bytes, channel_kind));
         Ok(())
     }
 
@@ -296,7 +298,34 @@ impl ConnectionManager {
         Ok(())
     }
 
-    /// Send packets that are ready to be sent
+    /// Send packets that are ready to be sent.
+    /// In host-server mode:
+    /// - go through messages_to_send and make the server's ConnectionManager receive them
+    pub(crate) fn send_packets_host_server(
+        &mut self,
+        local_client_id: ClientId,
+        server_manager: &mut crate::server::connection::ConnectionManager,
+    ) -> Result<(), ServerError> {
+        // go through messages_to_send, deserialize them and make the server receive them
+        self.messages_to_send
+            .drain(..)
+            .try_for_each(|(message_bytes, channel_kind)| {
+                dbg!(&message_bytes);
+                server_manager
+                    .connection_mut(local_client_id)?
+                    .receive_message(
+                        Reader::from(message_bytes),
+                        channel_kind,
+                        &self.message_registry,
+                    )
+                    .map_err(ServerError::from)
+            })?;
+        Ok(())
+    }
+
+    /// Send packets that are ready to be sent.
+    /// In non-host-server mode:
+    /// - go through messages_to_send, buffer them to the message manager and then send packets that are ready
     pub(crate) fn send_packets(
         &mut self,
         time_manager: &TimeManager,
@@ -324,6 +353,17 @@ impl ConnectionManager {
                 self.send_pong(pong)?;
                 Ok::<(), ClientError>(())
             })?;
+
+        // buffer the messages into the message manager
+        self.messages_to_send
+            .drain(..)
+            .try_for_each(|(message_bytes, channel_kind)| {
+                self.message_manager
+                    .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
+                Ok::<(), ClientError>(())
+            })?;
+
+        // get the payloads from the message manager
         let payloads = self.message_manager.send_packets(tick_manager.tick());
 
         // update the replication sender about which messages were actually sent, and accumulate priority

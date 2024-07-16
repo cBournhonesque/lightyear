@@ -105,10 +105,10 @@ impl HostServerStepper {
                 .with_key(private_key),
             io: server_io,
         };
-        let mut shared_host_server = shared_config.clone();
+        let mut shared_host_server = shared_config;
         shared_host_server.mode = Mode::HostServer;
         let config = ServerConfig {
-            shared: shared_config,
+            shared: shared_host_server,
             net: vec![net_config],
             ping: PingConfig {
                 // send pings every tick, so that the acks are received every frame
@@ -236,7 +236,10 @@ impl HostServerStepper {
         self.server_app.cleanup();
         self.server_app
             .world_mut()
-            .run_system_once(|mut commands: Commands| commands.start_server());
+            .run_system_once(|mut commands: Commands| {
+                commands.start_server();
+                commands.connect_client();
+            });
         self.client_app.finish();
         self.client_app.cleanup();
         self.client_app
@@ -260,7 +263,10 @@ impl HostServerStepper {
     pub(crate) fn start(&mut self) {
         self.server_app
             .world_mut()
-            .run_system_once(|mut commands: Commands| commands.start_server());
+            .run_system_once(|mut commands: Commands| {
+                commands.start_server();
+                commands.connect_client();
+            });
         self.client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
@@ -282,7 +288,10 @@ impl HostServerStepper {
     pub(crate) fn stop(&mut self) {
         self.server_app
             .world_mut()
-            .run_system_once(|mut commands: Commands| commands.stop_server());
+            .run_system_once(|mut commands: Commands| {
+                commands.stop_server();
+                commands.disconnect_client();
+            });
         self.client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.disconnect_client());

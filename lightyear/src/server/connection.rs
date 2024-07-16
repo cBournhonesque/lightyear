@@ -408,6 +408,8 @@ pub struct Connection {
     writer: Writer,
     // messages that we have received that need to be rebroadcasted to other clients
     pub(crate) messages_to_rebroadcast: Vec<(Bytes, NetworkTarget, ChannelKind)>,
+    /// True if this connection corresponds to a local client when running in host-server mode
+    is_local_client: bool,
 }
 
 impl Connection {
@@ -459,7 +461,18 @@ impl Connection {
             received_leafwing_input_messages: HashMap::default(),
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_rebroadcast: vec![],
+            is_local_client: false,
         }
+    }
+
+    /// Update the connection to make clear that it corresponds to the local client
+    pub(crate) fn set_local_client(&mut self) {
+        self.is_local_client = true;
+    }
+
+    /// Returns true if this connection corresponds to the local client in HostServer mode
+    pub(crate) fn is_local_client(&self) -> bool {
+        self.is_local_client
     }
 
     /// Return the latest estimate of rtt
@@ -625,6 +638,9 @@ impl Connection {
                         // buffer the replication message
                         self.replication_receiver.recv_updates(updates, tick);
                     } else {
+                        // TODO: THIS IS DUPLICATED FROM THE `receive_message` FUNCTION BUT THERE ARE BORROW CHECKER
+                        //  BECAUSE SPLIT BORROWS ARE NOT WELL HANDLED!
+
                         // TODO: we only get RawData here, does that mean we're deserializing multiple times?
                         //  instead just read the bytes for the target!!
                         let ClientMessage { message, target } =
@@ -639,8 +655,7 @@ impl Connection {
                         //  I don't think so... maybe the sender should map_entities themselves?
                         //  or it matters for input messages?
                         // TODO: avoid clone with Arc<[u8]>?
-                        let data = (reader.consume(), target.clone(), *channel_kind);
-
+                        let data = (reader.consume(), target, *channel_kind);
                         match message_registry.message_type(net_id) {
                             #[cfg(feature = "leafwing")]
                             MessageType::LeafwingInput => self
@@ -676,6 +691,49 @@ impl Connection {
         //  why do i need to make events a field of the connection?
         //  is it because of push_connection?
         Ok(std::mem::replace(&mut self.events, ConnectionEvents::new()))
+    }
+
+    /// Receive bytes for a single message.
+    ///
+    /// Adds them to an internal buffer, so that we can decode them into the correct type.
+    pub(crate) fn receive_message(
+        &mut self,
+        mut reader: Reader,
+        channel_kind: ChannelKind,
+        message_registry: &MessageRegistry,
+    ) -> Result<(), SerializationError> {
+        // TODO: we only get RawData here, does that mean we're deserializing multiple times?
+        //  instead just read the bytes for the target!!
+        let ClientMessage { message, target } = ClientMessage::from_bytes(&mut reader)?;
+
+        let mut reader = Reader::from(message);
+        let net_id = NetId::from_bytes(&mut reader)?;
+        // we are also sending target and channel kind so the message can be
+        // rebroadcasted to other clients after we have converted the entities from the
+        // client World to the server World
+        // TODO: but do we have data to convert the entities from the client to the server?
+        //  I don't think so... maybe the sender should map_entities themselves?
+        //  or it matters for input messages?
+        // TODO: avoid clone with Arc<[u8]>?
+        let data = (reader.consume(), target, channel_kind);
+        match message_registry.message_type(net_id) {
+            #[cfg(feature = "leafwing")]
+            MessageType::LeafwingInput => self
+                .received_leafwing_input_messages
+                .entry(net_id)
+                .or_default()
+                .push(data),
+            MessageType::NativeInput => {
+                self.received_input_messages
+                    .entry(net_id)
+                    .or_default()
+                    .push(data);
+            }
+            MessageType::Normal => {
+                self.received_messages.entry(net_id).or_default().push(data);
+            }
+        }
+        Ok(())
     }
 
     pub fn recv_packet(
