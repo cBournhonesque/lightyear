@@ -27,6 +27,7 @@ pub type RecvPayload = Bytes;
 
 /// `PacketBuilder` handles the process of creating a packet (writing the header and packing the
 /// messages into packets)
+#[derive(Debug)]
 pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
     current_packet: Option<Packet>,

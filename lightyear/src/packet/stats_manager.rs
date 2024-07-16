@@ -34,11 +34,12 @@ pub(crate) mod packet {
         }
     }
 
-    #[derive(Default)]
+    #[derive(Default, Debug)]
     struct FinalStats {
         packet_loss: f32,
     }
 
+    #[derive(Debug)]
     pub(crate) struct PacketStatsManager {
         stats_buffer: PacketStatsBuffer,
         /// sum of the stats over the stats_buffer

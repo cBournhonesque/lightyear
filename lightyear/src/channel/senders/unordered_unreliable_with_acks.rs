@@ -19,6 +19,7 @@ const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 /// A sender that simply sends the messages without applying any reliability or unordered
 /// Same as UnorderedUnreliableSender, but includes a message id to each message,
 /// Which can let us track if a message was acked
+#[derive(Debug)]
 pub struct UnorderedUnreliableWithAcksSender {
     /// list of single messages that we want to fit into packets and send
     single_messages_to_send: VecDeque<SendMessage>,

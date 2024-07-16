@@ -41,6 +41,7 @@ pub trait ChannelReceive {
 }
 
 /// This enum contains the various types of receivers available
+#[derive(Debug)]
 #[enum_dispatch(ChannelReceive)]
 pub enum ChannelReceiver {
     UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableReceiver),

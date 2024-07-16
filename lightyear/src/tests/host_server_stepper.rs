@@ -117,8 +117,7 @@ impl HostServerStepper {
             },
             ..default()
         };
-        let plugin = server::ServerPlugins::new(config);
-        server_app.add_plugins((plugin, ProtocolPlugin));
+        server_app.add_plugins(server::ServerPlugins::new(config));
 
         // Add the ClientPlugin to the server_app, to make it host-server mode!
         let mut host_server_client_config = client_config.clone();
@@ -132,6 +131,9 @@ impl HostServerStepper {
             ..default()
         };
         server_app.add_plugins(client::ClientPlugins::new(host_server_client_config));
+        // The protocol plugin must be added AFTER the client/server plugins
+        // (because the protocol registration checks if ClientConfig or ServerConfig are present)
+        server_app.add_plugins(ProtocolPlugin);
 
         // Setup external client
         let mut client_app = App::new();

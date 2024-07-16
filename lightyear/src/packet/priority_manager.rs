@@ -60,6 +60,7 @@ impl From<crate::server::config::PacketConfig> for PriorityConfig {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct PriorityManager {
     pub(crate) config: PriorityConfig,
     // TODO: can I do without this limiter?

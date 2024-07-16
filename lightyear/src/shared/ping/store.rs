@@ -8,6 +8,7 @@ wrapping_id!(PingId);
 const PING_BUFFER_SIZE: usize = 128;
 
 /// Data structure to store the latest pings sent to remote
+#[derive(Debug)]
 pub struct PingStore {
     /// ID that will be assigned to the next ping sent
     latest_ping_id: PingId,

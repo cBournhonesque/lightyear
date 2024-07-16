@@ -13,6 +13,7 @@ use crate::shared::time_manager::TimeManager;
 
 /// Unordered Reliable receiver: make sure that all messages are received,
 /// and return them in any order
+#[derive(Debug)]
 pub struct UnorderedReliableReceiver {
     /// Next message id that we are waiting to receive
     /// The channel is reliable so we should see all message ids.

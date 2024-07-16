@@ -15,6 +15,7 @@ use crate::shared::time_manager::TimeManager;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Same as UnorderedUnreliableSender, but includes ordering information (MessageId)
+#[derive(Debug)]
 pub struct SequencedUnreliableSender {
     /// list of single messages that we want to fit into packets and send
     single_messages_to_send: VecDeque<SendMessage>,
