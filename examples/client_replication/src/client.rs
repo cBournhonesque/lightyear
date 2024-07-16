@@ -230,7 +230,7 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
 }
 
 // System to receive messages on the client
-pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
+pub(crate) fn receive_message(mut reader: EventReader<ClientMessageEvent<Message1>>) {
     for event in reader.read() {
         info!("Received message: {:?}", event.message());
     }

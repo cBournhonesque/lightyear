@@ -238,7 +238,11 @@ pub type ComponentRemoveEvent<C> =
     crate::shared::events::components::ComponentRemoveEvent<C, ClientId>;
 
 /// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
-pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, ClientId>;
+pub type ServerMessageEvent<M> = crate::shared::events::components::MessageEvent<M, ClientId>;
+
+/// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
+#[deprecated(note = "Use `ServerMessageEvent` instead")]
+pub type MessageEvent<M> = ServerMessageEvent<M>;
 
 #[cfg(test)]
 mod tests {

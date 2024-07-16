@@ -5,7 +5,7 @@ use bytes::Bytes;
 use tracing::error;
 
 use crate::client::connection::ConnectionManager;
-use crate::client::events::MessageEvent;
+use crate::client::events::ClientMessageEvent;
 use crate::prelude::{client::is_connected, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
 use crate::serialize::reader::Reader;
@@ -48,7 +48,7 @@ impl ToBytes for ClientMessage {
 fn read_message<M: Message>(
     message_registry: Res<MessageRegistry>,
     mut connection: ResMut<ConnectionManager>,
-    mut event: EventWriter<MessageEvent<M>>,
+    mut event: EventWriter<ClientMessageEvent<M>>,
 ) {
     let kind = MessageKind::of::<M>();
     let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
@@ -72,14 +72,14 @@ fn read_message<M: Message>(
                 error!("Could not deserialize message");
                 continue;
             };
-            event.send(MessageEvent::new(message, ()));
+            event.send(ClientMessageEvent::new(message, ()));
         }
     }
 }
 
 /// Register a message that can be sent from server to client
 pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
-    app.add_event::<MessageEvent<M>>();
+    app.add_event::<ClientMessageEvent<M>>();
     app.add_systems(
         PreUpdate,
         read_message::<M>

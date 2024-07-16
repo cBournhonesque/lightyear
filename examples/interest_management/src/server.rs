@@ -96,7 +96,7 @@ pub(crate) fn handle_connections(
     }
 }
 
-pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>) {
+pub(crate) fn receive_message(mut messages: EventReader<ServerMessageEvent<Message1>>) {
     for message in messages.read() {
         info!("recv message");
     }

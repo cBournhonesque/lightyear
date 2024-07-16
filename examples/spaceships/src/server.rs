@@ -113,7 +113,7 @@ fn init(mut commands: Commands) {
 
 pub(crate) fn replicate_inputs(
     mut connection: ResMut<ConnectionManager>,
-    mut input_events: EventReader<MessageEvent<InputMessage<PlayerActions>>>,
+    mut input_events: EventReader<ServerMessageEvent<InputMessage<PlayerActions>>>,
 ) {
     for event in input_events.read() {
         let inputs = event.message();

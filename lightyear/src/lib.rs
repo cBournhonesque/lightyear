@@ -234,8 +234,8 @@ pub mod prelude {
         pub use crate::client::connection::ConnectionManager;
         pub use crate::client::error::ClientError;
         pub use crate::client::events::{
-            ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
-            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
+            ClientMessageEvent, ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
+            ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
         };
         #[cfg(feature = "leafwing")]
         pub use crate::client::input::leafwing::LeafwingInputConfig;
@@ -282,7 +282,7 @@ pub mod prelude {
         pub use crate::server::error::ServerError;
         pub use crate::server::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
-            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
+            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, ServerMessageEvent,
         };
         pub use crate::server::io::config::ServerTransport;
         pub use crate::server::io::Io;

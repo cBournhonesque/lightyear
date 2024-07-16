@@ -8,7 +8,7 @@ use crate::prelude::{server::is_started, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
 use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
-use crate::server::events::MessageEvent;
+use crate::server::events::ServerMessageEvent;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
@@ -16,7 +16,7 @@ use crate::shared::sets::{InternalMainSet, ServerMarker};
 fn read_message<M: Message>(
     message_registry: Res<MessageRegistry>,
     mut connection_manager: ResMut<ConnectionManager>,
-    mut event: EventWriter<MessageEvent<M>>,
+    mut event: EventWriter<ServerMessageEvent<M>>,
 ) {
     let kind = MessageKind::of::<M>();
     let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
@@ -48,7 +48,7 @@ fn read_message<M: Message>(
                                 channel_kind,
                             ));
                         }
-                        event.send(MessageEvent::new(message, *client_id));
+                        event.send(ServerMessageEvent::new(message, *client_id));
                         trace!("Received message: {:?}", std::any::type_name::<M>());
                     }
                     Err(e) => {
@@ -66,7 +66,7 @@ fn read_message<M: Message>(
 
 /// Register a message that can be sent from server to client
 pub(crate) fn add_client_to_server_message<M: Message>(app: &mut App) {
-    app.add_event::<MessageEvent<M>>();
+    app.add_event::<ServerMessageEvent<M>>();
     app.add_systems(
         PreUpdate,
         read_message::<M>

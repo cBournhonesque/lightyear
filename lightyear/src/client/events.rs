@@ -84,4 +84,7 @@ pub type ComponentInsertEvent<C> = crate::shared::events::components::ComponentI
 /// Bevy [`Event`] emitted on the client when a ComponentRemove replication message is received
 pub type ComponentRemoveEvent<C> = crate::shared::events::components::ComponentRemoveEvent<C, ()>;
 /// Bevy [`Event`] emitted on the client when a (non-replication) message is received
-pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, ()>;
+pub type ClientMessageEvent<M> = crate::shared::events::components::MessageEvent<M, ()>;
+/// Bevy [`Event`] emitted on the client when a (non-replication) message is received
+#[deprecated(note = "Use ClientMessageEvent instead")]
+pub type MessageEvent<M> = ClientMessageEvent<M>;

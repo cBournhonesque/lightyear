@@ -162,7 +162,7 @@ mod lobby {
     /// - update the `Lobbies` resource
     /// - add the Client to the room corresponding to the lobby
     pub(super) fn handle_lobby_join(
-        mut events: EventReader<MessageEvent<JoinLobby>>,
+        mut events: EventReader<ServerMessageEvent<JoinLobby>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
         mut commands: Commands,
@@ -190,7 +190,7 @@ mod lobby {
     /// - update the `Lobbies` resource
     /// - remove the Client from the room corresponding to the lobby
     pub(super) fn handle_lobby_exit(
-        mut events: EventReader<MessageEvent<ExitLobby>>,
+        mut events: EventReader<ServerMessageEvent<ExitLobby>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
     ) {
@@ -206,7 +206,7 @@ mod lobby {
     /// for each player in the lobby
     pub(super) fn handle_start_game(
         mut connection_manager: ResMut<ConnectionManager>,
-        mut events: EventReader<MessageEvent<StartGame>>,
+        mut events: EventReader<ServerMessageEvent<StartGame>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
         mut commands: Commands,
