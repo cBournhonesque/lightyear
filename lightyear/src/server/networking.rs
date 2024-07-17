@@ -296,6 +296,7 @@ pub enum NetworkingState {
 /// - the server connection's internal time is up-to-date (otherwise it might not be, since we don't run any server systems while the server is stopped)
 /// - we can take into account any changes to the server config
 fn rebuild_server_connections(world: &mut World) {
+    debug!("Rebuild server connection");
     let server_config = world.resource::<ServerConfig>().clone();
 
     // insert a new connection manager (to reset message numbers, ping manager, etc.)
@@ -327,6 +328,7 @@ fn on_start(world: &mut World) {
         error!("The server is already started. The server can only be started when it is stopped.");
         return;
     }
+
     rebuild_server_connections(world);
     let _ = world
         .resource_mut::<ServerConnections>()

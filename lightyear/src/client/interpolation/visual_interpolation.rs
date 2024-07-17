@@ -220,6 +220,7 @@ mod tests {
                 VisualInterpolateStatus::<Component1>::default(),
             ))
             .id();
+        stepper.build();
         (stepper, entity)
     }
 
