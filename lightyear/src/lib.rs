@@ -226,6 +226,31 @@ pub mod prelude {
     pub use crate::transport::middleware::compression::CompressionConfig;
     pub use crate::transport::middleware::conditioner::LinkConditionerConfig;
 
+    mod rename {
+        pub use crate::client::events::ComponentInsertEvent as ClientComponentInsertEvent;
+        pub use crate::client::events::ComponentRemoveEvent as ClientComponentRemoveEvent;
+        pub use crate::client::events::ComponentUpdateEvent as ClientComponentUpdateEvent;
+        pub use crate::client::events::ConnectEvent as ClientConnectEvent;
+        pub use crate::client::events::DisconnectEvent as ClientDisconnectEvent;
+        pub use crate::client::events::EntityDespawnEvent as ClientEntityDespawnEvent;
+        pub use crate::client::events::EntitySpawnEvent as ClientEntitySpawnEvent;
+        pub use crate::client::events::MessageEvent as ClientMessageEvent;
+
+        pub use crate::client::connection::ConnectionManager as ClientConnectionManager;
+
+        pub use crate::server::events::ComponentInsertEvent as ServerComponentInsertEvent;
+        pub use crate::server::events::ComponentRemoveEvent as ServerComponentRemoveEvent;
+        pub use crate::server::events::ComponentUpdateEvent as ServerComponentUpdateEvent;
+        pub use crate::server::events::ConnectEvent as ServerConnectEvent;
+        pub use crate::server::events::DisconnectEvent as ServerDisconnectEvent;
+        pub use crate::server::events::EntityDespawnEvent as ServerEntityDespawnEvent;
+        pub use crate::server::events::EntitySpawnEvent as ServerEntitySpawnEvent;
+        pub use crate::server::events::MessageEvent as ServerMessageEvent;
+
+        pub use crate::server::connection::ConnectionManager as ServerConnectionManager;
+    }
+    pub use rename::*;
+
     pub mod client {
         pub use crate::client::components::{
             ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
