@@ -341,6 +341,7 @@ struct HostServerMetadata {
 /// Updates the ConnectEvent events
 fn on_connect(
     mut connect_event_writer: EventWriter<ConnectEvent>,
+    mut commands: Commands,
     netcode: Res<ClientConnection>,
     mut query: Query<&mut ReplicateToServer>,
 ) {
@@ -354,6 +355,8 @@ fn on_connect(
         netcode.id()
     );
     connect_event_writer.send(ConnectEvent::new(netcode.id()));
+    // also trigger the event
+    commands.trigger(ConnectEvent::new(netcode.id()));
 }
 
 /// Same as on-connect, but only runs if we are in host-server mode
