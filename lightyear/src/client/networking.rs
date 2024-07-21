@@ -404,6 +404,7 @@ fn on_disconnect(
     // for the next connection attempt
     let reason = std::mem::take(&mut netclient.disconnect_reason);
     disconnect_event_writer.send(DisconnectEvent { reason });
+    // commands.trigger(DisconnectEvent { reason });
     // TODO: remove ClientConnection and ConnectionManager resources?
 }
 
