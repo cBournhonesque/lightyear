@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::server::ControlledBy;
-use crate::prelude::{NetworkRelevanceMode, PrePredicted, Replicating, ReplicationGroup};
+use crate::prelude::{MainSet, NetworkRelevanceMode, PrePredicted, Replicating, ReplicationGroup};
 use crate::server::replication::send::SyncTarget;
 use crate::shared::replication::components::{ReplicateHierarchy, ReplicationTarget};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
@@ -228,7 +228,12 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
         // when we receive a ParentSync update from the remote, update the hierarchy
         app.add_systems(
             PreUpdate,
-            Self::update_parent.after(InternalMainSet::<R::SetMarker>::Receive),
+            Self::update_parent
+                .after(InternalMainSet::<R::SetMarker>::Receive)
+                // NOTE: we're putting this in MainSet::Receive so that users can order
+                // their systems after this
+                .in_set(MainSet::Receive)
+            ,
         );
     }
 }
