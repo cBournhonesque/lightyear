@@ -63,7 +63,7 @@ pub struct ConnectionManager {
     pub(crate) message_registry: MessageRegistry,
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents,
-    pub(crate) delta_manager: DeltaManager,
+    pub delta_manager: DeltaManager,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
