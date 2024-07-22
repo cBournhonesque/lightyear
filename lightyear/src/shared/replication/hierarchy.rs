@@ -232,8 +232,7 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
                 .after(InternalMainSet::<R::SetMarker>::Receive)
                 // NOTE: we're putting this in MainSet::Receive so that users can order
                 // their systems after this
-                .in_set(MainSet::Receive)
-            ,
+                .in_set(MainSet::Receive),
         );
     }
 }
