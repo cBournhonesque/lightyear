@@ -57,9 +57,14 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                 Option<&ControlledBy>,
                 Option<&NetworkRelevanceMode>,
             ),
-            (Without<Parent>, With<Children>),
+            (
+                Without<Parent>,
+                With<Children>,
+                Or<(Changed<Children>, Changed<ReplicateHierarchy>)>,
+            ),
         >,
         children_query: Query<&Children>,
+        child_query: Query<(), With<ParentSync>>,
     ) {
         for (
             parent_entity,
@@ -72,9 +77,14 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             visibility_mode,
         ) in parent_query.iter()
         {
-            if replicate_hierarchy.is_changed() && replicate_hierarchy.recursive {
+            if replicate_hierarchy.recursive {
                 // iterate through all descendents of the entity
                 for child in children_query.iter_descendants(parent_entity) {
+                    // TODO: or do we want to propagate any change of any component to the children?
+                    // if the child already has ParentSync, we don't need to add it again
+                    if child_query.get(child).is_ok() {
+                        continue;
+                    }
                     trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
                     // no need to set the correct parent as it will be set later in the `update_parent_sync` system
                     commands.entity(child).insert((
