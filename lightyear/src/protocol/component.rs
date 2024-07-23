@@ -640,6 +640,7 @@ mod delta {
 
     use crate::serialize::writer::Writer;
     use std::ptr::NonNull;
+    use tracing::info;
 
     impl ComponentRegistry {
         /// Register delta compression functions for a component
@@ -753,7 +754,7 @@ mod delta {
             let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
-            trace!(
+            info!(
                 ?tick,
                 "Writing component delta {} to entity. Delta type: {:?}",
                 std::any::type_name::<C>(),

@@ -9,7 +9,7 @@ use bevy::ptr::Ptr;
 use bevy::utils::{hashbrown, HashMap};
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
@@ -240,7 +240,7 @@ impl ReplicationSender {
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
                     // update the ack tick for the channel
-                    debug!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
+                    info!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
                     channel.ack_bevy_tick = Some(bevy_tick);
                     channel.ack_tick = Some(tick);
 
