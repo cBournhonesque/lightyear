@@ -202,7 +202,7 @@ impl DeltaComponentStore {
         registry: &ComponentRegistry,
     ) {
         if let Some(data) = self.data.get_mut(&replication_group) {
-            // we can remove all the keys older than the acked key
+            // we can remove all the keys strictly older than the acked key
             let recent_data = data.split_off(&tick).into_iter().collect();
             // call drop on all the data that we are removing
             data.values_mut().for_each(|tick_data| {

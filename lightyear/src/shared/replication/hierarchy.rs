@@ -136,7 +136,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
     ) {
         for (parent, mut parent_sync) in query.iter_mut() {
             if parent.is_changed() || parent_sync.is_added() {
-                trace!(
+                info!(
                     ?parent,
                     ?parent_sync,
                     "Update parent sync because hierarchy has changed"
