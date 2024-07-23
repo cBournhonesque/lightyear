@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
 use bevy::utils::HashSet;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
@@ -317,6 +317,7 @@ impl ReplicationReceiver {
                 // TODO: we allocate a new vector for each component but we should
                 //  be able to re-use the same reader
                 let mut reader = Reader::from(component);
+                // TODO: maybe we want to spawn a new entity if the entity map doesn't work?
                 let _ = component_registry
                     .raw_write(
                         &mut reader,
@@ -797,7 +798,7 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            debug!(?remote_entity, "Received entity actions");
+            info!(?remote_entity, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
