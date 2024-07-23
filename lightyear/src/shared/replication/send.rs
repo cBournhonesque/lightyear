@@ -438,6 +438,13 @@ impl ReplicationSender {
                         );
                         error!("DeltaManager data: {:?}", delta_manager.data);
                     })?;
+                info!(
+                    ?entity,
+                    ?group_id,
+                    ?ack_tick,
+                    ?tick,
+                    "Preparing delta update to send"
+                );
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
                     registry.serialize_diff(ack_tick, old_data, component_data, writer, kind)?;
