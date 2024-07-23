@@ -750,13 +750,15 @@ mod delta {
             entity_map: &mut EntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
-            trace!(
-                "Writing component delta {} to entity",
-                std::any::type_name::<C>()
-            );
             let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
+            trace!(
+                ?tick,
+                "Writing component delta {} to entity. Delta type: {:?}",
+                std::any::type_name::<C>(),
+                delta.delta_type
+            );
             let entity = entity_world_mut.id();
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             match delta.delta_type {
