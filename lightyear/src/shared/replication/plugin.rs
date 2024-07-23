@@ -14,25 +14,15 @@ use bevy::utils::Duration;
 
 #[derive(Clone, Copy, Debug, Reflect)]
 pub struct ReplicationConfig {
-    /// How do we send component updates?
+    /// How do send component updates?
     pub send_updates_mode: SendUpdatesMode,
-    /// How do we send component actions
-    pub send_actions_mode: SendActionsMode,
     /// How often we send replication updates.
     ///
     /// Set to `Duration::default()` to send updates every frame.
     pub send_interval: Duration,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Reflect)]
-pub enum SendActionsMode {
-    /// All entity actions will be sent in a single message
-    InOneMessage,
-    /// All entity actions from a single replication group will be sent in a single message
-    PerReplicationGroup,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Reflect)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub enum SendUpdatesMode {
     /// We send all the updates that happened since the last tick when we received an ACK from the remote
     ///

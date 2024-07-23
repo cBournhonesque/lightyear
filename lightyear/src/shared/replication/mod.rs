@@ -4,7 +4,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use bevy::prelude::{Entity, Resource};
-use bevy::utils::EntityHashMap;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 use hashbrown::HashMap;
@@ -157,53 +156,9 @@ impl Default for EntityActions {
     }
 }
 
-/// Send all entity actions as a single message
-#[derive(Clone, PartialEq, Debug)]
-pub struct SendAllEntityActionsMessage {
-    /// sequence id to ensure ordering of EntityActions, and to make sure we read all Actions
-    /// before applying Updates that happen after
-    sequence_id: MessageId,
-    per_group: Vec<(
-        ReplicationGroupId,
-        HashMap<Entity, EntityActions, EntityHash>,
-    )>,
-}
-
-impl ToBytes for SendAllEntityActionsMessage {
-    fn len(&self) -> usize {
-        self.sequence_id.len() + self.per_group.len()
-    }
-
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        self.sequence_id.to_bytes(buffer)?;
-        self.per_group.to_bytes(buffer)?;
-        Ok(())
-    }
-
-    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
-    where
-        Self: Sized,
-    {
-        Ok(Self {
-            sequence_id: MessageId::from_bytes(buffer)?,
-            per_group: Vec::<(
-                ReplicationGroupId,
-                HashMap<Entity, EntityActions, EntityHash>,
-            )>::from_bytes(buffer)?,
-        })
-    }
-}
-
-/// Send all the entity actions for a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
 #[derive(Clone, PartialEq, Debug)]
 pub struct SendEntityActionsMessage {
     sequence_id: MessageId,
-    group_id: ReplicationGroupId,
-    pub(crate) actions: HashMap<Entity, EntityActions, EntityHash>,
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct PerGroupEntityActions {
     group_id: ReplicationGroupId,
     pub(crate) actions: HashMap<Entity, EntityActions, EntityHash>,
 }
