@@ -555,7 +555,9 @@ impl ReplicationReceiver {
                 // pop the oldest until we reach the max applicable index
                 while channel.buffered_updates.len() > max_applicable_idx {
                     let (remote_tick, message) = channel.buffered_updates.pop_oldest().unwrap();
-                    let is_history = channel.buffered_updates.len() != max_applicable_idx;
+                    // let is_history = channel.buffered_updates.len() != max_applicable_idx;
+                    // NOTE: WE APPLY ALL UPDATES (EVEN OLDER ONES) BECAUSE OF DELTA COMPRESSION
+                    let is_history = false;
                     channel.apply_updates_message(
                         world,
                         remote,
