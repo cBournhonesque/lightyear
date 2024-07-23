@@ -64,7 +64,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             ),
         >,
         children_query: Query<&Children>,
-        child_query: Query<(), With<ParentSync>>,
+        child_query: Query<(), (With<ParentSync>, With<Replicating>)>,
     ) {
         for (
             parent_entity,
@@ -81,7 +81,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                 // iterate through all descendents of the entity
                 for child in children_query.iter_descendants(parent_entity) {
                     // TODO: or do we want to propagate any change of any component to the children?
-                    // if the child already has ParentSync, we don't need to add it again
+                    // if the child already has ParentSync and Replicating, we don't need to add it again
                     if child_query.get(child).is_ok() {
                         continue;
                     }

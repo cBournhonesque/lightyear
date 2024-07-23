@@ -203,7 +203,10 @@ pub(crate) fn receive(world: &mut World) {
                                                         debug!("Client connected event: {}", connect_event.client_id);
                                                         world.resource_mut::<Events<ConnectEvent>>().send(connect_event);
                                                         // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
-                                                        world.trigger(connect_event);
+                                                        // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
+                                                        //  so a bunch of Resources have been removed from the World
+                                                        world.commands().trigger(connect_event);
+                                                        // world.trigger(connect_event);
                                                     }
                                                 }
 
@@ -212,7 +215,10 @@ pub(crate) fn receive(world: &mut World) {
                                                         debug!("Client disconnected event: {}", disconnect_event.client_id);
                                                         world.resource_mut::<Events<DisconnectEvent>>().send(disconnect_event);
                                                         // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
-                                                        world.trigger(disconnect_event);
+                                                        // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
+                                                        //  so a bunch of Resources have been removed from the World
+                                                        world.commands().trigger(disconnect_event);
+                                                        // world.trigger(disconnect_event);
                                                     }
                                                 }
                                             }
