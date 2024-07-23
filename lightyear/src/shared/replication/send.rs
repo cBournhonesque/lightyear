@@ -239,10 +239,14 @@ impl ReplicationSender {
             }) = self.updates_message_id_to_group_id.remove(&message_id)
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
-                    // update the ack tick for the channel
+                    // update the ack tick for the channel if it's more recent than our current ack tick
+                    // (we could receive multiple acks at the same time)
+                    // TODO: should we also check if bevy_tick is more recent than our current one?
                     info!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
-                    channel.ack_bevy_tick = Some(bevy_tick);
-                    channel.ack_tick = Some(tick);
+                    if channel.ack_tick.is_none() || tick > channel.ack_tick.unwrap() {
+                        channel.ack_bevy_tick = Some(bevy_tick);
+                        channel.ack_tick = Some(tick);
+                    }
 
                     // update the acks for the delta manager
                     delta_manager.receive_ack(tick, group_id, component_registry);
