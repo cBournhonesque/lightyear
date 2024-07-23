@@ -471,7 +471,8 @@ mod tests {
         assert!(
             stepper
                 .client_app
-                .world()                .entity(predicted)
+                .world()
+                .entity(predicted)
                 .get::<PredictionHistory<Component2>>()
                 .is_none(),
             "Expected component value to not be added to prediction history for ComponentSyncMode::Simple"

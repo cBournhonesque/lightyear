@@ -274,6 +274,13 @@ mod tests {
             stepper.frame_step();
         }
 
+        // check that PrePredicted was also added on the child
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<PrePredicted>(child)
+            .is_some());
+
         // check that both the parent and the child were replicated
         let server_parent = stepper
             .server_app
