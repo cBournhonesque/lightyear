@@ -754,7 +754,7 @@ mod delta {
             let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
-            info!(
+            trace!(
                 ?tick,
                 "Writing component delta {} to entity. Delta type: {:?}",
                 std::any::type_name::<C>(),
