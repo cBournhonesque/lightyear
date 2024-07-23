@@ -11,6 +11,7 @@ use bevy::utils::HashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ptr::NonNull;
+use tracing::info;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {
@@ -117,6 +118,10 @@ impl DeltaManager {
                 .unwrap()
                 .retain(|k, _| *k > tick);
         }
+        info!(
+            "Delta manager after received ack for tick: {:?} group: {:?}. {:?}",
+            tick, replication_group, self
+        );
     }
 
     /// To avoid tick-wrapping issues, we run a system regularly (every u16::MAX / 3 ticks)

@@ -240,7 +240,7 @@ impl ReplicationSender {
             {
                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
                     // update the ack tick for the channel
-                    trace!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
+                    info!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
                     channel.ack_bevy_tick = Some(bevy_tick);
                     channel.ack_tick = Some(tick);
 
@@ -438,7 +438,7 @@ impl ReplicationSender {
                         );
                         error!("DeltaManager data: {:?}", delta_manager.data);
                     })?;
-                trace!(
+                info!(
                     ?entity,
                     ?group_id,
                     ?ack_tick,
