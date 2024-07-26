@@ -666,14 +666,19 @@ impl<'a> Iterator for ActionsIterator<'a> {
 /// The first element is the remote tick, the second is the message
 pub struct UpdatesBuffer(Vec<(Tick, EntityUpdatesMessage)>);
 
+/// Used only for debug
+#[derive(Debug)]
+struct UpdateBufferMessage {
+    remote_tick: Tick,
+    last_action_tick: Option<Tick>,
+}
+
 impl Debug for UpdatesBuffer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_list()
-            .entries(self.0.iter().map(|(tick, message)| {
-                f.debug_struct("Message")
-                    .field("remote tick", tick)
-                    .field("last_action_tick", &message.last_action_tick)
-                    .finish()
+            .entries(self.0.iter().map(|(tick, message)| UpdateBufferMessage {
+                remote_tick: *tick,
+                last_action_tick: message.last_action_tick,
             }))
             .finish()
     }
@@ -694,8 +699,6 @@ impl Default for UpdatesBuffer {
     }
 }
 impl UpdatesBuffer {
-    fn ticks_debug(&self) -> Vec<(Tick, Tick)> {}
-
     fn clear(&mut self) {
         self.0.clear();
     }
