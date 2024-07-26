@@ -1,9 +1,9 @@
 //! General struct handling replication
-use std::collections::BTreeMap;
-
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
 use bevy::utils::HashSet;
+use std::collections::BTreeMap;
+use std::fmt::{Debug, Formatter};
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
@@ -96,6 +96,8 @@ impl ReplicationReceiver {
         if channel.latest_update_tick.is_some_and(|t| remote_tick <= t) {
             info!("Received a late update for the group! Current latest_tick: {:?}, Update remote tick: {remote_tick:?}", channel.latest_update_tick);
             // TODO: WE KEEP ALL UPDATES SO THAT THE DELTA-COMPRESSION HISTORY IS CORRECT!
+            //  IDEALLY WE JUST WRITE IT TO A HISTORY BUFFER BUT DON'T APPLY IT WORLD
+            //  AND DON'T UPDATE THE LATEST_TICK
             // return;
         }
 
@@ -526,7 +528,6 @@ impl ReplicationReceiver {
                 channel.actions_pending_recv_message_id += 1;
                 // Update the latest server tick that we have processed
                 channel.latest_action_tick = Some(remote_tick);
-                channel.latest_update_tick = Some(remote_tick);
 
                 channel.apply_actions_message(
                     world,
@@ -558,12 +559,15 @@ impl ReplicationReceiver {
                     return;
                 };
 
+                info!(?group_id, updates = ?channel.buffered_updates, ?max_applicable_idx, "Updates to apply");
+
                 // pop the oldest until we reach the max applicable index
                 while channel.buffered_updates.len() > max_applicable_idx {
                     let (remote_tick, message) = channel.buffered_updates.pop_oldest().unwrap();
                     // let is_history = channel.buffered_updates.len() != max_applicable_idx;
                     // NOTE: WE APPLY ALL UPDATES (EVEN OLDER ONES) BECAUSE OF DELTA COMPRESSION
                     let is_history = false;
+                    info!(?is_history, ?remote_tick, "Applying update");
                     channel.apply_updates_message(
                         world,
                         remote,
@@ -651,7 +655,6 @@ impl<'a> Iterator for ActionsIterator<'a> {
         self.channel.actions_pending_recv_message_id += 1;
         // Update the latest server tick that we have processed
         self.channel.latest_action_tick = Some(message.0);
-        self.channel.latest_update_tick = Some(message.0);
         Some(message)
     }
 }
@@ -661,8 +664,20 @@ impl<'a> Iterator for ActionsIterator<'a> {
 /// in descending remote tick order (the most recent tick first, the oldest tick last)
 ///
 /// The first element is the remote tick, the second is the message
-#[derive(Debug)]
 pub struct UpdatesBuffer(Vec<(Tick, EntityUpdatesMessage)>);
+
+impl Debug for UpdatesBuffer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(self.0.iter().map(|(tick, message)| {
+                f.debug_struct("Message")
+                    .field("remote tick", tick)
+                    .field("last_action_tick", &message.last_action_tick)
+                    .finish()
+            }))
+            .finish()
+    }
+}
 
 /// Update that is given to `apply_world`
 #[derive(Debug, PartialEq)]
@@ -679,6 +694,8 @@ impl Default for UpdatesBuffer {
     }
 }
 impl UpdatesBuffer {
+    fn ticks_debug(&self) -> Vec<(Tick, Tick)> {}
+
     fn clear(&mut self) {
         self.0.clear();
     }
@@ -960,7 +977,6 @@ impl GroupChannel {
         }
 
         let group_id = message.group_id;
-        self.latest_update_tick = Some(remote_tick);
 
         for (entity, components) in message.updates.into_iter() {
             debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
@@ -1011,6 +1027,8 @@ impl GroupChannel {
         //
         // }
 
+        // NOTE: we don't need to apply a max() because we go through updates in order of recency
+        self.latest_update_tick = Some(remote_tick);
         self.remote_entities.iter().for_each(|remote_entity| {
             if let Some(mut local_entity_mut) =
                 remote_entity_map.get_by_remote(world, *remote_entity)
