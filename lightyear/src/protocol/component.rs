@@ -768,14 +768,13 @@ mod delta {
                     let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
                     else {
                         return Err(ComponentError::DeltaCompressionError(
-                            format!("Entity {} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression", std::any::type_name::<C>())
+                            format!("Entity {} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression", entity, std::any::type_name::<C>())
                         ));
                     };
                     info!("History ticks before inserting: {:?}", history.ticks());
                     let Some(past_value) = history.buffer.get(&previous_tick) else {
                         return Err(ComponentError::DeltaCompressionError(
-                            format!("Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
-                                    std::any::type_name::<C>())
+                            format!("Entity {} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>", entity, std::any::type_name::<C>())
                         ));
                     };
                     // TODO: is it possible to have one clone instead of 2?

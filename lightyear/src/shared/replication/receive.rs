@@ -94,7 +94,7 @@ impl ReplicationReceiver {
         // // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
         // // if we have already applied a more recent update for this group, no need to keep this one (or should we keep it for history?)
         if channel.latest_update_tick.is_some_and(|t| remote_tick <= t) {
-            info!("Received a late update for the group! Current latest_tick: {t:?}, Update remote tick: {remote_tick:?}");
+            info!("Received a late update for the group! Current latest_tick: {:?}, Update remote tick: {remote_tick:?}", channel.latest_update_tick);
             // TODO: WE KEEP ALL UPDATES SO THAT THE DELTA-COMPRESSION HISTORY IS CORRECT!
             // return;
         }
