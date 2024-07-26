@@ -91,19 +91,23 @@ impl ReplicationReceiver {
         trace!(?updates, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(updates.group_id).or_default();
 
-        // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
-        // if we have already applied a more recent update for this group, no need to keep this one (or should we keep it for history?)
-        if channel.latest_tick.is_some_and(|t| remote_tick <= t) {
-            return;
+        // // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
+        // // if we have already applied a more recent update for this group, no need to keep this one (or should we keep it for history?)
+        if channel.latest_update_tick.is_some_and(|t| remote_tick <= t) {
+            info!("Received a late update for the group! Current latest_tick: {t:?}, Update remote tick: {remote_tick:?}");
+            // TODO: WE KEEP ALL UPDATES SO THAT THE DELTA-COMPRESSION HISTORY IS CORRECT!
+            // return;
         }
 
         // TODO: what we want is
         //  - if the update is for a tick in the past compared to our local state, we can safely ignore immediately
-        //  - make sure that the local state has a `latest_tick` that is bigger than the update's remote tick (i.e.
+        //    (apart form delta compression)
+        //  - make sure that the local state has a `latest_tick` that is bigger than the update's last_action_tick (i.e.
         //  we only apply remote ticks if we have reached the last_action_tick for that update)
         //  - if we have two updates that satisfy those conditions, we don't need to buffer both!
         //   We can just keep the one with the biggest last_action_tick? since eventually that's the only one we're going to apply.
         //   Possible exceptions:
+        //   - delta compression
         //   - we want to keep all the intermediary information to put it in a history for interpolation (so that instead of interpolating
         //     only between the updates we apply that have the highest tick, we interpolate between all updates received. The interpolation
         //     tick could be much further in the past. Or maybe check the interpolation tick?)
@@ -155,7 +159,7 @@ impl ReplicationReceiver {
     /// (i.e. the latest server tick at which we received an update for that entity)
     pub(crate) fn get_confirmed_tick(&self, confirmed_entity: Entity) -> Option<Tick> {
         self.channel_by_local(confirmed_entity)
-            .and_then(|channel| channel.latest_tick)
+            .and_then(|channel| channel.latest_update_tick)
     }
 
     /// Get the replication group id associated with a given local entity
@@ -191,7 +195,7 @@ impl ReplicationReceiver {
         // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
         for group_channel in self.group_channels.values_mut() {
             debug!("Checking group channel: {:?}", group_channel);
-            if let Some(latest_tick) = group_channel.latest_tick {
+            if let Some(latest_tick) = group_channel.latest_action_tick {
                 // delta = u16::MAX / 4
                 if tick - latest_tick > (i16::MAX / 2) {
                     debug!(
@@ -199,7 +203,7 @@ impl ReplicationReceiver {
                     ?latest_tick,
                     ?group_channel,
                     "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
-                    group_channel.latest_tick = Some(tick);
+                    group_channel.latest_action_tick = Some(tick);
                 }
             }
         }
@@ -521,7 +525,8 @@ impl ReplicationReceiver {
 
                 channel.actions_pending_recv_message_id += 1;
                 // Update the latest server tick that we have processed
-                channel.latest_tick = Some(remote_tick);
+                channel.latest_action_tick = Some(remote_tick);
+                channel.latest_update_tick = Some(remote_tick);
 
                 channel.apply_actions_message(
                     world,
@@ -548,7 +553,7 @@ impl ReplicationReceiver {
                 //  confirmed history, for example to have a better interpolation)
                 let Some(max_applicable_idx) = channel
                     .buffered_updates
-                    .max_index_to_apply(channel.latest_tick)
+                    .max_index_to_apply(channel.latest_action_tick)
                 else {
                     return;
                 };
@@ -585,8 +590,10 @@ pub struct GroupChannel {
     pub(crate) actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionsMessage)>,
     // updates
     pub(crate) buffered_updates: UpdatesBuffer,
-    /// remote tick of the latest update/action that we applied to the local group
-    pub latest_tick: Option<Tick>,
+    /// remote tick of the latest action that we applied to the local group
+    pub latest_action_tick: Option<Tick>,
+    /// remote tick of the latest updte or action that we applied to the local group
+    pub latest_update_tick: Option<Tick>,
 }
 
 impl Default for GroupChannel {
@@ -596,7 +603,8 @@ impl Default for GroupChannel {
             actions_pending_recv_message_id: MessageId(0),
             actions_recv_message_buffer: BTreeMap::new(),
             buffered_updates: UpdatesBuffer::default(),
-            latest_tick: None,
+            latest_action_tick: None,
+            latest_update_tick: None,
         }
     }
 }
@@ -642,7 +650,8 @@ impl<'a> Iterator for ActionsIterator<'a> {
 
         self.channel.actions_pending_recv_message_id += 1;
         // Update the latest server tick that we have processed
-        self.channel.latest_tick = Some(message.0);
+        self.channel.latest_action_tick = Some(message.0);
+        self.channel.latest_update_tick = Some(message.0);
         Some(message)
     }
 }
@@ -686,13 +695,13 @@ impl UpdatesBuffer {
         self.0.len()
     }
 
-    /// Get the index of the most recent element in the buffer which has a last_action_tick <= latest_tick,
-    /// i.e. which can be applied that has the highest tick that is less than or equal to the latest_tick
+    /// Get the index of the most recent element in the buffer which has a last_action_tick <= latest_action_tick,
+    /// i.e. which can be applied that has the highest tick that is less than or equal to the latest_action_tick
     ///
     /// or None if there are None
-    fn max_index_to_apply(&self, latest_tick: Option<Tick>) -> Option<usize> {
-        // if we haven't applied any latest_tick, we can't apply any updates
-        let latest_tick = latest_tick?;
+    fn max_index_to_apply(&self, latest_action_tick: Option<Tick>) -> Option<usize> {
+        // if we haven't applied any latest_action_tick, we can't apply any updates
+        let latest_action_tick = latest_action_tick?;
 
         // we can use partition point because we know that all the non-ready elements will be on the left
         // and the ready elements will be on the right
@@ -700,7 +709,7 @@ impl UpdatesBuffer {
             let Some(last_action_tick) = message.last_action_tick else {
                 return false;
             };
-            last_action_tick > latest_tick
+            last_action_tick > latest_action_tick
         });
         if idx == self.len() {
             None
@@ -772,7 +781,9 @@ impl GroupChannel {
         // (max_readable_tick is the only one we want to actually apply to the world, because the other
         //  older updates are redundant. The older ticks are included so that we can have a comprehensive
         //  confirmed history, for example to have a better interpolation)
-        let max_applicable_idx = self.buffered_updates.max_index_to_apply(self.latest_tick);
+        let max_applicable_idx = self
+            .buffered_updates
+            .max_index_to_apply(self.latest_action_tick);
 
         UpdatesIterator {
             channel: self,
@@ -942,12 +953,15 @@ impl GroupChannel {
         events: &mut ConnectionEvents,
         remote_entity_map: &mut RemoteEntityMap,
     ) {
-        let group_id = message.group_id;
         debug!(?remote_tick, ?message, "Received replication updates");
         // TODO: store this in ConfirmedHistory?
         if is_history {
             return;
         }
+
+        let group_id = message.group_id;
+        self.latest_update_tick = Some(remote_tick);
+
         for (entity, components) in message.updates.into_iter() {
             debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
             // update the entity only if it exists
@@ -1026,7 +1040,7 @@ mod tests {
             .group_channels
             .entry(group_id)
             .or_default()
-            .latest_tick = Some(Tick(1));
+            .latest_action_tick = Some(Tick(1));
         // not even inserted because in the past compared to what we have applied
         manager.recv_updates(
             EntityUpdatesMessage {
@@ -1112,7 +1126,7 @@ mod tests {
             .group_channels
             .entry(group_id)
             .or_default()
-            .latest_tick = Some(Tick(6));
+            .latest_action_tick = Some(Tick(6));
 
         let mut it = manager
             .group_channels

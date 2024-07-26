@@ -66,6 +66,13 @@ pub struct DeltaComponentHistory<C> {
     pub buffer: BTreeMap<Tick, C>,
 }
 
+impl<C> DeltaComponentHistory<C> {
+    /// Ticks stored inside the DeltaComponentHistory
+    pub fn ticks(&self) -> Vec<Tick> {
+        self.buffer.keys().cloned().collect()
+    }
+}
+
 // Implementing Default manually to not require C: Default
 impl<C> Default for DeltaComponentHistory<C> {
     fn default() -> Self {

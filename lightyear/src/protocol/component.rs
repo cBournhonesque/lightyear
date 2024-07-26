@@ -754,23 +754,24 @@ mod delta {
             let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
+            let entity = entity_world_mut.id();
             info!(
                 ?tick,
+                ?entity,
                 "Writing component delta {} to entity. Delta type: {:?}",
                 std::any::type_name::<C>(),
                 delta.delta_type
             );
-            let entity = entity_world_mut.id();
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             match delta.delta_type {
                 DeltaType::Normal { previous_tick } => {
                     let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
                     else {
                         return Err(ComponentError::DeltaCompressionError(
-                            format!("Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
-                                    std::any::type_name::<C>())
+                            format!("Entity {} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression", std::any::type_name::<C>())
                         ));
                     };
+                    info!("History ticks before inserting: {:?}", history.ticks());
                     let Some(past_value) = history.buffer.get(&previous_tick) else {
                         return Err(ComponentError::DeltaCompressionError(
                             format!("Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
@@ -785,6 +786,7 @@ mod delta {
                     history.buffer = history.buffer.split_off(&previous_tick);
                     // store the new value in the history
                     history.buffer.insert(tick, new_value.clone());
+                    info!("History ticks after inserting: {:?}", history.ticks());
                     let Some(mut c) = entity_world_mut.get_mut::<C>() else {
                         return Err(ComponentError::DeltaCompressionError(
                             format!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
