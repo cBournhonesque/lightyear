@@ -1,6 +1,6 @@
 //! Specify how a Server sends/receives messages with a Client
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHash;
+use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{Component, Entity, Mut, Resource, World};
 use bevy::ptr::Ptr;
 use bevy::utils::{Duration, HashMap};
@@ -45,6 +45,7 @@ use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
+use crate::shared::replication::entity_map::EntityMap;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -119,6 +120,22 @@ impl ConnectionManager {
     /// Return the list of connected [`ClientId`]s
     pub fn connected_clients(&self) -> impl Iterator<Item = ClientId> + '_ {
         self.connections.keys().copied()
+    }
+
+    // TODO: we need `&mut self` because MapEntities requires `&mut EntityMapper` even though it's not needed here
+    /// Convert entities in the message to be compatible with the remote world of the provided client
+    pub fn map_entities_to_remote<M: Message + MapEntities>(
+        &mut self,
+        message: &mut M,
+        client_id: ClientId,
+    ) -> Result<(), ServerError> {
+        let mapper = &mut self
+            .connection_mut(client_id)?
+            .replication_receiver
+            .remote_entity_map
+            .local_to_remote;
+        message.map_entities(mapper);
+        Ok(())
     }
 
     /// Queues up a message to be sent to all clients matching the specific [`NetworkTarget`]
@@ -485,6 +502,11 @@ impl Connection {
     /// Returns true if this connection corresponds to the local client in HostServer mode
     pub(crate) fn is_local_client(&self) -> bool {
         self.is_local_client
+    }
+
+    /// Map from the local entities to the remote entities
+    pub fn local_to_remote_map(&mut self) -> &mut EntityMap {
+        &mut self.replication_receiver.remote_entity_map.local_to_remote
     }
 
     /// Return the latest estimate of rtt

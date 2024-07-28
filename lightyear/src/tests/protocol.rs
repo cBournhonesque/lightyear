@@ -22,7 +22,13 @@ use crate::shared::replication::delta::Diffable;
 pub struct Message1(pub String);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
-pub struct Message2(pub u32);
+pub struct Message2(pub Entity);
+
+impl MapEntities for Message2 {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.0 = entity_mapper.map_entity(self.0);
+    }
+}
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
@@ -194,7 +200,8 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
         app.register_message::<Message1>(ChannelDirection::Bidirectional);
-        app.register_message::<Message2>(ChannelDirection::Bidirectional);
+        app.register_message::<Message2>(ChannelDirection::Bidirectional)
+            .add_map_entities();
         // inputs
         app.add_plugins(InputPlugin::<MyInput>::default());
         // components

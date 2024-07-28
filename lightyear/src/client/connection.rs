@@ -1,5 +1,6 @@
 //! Specify how a Client sends/receives messages with a Server
 use bevy::ecs::component::Tick as BevyTick;
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Mut, Resource, World};
 use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
@@ -33,6 +34,7 @@ use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::delta::DeltaManager;
+use crate::shared::replication::entity_map::EntityMap;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -224,6 +226,18 @@ impl ConnectionManager {
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
+    }
+
+    // TODO: we need `&mut self` because MapEntities requires `&mut EntityMapper` even though it's not needed here
+    /// Convert entities in the message to be compatible with the remote world
+    pub fn map_entities_to_remote<M: Message + MapEntities>(&mut self, message: &mut M) {
+        let mapper = &mut self.replication_receiver.remote_entity_map.local_to_remote;
+        message.map_entities(mapper);
+    }
+
+    /// Map from the local entities to the remote entities
+    pub fn local_to_remote_map(&mut self) -> &mut EntityMap {
+        &mut self.replication_receiver.remote_entity_map.local_to_remote
     }
 
     /// Send a [`Message`] to the server using a specific [`Channel`]
@@ -572,5 +586,59 @@ impl ReplicationSend for ConnectionManager {
         debug!("Running replication clean");
         self.replication_sender.cleanup(tick);
         self.delta_manager.tick_cleanup(tick);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::{client, server, ClientConnectionManager};
+    use crate::tests::protocol::Message2;
+    use crate::tests::stepper::{BevyStepper, Step};
+
+    /// Check that we can map entities from the local world to the remote world
+    /// using the ConnectionManager
+    #[test]
+    fn test_map_entities_to_remote() {
+        let mut stepper = BevyStepper::default();
+
+        // spawn an entity on server
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(server::Replicate::default())
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was spawned
+        let client_entity = *stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // spawn an entity on the client which contains a link to another entity
+        // we need to map that entity to the remote world
+        assert_eq!(
+            *stepper
+                .client_app
+                .world_mut()
+                .resource_mut::<ClientConnectionManager>()
+                .local_to_remote_map()
+                .get(&client_entity)
+                .unwrap(),
+            server_entity
+        );
+
+        let mut message = Message2(client_entity);
+        stepper
+            .client_app
+            .world_mut()
+            .resource_mut::<ClientConnectionManager>()
+            .map_entities_to_remote(&mut message);
+        assert_eq!(message.0, server_entity);
     }
 }
