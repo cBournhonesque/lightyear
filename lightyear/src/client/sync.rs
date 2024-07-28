@@ -47,7 +47,7 @@ pub struct SyncConfig {
     pub speedup_factor: f32,
 
     // Integration
-    server_time_estimate_smoothing: f32,
+    pub server_time_estimate_smoothing: f32,
 }
 
 impl Default for SyncConfig {
