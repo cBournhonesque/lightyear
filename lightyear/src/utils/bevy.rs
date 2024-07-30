@@ -28,9 +28,11 @@ impl LerpFn<Transform> for TransformLinearInterpolation {
     }
 }
 
-pub struct QuatLinearInterpolation;
 
-impl LerpFn<Quat> for QuatLinearInterpolation {
+/// Perform a spherical linear interpolation between two quaternions
+pub struct QuatSphericalLinearInterpolation;
+
+impl LerpFn<Quat> for QuatSphericalLinearInterpolation {
     fn lerp(start: &Quat, other: &Quat, t: f32) -> Quat {
         start.slerp(*other, t)
     }
