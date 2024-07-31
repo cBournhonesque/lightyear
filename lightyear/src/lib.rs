@@ -318,7 +318,7 @@ pub mod prelude {
         pub use crate::server::relevance::room::{RoomId, RoomManager};
         pub use crate::server::replication::commands::DespawnReplicationCommandExt;
         pub use crate::server::replication::{
-            send::{ControlledBy, Replicate, ServerFilter, SyncTarget},
+            send::{ControlledBy, Lifetime, Replicate, ServerFilter, SyncTarget},
             ReplicationSet, ServerReplicationSet,
         };
         pub use crate::server::run_conditions::{is_started, is_stopped};
