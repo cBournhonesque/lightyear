@@ -101,6 +101,9 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
 /// - overstep = `Time<Fixed>`.overstep_percentage() = TimeManager.overstep()
 #[derive(Component, PartialEq, Debug)]
 pub struct VisualInterpolateStatus<C: Component> {
+    /// If true, every change of the component due to visual interpolation will trigger change detection
+    /// (this can be useful for `Transform` to trigger a `TransformPropagate` system)
+    pub trigger_change_detection: bool,
     /// Value of the component at the previous tick
     pub previous_value: Option<C>,
     /// Value of the component at the current tick
@@ -111,6 +114,7 @@ pub struct VisualInterpolateStatus<C: Component> {
 impl<C: Component> Default for VisualInterpolateStatus<C> {
     fn default() -> Self {
         Self {
+            trigger_change_detection: false,
             previous_value: None,
             current_value: None,
         }
@@ -144,8 +148,12 @@ pub(crate) fn visual_interpolation<C: SyncComponent>(
             ?overstep,
             "Visual interpolation of fixed-update component!"
         );
-        *component.bypass_change_detection() =
-            component_registry.interpolate(previous_value, current_value, overstep);
+        if interpolate_status.trigger_change_detection {
+            *component.bypass_change_detection() =
+                component_registry.interpolate(previous_value, current_value, overstep);
+        } else {
+            *component = component_registry.interpolate(previous_value, current_value, overstep);
+        }
     }
 }
 
