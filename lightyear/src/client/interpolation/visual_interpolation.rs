@@ -148,7 +148,7 @@ pub(crate) fn visual_interpolation<C: SyncComponent>(
             ?overstep,
             "Visual interpolation of fixed-update component!"
         );
-        if interpolate_status.trigger_change_detection {
+        if !interpolate_status.trigger_change_detection {
             *component.bypass_change_detection() =
                 component_registry.interpolate(previous_value, current_value, overstep);
         } else {
