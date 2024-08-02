@@ -124,6 +124,8 @@ macro_rules! wrapping_id {
                 type Output = Self;
 
                 fn sub(self, rhs: u16) -> Self::Output {
+                    // NOTE: this is only valid for small diffs, it doesn't
+                    // handle wrapping correctly with `wrapping_diff`
                     Self(self.0.wrapping_sub(rhs))
                 }
             }

@@ -513,8 +513,7 @@ impl ClientCommands for Commands<'_, '_> {
 }
 
 mod utils {
-    use bevy::app::{App, Startup};
-    use bevy::ecs::schedule::ScheduleLabel;
+    use bevy::app::App;
     use bevy::prelude::{NextState, State, StateTransition, StateTransitionEvent};
     use bevy::state::state::{setup_state_transitions_in_world, FreelyMutableState};
 
@@ -526,7 +525,7 @@ mod utils {
 
     impl AppStateExt for App {
         fn init_state_without_entering<S: FreelyMutableState>(&mut self, state: S) -> &mut Self {
-            setup_state_transitions_in_world(self.world_mut(), Some(Startup.intern()));
+            setup_state_transitions_in_world(self.world_mut());
             self.insert_resource::<State<S>>(State::new(state.clone()))
                 .init_resource::<NextState<S>>()
                 .add_event::<StateTransitionEvent<S>>();

@@ -264,6 +264,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
                 current_value: Some(Component1(1.0)),
             }
@@ -298,6 +299,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(1.0)),
                 current_value: Some(Component1(2.0)),
             }
@@ -332,6 +334,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(3.0)),
                 current_value: Some(Component1(4.0)),
             }
@@ -366,6 +369,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(4.0)),
                 current_value: Some(Component1(5.0)),
             }
@@ -405,6 +409,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
                 current_value: Some(Component1(1.0)),
             }
@@ -439,6 +444,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(1.0)),
                 current_value: Some(Component1(2.0)),
             }
@@ -474,6 +480,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(2.0)),
                 current_value: None,
             }
@@ -508,6 +515,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(2.0)),
                 current_value: None,
             }
@@ -542,6 +550,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(2.0)),
                 current_value: Some(Component1(3.0)),
             }
@@ -580,6 +589,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
                 current_value: None,
             }
@@ -614,6 +624,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
                 current_value: Some(Component1(1.0)),
             }
@@ -648,6 +659,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(1.0)),
                 current_value: Some(Component1(2.0)),
             }
@@ -682,6 +694,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(2.0)),
                 current_value: Some(Component1(3.0)),
             }
@@ -716,6 +729,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(2.0)),
                 current_value: Some(Component1(3.0)),
             }
@@ -754,6 +768,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
                 current_value: None,
             }
@@ -788,6 +803,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
                 current_value: Some(Component1(1.0)),
             }
@@ -822,6 +838,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(1.0)),
                 current_value: Some(Component1(2.0)),
             }
@@ -857,6 +874,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(2.0)),
                 current_value: None,
             }
@@ -891,6 +909,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(2.0)),
                 current_value: None,
             }
@@ -926,6 +945,7 @@ mod tests {
                 .get::<VisualInterpolateStatus<Component1>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: Some(Component1(2.0)),
                 current_value: Some(Component1(3.0)),
             }
