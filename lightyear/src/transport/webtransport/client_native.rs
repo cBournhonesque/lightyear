@@ -182,6 +182,7 @@ struct WebTransportClientPacketSender {
 impl PacketSender for WebTransportClientPacketSender {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         let data = payload.to_vec().into_boxed_slice();
+        info!(len = ?data.len(), "Data size");
         self.to_server_sender
             .send(data)
             .map_err(|e| std::io::Error::other(format!("send_datagram error: {:?}", e)).into())
