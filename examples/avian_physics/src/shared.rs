@@ -93,6 +93,7 @@ impl Plugin for SharedPlugin {
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::First));
 
         app.add_systems(FixedPostUpdate, after_physics_log);
+        app.add_systems(Update, collision_log);
         app.add_systems(Last, last_log);
 
         // registry types for reflection
@@ -216,6 +217,12 @@ pub(crate) fn after_physics_log(
     }
 }
 
+pub(crate) fn collision_log(mut collision_event_reader: EventReader<Collision>) {
+    for event in collision_event_reader.read() {
+        info!(?event, "Collision detected");
+    }
+}
+
 pub(crate) fn last_log(
     tick_manager: Res<TickManager>,
     players: Query<
@@ -232,12 +239,12 @@ pub(crate) fn last_log(
 ) {
     let tick = tick_manager.tick();
     for (entity, position, rotation, correction, rotation_correction) in players.iter() {
-        trace!(?tick, ?entity, ?position, ?correction, "Player LAST update");
-        trace!(
+        info!(
             ?tick,
             ?entity,
-            rotation = ?rotation.as_degrees(),
-            ?rotation_correction,
+            ?position,
+            ?rotation,
+            ?correction,
             "Player LAST update"
         );
     }
@@ -317,9 +324,21 @@ impl WallBundle {
             physics: PhysicsBundle {
                 collider: Collider::segment(start, end),
                 collider_density: ColliderDensity(1.0),
+                // walls don't collide with themselves
+                collision_layers: CollisionLayers::new(
+                    CollisionLayer::Wall,
+                    [CollisionLayer::Ball, CollisionLayer::Player],
+                ),
                 rigid_body: RigidBody::Static,
             },
             wall: Wall { start, end },
         }
     }
+}
+
+#[derive(PhysicsLayer)]
+pub enum CollisionLayer {
+    Wall,
+    Ball,
+    Player,
 }
