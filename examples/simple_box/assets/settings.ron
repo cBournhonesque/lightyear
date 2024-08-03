@@ -4,11 +4,7 @@ Settings(
         client_id: 0,
         client_port: 0, // the OS will assign a random open port
         server_addr: "127.0.0.1",
-        conditioner: Some(Conditioner(
-            latency_ms: 200,
-            jitter_ms: 20,
-            packet_loss: 0.05
-        )),
+        conditioner: None,
         server_port: 5000,
         transport: WebTransport(
             // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
@@ -27,11 +23,7 @@ Settings(
     server: ServerSettings(
         headless: true,
         inspector: false,
-        conditioner: Some(Conditioner(
-            latency_ms: 200,
-            jitter_ms: 20,
-            packet_loss: 0.05
-        )),
+        conditioner: None,
         transport: [
             WebTransport(
                 local_port: 5000

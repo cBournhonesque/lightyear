@@ -13,7 +13,7 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationTarget;
 use std::sync::Arc;
-
+use std::time::UNIX_EPOCH;
 use crate::protocol::*;
 use crate::shared;
 
@@ -24,7 +24,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, (init, start_server));
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(Update, (send_message, handle_connections));
+        app.add_systems(Update, (receive_message, handle_connections));
     }
 }
 
@@ -129,19 +129,9 @@ pub(crate) fn movement(
     }
 }
 
-/// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
-/// and cannot do input handling)
-pub(crate) fn send_message(
-    mut server: ResMut<ConnectionManager>,
-    input: Option<Res<ButtonInput<KeyCode>>>,
-) {
-    if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
-        let message = Message1(5);
-        info!("Send message: {:?}", message);
-        server
-            .send_message_to_target::<Channel1, Message1>(&Message1(5), NetworkTarget::All)
-            .unwrap_or_else(|e| {
-                error!("Failed to send message: {:?}", e);
-            });
+/// System to receive messages on the client
+pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<ChunkUpdate>>) {
+    for event in reader.read() {
+        println!("Received chunk at {}", UNIX_EPOCH.elapsed().unwrap().as_millis());
     }
 }
