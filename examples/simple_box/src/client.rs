@@ -54,18 +54,23 @@ impl Plugin for ExampleClientPlugin {
 }
 
 pub fn send_message(
+    connection: Res<ClientConnection>,
     mut connection_manager: ResMut<ConnectionManager>,
     input: Option<Res<ButtonInput<KeyCode>>>,
 ) {
     if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
-        let message = ChunkUpdate([[[0; 16]; 16]; 16]);
+        let message = ChunkUpdate([[[0; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]);
         println!(
             "Sent chunk at {}",
             UNIX_EPOCH.elapsed().unwrap().as_millis()
         );
         for i in 0..20 {
+            // send chunks to server who will broadcast to all other clients
             connection_manager
-                .send_message_to_target::<ChunkChannel, ChunkUpdate>(&message, NetworkTarget::All)
+                .send_message_to_target::<ChunkChannel, ChunkUpdate>(
+                    &message,
+                    NetworkTarget::AllExceptSingle(connection.client.id()),
+                )
                 .unwrap_or_else(|e| {
                     error!("Failed to send message: {:?}", e);
                 });

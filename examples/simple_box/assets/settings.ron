@@ -21,7 +21,7 @@ Settings(
         // )
     ),
     server: ServerSettings(
-        headless: true,
+        headless: false,
         inspector: false,
         conditioner: None,
         transport: [

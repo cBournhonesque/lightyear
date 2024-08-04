@@ -1,5 +1,6 @@
 use bevy::utils::HashMap;
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::num::NonZeroU32;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -16,11 +17,20 @@ use crate::protocol::registry::NetId;
 
 const BYPASS_QUOTA_PRIORITY: f32 = 100000.0;
 
-#[derive(Debug)]
 pub struct BufferedMessage {
     priority: f32,
     channel_net_id: NetId,
     data: MessageData,
+}
+
+impl Debug for BufferedMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferedMessage")
+            .field("priority", &self.priority)
+            .field("channel_net_id", &self.channel_net_id)
+            .field("id", &self.data.message_id())
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]

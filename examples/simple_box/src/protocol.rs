@@ -82,13 +82,15 @@ impl MapEntities for PlayerParent {
 
 // Channels
 
+pub const CHUNK_SIZE: usize = 8;
+
 #[derive(Channel)]
 pub struct ChunkChannel;
 
 // Messages
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct ChunkUpdate(pub [[[u32; 16]; 16]; 16]);
+pub struct ChunkUpdate(pub [[[u32; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]);
 
 // Inputs
 
@@ -139,6 +141,7 @@ impl Plugin for ProtocolPlugin {
         // channels
         app.add_channel::<ChunkChannel>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            priority: 0.01,
             ..default()
         });
     }
