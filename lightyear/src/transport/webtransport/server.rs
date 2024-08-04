@@ -18,7 +18,9 @@ use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::error::Result;
 use crate::transport::io::IoState;
-use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
+use crate::transport::{
+    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MIN_MTU, MTU,
+};
 
 pub(crate) struct WebTransportServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,
@@ -54,10 +56,17 @@ impl ServerTransportBuilder for WebTransportServerSocketBuilder {
             from_client_receiver,
         };
 
-        let config = ServerConfig::builder()
+        let mut config = ServerConfig::builder()
             .with_bind_address(self.server_addr)
             .with_identity(&self.certificate)
             .build();
+        let mut quic_config = wtransport::quinn::TransportConfig::default();
+        quic_config
+            .initial_mtu(MIN_MTU as u16)
+            .min_mtu(MIN_MTU as u16);
+        config
+            .quic_config_mut()
+            .transport_config(Arc::new(quic_config));
         // need to run this with Compat because it requires the tokio reactor
         IoTaskPool::get()
             .spawn(Compat::new(async move {
