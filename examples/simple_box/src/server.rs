@@ -6,6 +6,8 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::protocol::*;
+use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
@@ -14,8 +16,6 @@ use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationTarget;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
-use crate::protocol::*;
-use crate::shared;
 
 pub struct ExampleServerPlugin;
 
@@ -132,6 +132,6 @@ pub(crate) fn movement(
 /// System to receive messages on the client
 pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<ChunkUpdate>>) {
     for event in reader.read() {
-        println!("Received chunk at {}", UNIX_EPOCH.elapsed().unwrap().as_millis());
+        // println!("Received chunk at {}", UNIX_EPOCH.elapsed().unwrap().as_millis());
     }
 }

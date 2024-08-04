@@ -4,15 +4,15 @@
 //! - sending inputs to the server
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-use std::time::{Instant, UNIX_EPOCH};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 use bevy_mod_picking::picking_core::Pickable;
 use bevy_mod_picking::prelude::{Click, On, Pointer};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+use std::time::{Instant, UNIX_EPOCH};
 
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -46,7 +46,7 @@ impl Plugin for ExampleClientPlugin {
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
                 button_system,
-                send_message
+                send_message,
             ),
         );
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
@@ -59,8 +59,11 @@ pub fn send_message(
 ) {
     if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
         let message = ChunkUpdate([[[0; 16]; 16]; 16]);
-        println!("Sent chunk at {}", UNIX_EPOCH.elapsed().unwrap().as_millis());
-        for i in 0..12 {
+        println!(
+            "Sent chunk at {}",
+            UNIX_EPOCH.elapsed().unwrap().as_millis()
+        );
+        for i in 0..52 {
             connection_manager
                 .send_message_to_target::<ChunkChannel, ChunkUpdate>(&message, NetworkTarget::All)
                 .unwrap_or_else(|e| {
@@ -167,7 +170,7 @@ fn player_movement(
 /// System to receive messages on the client
 pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<ChunkUpdate>>) {
     for event in reader.read() {
-        info!("Received message: {:?}", event.message());
+        // info!("Received message: {:?}", event.message());
     }
 }
 
