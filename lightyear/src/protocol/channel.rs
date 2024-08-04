@@ -96,18 +96,19 @@ impl ChannelRegistry {
             mode: ChannelMode::SequencedUnreliable,
             send_frequency: Duration::default(),
             // we always want to include the ping in the packet
-            priority: 1000.0,
+            priority: f32::INFINITY,
         });
         registry.add_channel::<PongChannel>(ChannelSettings {
             mode: ChannelMode::SequencedUnreliable,
             send_frequency: Duration::default(),
-            // we always want to include the ping in the packet
-            priority: 1000.0,
+            // we always want to include the pong in the packet
+            priority: f32::INFINITY,
         });
         registry.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             send_frequency: input_send_interval,
-            priority: 3.0,
+            // we always want to include the inputs in the packet
+            priority: f32::INFINITY,
         });
         registry
     }
