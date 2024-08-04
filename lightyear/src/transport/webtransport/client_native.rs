@@ -118,7 +118,6 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
                         loop {
                             if let Some(msg) = to_server_receiver.recv().await {
                                 trace!("send datagram to server: {:?}", &msg);
-                                dbg!(msg.len());
                                 connection_send.send_datagram(msg).unwrap_or_else(|e| {
                                     error!("send_datagram via webtransport error: {:?}", e);
                                 });
