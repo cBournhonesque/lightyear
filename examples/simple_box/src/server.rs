@@ -6,6 +6,8 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::protocol::*;
+use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
@@ -14,13 +16,12 @@ use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationTarget;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
-use crate::protocol::*;
-use crate::shared;
 
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<ChunksCount>();
         app.add_systems(Startup, (init, start_server));
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
@@ -49,6 +50,18 @@ fn init(mut commands: Commands) {
             ..default()
         }),
     );
+
+    commands.spawn((
+        // Here we are able to call the `From` method instead of creating a new `TextSection`.
+        // This will use the default font (a minimal subset of FiraMono) and apply the default styling.
+        TextBundle::from("Chunks Received: 0").with_style(Style {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(50.0),
+            left: Val::Px(10.0),
+            ..default()
+        }),
+        ChunksTextMarker,
+    ));
 }
 
 /// Server connection system, create a player upon connection
@@ -129,9 +142,25 @@ pub(crate) fn movement(
     }
 }
 
+#[derive(Component)]
+pub(crate) struct ChunksTextMarker;
+
+#[derive(Default, Resource)]
+pub(crate) struct ChunksCount(usize);
+
 /// System to receive messages on the client
-pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<ChunkUpdate>>) {
+pub(crate) fn receive_message(
+    mut reader: EventReader<MessageEvent<ChunkUpdate>>,
+    mut text: Query<&mut Text, With<ChunksTextMarker>>,
+    mut res: ResMut<ChunksCount>,
+) {
+    let mut text = text.single_mut();
     for event in reader.read() {
-        println!("Received chunk at {}", UNIX_EPOCH.elapsed().unwrap().as_millis());
+        res.0 += 1;
+        text.sections[0].value = format!("Chunks Received: {}", res.0);
+        println!(
+            "Received chunk at {}",
+            UNIX_EPOCH.elapsed().unwrap().as_millis()
+        );
     }
 }

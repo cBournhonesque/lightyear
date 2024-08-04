@@ -14,6 +14,7 @@ use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
+use lightyear::prelude::client::PacketConfig;
 use lightyear_examples_common::app::{Apps, Cli};
 use lightyear_examples_common::settings::{read_settings, Settings};
 
@@ -29,6 +30,13 @@ fn main() {
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
     let mut apps = Apps::new(settings, cli);
+    apps.update_lightyear_client_config(|config| {
+        // for this example, we will put a bandwidth cap on the server-side
+        config.packet = PacketConfig::default()
+            .enable_bandwidth_cap()
+            // we can set the max bandwidth to 256 KB/s
+            .with_send_bandwidth_bytes_per_second_cap(256000);
+    });
     // add the `ClientPlugins` and `ServerPlugins` plugin groups
     apps.add_lightyear_plugins()
         // add our plugins

@@ -20,7 +20,6 @@ fn main() {
     let settings = read_settings::<Settings>(settings_str);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     let mut apps = Apps::new(settings, cli);
-    // for this example, we will use input delay and a correction function
     apps.update_lightyear_server_config(|config| {
         // for this example, we will put a bandwidth cap on the server-side
         config.packet = PacketConfig::default()
