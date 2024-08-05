@@ -183,10 +183,6 @@ impl PriorityManager {
 
         // sort from highest priority to lower
         all_messages.sort_by(|a, b| a.priority.partial_cmp(&b.priority).unwrap());
-        debug!(
-            "all messages to send, sorted by priority: {:?}",
-            all_messages
-        );
 
         // select the top messages with the rate limiter
         let mut single_data: HashMap<ChannelId, VecDeque<SingleData>> = HashMap::new();
@@ -255,11 +251,6 @@ impl PriorityManager {
         // - reliable entity actions:
         let num_messages_sent = single_data.values().map(|data| data.len()).sum::<usize>()
             + fragment_data.values().map(|data| data.len()).sum::<usize>();
-        debug!(
-            bytes_sent = ?bytes_used,
-            ?num_messages_sent,
-            num_messages_discarded = ?all_messages.len(),
-            "priority filter done.");
 
         (
             single_data.into_iter().collect(),

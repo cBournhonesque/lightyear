@@ -458,12 +458,10 @@ impl<'p> Packet<'p> {
             Packet::KeepAlive(pkt) => pkt.write_to(&mut cursor)?,
             Packet::Disconnect(pkt) => pkt.write_to(&mut cursor)?,
             Packet::Payload(PayloadPacket { buf }) => {
-                info!(len = ?buf.len(), "payload size");
                 cursor.write_all(buf)?
             }
             _ => unreachable!(), // Packet::Request variant is handled above
         }
-        info!(len = ?cursor.position(), "packet size");
         if cursor.position() as usize > len - MAC_BYTES {
             return Err(Error::TooLarge.into());
         }

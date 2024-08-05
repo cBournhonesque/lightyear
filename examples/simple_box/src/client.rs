@@ -64,7 +64,7 @@ pub fn send_message(
             "Sent chunk at {}",
             UNIX_EPOCH.elapsed().unwrap().as_millis()
         );
-        for i in 0..20 {
+        for i in 0..12*12*12 {
             // send chunks to server who will broadcast to all other clients
             connection_manager
                 .send_message_to_target::<ChunkChannel, ChunkUpdate>(

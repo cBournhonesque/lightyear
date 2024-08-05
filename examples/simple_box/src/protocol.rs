@@ -82,7 +82,7 @@ impl MapEntities for PlayerParent {
 
 // Channels
 
-pub const CHUNK_SIZE: usize = 8;
+pub const CHUNK_SIZE: usize = 16;
 
 #[derive(Channel)]
 pub struct ChunkChannel;
