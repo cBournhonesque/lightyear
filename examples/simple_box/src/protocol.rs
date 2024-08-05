@@ -82,13 +82,15 @@ impl MapEntities for PlayerParent {
 
 // Channels
 
+pub const CHUNK_SIZE: usize = 8;
+
 #[derive(Channel)]
-pub struct Channel1;
+pub struct ChunkChannel;
 
 // Messages
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
+pub struct ChunkUpdate(pub [[[u32; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]);
 
 // Inputs
 
@@ -120,7 +122,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<ChunkUpdate>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
@@ -137,8 +139,9 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
         // channels
-        app.add_channel::<Channel1>(ChannelSettings {
+        app.add_channel::<ChunkChannel>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            priority: 0.01,
             ..default()
         });
     }

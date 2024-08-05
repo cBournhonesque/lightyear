@@ -351,7 +351,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
             })
             .set(LogPlugin {
                 level: Level::INFO,
-                filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,lightyear::packet::priority_manager=debug".to_string(),
                 ..default()
             }),
     );

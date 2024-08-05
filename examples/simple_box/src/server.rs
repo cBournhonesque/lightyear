@@ -6,6 +6,8 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::protocol::*;
+use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
@@ -13,18 +15,17 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationTarget;
 use std::sync::Arc;
-
-use crate::protocol::*;
-use crate::shared;
+use std::time::UNIX_EPOCH;
 
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<ChunksCount>();
         app.add_systems(Startup, (init, start_server));
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(Update, (send_message, handle_connections));
+        app.add_systems(Update, (receive_message, handle_connections));
     }
 }
 
@@ -49,6 +50,18 @@ fn init(mut commands: Commands) {
             ..default()
         }),
     );
+
+    commands.spawn((
+        // Here we are able to call the `From` method instead of creating a new `TextSection`.
+        // This will use the default font (a minimal subset of FiraMono) and apply the default styling.
+        TextBundle::from("Chunks Received: 0").with_style(Style {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(50.0),
+            left: Val::Px(10.0),
+            ..default()
+        }),
+        ChunksTextMarker,
+    ));
 }
 
 /// Server connection system, create a player upon connection
@@ -129,19 +142,25 @@ pub(crate) fn movement(
     }
 }
 
-/// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
-/// and cannot do input handling)
-pub(crate) fn send_message(
-    mut server: ResMut<ConnectionManager>,
-    input: Option<Res<ButtonInput<KeyCode>>>,
+#[derive(Component)]
+pub(crate) struct ChunksTextMarker;
+
+#[derive(Default, Resource)]
+pub(crate) struct ChunksCount(usize);
+
+/// System to receive messages on the client
+pub(crate) fn receive_message(
+    mut reader: EventReader<MessageEvent<ChunkUpdate>>,
+    mut text: Query<&mut Text, With<ChunksTextMarker>>,
+    mut res: ResMut<ChunksCount>,
 ) {
-    if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
-        let message = Message1(5);
-        info!("Send message: {:?}", message);
-        server
-            .send_message_to_target::<Channel1, Message1>(&Message1(5), NetworkTarget::All)
-            .unwrap_or_else(|e| {
-                error!("Failed to send message: {:?}", e);
-            });
+    let mut text = text.single_mut();
+    for event in reader.read() {
+        res.0 += 1;
+        text.sections[0].value = format!("Chunks Received: {}", res.0);
+        println!(
+            "Received chunk at {}",
+            UNIX_EPOCH.elapsed().unwrap().as_millis()
+        );
     }
 }

@@ -5,7 +5,7 @@ use std::{
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chacha20poly1305::XNonce;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::connection::netcode::ClientId;
 use crate::connection::server::DeniedReason;
@@ -457,9 +457,13 @@ impl<'p> Packet<'p> {
             Packet::Response(pkt) => pkt.write_to(&mut cursor)?,
             Packet::KeepAlive(pkt) => pkt.write_to(&mut cursor)?,
             Packet::Disconnect(pkt) => pkt.write_to(&mut cursor)?,
-            Packet::Payload(PayloadPacket { buf }) => cursor.write_all(buf)?,
+            Packet::Payload(PayloadPacket { buf }) => {
+                info!(len = ?buf.len(), "payload size");
+                cursor.write_all(buf)?
+            }
             _ => unreachable!(), // Packet::Request variant is handled above
         }
+        info!(len = ?cursor.position(), "packet size");
         if cursor.position() as usize > len - MAC_BYTES {
             return Err(Error::TooLarge.into());
         }

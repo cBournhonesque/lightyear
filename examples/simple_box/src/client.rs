@@ -4,15 +4,14 @@
 //! - sending inputs to the server
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 use bevy_mod_picking::picking_core::Pickable;
 use bevy_mod_picking::prelude::{Click, On, Pointer};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -46,9 +45,32 @@ impl Plugin for ExampleClientPlugin {
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
                 button_system,
+                send_message,
             ),
         );
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+    }
+}
+
+pub fn send_message(
+    connection: Res<ClientConnection>,
+    mut connection_manager: ResMut<ConnectionManager>,
+    input: Option<Res<ButtonInput<KeyCode>>>,
+) {
+    if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
+        let message = ChunkUpdate([[[0; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]);
+        println!("Sent chunk",);
+        for i in 0..20 {
+            // send chunks to server who will broadcast to all other clients
+            connection_manager
+                .send_message_to_target::<ChunkChannel, ChunkUpdate>(
+                    &message,
+                    NetworkTarget::AllExceptSingle(connection.client.id()),
+                )
+                .unwrap_or_else(|e| {
+                    error!("Failed to send message: {:?}", e);
+                });
+        }
     }
 }
 
@@ -147,9 +169,9 @@ fn player_movement(
 }
 
 /// System to receive messages on the client
-pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) {
+pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<ChunkUpdate>>) {
     for event in reader.read() {
-        info!("Received message: {:?}", event.message());
+        // info!("Received message: {:?}", event.message());
     }
 }
 
