@@ -131,6 +131,7 @@ async-channel = "2.2.0"
 steamworks = { version = "0.11", optional = true }
 # webtransport
 wtransport = { version = "=0.1.13", optional = true, features = [
+    "quinn",
     "self-signed",
     "dangerous-configuration",
 ] }
