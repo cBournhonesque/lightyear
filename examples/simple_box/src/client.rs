@@ -12,7 +12,6 @@ use bevy_mod_picking::picking_core::Pickable;
 use bevy_mod_picking::prelude::{Click, On, Pointer};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
-use std::time::{Instant, UNIX_EPOCH};
 
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -60,10 +59,7 @@ pub fn send_message(
 ) {
     if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
         let message = ChunkUpdate([[[0; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]);
-        println!(
-            "Sent chunk at {}",
-            UNIX_EPOCH.elapsed().unwrap().as_millis()
-        );
+        println!("Sent chunk",);
         for i in 0..20 {
             // send chunks to server who will broadcast to all other clients
             connection_manager
