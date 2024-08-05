@@ -61,6 +61,11 @@ pub const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
 pub(crate) const MTU: usize = 1472;
 
+/// Minimum MTU used by QUIC. Any packets bigger than this will error with TooLarge
+/// There is MTU Discovery to potentially allow bigger MTUs, and this is the minimum
+/// the discovery will start from.
+pub(crate) const MIN_MTU: usize = 1300;
+
 pub(crate) type BoxedSender = Box<dyn PacketSender + Send + Sync>;
 pub(crate) type BoxedReceiver = Box<dyn PacketReceiver + Send + Sync>;
 
