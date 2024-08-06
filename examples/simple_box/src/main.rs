@@ -35,7 +35,7 @@ fn main() {
         config.packet = PacketConfig::default()
             .enable_bandwidth_cap()
             // we can set the max bandwidth to 256 KB/s
-            .with_send_bandwidth_bytes_per_second_cap(256000*10);
+            .with_send_bandwidth_bytes_per_second_cap(40000000);
     });
     // add the `ClientPlugins` and `ServerPlugins` plugin groups
     apps.add_lightyear_plugins()
