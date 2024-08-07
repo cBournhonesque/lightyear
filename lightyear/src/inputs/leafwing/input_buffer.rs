@@ -136,7 +136,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
 
     /// Remove all the inputs that are older than the given tick, then return the input
     /// for the given tick
-    pub(crate) fn pop(&mut self, tick: Tick) -> Option<ActionState<T>> {
+    pub fn pop(&mut self, tick: Tick) -> Option<ActionState<T>> {
         let Some(start_tick) = self.start_tick else {
             return None;
         };
