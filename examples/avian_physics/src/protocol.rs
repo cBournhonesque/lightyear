@@ -10,7 +10,7 @@ use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::utils::avian2d::*;
 
-use crate::shared::color_from_id;
+use crate::shared::{color_from_id, CollisionLayer};
 
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;
@@ -97,6 +97,7 @@ impl BallBundle {
 pub(crate) struct PhysicsBundle {
     pub(crate) collider: Collider,
     pub(crate) collider_density: ColliderDensity,
+    pub(crate) collision_layers: CollisionLayers,
     pub(crate) rigid_body: RigidBody,
 }
 
@@ -105,6 +106,7 @@ impl PhysicsBundle {
         Self {
             collider: Collider::circle(BALL_SIZE),
             collider_density: ColliderDensity(0.05),
+            collision_layers: CollisionLayers::new(CollisionLayer::Ball, LayerMask::ALL),
             rigid_body: RigidBody::Dynamic,
         }
     }
@@ -113,6 +115,7 @@ impl PhysicsBundle {
         Self {
             collider: Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
             collider_density: ColliderDensity(0.2),
+            collision_layers: CollisionLayers::new(CollisionLayer::Player, LayerMask::ALL),
             rigid_body: RigidBody::Dynamic,
         }
     }
