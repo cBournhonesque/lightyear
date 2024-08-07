@@ -16,27 +16,17 @@ To solve this, `lightyear` provides the `VisualInterpolation` plugin.
 The plugin will take care of interpolating the position of the entity between the last two `FixedUpdate` ticks, thus making sure that 
 the entity is making smooth progress on every frame.
 
-There are 3 main ways we can interpolate the component:
-- #1: `lerp(previous_tick_value, current_tick_value, time.overstep_fraction())`: interpolate between the previous tick value and the current tick value.
-  - PROS: relatively simple to implement
-  - CONS:
-    - introduces a visual delay of 1 simulation tick
-    - need to store the previous and current value (so extra component clones)
-- #2: simulate an extra step during FixedUpdate to compute the `future_tick_value`, then interpolate between the `current_tick_value` and the `future_tick_value`
-  `lerp(current_tick_value, future_tick_value, time.overstep_fraction())`
-  - PROS: might be less accurate? (we simulate 1 tick ahead in the future, but maybe that simulation is incorrect because we ran it ahead of when it should have run)
-  - CONS:
-    - need to store the previous and current value (so extra component clones)
-- #3: do not interpolate, but instead run the simulation (FixedUpdate schedule) for one 'partial' tick, i.e. we use (time.overstep_fraction() * fixed_timestep) as the timestep for the simulation.
-  - PROS:
-    - no visual delay, 
-    - no need to store copies of the components 
-  - CONS: 
-    - we might run many extra simulation steps if we run an extra partial step in every frame
+## How Lightyear Does Visual Interpolation
 
-Currently lightyear only provides option 1: interpolate between the previous tick value and the current tick value.
+`lerp(previous_tick_value, current_tick_value, time.overstep_fraction())`
 
-## How does it work?
+Using the time overstep, it lerps between the current and previous value generated during `FixedUpdate` ticks in accordance with how much time has passed.
+
+This introduces a visual delay of 1 simulation tick, and involves storing the current and previous values in the `VisualInterpolationStatus` component.
+
+The interpolated values are written during `PostUpdate` (see below). The original / canonical value, which was typically set by the physics logic in `FixedUpdate`, is stored, to be written back to the component in `PreUpdate` on the next tick. This means the rendering code should "just work" without being aware interpolation is happening.
+
+### VisualInterpolationPlugin systems
 
 There are 3 main systems:
 - during FixedUpdate, we run `update_visual_interpolation_status` after the `FixedUpdate::Main` set (meaning that the simulation has run).
@@ -48,7 +38,7 @@ There are 3 main systems:
   the interpolated value is not the "real" value of the component for the simulation, it's just a visual representation of the component. We need to restore the real value
   before the simulation runs again.
 
-Here is an example:
+#### Example
 - you have a component that gets incremented by 1.0 at every fixed update step (and starts at 0.0)
 - the fixed-update step takes 9ms, and the frame takes 12ms
 
@@ -92,14 +82,66 @@ So overall the component value progresses by 1.33 every frame, which is what we 
 Visual interpolation is currently only available per component, and you need to enable it by adding a plugin:
 
 ```rust,noplayground
-app.add_plugins(VisualInterpolationPlugin::<Component1, MyProtocol>::default());
+app.add_plugins(VisualInterpolationPlugin::<Position>::default());
 ```
 
 You will also need to add the `VisualInterpolateState` component to any entity you want to enable visual interpolation for:
 ```rust,noplayground
 fn spawn_entity(mut commands: Commands) {
-    commands.spawn().insert(VisualInterpolateState::<Component1>::default());
+    commands.spawn().insert(VisualInterpolateState::<Position>::default());
 }
+```
+
+## Usage with Avian Physics and FixedUpdate
+
+Here's how you might enable Visual Interpolation for Avian's `Position` and `Rotation`:
+
+```rust,noplayground
+app.add_plugins(VisualInterpolationPlugin::<Position>::default());
+app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
+
+app.observe(add_visual_interpolation_components::<Position>);
+app.observe(add_visual_interpolation_components::<Rotation>);
+
+// ...
+
+fn add_visual_interpolation_components<T: Component>(
+    trigger: Trigger<OnAdd, T>,
+    q: Query<&RigidBody, With<T>>,
+    mut commands: Commands,
+) {
+    let Ok(rigid_body) = q.get(trigger.entity()) else {
+        return;
+    };
+    // No need to interp static bodies
+    if matches!(rigid_body, RigidBody::Static) {
+        return;
+    }
+    // triggering change detection necessary for SyncPlugin to work
+    commands
+        .entity(trigger.entity())
+        .insert(VisualInterpolateStatus::<T> {
+            trigger_change_detection: true,
+            ..default()
+        });
+}
+```
+
+If you draw your entities with gizmos based on their `Position` and `Rotation` components, this is all you need.
+
+However, if you have meshes, sprites, or anything that depends on `Transform` (as is the norm), you need to ensure that changes made by the visual interpolation systems are synched to the transforms.
+
+Avian's `SyncPlugin` does this for you, but **beware if you use FixedUpdate**, you need to run the `SyncPlugin` in `PostUpdate`, otherwise you won't be syncing changes correctly. Visual interp happens in `PostUpdate`, even if physics runs in `FixedUpdate`.
+
+```rust,noplayground
+// Run physics in FixedUpdate, but run the SyncPlugin in PostUpdate
+app
+  .add_plugins(
+    PhysicsPlugins::new(FixedUpdate)
+      .build()
+      .disable::<SyncPlugin>(),
+  )
+  .add_plugins(SyncPlugin::new(PostUpdate));
 ```
 
 ## Caveats
