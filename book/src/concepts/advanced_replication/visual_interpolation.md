@@ -16,15 +16,48 @@ To solve this, `lightyear` provides the `VisualInterpolation` plugin.
 The plugin will take care of interpolating the position of the entity between the last two `FixedUpdate` ticks, thus making sure that 
 the entity is making smooth progress on every frame.
 
-## How Lightyear Does Visual Interpolation
+## Three Approaches to Visual Interpolation
+
+### How Lightyear Does it
 
 `lerp(previous_tick_value, current_tick_value, time.overstep_fraction())`
 
 Using the time overstep, it lerps between the current and previous value generated during `FixedUpdate` ticks in accordance with how much time has passed.
 
-This introduces a visual delay of 1 simulation tick, and involves storing the current and previous values in the `VisualInterpolationStatus` component.
-
 The interpolated values are written during `PostUpdate` (see below). The original / canonical value, which was typically set by the physics logic in `FixedUpdate`, is stored, to be written back to the component in `PreUpdate` on the next tick. This means the rendering code should "just work" without being aware interpolation is happening.
+
+**PROS:**
+- relatively simple to implement
+
+**CONS:** 
+- introduces a visual delay of 1 simulation tick
+- need to store the previous and current value (so extra component clones)
+
+
+### Alternative A
+
+`lerp(current_tick_value, future_tick_value, time.overstep_fraction())`
+
+Simulate an extra step during FixedUpdate to compute the `future_tick_value`, then interpolate between the `current_tick_value` and the `future_tick_value`
+
+**PROS:**
+- simulation completely up-to-date, and accurate (if we have inputs for the future tick)
+
+**CONS:** 
+- could be less accurate in some cases (inputs didn't arrive in time)
+- need to store the previous and current value (so extra component clones)
+
+### Alternative B
+
+Do not interpolate, but instead run the simulation (FixedUpdate schedule) for one 'partial' tick, i.e. we use (time.overstep_fraction() * fixed_timestep) as the timestep for the simulation. 
+
+**PROS:**
+- no visual delay
+- no need to store copies of the components
+
+**CONS:** 
+- we might run many extra simulation steps if we run an extra partial step in every frame
+
 
 ### VisualInterpolationPlugin systems
 
@@ -143,6 +176,12 @@ app
   )
   .add_plugins(SyncPlugin::new(PostUpdate));
 ```
+
+Be aware that moving the `SyncPlugin` to `PostUpdate` could cause issues if you rely on modifying `Transforms` during `FixedUpdate` – they will no longer be synced back to the Avian components during `FixedUpdate`.  If you manipulate physics objects by changing the Avian components directly, it should be fine.
+
+### Avian's SyncConfig
+
+Using Avian's [SyncConfig](https://docs.rs/avian2d/latest/avian2d/sync/struct.SyncConfig.html) you can control how position and transform are synced. You might wish to disable `transform_to_position`, depending on how you game is built.
 
 ## Caveats
 
