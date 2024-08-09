@@ -365,6 +365,7 @@ fn on_connect_host_server(
     netcode: Res<ClientConnection>,
     mut metadata: ResMut<HostServerMetadata>,
     mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
+    mut connect_event_writer: EventWriter<ConnectEvent>,
 ) {
     // spawn an entity for the client
     let client_entity = commands.spawn(ControlledEntities::default()).id();
