@@ -12,6 +12,10 @@ pub mod bevy;
 #[cfg(feature = "avian2d")]
 pub mod avian2d;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "avian3d")))]
+#[cfg(feature = "avian3d")]
+pub mod avian3d;
+
 pub(crate) mod captures;
 pub(crate) mod pool;
 pub mod wrapping_id;

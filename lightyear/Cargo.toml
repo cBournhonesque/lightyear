@@ -33,6 +33,7 @@ webtransport = [
 ]
 leafwing = ["dep:leafwing-input-manager"]
 avian2d = ["dep:avian2d"]
+avian3d = ["dep:avian3d", "avian3d/3d"]
 websocket = [
     "dep:tokio-tungstenite",
     "dep:futures-util",
@@ -67,6 +68,7 @@ leafwing-input-manager = { version = "0.14", optional = true }
 
 # physics
 avian2d = { version = "0.1.1", optional = true, default-features = false }
+avian3d = { version = "0.1.1", optional = true, default-features = false }
 
 # serialization
 bincode = { version = "2.0.0-rc.3", features = ["serde"] }
@@ -186,7 +188,8 @@ approx = "0.5.1"
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
-# we cannot use all-features = true, because we need to provide additional features for bevy_xpbd_2d
+# we cannot use all-features = true, because we need to provide additional features for avian
 # when building the docs
+# NOTE: building docs.rs doesn't work if I include avian
 features = ["metrics", "webtransport", "leafwing", "websocket", "steam", "zstd"]
 rustdoc-args = ["--cfg", "docsrs"]
