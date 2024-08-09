@@ -375,6 +375,9 @@ fn on_connect_host_server(
         .unwrap()
         .set_local_client();
     metadata.client_entity = Some(client_entity);
+    connect_event_writer.send(ConnectEvent::new(netcode.id()));
+    // also trigger the event
+    commands.trigger(ConnectEvent::new(netcode.id()));
 }
 
 /// System that runs when we enter the Disconnected state
