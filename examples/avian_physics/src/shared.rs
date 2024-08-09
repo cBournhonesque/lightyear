@@ -1,3 +1,4 @@
+use avian2d::dynamics::solver::SolverConfig;
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::diagnostic::LogDiagnosticsPlugin;
@@ -71,8 +72,14 @@ impl Plugin for SharedPlugin {
         app.add_plugins(
             PhysicsPlugins::new(FixedUpdate)
                 .build()
+                .disable::<SleepingPlugin>()
                 .disable::<ColliderHierarchyPlugin>(),
         )
+        .insert_resource(SubstepCount(12))
+        .insert_resource(SolverConfig {
+            warm_start_coefficient: 0.0,
+            ..default()
+        })
         .insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)))
         .insert_resource(Gravity(Vec2::ZERO));
         app.configure_sets(
