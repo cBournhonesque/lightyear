@@ -188,7 +188,8 @@ approx = "0.5.1"
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
-# we cannot use all-features = true, because we need to provide additional features for bevy_xpbd_2d
+# we cannot use all-features = true, because we need to provide additional features for avian
 # when building the docs
+# NOTE: building docs.rs doesn't work if I include avian
 features = ["metrics", "webtransport", "leafwing", "websocket", "steam", "zstd"]
 rustdoc-args = ["--cfg", "docsrs"]
