@@ -539,3 +539,32 @@ mod utils {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use bevy::prelude::*;
+
+    use crate::{prelude::server::*, tests::host_server_stepper::HostServerStepper};
+
+    #[derive(Resource, Default)]
+    struct ConnectCheck(usize);
+
+    fn receive_connect_event(mut reader: EventReader<ConnectEvent>, mut res: ResMut<ConnectCheck>) {
+        for event in reader.read() {
+            res.0 += 1;
+        }
+    }
+
+    #[test]
+    fn test_host_server_connect_event() {
+        let mut stepper = HostServerStepper::default();
+
+        stepper
+            .server_app
+            .init_resource::<ConnectCheck>()
+            .add_systems(Update, receive_connect_event);
+        stepper.init();
+        assert_eq!(stepper.server_app.world().resource::<ConnectCheck>().0, 1);
+    }
+}
