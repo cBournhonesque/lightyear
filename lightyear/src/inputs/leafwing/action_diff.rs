@@ -1,9 +1,9 @@
 use crate::prelude::{Deserialize, LeafwingUserAction, Serialize};
 use bevy::math::Vec2;
 use bevy::prelude::Reflect;
-use leafwing_input_manager::action_state::ActionState;
-use leafwing_input_manager::axislike::DualAxisData;
+use leafwing_input_manager::action_state::{ActionKindData, ActionState};
 
+// TODO: can reuse the ActionDiff from leafwing_input_manager?
 /// Stores presses and releases of buttons without timing information
 ///
 /// Used to serialize the difference between two `ActionState` in order to send less data
@@ -23,7 +23,7 @@ pub enum ActionDiff<A> {
         action: A,
     },
     /// The value of the action changed
-    ValueChanged {
+    AxisChanged {
         /// The value of the action
         action: A,
         /// The new value of the action
@@ -43,70 +43,83 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
     /// Used to have a smaller serialized size when sending inputs over the network
     pub(crate) fn create(before: &ActionState<A>, after: &ActionState<A>) -> Vec<Self> {
         let mut diffs = vec![];
-        for action in after.keys().iter() {
-            let action_data_after = after.action_data(action);
-            if let Some(action_data_after) = action_data_after {
-                let action_data_before = before.action_data(action);
-                // TODO: handle 'consume'? handle 'timing'?
-                if let Some(action_data_before) = action_data_before {
-                    if let Some(axis_pair_after) = action_data_after.axis_pair {
-                        if let Some(axis_pair_before) = action_data_before.axis_pair {
-                            if axis_pair_after != axis_pair_before {
-                                diffs.push(ActionDiff::AxisPairChanged {
-                                    action: action.clone(),
-                                    axis_pair: axis_pair_after.into(),
-                                });
-                            }
-                        } else {
-                            diffs.push(ActionDiff::AxisPairChanged {
+        for (action, action_data_after) in after.all_action_data() {
+            // no need to network disabled actions. Or should we network the default value?
+            if action_data_after.disabled {
+                continue;
+            }
+            if let Some(action_data_before) = before.action_data(action) {
+                // TODO: handle disabled?
+                match &action_data_after.kind_data {
+                    ActionKindData::Button(button_data_after) => {
+                        let button_data_before = match &action_data_before.kind_data {
+                            ActionKindData::Button(button_data_before) => button_data_before,
+                            _ => unreachable!(),
+                        };
+                        if button_data_after.state.pressed() && !button_data_before.state.pressed()
+                        {
+                            diffs.push(ActionDiff::Pressed {
                                 action: action.clone(),
-                                axis_pair: axis_pair_after.into(),
+                            });
+                        } else if !button_data_after.state.pressed()
+                            && button_data_before.state.pressed()
+                        {
+                            diffs.push(ActionDiff::Released {
+                                action: action.clone(),
                             });
                         }
-                    } else if action_data_after.value != 1.0
-                        && action_data_after.value != 0.0
-                        && action_data_before.value != action_data_after.value
-                    {
-                        diffs.push(ActionDiff::ValueChanged {
-                            action: action.clone(),
-                            value: action_data_after.value,
-                        });
-                    } else if action_data_after.state.pressed()
-                        && !action_data_before.state.pressed()
-                    {
-                        diffs.push(ActionDiff::Pressed {
-                            action: action.clone(),
-                        });
-                    } else if !action_data_after.state.pressed()
-                        && action_data_before.state.pressed()
-                    {
-                        diffs.push(ActionDiff::Released {
-                            action: action.clone(),
-                        });
                     }
-                } else {
-                    if let Some(axis_pair_after) = action_data_after.axis_pair {
-                        diffs.push(ActionDiff::AxisPairChanged {
-                            action: action.clone(),
-                            axis_pair: axis_pair_after.into(),
-                        });
-                    } else if action_data_after.value != 1.0 {
-                        diffs.push(ActionDiff::ValueChanged {
-                            action: action.clone(),
-                            value: action_data_after.value,
-                        });
-                    } else if action_data_after.state.pressed() {
-                        diffs.push(ActionDiff::Pressed {
-                            action: action.clone(),
-                        });
-                    } else if !action_data_after.state.pressed() {
-                        diffs.push(ActionDiff::Released {
-                            action: action.clone(),
-                        });
+                    ActionKindData::Axis(axis_data_after) => {
+                        let axis_data_before = match &action_data_before.kind_data {
+                            ActionKindData::Axis(axis_data_before) => axis_data_before,
+                            _ => unreachable!(),
+                        };
+                        if axis_data_after.value != axis_data_before.value {
+                            diffs.push(ActionDiff::AxisChanged {
+                                action: action.clone(),
+                                value: axis_data_after.value,
+                            });
+                        }
+                    }
+                    ActionKindData::DualAxis(dual_axis_after) => {
+                        let dual_axis_before = match &action_data_before.kind_data {
+                            ActionKindData::DualAxis(dual_axis_before) => dual_axis_before,
+                            _ => unreachable!(),
+                        };
+                        if dual_axis_after.pair != dual_axis_before.pair {
+                            diffs.push(ActionDiff::AxisPairChanged {
+                                action: action.clone(),
+                                axis_pair: dual_axis_after.pair,
+                            });
+                        }
                     }
                 }
             } else {
-                unreachable!("ActionData_after should have been initialized");
+                match &action_data_after.kind_data {
+                    ActionKindData::Button(button) => {
+                        if button.pressed() {
+                            diffs.push(ActionDiff::Pressed {
+                                action: action.clone(),
+                            });
+                        } else {
+                            diffs.push(ActionDiff::Released {
+                                action: action.clone(),
+                            });
+                        }
+                    }
+                    ActionKindData::Axis(axis) => {
+                        diffs.push(ActionDiff::AxisChanged {
+                            action: action.clone(),
+                            value: axis.value,
+                        });
+                    }
+                    ActionKindData::DualAxis(dual_axis) => {
+                        diffs.push(ActionDiff::AxisPairChanged {
+                            action: action.clone(),
+                            axis_pair: dual_axis.pair,
+                        });
+                    }
+                }
             }
         }
         diffs
@@ -119,27 +132,15 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
         match self {
             ActionDiff::Pressed { action } => {
                 action_state.press(&action);
-                // Pressing will initialize the ActionData if it doesn't exist
-                action_state.action_data_mut(&action).unwrap().value = 1.0;
             }
             ActionDiff::Released { action } => {
                 action_state.release(&action);
-                // Releasing will initialize the ActionData if it doesn't exist
-                let action_data = action_state.action_data_mut(&action).unwrap();
-                action_data.value = 0.;
-                action_data.axis_pair = None;
             }
-            ActionDiff::ValueChanged { action, value } => {
-                action_state.press(&action);
-                // Pressing will initialize the ActionData if it doesn't exist
-                action_state.action_data_mut(&action).unwrap().value = value;
+            ActionDiff::AxisChanged { action, value } => {
+                action_state.axis_data_mut_or_default(&action).value = value;
             }
             ActionDiff::AxisPairChanged { action, axis_pair } => {
-                action_state.press(&action);
-                // Pressing will initialize the ActionData if it doesn't exist
-                let action_data = action_state.action_data_mut(&action).unwrap();
-                action_data.axis_pair = Some(DualAxisData::from_xy(axis_pair));
-                action_data.value = axis_pair.length();
+                action_state.set_axis_pair(&action, axis_pair);
             }
         };
     }

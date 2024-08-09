@@ -271,10 +271,8 @@ mod tests {
 
         let mut a1 = ActionState::default();
         a1.press(&Action::Jump);
-        a1.action_data_mut(&Action::Jump).unwrap().value = 0.0;
         let mut a2 = ActionState::default();
         a2.press(&Action::Jump);
-        a1.action_data_mut(&Action::Jump).unwrap().value = 1.0;
         input_buffer.set(Tick(3), &a1);
         input_buffer.set(Tick(6), &a2);
         input_buffer.set(Tick(7), &a2);
