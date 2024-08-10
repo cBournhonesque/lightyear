@@ -501,10 +501,8 @@ pub(crate) mod send {
     /// Send component remove
     pub(crate) fn send_component_removed<C: Component>(
         trigger: Trigger<OnRemove, C>,
-        // TODO: despawn/respawn the observers if we are not connected/ready to send?
-        // need to use options because this system could get triggered when those resources don't exist
-        registry: Option<Res<ComponentRegistry>>,
-        sender: Option<ResMut<ConnectionManager>>,
+        registry: Res<ComponentRegistry>,
+        mut sender: ResMut<ConnectionManager>,
         // only remove the component for entities that are being actively replicated
         query: Query<
             (&ReplicationGroup, Has<DisabledComponent<C>>),
@@ -519,14 +517,10 @@ pub(crate) mod send {
             }
             let group_id = group.group_id(Some(entity));
             trace!(?entity, kind = ?std::any::type_name::<C>(), "Sending RemoveComponent");
-            if let Some(registry) = registry {
-                if let Some(mut sender) = sender {
-                    let kind = registry.net_id::<C>();
-                    sender
-                        .replication_sender
-                        .prepare_component_remove(entity, group_id, kind);
-                }
-            }
+            let kind = registry.net_id::<C>();
+            sender
+                .replication_sender
+                .prepare_component_remove(entity, group_id, kind);
         }
     }
 

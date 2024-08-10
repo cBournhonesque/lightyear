@@ -379,7 +379,8 @@ mod tests {
         // despawn the entity on the client
         stepper.client_app.world_mut().despawn(client_entity);
         // as described in https://github.com/cBournhonesque/lightyear/issues/546,
-        // when the observer is triggered the `ConnectionManager` is not available
+        // when the observer is triggered the `ConnectionManager` is not available if we use
+        // world.resource_scope during `receive`, so the function panics
         for _ in 0..10 {
             stepper.frame_step();
         }

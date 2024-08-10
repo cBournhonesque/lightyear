@@ -1,7 +1,6 @@
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
-use bevy::ecs::system::EntityCommands;
-use bevy::prelude::{App, Component, EntityWorldMut, Mut, Resource, TypePath, World};
+use bevy::prelude::{App, Commands, Component, Entity, Mut, Resource, TypePath, World};
 use bevy::ptr::Ptr;
 use bevy::utils::HashMap;
 use serde::de::DeserializeOwned;
@@ -19,13 +18,12 @@ use crate::client::interpolation::{add_interpolation_systems, add_prepare_interp
 use crate::client::prediction::plugin::add_prediction_systems;
 use crate::prelude::client::SyncComponent;
 use crate::prelude::server::ServerConfig;
-use crate::prelude::{ChannelDirection, Message, Tick};
+use crate::prelude::{ChannelDirection, ClientId, Message, Tick};
 use crate::protocol::delta::ErasedDeltaFns;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::serialize::reader::Reader;
 use crate::serialize::SerializationError;
-use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::delta::{DeltaMessage, Diffable};
 use crate::shared::replication::entity_map::EntityMap;
 
@@ -186,15 +184,16 @@ pub struct InterpolationMetadata {
     pub interpolation: Option<unsafe fn()>,
 }
 
-type RawRemoveFn = fn(&ComponentRegistry, &mut EntityCommands);
+type RawRemoveFn = fn(&ComponentRegistry, &mut Commands, Entity);
 type RawWriteFn = fn(
     &ComponentRegistry,
     &mut Reader,
     ComponentNetId,
     Tick,
-    &mut EntityCommands,
+    &mut Commands,
+    Entity,
     &mut EntityMap,
-    &mut ConnectionEvents,
+    Option<ClientId>,
 ) -> Result<(), ComponentError>;
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
@@ -531,25 +530,14 @@ mod interpolation {
 
 mod replication {
     use super::*;
-    use crate::prelude::{ClientId, DeltaCompression, DisabledComponent, OverrideTargetComponent, ReplicateOnceComponent};
+    use crate::prelude::{
+        ClientId, DeltaCompression, DisabledComponent, OverrideTargetComponent,
+        ReplicateOnceComponent,
+    };
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
-    use bevy::ecs::system::EntityCommands;
+    use crate::shared::replication::receive::get_connection_events;
     use bevy::prelude::{Commands, Entity};
-    use crate::client::connection::ConnectionManager;
-
-    /// Get `ConnectionEvents` depending on whether we receive from a client or a server
-    fn get_events(world: &mut World, remote_id: Option<ClientId>) -> &mut ConnectionEvents {
-        // SAFETY: the ConnectionEvents resource is always present
-        let events = remote_id.map_or(
-            &mut world.get_mut::<ConnectionManager>().unwrap(),
-            |id| &mut world.get_mut::<ConnectionEvents>().unwrap().for_client(id),
-        );
-        events
-
-    }
-    let events = remote_id.map_or(
-    &mut world.get_mut::<ConnectionManager>().unwrap(), |id| &mut world.get_mut::<ConnectionEvents>().unwrap().for_client(id));
 
     impl ComponentRegistry {
         pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self, world: &mut World) {
@@ -608,20 +596,21 @@ mod replication {
             let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
 
             commands.add(move |world: &mut World| {
-
-
-
-
+                let Some(mut entity_world_mut) = world.get_entity_mut(entity) else {
+                    return;
+                };
                 // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
                 if let Some(mut c) = entity_world_mut.get_mut::<C>() {
                     // only apply the update if the component is different, to not trigger change detection
                     if c.as_ref() != &component {
-                        events.push_update_component(entity, net_id, tick);
                         *c = component;
+                        get_connection_events(world, remote_id)
+                            .push_update_component(entity, net_id, tick);
                     }
                 } else {
-                    events.push_insert_component(entity, net_id, tick);
                     entity_world_mut.insert(component);
+                    get_connection_events(world, remote_id)
+                        .push_insert_component(entity, net_id, tick);
                 }
             });
             Ok(())
@@ -630,7 +619,8 @@ mod replication {
         pub(crate) fn raw_remove(
             &self,
             net_id: ComponentNetId,
-            entity_commands: &mut EntityCommands,
+            commands: &mut Commands,
+            entity: Entity,
         ) {
             let kind = self.kind_map.kind(net_id).expect("unknown component kind");
             let replication_metadata = self
@@ -640,11 +630,11 @@ mod replication {
             let f = replication_metadata
                 .remove
                 .expect("the component does not have a remove function");
-            f(self, entity_commands);
+            f(self, commands, entity);
         }
 
-        pub(crate) fn remove<C: Component>(&self, entity_commands: &mut EntityCommands) {
-            entity_commands.remove::<C>();
+        pub(crate) fn remove<C: Component>(&self, commands: &mut Commands, entity: Entity) {
+            commands.entity(entity).remove::<C>();
         }
     }
 }
@@ -655,6 +645,7 @@ mod delta {
     use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
 
     use crate::serialize::writer::Writer;
+    use crate::shared::replication::receive::get_connection_events;
     use std::ptr::NonNull;
 
     impl ComponentRegistry {
@@ -762,9 +753,10 @@ mod delta {
             reader: &mut Reader,
             net_id: ComponentNetId,
             tick: Tick,
-            entity_commands: &mut EntityCommands,
+            commands: &mut Commands,
+            entity: Entity,
             entity_map: &mut EntityMap,
-            events: &mut ConnectionEvents,
+            remote_id: Option<ClientId>,
         ) -> Result<(), ComponentError> {
             trace!(
                 "Writing component delta {} to entity",
@@ -774,8 +766,12 @@ mod delta {
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
-            entity_commands.add(|mut entity_world_mut: EntityWorldMut| {
-                let entity = entity_world_mut.id();
+            commands.add(move |world: &mut World| {
+                let Some(mut entity_world_mut) = world.get_entity_mut(entity) else {
+                    return
+                };
+                let mut is_update = false;
+                let mut is_insert = false;
                 match delta.delta_type {
                     DeltaType::Normal { previous_tick } => {
                         let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
@@ -816,6 +812,8 @@ mod delta {
                             // ));
                         };
                         *c = new_value;
+                        is_update = true;
+                        let events = get_connection_events(world, remote_id);
                         events.push_update_component(entity, net_id, tick);
                     }
                     DeltaType::FromBase => {
@@ -826,11 +824,11 @@ mod delta {
                             // only apply the update if the component is different, to not trigger change detection
                             if c.as_ref() != &new_value {
                                 *c = new_value;
-                                events.push_update_component(entity, net_id, tick);
+                                is_update = true;
                             }
                         } else {
                             entity_world_mut.insert(new_value);
-                            events.push_insert_component(entity, net_id, tick);
+                            is_insert = true;
                         }
                         // store the component value in the delta component history, so that we can compute
                         // diffs from it
@@ -845,6 +843,12 @@ mod delta {
                             entity_world_mut.insert(history);
                         }
                     }
+                }
+                let events = get_connection_events(world, remote_id);
+                if is_update {
+                    events.push_update_component(entity, net_id, tick);
+                } else if is_insert {
+                    events.push_insert_component(entity, net_id, tick);
                 }
             });
             Ok(())
