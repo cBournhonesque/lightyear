@@ -14,7 +14,7 @@ Lightyear does the following things for you:
 
 There are several steps to use the `InputPlugin`:
 - you need to buffer inputs for each tick. This is done by calling [`add_input`](crate::prelude::client::InputManager::add_input) in a system.
-That system must run in the [`BufferI
+  That system must run in the [`BufferI
 
 
 */

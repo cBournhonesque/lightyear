@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
+use lightyear::client::input::native::InputSystemSet;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 

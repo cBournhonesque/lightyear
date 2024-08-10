@@ -142,7 +142,7 @@ pub(crate) mod send {
     /// The bundle is composed of several components:
     /// - [`ReplicateToServer`] to specify if the entity should be replicated to the server or not
     /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
-    /// will be sent together in the same message.
+    ///   will be sent together in the same message.
     /// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
     #[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
     pub struct Replicate {

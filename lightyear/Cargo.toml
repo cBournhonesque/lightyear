@@ -17,29 +17,29 @@ exclude = ["/tests"]
 big_messages = []
 trace = []
 metrics = [
-    "dep:metrics",
-    "metrics-util",
-    "metrics-tracing-context",
-    "metrics-exporter-prometheus",
+  "dep:metrics",
+  "metrics-util",
+  "metrics-tracing-context",
+  "metrics-exporter-prometheus",
 ]
 mock_time = ["dep:mock_instant"]
 webtransport = [
-    "dep:wtransport",
-    "dep:xwt-core",
-    "dep:xwt-web-sys",
-    "dep:web-sys",
-    "dep:ring",
-    "dep:wasm-bindgen-futures",
+  "dep:wtransport",
+  "dep:xwt-core",
+  "dep:xwt-web-sys",
+  "dep:web-sys",
+  "dep:ring",
+  "dep:wasm-bindgen-futures",
 ]
 leafwing = ["dep:leafwing-input-manager"]
 avian2d = ["dep:avian2d"]
 avian3d = ["dep:avian3d", "avian3d/3d"]
 websocket = [
-    "dep:tokio-tungstenite",
-    "dep:futures-util",
-    "dep:web-sys",
-    "dep:wasm-bindgen",
-    "dep:wasm-bindgen-futures",
+  "dep:tokio-tungstenite",
+  "dep:futures-util",
+  "dep:web-sys",
+  "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
 ]
 steam = ["dep:steamworks"]
 
@@ -64,7 +64,7 @@ thiserror = "1.0.50"
 seahash = "4.1.0"
 
 # input
-leafwing-input-manager = { version = "0.14", optional = true }
+leafwing-input-manager = { version = "0.15", optional = true }
 
 # physics
 avian2d = { version = "0.1.1", optional = true, default-features = false }
@@ -87,8 +87,8 @@ lightyear_macros = { version = "0.16.4", path = "../macros" }
 tracing = "0.1.40"
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.17", features = [
-    "registry",
-    "env-filter",
+  "registry",
+  "env-filter",
 ] }
 
 # server
@@ -99,19 +99,19 @@ metrics = { version = "0.23", optional = true }
 metrics-util = { version = "0.15", optional = true }
 metrics-tracing-context = { version = "0.15", optional = true }
 metrics-exporter-prometheus = { version = "0.15.1", optional = true, default-features = false, features = [
-    "http-listener",
+  "http-listener",
 ] }
 
 # bevy
 bevy = { version = "0.14", default-features = false, features = [
-    "multi_threaded",
-    "bevy_state",
-    "serialize",
+  "multi_threaded",
+  "bevy_state",
+  "serialize",
 ] }
 
 # compression
 lz4_flex = { version = "0.11", optional = true, default-features = false, features = [
-    "std",
+  "std",
 ] }
 
 # WebSocket
@@ -120,8 +120,8 @@ futures-util = { version = "0.3.30", optional = true }
 # transport
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.36", features = [
-    "sync",
-    "macros",
+  "sync",
+  "macros",
 ], default-features = false }
 futures = "0.3.30"
 async-compat = "0.2.3"
@@ -133,14 +133,14 @@ async-channel = "2.2.0"
 steamworks = { version = "0.11", optional = true }
 # webtransport
 wtransport = { version = "=0.1.13", optional = true, features = [
-    "quinn",
-    "self-signed",
-    "dangerous-configuration",
+  "quinn",
+  "self-signed",
+  "dangerous-configuration",
 ] }
 # websocket
 tokio-tungstenite = { version = "0.23.0", optional = true, features = [
-    "connect",
-    "handshake",
+  "connect",
+  "handshake",
 ] }
 # compression
 zstd = { version = "0.13.1", optional = true }
@@ -149,26 +149,26 @@ zstd = { version = "0.13.1", optional = true }
 console_error_panic_hook = { version = "0.1.7" }
 ring = { version = "0.17.8", optional = true, default-features = false }
 web-sys = { version = "0.3", optional = true, features = [
-    "Document",
-    "WebTransport",
-    "WebTransportHash",
-    "WebTransportOptions",
-    "WebTransportBidirectionalStream",
-    "WebTransportSendStream",
-    "WebTransportReceiveStream",
-    "ReadableStreamDefaultReader",
-    "WritableStreamDefaultWriter",
-    "WebTransportDatagramDuplexStream",
-    "WebSocket",
-    "CloseEvent",
-    "ErrorEvent",
-    "MessageEvent",
-    "BinaryType",
+  "Document",
+  "WebTransport",
+  "WebTransportHash",
+  "WebTransportOptions",
+  "WebTransportBidirectionalStream",
+  "WebTransportSendStream",
+  "WebTransportReceiveStream",
+  "ReadableStreamDefaultReader",
+  "WritableStreamDefaultWriter",
+  "WebTransportDatagramDuplexStream",
+  "WebSocket",
+  "CloseEvent",
+  "ErrorEvent",
+  "MessageEvent",
+  "BinaryType",
 ] }
 bevy_web_keepalive = "0.3"
 futures-lite = { version = "2.1.0", optional = true }
 getrandom = { version = "0.2.11", features = [
-    "js", # feature 'js' is required for wasm
+  "js", # feature 'js' is required for wasm
 ] }
 xwt-core = { version = "0.4", optional = true }
 xwt-web-sys = { version = "0.11", optional = true }

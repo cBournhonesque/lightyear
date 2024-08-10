@@ -17,7 +17,7 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
 lightyear_examples_common = { path = "../common" }
-leafwing-input-manager = "0.14"
+leafwing-input-manager = "0.15"
 lightyear = { path = "../../lightyear", features = [
   "webtransport",
   "websocket",

@@ -184,7 +184,7 @@ impl ReplicationSender {
     /// If we got notified that an update got send (included in a packet):
     /// - we reset the accumulated priority to 0.0 for all replication groups included in the message
     /// - we update the replication groups' send_tick
-    /// Then we accumulate the priority for all replication groups.
+    ///   Then we accumulate the priority for all replication groups.
     ///
     /// This should be call after the Send SystemSet.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]

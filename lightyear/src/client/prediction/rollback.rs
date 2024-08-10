@@ -10,7 +10,7 @@ use bevy::prelude::{
 };
 use bevy::reflect::Reflect;
 use parking_lot::RwLock;
-use tracing::{debug, error, trace, trace_span};
+use tracing::{debug, error, info, trace, trace_span};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
@@ -192,7 +192,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 }),
             };
             if should_rollback {
-                debug!(
+                info!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, current_tick
@@ -777,7 +777,7 @@ mod integration_tests {
     /// Test that:
     /// - we remove a component from the predicted entity
     /// - rolling back before the remove should re-add it
-    /// We are still able to rollback properly (the rollback adds the component to the predicted entity)
+    ///   We are still able to rollback properly (the rollback adds the component to the predicted entity)
     #[test]
     fn test_removed_predicted_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();

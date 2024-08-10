@@ -84,7 +84,7 @@ impl Default for PredictionConfig {
     /// - `minimum_input_delay_ticks`: no minimum input delay
     /// - `minimum_input_delay_before_prediction`: 3 ticks (or about 50ms at 60Hz), cover 50ms of latency with input delay
     /// - `maximum_predicted_ticks`: 7 ticks (or about 100ms at 60Hz), cover the next 100ms of latency with prediction
-    /// (the rest will be covered by more input delay)
+    ///   (the rest will be covered by more input delay)
     fn default() -> Self {
         Self {
             always_rollback: false,

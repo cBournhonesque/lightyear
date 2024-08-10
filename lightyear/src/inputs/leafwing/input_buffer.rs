@@ -1,3 +1,4 @@
+use bevy::utils::Instant;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 
@@ -224,6 +225,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
     /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs
     /// included in the message.
     /// TODO: disallow overwriting inputs for ticks we've already received inputs for?
+    ///
     pub(crate) fn update_from_message(
         &mut self,
         end_tick: Tick,
@@ -235,12 +237,21 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
 
         let mut value = start_value.clone();
         for (delta, diffs_for_tick) in diffs.iter().enumerate() {
+            // TODO: there's an issue; we use the diffs to set future ticks after the start value, but those values
+            //  have not been ticked correctly! As a workaround, we tick them manually so that JustPressed becomes Pressed,
+            //  but it will NOT work for timing-related features
+            value.tick(Instant::now(), Instant::now());
             let tick = start_tick + Tick(1 + delta as u16);
             for diff in diffs_for_tick {
                 // TODO: also handle timings!
                 diff.apply(&mut value);
             }
             self.set(tick, &value);
+            trace!(
+                "updated from input-message tick: {:?}, value: {:?}",
+                tick,
+                value
+            );
         }
     }
 
@@ -271,10 +282,8 @@ mod tests {
 
         let mut a1 = ActionState::default();
         a1.press(&Action::Jump);
-        a1.action_data_mut(&Action::Jump).unwrap().value = 0.0;
         let mut a2 = ActionState::default();
         a2.press(&Action::Jump);
-        a1.action_data_mut(&Action::Jump).unwrap().value = 1.0;
         input_buffer.set(Tick(3), &a1);
         input_buffer.set(Tick(6), &a2);
         input_buffer.set(Tick(7), &a2);

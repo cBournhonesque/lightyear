@@ -200,9 +200,9 @@ pub(crate) mod send {
     /// - [`SyncTarget`] to specify which clients should predict/interpolate the entity
     /// - [`ControlledBy`] to specify which client controls the entity
     /// - [`NetworkRelevanceMode`] to specify if we should replicate the entity to all clients in the
-    /// replication target, or if we should apply interest management logic to determine which clients
+    ///   replication target, or if we should apply interest management logic to determine which clients
     /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
-    /// will be sent together in the same message.
+    ///   will be sent together in the same message.
     /// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
     ///
     /// Some of the components can be updated at runtime even after the entity has been replicated.
@@ -743,7 +743,7 @@ pub(crate) mod send {
     /// Updates are sent only for any components that were changed since the most recent of:
     /// - last time we sent an action for that group
     /// - last time we sent an update for that group which got acked.
-    /// (currently we only check for the second condition, which is enough but less efficient)
+    ///   (currently we only check for the second condition, which is enough but less efficient)
     ///
     /// NOTE: cannot use ConnectEvents because they are reset every frame
     pub(crate) fn replicate_component_updates(
@@ -2318,8 +2318,9 @@ pub(crate) mod send {
         /// - server sends a diff between ticks 1-3
         /// - client receives that and applies it
         /// - server sends a diff between ticks 1-5 (because the server hasn't received the
-        /// ack for tick 3 yet)
+        ///   ack for tick 3 yet)
         /// - client receives that, applies it, and it still works even if client was already on tick 3
+        ///
         /// We can emulate this by adding some delay on the server receiving client packets via the link conditioner.
         #[test]
         fn test_component_update_delta_non_idempotent_slow_ack() {
@@ -2492,8 +2493,9 @@ pub(crate) mod send {
         /// - server sends a diff between ticks 1-3
         /// - client receives that and applies it
         /// - server sends a diff between ticks 1-5 (because the server hasn't received the
-        /// ack for tick 3 yet)
+        ///   ack for tick 3 yet)
         /// - client receives that, applies it, and it still works even if client was already on tick 3
+        ///
         /// We can emulate this by adding some delay on the server receiving client packets via the link conditioner.
         #[test]
         fn test_component_update_delta_idempotent_slow_ack() {

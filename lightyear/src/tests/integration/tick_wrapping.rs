@@ -1,12 +1,12 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
-
-use crate::prelude::client::{InputManager, InputSystemSet, SyncConfig};
+use crate::client::input::native::InputSystemSet;
+use crate::prelude::client::{InputManager, SyncConfig};
 use crate::prelude::server::{InputEvent, Replicate};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::tests::stepper::{BevyStepper, Step};
+use bevy::prelude::*;
+use bevy::utils::Duration;
 
 fn press_input(mut input_manager: ResMut<InputManager<MyInput>>, tick_manager: Res<TickManager>) {
     input_manager.add_input(MyInput(0), tick_manager.tick());

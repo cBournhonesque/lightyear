@@ -209,8 +209,8 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
 /// Instead we will insert the component after either:
 /// - we have received 2 updates on the Confirmed entity (so we can interpolate between them)
 /// - or at least SEND_INTERVAL_TICK_FACTOR * send_interval has passed. (this is to deal with the case where we only receive
-/// one update; for example if we spawn the player and then they don't move. If we didn't do this the interpolated entity would
-/// simply not appear)
+///   one update; for example if we spawn the player and then they don't move. If we didn't do this
+///   the interpolated entity would simply not appear)
 pub(crate) fn insert_interpolated_component<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
     config: Res<ClientConfig>,

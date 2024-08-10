@@ -13,7 +13,7 @@ use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 use bevy_mod_picking::picking_core::Pickable;
 use bevy_mod_picking::prelude::{Click, On, Pointer};
-
+use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 

@@ -237,7 +237,8 @@ pub(crate) fn send_host_server(
 /// We run this at PostUpdate because:
 /// - client prediction time is computed from ticks, which haven't been updated yet at PreUpdate
 /// - server prediction time is computed from time, which has been updated via delta
-/// Also server sends the tick after FixedUpdate, so it makes sense that we would compare to the client tick after FixedUpdate
+///
+/// Also, server sends the tick after FixedUpdate, so it makes sense that we would compare to the client tick after FixedUpdate
 /// So instead we update the sync manager at PostUpdate, after both ticks/time have been updated
 pub(crate) fn sync_update(
     mut commands: Commands,

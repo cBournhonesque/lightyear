@@ -36,9 +36,9 @@
 //! There are several steps to use the `InputPlugin`:
 //! - (optional) read the inputs from an external signal (mouse click or keyboard press, for instance)
 //! - to buffer inputs for each tick. This is done by calling [`add_input`](InputManager::add_input) in a system.
-//! That system must run in the [`InputSystemSet::BufferInputs`] system set, in the `FixedPreUpdate` stage.
+//!   That system must run in the [`InputSystemSet::BufferInputs`] system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
-//! will read the inputs using the [`InputEvent`] event.
+//!   will read the inputs using the [`InputEvent`] event.
 //!
 //! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
 //! That module is more up-to-date and has more features.
