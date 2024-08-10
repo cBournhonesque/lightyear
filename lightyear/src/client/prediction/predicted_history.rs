@@ -243,21 +243,16 @@ pub(crate) fn update_prediction_history<T: SyncComponent>(
 /// Add the removal to the history (for potential rollbacks)
 pub(crate) fn apply_component_removal_predicted<C: SyncComponent>(
     trigger: Trigger<OnRemove, C>,
-    // TODO: why do I need these options? why are these resources not present when the observer runs?
-    tick_manager: Option<Res<TickManager>>,
-    rollback: Option<Res<Rollback>>,
+    tick_manager: Res<TickManager>,
+    rollback: Res<Rollback>,
     mut predicted_query: Query<&mut PredictionHistory<C>>,
 ) {
     // TODO: do not run this if component-sync-mode != FULL
     // if the component was removed from the Predicted entity, add the Removal to the history
     if let Ok(mut history) = predicted_query.get_mut(trigger.entity()) {
-        if let Some(tick_manager) = tick_manager {
-            if let Some(rollback) = rollback {
-                // tick for which we will record the history (either the current client tick or the current rollback tick)
-                let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
-                history.add_remove(tick);
-            }
-        }
+        // tick for which we will record the history (either the current client tick or the current rollback tick)
+        let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
+        history.add_remove(tick);
     }
 }
 

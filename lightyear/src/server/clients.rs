@@ -157,13 +157,13 @@ impl Plugin for ClientsMetadataPlugin {
 mod tests {
     use crate::client::networking::ClientCommands;
     use crate::prelude::server::{ConnectionManager, ControlledBy, Replicate};
-    use crate::prelude::{ClientId, NetworkTarget};
+    use crate::prelude::{client, ClientId, NetworkTarget, Replicated, ReplicationTarget};
     use crate::server::clients::ControlledEntities;
     use crate::server::replication::send::Lifetime;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::ecs::entity::EntityHashMap;
-    use bevy::prelude::default;
+    use bevy::prelude::{default, Entity, With};
 
     /// Check that the Client Entities are updated after ControlledBy is added
     #[test]
@@ -337,5 +337,52 @@ mod tests {
             .world()
             .get_entity(server_entity_2)
             .is_some());
+    }
+
+    /// The owning client despawns the entity that they control.
+    /// The server should receive the despawn. This will trigger the
+    /// OnRemove<ControlledBy>, which should not panic
+    /// See: https://github.com/cBournhonesque/lightyear/issues/546
+    #[test]
+    fn test_owning_client_despawns_entity() {
+        let mut stepper = BevyStepper::default();
+        let client_entity = stepper
+            .client_app
+            .world_mut()
+            .spawn(client::Replicate::default())
+            .id();
+        // make sure the server replicated the entity
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<Replicated>>()
+            .single(stepper.server_app.world());
+        // add ControlledBy on the entity
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .insert(Replicate {
+                target: ReplicationTarget {
+                    target: NetworkTarget::None,
+                },
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
+                    ..default()
+                },
+                ..default()
+            });
+
+        // despawn the entity on the client
+        stepper.client_app.world_mut().despawn(client_entity);
+        // as described in https://github.com/cBournhonesque/lightyear/issues/546,
+        // when the observer is triggered the `ConnectionManager` is not available if we use
+        // world.resource_scope during `receive`, so the function panics
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
     }
 }

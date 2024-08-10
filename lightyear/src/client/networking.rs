@@ -125,72 +125,63 @@ impl Plugin for ClientNetworkingPlugin {
     }
 }
 
-pub(crate) fn receive(world: &mut World) {
+pub(crate) fn receive(
+    mut commands: Commands,
+    mut connection: ResMut<ConnectionManager>,
+    state: Res<State<NetworkingState>>,
+    mut next_state: ResMut<NextState<NetworkingState>>,
+    mut netclient: ResMut<ClientConnection>,
+    mut time_manager: ResMut<TimeManager>,
+    tick_manager: Res<TickManager>,
+    virtual_time: Res<Time<Virtual>>,
+    component_registry: Res<ComponentRegistry>,
+    message_registry: Res<MessageRegistry>,
+    system_change_tick: SystemChangeTick,
+) {
     trace!("Receive server packets");
-    world.resource_scope(
-        |world: &mut World, mut connection: Mut<ConnectionManager>| {
-            world.resource_scope(
-                |world: &mut World, mut netclient: Mut<ClientConnection>| {
-                        world.resource_scope(
-                            |world: &mut World, mut time_manager: Mut<TimeManager>| {
-                                world.resource_scope(
-                                    |world: &mut World, tick_manager: Mut<TickManager>| {
-                                        world.resource_scope(
-                                            |world: &mut World, state: Mut<State<NetworkingState>>| {
-                                                world.resource_scope(
-                                                    |world: &mut World, mut next_state: Mut<NextState<NetworkingState>>| {
-                                                        let delta = world.resource::<Time<Virtual>>().delta();
-                                                        // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
-                                                        time_manager.update(delta);
-                                                        trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
+    let delta = virtual_time.delta();
+    // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
+    time_manager.update(delta);
+    trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
-                                                        if !matches!(netclient.state(), ConnectionState::Disconnected {..}){
-                                                            let _ = netclient
-                                                                .try_update(delta.as_secs_f64())
-                                                                .map_err(|e| {
-                                                                    error!("Error updating netcode: {}", e);
-                                                                });
-                                                        }
+    if !matches!(netclient.state(), ConnectionState::Disconnected { .. }) {
+        let _ = netclient.try_update(delta.as_secs_f64()).map_err(|e| {
+            error!("Error updating netcode: {}", e);
+        });
+    }
 
-                                                        if matches!(netclient.state(), ConnectionState::Connected) {
-                                                            // we just connected, do a state transition
-                                                            if state.get() != &NetworkingState::Connected {
-                                                                debug!("Setting the networking state to connected");
-                                                                next_state.set(NetworkingState::Connected);
-                                                            }
+    if matches!(netclient.state(), ConnectionState::Connected) {
+        // we just connected, do a state transition
+        if state.get() != &NetworkingState::Connected {
+            debug!("Setting the networking state to connected");
+            next_state.set(NetworkingState::Connected);
+        }
 
-                                                            // update the connection (message manager, ping manager, etc.)
-                                                            connection.update(
-                                                                world.change_tick(),
-                                                                time_manager.as_ref(),
-                                                                tick_manager.as_ref(),
-                                                            );
-                                                        }
-                                                        if let ConnectionState::Disconnected{reason} = netclient.state() {
-                                                            netclient.disconnect_reason = reason;
-                                                            // we just disconnected, do a state transition
-                                                            if state.get() != &NetworkingState::Disconnected {
-                                                                next_state.set(NetworkingState::Disconnected);
-                                                            }
-                                                        }
+        // update the connection (message manager, ping manager, etc.)
+        connection.update(
+            system_change_tick.this_run(),
+            time_manager.as_ref(),
+            tick_manager.as_ref(),
+        );
+    }
+    if let ConnectionState::Disconnected { reason } = netclient.state() {
+        netclient.disconnect_reason = reason;
+        // we just disconnected, do a state transition
+        if state.get() != &NetworkingState::Disconnected {
+            next_state.set(NetworkingState::Disconnected);
+        }
+    }
 
-                                                        // RECV PACKETS: buffer packets into message managers
-                                                        while let Some(packet) = netclient.recv() {
-                                                            connection
-                                                                .recv_packet(packet, tick_manager.as_ref(), world.resource::<ComponentRegistry>())
-                                                                .unwrap();
-                                                        }
-                                                        // RECEIVE: receive packets from message managers
-                                                        let _ = connection.receive(world, time_manager.as_ref(), tick_manager.as_ref()).inspect_err(|e| error!("Error receiving packets: {}", e));
-                                                    });
-                                            });
-                                        });
-                                    },
-                                )
-                            }
-                    );
-                }
-            );
+    // RECV PACKETS: buffer packets into message managers
+    while let Some(packet) = netclient.recv() {
+        connection
+            .recv_packet(packet, tick_manager.as_ref(), component_registry.as_ref())
+            .unwrap();
+    }
+    // RECEIVE: receive packets from message managers
+    let _ = connection
+        .receive(&mut commands, time_manager.as_ref(), tick_manager.as_ref())
+        .inspect_err(|e| error!("Error receiving packets: {}", e));
     trace!("client finished recv");
 }
 

@@ -653,33 +653,29 @@ pub(crate) mod send {
             ),
             With<Replicating>,
         >,
-        sender: Option<ResMut<ConnectionManager>>,
+        // TODO: should we use Option<ResMut> so that this observer doesn't trigger
+        //  when we are not connected?
+        mut sender: ResMut<ConnectionManager>,
     ) {
         let entity = trigger.entity();
         if let Ok((replication_group, network_target, cached_relevance)) = query.get(entity) {
-            if let Some(mut sender) = sender {
-                trace!(?entity, "Replicate entity despawn");
-                // only send the despawn to clients who were in the target of the entity
-                let mut target = network_target.clone().target;
-                // only send the despawn to clients that had visibility of the entity
-                if let Some(network_relevance) = cached_relevance {
-                    // TODO: optimize this in cases like All/None/Single/ExceptSingle
-                    target.intersection(&NetworkTarget::Only(
-                        network_relevance.clients_cache.keys().copied().collect(),
-                    ))
-                }
-                trace!(?entity, ?target, "send entity despawn");
-                let _ = sender
-                    .prepare_entity_despawn(
-                        entity,
-                        replication_group.group_id(Some(entity)),
-                        target,
-                    )
-                    // TODO: bubble up errors to user via ConnectionEvents?
-                    .inspect_err(|e| {
-                        error!("error sending entity despawn: {:?}", e);
-                    });
+            trace!(?entity, "Replicate entity despawn");
+            // only send the despawn to clients who were in the target of the entity
+            let mut target = network_target.clone().target;
+            // only send the despawn to clients that had visibility of the entity
+            if let Some(network_relevance) = cached_relevance {
+                // TODO: optimize this in cases like All/None/Single/ExceptSingle
+                target.intersection(&NetworkTarget::Only(
+                    network_relevance.clients_cache.keys().copied().collect(),
+                ))
             }
+            trace!(?entity, ?target, "send entity despawn");
+            let _ = sender
+                .prepare_entity_despawn(entity, replication_group.group_id(Some(entity)), target)
+                // TODO: bubble up errors to user via ConnectionEvents?
+                .inspect_err(|e| {
+                    error!("error sending entity despawn: {:?}", e);
+                });
         }
     }
 
