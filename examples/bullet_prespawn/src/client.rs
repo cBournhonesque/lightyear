@@ -1,11 +1,10 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionData;
-use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::buttonlike::ButtonState::Pressed;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
-
+use lightyear::client::input::leafwing::InputSystemSet;
 use lightyear::inputs::native::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -29,10 +28,19 @@ impl Plugin for ExampleClientPlugin {
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schdule
         // app.add_systems(FixedUpdate, player_movement);
         // we update the ActionState manually from cursor, so we need to put it in the ManualControl set
+
+        // NOTE: we need to run this in FixedUpdate because we generate the ActionDiffs in
+        // FixedUpdate using the fixed_update value
+        app.add_systems(
+            FixedPreUpdate,
+            update_cursor_state_from_window
+                // make sure that we update the ActionState before we buffer it in the InputBuffer
+                .before(InputSystemSet::BufferClientInputs)
+                .in_set(InputManagerSystem::ManualControl),
+        );
         app.add_systems(
             PreUpdate,
             (
-                update_cursor_state_from_window.in_set(InputManagerSystem::ManualControl),
                 // TODO: make sure it happens after update metadata?
                 spawn_player,
             ),
@@ -73,20 +81,25 @@ fn spawn_player(mut commands: Commands, mut connection_event: EventReader<Connec
     }
 }
 
+// Compute the world-position of the cursor
 fn update_cursor_state_from_window(
     window_query: Query<&Window>,
+    // query to get camera transform
+    q_camera: Query<(&Camera, &GlobalTransform)>,
     mut action_state_query: Query<&mut ActionState<PlayerActions>, With<Predicted>>,
 ) {
-    // Update the action-state with the mouse position from the window
-    for window in window_query.iter() {
+    let Ok((camera, camera_transform)) = q_camera.get_single() else {
+        error!("Expected to find only one camera");
+        return;
+    };
+    let window = window_query.single();
+    if let Some(world_position) = window
+        .cursor_position()
+        .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
+        .map(|ray| ray.origin.truncate())
+    {
         for mut action_state in action_state_query.iter_mut() {
-            if let Some(val) = window_relative_mouse_position(window) {
-                action_state.press(&PlayerActions::MoveCursor);
-                action_state
-                    .action_data_mut(&PlayerActions::MoveCursor)
-                    .unwrap()
-                    .axis_pair = Some(DualAxisData::from_xy(val));
-            }
+            action_state.set_axis_pair(&PlayerActions::MoveCursor, world_position);
         }
     }
 }

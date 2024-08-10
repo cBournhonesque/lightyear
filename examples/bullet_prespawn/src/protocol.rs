@@ -103,7 +103,7 @@ pub struct Message1(pub usize);
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect)]
 pub enum PlayerActions {
     Up,
     Down,
@@ -111,6 +111,16 @@ pub enum PlayerActions {
     Right,
     Shoot,
     MoveCursor,
+}
+
+impl Actionlike for PlayerActions {
+    // Record what kind of inputs make sense for each action.
+    fn input_control_kind(&self) -> InputControlKind {
+        match self {
+            Self::MoveCursor => InputControlKind::DualAxis,
+            _ => InputControlKind::Button,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
