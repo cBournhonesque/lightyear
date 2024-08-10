@@ -1,6 +1,7 @@
 //! Map between local and remote entities
 use bevy::ecs::entity::{EntityHashMap, EntityMapper};
-use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
+use bevy::ecs::system::EntityCommands;
+use bevy::prelude::{Commands, Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use bevy::utils::hashbrown::hash_map::Entry;
 
@@ -69,6 +70,16 @@ impl RemoteEntityMap {
     ) -> Option<EntityWorldMut<'a>> {
         self.get_local(remote_entity)
             .and_then(|e| world.get_entity_mut(*e))
+    }
+
+    /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
+    pub(super) fn get_by_remote_commands(
+        &mut self,
+        commands: &mut Commands,
+        remote_entity: Entity,
+    ) -> Option<EntityCommands> {
+        self.get_local(remote_entity)
+            .and_then(|e| commands.get_entity(*e))
     }
 
     /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.

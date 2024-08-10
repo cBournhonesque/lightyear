@@ -1,7 +1,7 @@
 //! Specify how a Server sends/receives messages with a Client
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{Component, Entity, Mut, Resource, World};
+use bevy::prelude::{Commands, Component, Entity, Resource};
 use bevy::ptr::Ptr;
 use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
@@ -353,7 +353,9 @@ impl ConnectionManager {
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn receive(
         &mut self,
-        world: &mut World,
+        commands: &mut Commands,
+        component_registry: &ComponentRegistry,
+        message_registry: &MessageRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Result<(), ServerError> {
@@ -363,18 +365,16 @@ impl ConnectionManager {
             .iter_mut()
             .try_for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
-                world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
-                    // receive events on the connection
-                    let events = connection.receive(
-                        world,
-                        component_registry.as_ref(),
-                        time_manager,
-                        tick_manager,
-                    )?;
-                    // move the events from the connection to the connection manager
-                    self.events.push_events(*client_id, events);
-                    Ok::<(), ServerError>(())
-                })?;
+                // receive events on the connection
+                let events = connection.receive(
+                    commands,
+                    component_registry,
+                    message_registry,
+                    time_manager,
+                    tick_manager,
+                )?;
+                // move the events from the connection to the connection manager
+                self.events.push_events(*client_id, events);
 
                 // rebroadcast messages
                 messages_to_rebroadcast
@@ -630,13 +630,13 @@ impl Connection {
 
     pub fn receive(
         &mut self,
-        world: &mut World,
+        commands: &mut Commands,
         component_registry: &ComponentRegistry,
+        message_registry: &MessageRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Result<ConnectionEvents, ServerError> {
         let _span = trace_span!("receive").entered();
-        let message_registry = world.resource::<MessageRegistry>();
         self.message_manager
             .channels
             .iter_mut()
@@ -717,7 +717,7 @@ impl Connection {
 
         // Check if we have any replication messages we can apply to the World (and emit events)
         self.replication_receiver.apply_world(
-            world,
+            commands,
             Some(self.client_id),
             component_registry,
             tick_manager.tick(),

@@ -78,154 +78,172 @@ impl Plugin for ServerNetworkingPlugin {
     }
 }
 
-pub(crate) fn receive(world: &mut World) {
+pub(crate) fn receive(
+    mut commands: Commands,
+    mut connection_manager: ResMut<ConnectionManager>,
+    mut networking_state: ResMut<NextState<NetworkingState>>,
+    mut netservers: ResMut<ServerConnections>,
+    mut connect_events: ResMut<Events<ConnectEvent>>,
+    mut disconnect_events: ResMut<Events<DisconnectEvent>>,
+    mut time_manager: ResMut<TimeManager>,
+    tick_manager: Res<TickManager>,
+    virtual_time: Res<Time<Virtual>>,
+    component_registry: Res<ComponentRegistry>,
+    message_registry: Res<MessageRegistry>,
+    system_change_tick: SystemChangeTick,
+) {
     trace!("Receive client packets");
-    world.resource_scope(|world: &mut World, mut connection_manager: Mut<ConnectionManager>| {
-        world.resource_scope(
-            |world: &mut World, mut netservers: Mut<ServerConnections>| {
-                    world.resource_scope(
-                        |world: &mut World, mut time_manager: Mut<TimeManager>| {
-                            world.resource_scope(
-                                |world: &mut World, tick_manager: Mut<TickManager>| {
-                                            let delta = world.resource::<Time<Virtual>>().delta();
-                                            // UPDATE: update server state, send keep-alives, receive packets from io
-                                            // update time manager
-                                            time_manager.update(delta);
-                                            trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
-                                            // update server net connections
-                                            // reborrow trick to enable split borrows
-                                            let netservers = &mut *netservers;
-                                            for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
-                                                // TODO: maybe run this before receive, like for clients?
-                                                let mut to_disconnect = vec![];
-                                                if let Some(io) = netserver.io_mut() {
-                                                    if let Some(receiver) = &mut io.context.event_receiver {
-                                                        match receiver.try_recv() {
-                                                            Ok(event) => {
-                                                                match event {
-                                                                    // if the io task for any connection failed, disconnect the client in netcode
-                                                                    ServerIoEvent::ClientDisconnected(client_id) => {
-                                                                        to_disconnect.push(client_id);
-                                                                    }
-                                                                    ServerIoEvent::ServerDisconnected(e) => {
-                                                                        error!("Disconnect server because of io error: {:?}", e);
-                                                                        world.resource_mut::<NextState<NetworkingState>>().set(NetworkingState::Stopped);
-                                                                    }
-                                                                    _ => {}
-                                                                }
-                                                            }
-                                                            Err(TryRecvError::Empty) => {}
-                                                            Err(TryRecvError::Closed) => {}
-                                                        }
-                                                    }
-                                                }
+    let delta = virtual_time.delta();
+    // UPDATE: update server state, send keep-alives, receive packets from io
+    // update time manager
+    time_manager.update(delta);
+    trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
+    // update server net connections
+    // reborrow trick to enable split borrows
+    let netservers = &mut *netservers;
+    for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
+        // TODO: maybe run this before receive, like for clients?
+        let mut to_disconnect = vec![];
+        if let Some(io) = netserver.io_mut() {
+            if let Some(receiver) = &mut io.context.event_receiver {
+                match receiver.try_recv() {
+                    Ok(event) => {
+                        match event {
+                            // if the io task for any connection failed, disconnect the client in netcode
+                            ServerIoEvent::ClientDisconnected(client_id) => {
+                                to_disconnect.push(client_id);
+                            }
+                            ServerIoEvent::ServerDisconnected(e) => {
+                                error!("Disconnect server because of io error: {:?}", e);
+                                networking_state.set(NetworkingState::Stopped);
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(TryRecvError::Empty) => {}
+                    Err(TryRecvError::Closed) => {}
+                }
+            }
+        }
 
-                                                let _ = netserver
-                                                    .try_update(delta.as_secs_f64())
-                                                    .map_err(|e| error!("Error updating netcode server: {:?}", e));
-                                                for client_id in netserver.new_connections().iter().copied() {
-                                                    netservers.client_server_map.insert(client_id, server_idx);
-                                                    // spawn an entity for the client
-                                                    let client_entity = world.spawn((ControlledEntities::default(), Name::new("Client"))).id();
-                                                    connection_manager.add(client_id, client_entity);
-                                                }
-                                                // handle disconnections
+        let _ = netserver
+            .try_update(delta.as_secs_f64())
+            .map_err(|e| error!("Error updating netcode server: {:?}", e));
+        for client_id in netserver.new_connections().iter().copied() {
+            netservers.client_server_map.insert(client_id, server_idx);
+            // spawn an entity for the client
+            let client_entity = commands
+                .spawn((ControlledEntities::default(), Name::new("Client")))
+                .id();
+            connection_manager.add(client_id, client_entity);
+        }
+        // handle disconnections
 
-                                                // disconnections because the io task was closed
-                                                if !to_disconnect.is_empty() {
-                                                    to_disconnect.into_iter().for_each(|addr| {
-                                                        #[allow(irrefutable_let_patterns)]
-                                                        if let ServerConnection::Netcode(server) = netserver {
-                                                            error!("Disconnecting client {addr:?} because of io error");
-                                                            let _ = server.disconnect_by_addr(addr);
-                                                        }
-                                                    })
-                                                }
-                                                // disconnects because we received a disconnect message
-                                                for client_id in netserver.new_disconnections().iter().copied() {
-                                                    if netservers.client_server_map.remove(&client_id).is_some() {
-                                                        connection_manager.remove(client_id);
-                                                        // NOTE: we don't despawn the entity right away to let the user react to
-                                                        // the disconnect event
-                                                        // TODO: use observers/component_hooks to react automatically on the client despawn?
-                                                        // world.despawn(client_entity);
-                                                    } else {
-                                                        error!("Client disconnected but could not map client_id to the corresponding netserver");
-                                                    }
-                                                };
-                                            }
+        // disconnections because the io task was closed
+        if !to_disconnect.is_empty() {
+            to_disconnect.into_iter().for_each(|addr| {
+                #[allow(irrefutable_let_patterns)]
+                if let ServerConnection::Netcode(server) = netserver {
+                    error!("Disconnecting client {addr:?} because of io error");
+                    let _ = server.disconnect_by_addr(addr);
+                }
+            })
+        }
+        // disconnects because we received a disconnect message
+        for client_id in netserver.new_disconnections().iter().copied() {
+            if netservers.client_server_map.remove(&client_id).is_some() {
+                connection_manager.remove(client_id);
+                // NOTE: we don't despawn the entity right away to let the user react to
+                // the disconnect event
+                // TODO: use observers/component_hooks to react automatically on the client despawn?
+                // world.despawn(client_entity);
+            } else {
+                error!("Client disconnected but could not map client_id to the corresponding netserver");
+            }
+        }
+    }
 
-                                            // update connections
-                                            connection_manager
-                                                .update(world.change_tick(), time_manager.as_ref(), tick_manager.as_ref());
+    // update connections
+    connection_manager.update(
+        system_change_tick.this_run(),
+        time_manager.as_ref(),
+        tick_manager.as_ref(),
+    );
 
-                                            // RECV_PACKETS: buffer packets into message managers
-                                            // enable split borrows on connection manager
-                                            let connection_manager = &mut *connection_manager;
-                                            for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
-                                                while let Some((payload, client_id)) = netserver.recv() {
-                                                    // Note: the client_id might not be present in the connection_manager if we receive
-                                                    // packets from a client
-                                                    // TODO: use connection to apply on BOTH message manager and replication manager
-                                                    if let Some(connection) = connection_manager
-                                                        .connections.get_mut(&client_id) {
-                                                        let component_registry = world.resource::<ComponentRegistry>();
-                                                        connection.recv_packet(payload, tick_manager.as_ref(), component_registry, &mut connection_manager.delta_manager).expect("could not receive packet");
-                                                    } else {
-                                                        // it's still possible to receive some packets from a client that just disconnected.
-                                                        // (multiple packets arrived at the same time from that client)
-                                                        if netserver.new_disconnections().contains(&client_id) {
-                                                            trace!("received packet from client that just got disconnected. Ignoring.");
-                                                            // we ignore packets from disconnected clients
-                                                            // this is not an error
-                                                            continue;
-                                                        } else {
-                                                            error!("Received packet from unknown client: {}", client_id);
-                                                        }
-                                                    }
-                                                }
-                                            }
+    // RECV_PACKETS: buffer packets into message managers
+    // enable split borrows on connection manager
+    let connection_manager = &mut *connection_manager;
+    for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
+        while let Some((payload, client_id)) = netserver.recv() {
+            // Note: the client_id might not be present in the connection_manager if we receive
+            // packets from a client
+            // TODO: use connection to apply on BOTH message manager and replication manager
+            if let Some(connection) = connection_manager.connections.get_mut(&client_id) {
+                connection
+                    .recv_packet(
+                        payload,
+                        tick_manager.as_ref(),
+                        component_registry.as_ref(),
+                        &mut connection_manager.delta_manager,
+                    )
+                    .expect("could not receive packet");
+            } else {
+                // it's still possible to receive some packets from a client that just disconnected.
+                // (multiple packets arrived at the same time from that client)
+                if netserver.new_disconnections().contains(&client_id) {
+                    trace!("received packet from client that just got disconnected. Ignoring.");
+                    // we ignore packets from disconnected clients
+                    // this is not an error
+                    continue;
+                } else {
+                    error!("Received packet from unknown client: {}", client_id);
+                }
+            }
+        }
+    }
 
-                                            // RECEIVE: read messages and parse them into events
-                                            connection_manager
-                                                .receive(world, time_manager.as_ref(), tick_manager.as_ref())
-                                                .unwrap_or_else(|e| {
-                                                    error!("Error during receive: {}", e);
-                                                });
+    // RECEIVE: read messages and parse them into events
+    connection_manager
+        .receive(
+            &mut commands,
+            component_registry.as_ref(),
+            message_registry.as_ref(),
+            time_manager.as_ref(),
+            tick_manager.as_ref(),
+        )
+        .unwrap_or_else(|e| {
+            error!("Error during receive: {}", e);
+        });
 
-                                            // EVENTS: Write the received events into bevy events
-                                            if !connection_manager.events.is_empty() {
-                                                // Connection / Disconnection events
-                                                if connection_manager.events.has_connections() {
-                                                    for connect_event in connection_manager.events.iter_connections() {
-                                                        debug!("Client connected event: {}", connect_event.client_id);
-                                                        world.resource_mut::<Events<ConnectEvent>>().send(connect_event);
-                                                        // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
-                                                        // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
-                                                        //  so a bunch of Resources have been removed from the World
-                                                        world.commands().trigger(connect_event);
-                                                        // world.trigger(connect_event);
-                                                    }
-                                                }
+    // EVENTS: Write the received events into bevy events
+    if !connection_manager.events.is_empty() {
+        // Connection / Disconnection events
+        if connection_manager.events.has_connections() {
+            for connect_event in connection_manager.events.iter_connections() {
+                debug!("Client connected event: {}", connect_event.client_id);
+                connect_events.send(connect_event);
+                // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
+                // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
+                //  so a bunch of Resources have been removed from the World
+                commands.trigger(connect_event);
+                // world.trigger(connect_event);
+            }
+        }
 
-                                                if connection_manager.events.has_disconnections() {
-                                                    for disconnect_event in connection_manager.events.iter_disconnections() {
-                                                        debug!("Client disconnected event: {}", disconnect_event.client_id);
-                                                        world.resource_mut::<Events<DisconnectEvent>>().send(disconnect_event);
-                                                        // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
-                                                        // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
-                                                        //  so a bunch of Resources have been removed from the World
-                                                        world.commands().trigger(disconnect_event);
-                                                        // world.trigger(disconnect_event);
-                                                    }
-                                                }
-                                            }
-                                });
-                        });
-                });
-    });
+        if connection_manager.events.has_disconnections() {
+            for disconnect_event in connection_manager.events.iter_disconnections() {
+                debug!("Client disconnected event: {}", disconnect_event.client_id);
+                disconnect_events.send(disconnect_event);
+                // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
+                // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
+                //  so a bunch of Resources have been removed from the World
+                commands.trigger(disconnect_event);
+                // world.trigger(disconnect_event);
+            }
+        }
+    }
 }
 
 // or do additional send stuff here

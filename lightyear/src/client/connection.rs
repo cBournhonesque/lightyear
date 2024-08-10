@@ -1,7 +1,7 @@
 //! Specify how a Client sends/receives messages with a Server
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Mut, Resource, World};
+use bevy::prelude::{Commands, Resource};
 use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
 use tracing::{debug, trace, trace_span};
@@ -380,8 +380,9 @@ impl ConnectionManager {
 
     pub(crate) fn receive(
         &mut self,
-        // TODO: use Commands to avoid blocking the world?
-        world: &mut World,
+        commands: &mut Commands,
+        // TODO: pass the `ComponentRegistry`/`MessageRegistry` as arguments instead of storing a copy
+        //  in the `ConnectionManager`
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Result<(), ClientError> {
@@ -461,16 +462,14 @@ impl ConnectionManager {
             })?;
 
         if self.sync_manager.is_synced() {
-            world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
-                // Check if we have any replication messages we can apply to the World (and emit events)
-                self.replication_receiver.apply_world(
-                    world,
-                    None,
-                    component_registry.as_ref(),
-                    tick_manager.tick(),
-                    &mut self.events,
-                );
-            });
+            // Check if we have any replication messages we can apply to the World (and emit events)
+            self.replication_receiver.apply_world(
+                commands,
+                None,
+                &self.component_registry,
+                tick_manager.tick(),
+                &mut self.events,
+            );
         }
         Ok(())
     }
