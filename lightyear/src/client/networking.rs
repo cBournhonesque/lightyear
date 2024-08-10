@@ -562,7 +562,10 @@ mod tests {
         }
     }
 
-    fn receive_disconnect_event(mut reader: EventReader<DisconnectEvent>, mut res: ResMut<CheckCounter>) {
+    fn receive_disconnect_event(
+        mut reader: EventReader<DisconnectEvent>,
+        mut res: ResMut<CheckCounter>,
+    ) {
         for event in reader.read() {
             res.0 += 1;
         }
