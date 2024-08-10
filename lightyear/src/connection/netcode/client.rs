@@ -534,7 +534,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// Updates the client.
     ///
     /// * Updates the client's elapsed time.
-    /// [* Receives packets from the server, any received payload packets will be queued.]
+    /// * Receives packets from the server, any received payload packets will be queued.
     /// * Sends keep-alive or request/response packets to the server to establish/maintain a connection.
     /// * Updates the client's state - checks for timeouts, errors and transitions to new states.
     ///

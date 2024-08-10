@@ -28,7 +28,6 @@ impl LerpFn<Transform> for TransformLinearInterpolation {
     }
 }
 
-
 /// Perform a spherical linear interpolation between two quaternions
 pub struct QuatSphericalLinearInterpolation;
 

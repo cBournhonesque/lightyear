@@ -777,7 +777,7 @@ mod integration_tests {
     /// Test that:
     /// - we remove a component from the predicted entity
     /// - rolling back before the remove should re-add it
-    /// We are still able to rollback properly (the rollback adds the component to the predicted entity)
+    ///   We are still able to rollback properly (the rollback adds the component to the predicted entity)
     #[test]
     fn test_removed_predicted_component_rollback() {
         let (mut stepper, confirmed, predicted) = setup();

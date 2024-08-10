@@ -240,11 +240,11 @@ impl NetClient for ClientConnection {
 ///
 /// There are several ways to obtain a `ConnectToken`:
 /// - the client can request a `ConnectToken` via a secure (e.g. HTTPS) connection from a backend server.
-/// The server must use the same `protocol_id` and `private_key` as the game servers.
-/// The backend server could be a dedicated webserver; or the game server itself, if it has a way to
-/// establish secure connection.
+///   The server must use the same `protocol_id` and `private_key` as the game servers.
+///   The backend server could be a dedicated webserver; or the game server itself, if it has a way to
+///   establish secure connection.
 /// - when testing, it can be convenient for the client to create its own `ConnectToken` manually.
-/// You can use `Authentication::Manual` for those cases.
+///   You can use `Authentication::Manual` for those cases.
 pub enum Authentication {
     /// Use a `ConnectToken` to authenticate with the game server.
     ///
