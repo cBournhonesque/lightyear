@@ -549,14 +549,20 @@ mod tests {
 
     use crate::{
         client::config::ClientConfig,
-        prelude::{server::*, SharedConfig, TickConfig},
-        tests::host_server_stepper::HostServerStepper,
+        prelude::{client::ClientCommands, server::*, SharedConfig, TickConfig},
+        tests::host_server_stepper::{HostServerStepper, Step},
     };
 
     #[derive(Resource, Default)]
-    struct ConnectCheck(usize);
+    struct CheckCounter(usize);
 
-    fn receive_connect_event(mut reader: EventReader<ConnectEvent>, mut res: ResMut<ConnectCheck>) {
+    fn receive_connect_event(mut reader: EventReader<ConnectEvent>, mut res: ResMut<CheckCounter>) {
+        for event in reader.read() {
+            res.0 += 1;
+        }
+    }
+
+    fn receive_disconnect_event(mut reader: EventReader<DisconnectEvent>, mut res: ResMut<CheckCounter>) {
         for event in reader.read() {
             res.0 += 1;
         }
@@ -576,9 +582,29 @@ mod tests {
 
         stepper
             .server_app
-            .init_resource::<ConnectCheck>()
+            .init_resource::<CheckCounter>()
             .add_systems(Update, receive_connect_event);
         stepper.init();
-        assert_eq!(stepper.server_app.world().resource::<ConnectCheck>().0, 2); // 2 because local client as well as external client connect
+        assert_eq!(stepper.server_app.world().resource::<CheckCounter>().0, 2); // 2 because local client as well as external client connect
+    }
+
+    #[test]
+    fn test_host_server_disconnect_event() {
+        let mut stepper = HostServerStepper::default();
+
+        stepper
+            .server_app
+            .init_resource::<CheckCounter>()
+            .add_systems(Update, receive_disconnect_event);
+        let mut client_world = stepper.client_app.world_mut();
+        client_world.commands().disconnect_client();
+
+        client_world = stepper.server_app.world_mut();
+        client_world.commands().disconnect_client();
+
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+        assert_eq!(stepper.server_app.world().resource::<CheckCounter>().0, 2); // 2 because local client as well as external client disconnect
     }
 }
