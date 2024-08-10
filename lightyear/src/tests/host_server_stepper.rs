@@ -162,11 +162,12 @@ impl HostServerStepper {
 
         #[cfg(feature = "leafwing")]
         {
+            client_app.add_plugins(InputPlugin);
             client_app.add_plugins(LeafwingInputPlugin::<LeafwingInput1>::default());
             client_app.add_plugins(LeafwingInputPlugin::<LeafwingInput2>::default());
+            server_app.add_plugins(InputPlugin);
             server_app.add_plugins(LeafwingInputPlugin::<LeafwingInput1>::default());
             server_app.add_plugins(LeafwingInputPlugin::<LeafwingInput2>::default());
-            client_app.add_plugins(InputPlugin);
         }
 
         // Initialize Real time (needed only for the first TimeSystem run)
