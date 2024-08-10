@@ -543,9 +543,15 @@ mod utils {
 #[cfg(test)]
 mod tests {
 
+    use std::time::Duration;
+
     use bevy::prelude::*;
 
-    use crate::{prelude::server::*, tests::host_server_stepper::HostServerStepper};
+    use crate::{
+        client::config::ClientConfig,
+        prelude::{server::*, SharedConfig, TickConfig},
+        tests::host_server_stepper::HostServerStepper,
+    };
 
     #[derive(Resource, Default)]
     struct ConnectCheck(usize);
@@ -558,13 +564,21 @@ mod tests {
 
     #[test]
     fn test_host_server_connect_event() {
-        let mut stepper = HostServerStepper::default();
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let client_config = ClientConfig::default();
+
+        let mut stepper = HostServerStepper::new(shared_config, client_config, frame_duration);
 
         stepper
             .server_app
             .init_resource::<ConnectCheck>()
             .add_systems(Update, receive_connect_event);
         stepper.init();
-        assert_eq!(stepper.server_app.world().resource::<ConnectCheck>().0, 1);
+        assert_eq!(stepper.server_app.world().resource::<ConnectCheck>().0, 2); // 2 because local client as well as external client connect
     }
 }
