@@ -250,7 +250,7 @@ impl HostServerStepper {
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self
-                .server_app
+                .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
                 .is_synced()
