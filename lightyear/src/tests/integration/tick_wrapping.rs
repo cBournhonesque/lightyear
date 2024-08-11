@@ -11,7 +11,10 @@ use bevy::utils::Duration;
 fn press_input(mut input_manager: ResMut<InputManager<MyInput>>, tick_manager: Res<TickManager>) {
     input_manager.add_input(MyInput(0), tick_manager.tick());
 }
-fn increment(mut query: Query<&mut Component1>, mut ev: EventReader<InputEvent<MyInput>>) {
+fn increment(
+    mut query: Query<&mut ComponentSyncModeFull>,
+    mut ev: EventReader<InputEvent<MyInput>>,
+) {
     for _ in ev.read() {
         for mut c in query.iter_mut() {
             c.0 += 1.0;
@@ -49,7 +52,7 @@ fn test_sync_after_tick_wrap() {
     let server_entity = stepper
         .server_app
         .world_mut()
-        .spawn((Component1(0.0), Replicate::default()))
+        .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
         .id();
 
     // advance 200 ticks to wrap ticks around u16::MAX
@@ -62,7 +65,7 @@ fn test_sync_after_tick_wrap() {
         .server_app
         .world_mut()
         .entity_mut(server_entity)
-        .insert(Component1(1.0));
+        .insert(ComponentSyncModeFull(1.0));
 
     // make sure the client receives the replication message
     for i in 0..5 {
@@ -81,9 +84,9 @@ fn test_sync_after_tick_wrap() {
         stepper
             .client_app
             .world()
-            .get::<Component1>(client_entity)
+            .get::<ComponentSyncModeFull>(client_entity)
             .unwrap(),
-        &Component1(1.0)
+        &ComponentSyncModeFull(1.0)
     );
 }
 
@@ -116,7 +119,7 @@ fn test_sync_after_tick_half_wrap() {
     let server_entity = stepper
         .server_app
         .world_mut()
-        .spawn((Component1(0.0), Replicate::default()))
+        .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
         .id();
 
     for i in 0..200 {
@@ -126,13 +129,13 @@ fn test_sync_after_tick_half_wrap() {
         .server_app
         .world_mut()
         .entity_mut(server_entity)
-        .insert(Component1(1.0));
+        .insert(ComponentSyncModeFull(1.0));
     // dbg!(&stepper.server_tick());
     // dbg!(&stepper.client_tick());
     let server_value = stepper
         .server_app
         .world()
-        .get::<Component1>(server_entity)
+        .get::<ComponentSyncModeFull>(server_entity)
         .unwrap();
 
     // make sure the client receives the replication message
@@ -152,8 +155,8 @@ fn test_sync_after_tick_half_wrap() {
         stepper
             .client_app
             .world()
-            .get::<Component1>(client_entity)
+            .get::<ComponentSyncModeFull>(client_entity)
             .unwrap(),
-        &Component1(1.0)
+        &ComponentSyncModeFull(1.0)
     );
 }

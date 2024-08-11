@@ -244,7 +244,9 @@ pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, Cl
 mod tests {
     use crate::prelude::Tick;
     use crate::protocol::channel::ChannelKind;
-    use crate::tests::protocol::{Channel1, Channel2, Component1, Component3, Message1};
+    use crate::tests::protocol::{
+        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, StringMessage,
+    };
 
     use super::*;
 
@@ -257,13 +259,13 @@ mod tests {
         let mut events_1 = ConnectionEvents::new();
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
-        let message1_a = Message1("hello".to_string());
-        let message1_b = Message1("world".to_string());
+        let message1_a = StringMessage("hello".to_string());
+        let message1_b = StringMessage("world".to_string());
         let mut component_registry = ComponentRegistry::default();
-        component_registry.register_component::<Component1>();
-        component_registry.register_component::<Component3>();
-        let net_id_1 = component_registry.net_id::<Component1>();
-        let net_id_2 = component_registry.net_id::<Component3>();
+        component_registry.register_component::<ComponentSyncModeFull>();
+        component_registry.register_component::<ComponentSyncModeOnce>();
+        let net_id_1 = component_registry.net_id::<ComponentSyncModeFull>();
+        let net_id_2 = component_registry.net_id::<ComponentSyncModeOnce>();
         events_1.push_remove_component(entity_1, net_id_1, Tick(0));
         events_1.push_remove_component(entity_1, net_id_2, Tick(0));
         events_1.push_remove_component(entity_2, net_id_1, Tick(0));
@@ -276,14 +278,14 @@ mod tests {
 
         // check that we have the correct messages
         let data: Vec<(Entity, ClientId)> = server_events
-            .iter_component_remove::<Component1>(&component_registry)
+            .iter_component_remove::<ComponentSyncModeFull>(&component_registry)
             .collect();
         assert_eq!(data.len(), 2);
         assert!(data.contains(&(entity_1, client_1)));
         assert!(data.contains(&(entity_2, client_1)));
 
         let data: Vec<(Entity, ClientId)> = server_events
-            .iter_component_remove::<Component3>(&component_registry)
+            .iter_component_remove::<ComponentSyncModeOnce>(&component_registry)
             .collect();
         assert_eq!(data.len(), 2);
         assert!(data.contains(&(entity_1, client_1)));

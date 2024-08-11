@@ -1,6 +1,6 @@
 use bevy::prelude::{
-    not, App, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    PostUpdate, PreUpdate, Res, SystemSet,
+    not, App, Component, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
+    Plugin, PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
@@ -180,6 +180,17 @@ pub enum PredictionSet {
 /// Returns true if we are doing rollback
 pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
     rollback.is_some_and(|rollback| rollback.is_rollback())
+}
+
+/// Enable rollbacking a component even if the component is not networked
+pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app: &mut App) {
+    app.add_systems(
+        PreUpdate,
+        (
+            // handle components being added
+            add_component_history::<C>.in_set(PredictionSet::SpawnHistory),
+        ),
+    );
 }
 
 pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {

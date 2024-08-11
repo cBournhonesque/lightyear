@@ -136,7 +136,7 @@ mod tests {
         let server_entity = stepper
             .server_app
             .world_mut()
-            .spawn((Component1(0.0), Replicate::default()))
+            .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
             .id();
         // we need to step twice because we run client before server
         stepper.frame_step();
@@ -156,16 +156,16 @@ mod tests {
                 .client_app
                 .world()
                 .entity(client_entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap(),
-            &Component1(0.0)
+            &ComponentSyncModeFull(0.0)
         );
 
         // Create an entity with a component that needs to be mapped
         let server_entity_2 = stepper
             .server_app
             .world_mut()
-            .spawn((Component4(server_entity), Replicate::default()))
+            .spawn((ComponentMapEntities(server_entity), Replicate::default()))
             .id();
         stepper.frame_step();
         stepper.frame_step();
@@ -185,9 +185,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(client_entity_2)
-                .get::<Component4>()
+                .get::<ComponentMapEntities>()
                 .unwrap(),
-            &Component4(client_entity)
+            &ComponentMapEntities(client_entity)
         );
     }
 }

@@ -254,17 +254,21 @@ mod tests {
 
     fn setup_hierarchy() -> (BevyStepper, Entity, Entity, Entity) {
         let mut stepper = BevyStepper::default();
-        let child = stepper.server_app.world_mut().spawn(Component3(0.0)).id();
+        let child = stepper
+            .server_app
+            .world_mut()
+            .spawn(ComponentSyncModeOnce(0.0))
+            .id();
         let parent = stepper
             .server_app
             .world_mut()
-            .spawn(Component2(0.0))
+            .spawn(ComponentSyncModeSimple(0.0))
             .add_child(child)
             .id();
         let grandparent = stepper
             .server_app
             .world_mut()
-            .spawn(Component1(0.0))
+            .spawn(ComponentSyncModeFull(0.0))
             .add_child(parent)
             .id();
         (stepper, grandparent, parent, child)
@@ -298,13 +302,13 @@ mod tests {
         let client_grandparent = stepper
             .client_app
             .world_mut()
-            .query_filtered::<Entity, With<Component1>>()
+            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
             .get_single(stepper.client_app.world())
             .unwrap();
         let (client_parent, client_parent_sync, client_parent_component) = stepper
             .client_app
             .world_mut()
-            .query_filtered::<(Entity, &ParentSync, &Parent), With<Component2>>()
+            .query_filtered::<(Entity, &ParentSync, &Parent), With<ComponentSyncModeSimple>>()
             .get_single(stepper.client_app.world())
             .unwrap();
 
@@ -374,19 +378,19 @@ mod tests {
         let client_grandparent = stepper
             .client_app
             .world_mut()
-            .query_filtered::<Entity, With<Component1>>()
+            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
             .get_single(stepper.client_app.world())
             .unwrap();
         let client_parent = stepper
             .client_app
             .world_mut()
-            .query_filtered::<Entity, With<Component2>>()
+            .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
             .get_single(stepper.client_app.world())
             .unwrap();
         let client_child = stepper
             .client_app
             .world_mut()
-            .query_filtered::<Entity, With<Component3>>()
+            .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
             .get_single(stepper.client_app.world())
             .unwrap();
 
@@ -434,11 +438,15 @@ mod tests {
     #[test]
     fn test_propagate_hierarchy_client_to_server() {
         let mut stepper = BevyStepper::default();
-        let child = stepper.client_app.world_mut().spawn(Component3(0.0)).id();
+        let child = stepper
+            .client_app
+            .world_mut()
+            .spawn(ComponentSyncModeOnce(0.0))
+            .id();
         let parent = stepper
             .client_app
             .world_mut()
-            .spawn((Component2(0.0), client::Replicate::default()))
+            .spawn((ComponentSyncModeSimple(0.0), client::Replicate::default()))
             .add_child(child)
             .id();
 
@@ -450,13 +458,13 @@ mod tests {
         let server_parent = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<Component2>>()
+            .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
             .get_single(stepper.server_app.world())
             .expect("parent entity was not replicated");
         let server_child = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<Component3>>()
+            .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
             .get_single(stepper.server_app.world())
             .expect("child entity was not replicated");
         assert_eq!(

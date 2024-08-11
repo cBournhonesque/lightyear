@@ -568,7 +568,7 @@ mod unit_tests {
     use super::test_utils::*;
     use super::*;
 
-    use crate::tests::protocol::Component1;
+    use crate::tests::protocol::ComponentSyncModeFull;
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::ecs::system::RunSystemOnce;
 
@@ -607,7 +607,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component1(1.0));
+            .insert(ComponentSyncModeFull(1.0));
         stepper.frame_step();
 
         // 1. Predicted component and confirmed component are different
@@ -616,7 +616,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .get_mut::<Component1>()
+            .get_mut::<ComponentSyncModeFull>()
             .unwrap()
             .0 = 2.0;
         // simulate that we received a server message for the confirmed entity on tick `tick`
@@ -624,7 +624,7 @@ mod unit_tests {
         stepper
             .client_app
             .world_mut()
-            .run_system_once(check_rollback::<Component1>);
+            .run_system_once(check_rollback::<ComponentSyncModeFull>);
         assert_eq!(
             stepper
                 .client_app
@@ -645,13 +645,13 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .remove::<Component1>();
+            .remove::<ComponentSyncModeFull>();
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
         stepper
             .client_app
             .world_mut()
-            .run_system_once(check_rollback::<Component1>);
+            .run_system_once(check_rollback::<ComponentSyncModeFull>);
         assert_eq!(
             stepper
                 .client_app
@@ -672,18 +672,18 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .remove::<Component1>();
+            .remove::<ComponentSyncModeFull>();
         stepper
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component1(2.0));
+            .insert(ComponentSyncModeFull(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
         stepper
             .client_app
             .world_mut()
-            .run_system_once(check_rollback::<Component1>);
+            .run_system_once(check_rollback::<ComponentSyncModeFull>);
         assert_eq!(
             stepper
                 .client_app
@@ -704,15 +704,15 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .get_mut::<PredictionHistory<Component1>>()
+            .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
             .unwrap()
-            .add_update(tick, Component1(2.0));
+            .add_update(tick, ComponentSyncModeFull(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
         stepper
             .client_app
             .world_mut()
-            .run_system_once(check_rollback::<Component1>);
+            .run_system_once(check_rollback::<ComponentSyncModeFull>);
         assert!(!stepper
             .client_app
             .world()
@@ -735,12 +735,12 @@ mod integration_tests {
 
     fn increment_component(
         mut commands: Commands,
-        mut query: Query<(Entity, &mut Component1), With<Predicted>>,
+        mut query_networked: Query<(Entity, &mut ComponentSyncModeFull), With<Predicted>>,
     ) {
-        for (entity, mut component) in query.iter_mut() {
+        for (entity, mut component) in query_networked.iter_mut() {
             component.0 += 1.0;
             if component.0 == 5.0 {
-                commands.entity(entity).remove::<Component1>();
+                commands.entity(entity).remove::<ComponentSyncModeFull>();
             }
         }
     }
@@ -786,7 +786,7 @@ mod integration_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component1(0.0));
+            .insert(ComponentSyncModeFull(0.0));
         stepper.frame_step();
 
         // check that the component got synced
@@ -794,28 +794,40 @@ mod integration_tests {
             stepper
                 .client_app
                 .world()
-                .get::<Component1>(predicted)
+                .get::<ComponentSyncModeFull>(predicted)
                 .unwrap(),
-            &Component1(1.0)
+            &ComponentSyncModeFull(1.0)
         );
+        // also insert a non-networked component directly on the predicted entity
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted)
+            .insert(ComponentRollback(1.0));
 
         // advance five more frames, so that the component gets removed on predicted
         for i in 0..5 {
             stepper.frame_step();
         }
-        // check that the component got removed on predicted
+        // check that the networked component got removed on predicted
         assert!(stepper
             .client_app
             .world()
-            .get::<Component1>(predicted)
+            .get::<ComponentSyncModeFull>(predicted)
             .is_none());
+        // also remove the non-networked component
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted)
+            .remove::<ComponentRollback>();
 
         // create a rollback situation where the component exists on confirmed but not on predicted
         let tick = stepper.client_tick();
         stepper
             .client_app
             .world_mut()
-            .get_mut::<Component1>(confirmed)
+            .get_mut::<ComponentSyncModeFull>(confirmed)
             .unwrap()
             .0 = -10.0;
         received_confirmed_update(&mut stepper, confirmed, tick - 3);
@@ -827,10 +839,20 @@ mod integration_tests {
             stepper
                 .client_app
                 .world_mut()
-                .get_mut::<Component1>(predicted)
+                .get_mut::<ComponentSyncModeFull>(predicted)
                 .unwrap()
                 .0,
             -6.0
+        );
+        // the non-networked component got rolled back
+        assert_eq!(
+            stepper
+                .client_app
+                .world_mut()
+                .get_mut::<ComponentRollback>(predicted)
+                .unwrap()
+                .0,
+            1.0
         );
     }
 
@@ -847,7 +869,7 @@ mod integration_tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .insert(Component1(1.0));
+            .insert(ComponentSyncModeFull(1.0));
         stepper.frame_step();
 
         // create a rollback situation (confirmed doesn't have a component that predicted has)
@@ -859,7 +881,7 @@ mod integration_tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<Component1>(predicted)
+            .get::<ComponentSyncModeFull>(predicted)
             .is_none());
     }
 
@@ -875,7 +897,7 @@ mod integration_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component1(0.0));
+            .insert(ComponentSyncModeFull(0.0));
         stepper.frame_step();
 
         // check that the component got synced
@@ -883,9 +905,9 @@ mod integration_tests {
             stepper
                 .client_app
                 .world()
-                .get::<Component1>(predicted)
+                .get::<ComponentSyncModeFull>(predicted)
                 .unwrap(),
-            &Component1(1.0)
+            &ComponentSyncModeFull(1.0)
         );
         // advance a bit more (if we don't then the history contains a component insertion on the first tick,
         // so the rollback will respawn the component)
@@ -898,7 +920,7 @@ mod integration_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .remove::<Component1>();
+            .remove::<ComponentSyncModeFull>();
         let tick = stepper.client_tick();
         received_confirmed_update(&mut stepper, confirmed, tick - 1);
         stepper.frame_step();
@@ -908,7 +930,7 @@ mod integration_tests {
         assert!(stepper
             .client_app
             .world_mut()
-            .get_mut::<Component1>(predicted)
+            .get_mut::<ComponentSyncModeFull>(predicted)
             .is_none());
     }
 
@@ -923,7 +945,7 @@ mod integration_tests {
         assert!(stepper
             .client_app
             .world_mut()
-            .get_mut::<Component1>(predicted)
+            .get_mut::<ComponentSyncModeFull>(predicted)
             .is_none());
 
         // create a rollback situation (confirmed doesn't have a component that predicted has)
@@ -931,7 +953,7 @@ mod integration_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component1(1.0));
+            .insert(ComponentSyncModeFull(1.0));
         let tick = stepper.client_tick();
         received_confirmed_update(&mut stepper, confirmed, tick - 2);
         stepper.frame_step();
@@ -941,7 +963,7 @@ mod integration_tests {
         stepper
             .client_app
             .world_mut()
-            .get_mut::<Component1>(predicted)
+            .get_mut::<ComponentSyncModeFull>(predicted)
             .unwrap()
             .0 = 4.0;
     }

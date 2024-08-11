@@ -182,7 +182,7 @@ pub(crate) fn add_server_receive_message_from_client<M: Message>(app: &mut App) 
 mod tests {
     use crate::prelude::ClientId;
     use crate::tests::host_server_stepper::{HostServerStepper, Step, LOCAL_CLIENT_ID};
-    use crate::tests::protocol::{Channel1, Message1};
+    use crate::tests::protocol::{Channel1, StringMessage};
     use bevy::app::Update;
     use bevy::prelude::{EventReader, ResMut, Resource};
 
@@ -192,7 +192,7 @@ mod tests {
     /// System to check that we received the message on the server
     fn count_messages(
         mut counter: ResMut<Counter>,
-        mut events: EventReader<crate::client::events::MessageEvent<Message1>>,
+        mut events: EventReader<crate::client::events::MessageEvent<StringMessage>>,
     ) {
         for event in events.read() {
             assert_eq!(event.message().0, "a".to_string());
@@ -216,9 +216,9 @@ mod tests {
             .server_app
             .world_mut()
             .resource_mut::<crate::prelude::server::ConnectionManager>()
-            .send_message::<Channel1, Message1>(
+            .send_message::<Channel1, StringMessage>(
                 ClientId::Local(LOCAL_CLIENT_ID),
-                &Message1("a".to_string()),
+                &StringMessage("a".to_string()),
             )
             .unwrap();
         stepper.frame_step();

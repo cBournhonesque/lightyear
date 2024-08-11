@@ -7,12 +7,20 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 /// when the key associated with the item is less than or equal to the current key
 ///
 /// The most recent item (by associated key) is returned first
-#[derive(Clone, Default, Debug)]
-pub struct ReadyBuffer<K: Ord, T: PartialEq> {
+#[derive(Clone, Debug)]
+pub struct ReadyBuffer<K, T> {
     // TODO: compare performance with a SequenceBuffer of fixed size
     // TODO: add a maximum size to the buffer. The elements that are farther away from being ready dont' get added?
     /// min heap: we pop the items with smallest key first
     pub heap: BinaryHeap<ItemWithReadyKey<K, T>>,
+}
+
+impl<K: Ord, T: PartialEq> Default for ReadyBuffer<K, T> {
+    fn default() -> Self {
+        Self {
+            heap: BinaryHeap::default(),
+        }
+    }
 }
 
 impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
@@ -147,7 +155,7 @@ impl<K: Ord + Clone, T: PartialEq> ReadyBuffer<K, T> {
 }
 
 #[derive(Clone, Debug)]
-pub struct ItemWithReadyKey<K: Ord, T> {
+pub struct ItemWithReadyKey<K, T> {
     pub key: K,
     pub item: T,
 }

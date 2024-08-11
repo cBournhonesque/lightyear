@@ -591,7 +591,7 @@ impl ReplicationSend for ConnectionManager {
 #[cfg(test)]
 mod tests {
     use crate::prelude::{client, server, ClientConnectionManager};
-    use crate::tests::protocol::Message2;
+    use crate::tests::protocol::EntityMessage;
     use crate::tests::stepper::{BevyStepper, Step};
 
     /// Check that we can map entities from the local world to the remote world
@@ -632,7 +632,7 @@ mod tests {
             server_entity
         );
 
-        let mut message = Message2(client_entity);
+        let mut message = EntityMessage(client_entity);
         stepper
             .client_app
             .world_mut()

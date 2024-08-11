@@ -190,7 +190,9 @@ mod tests {
     use super::*;
     use crate::prelude::server;
     use crate::prelude::{client, ClientId};
-    use crate::tests::protocol::{Component1, Component2, Component3};
+    use crate::tests::protocol::{
+        ComponentSyncModeFull, ComponentSyncModeOnce, ComponentSyncModeSimple,
+    };
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
 
     /// Simple preprediction case
@@ -204,7 +206,7 @@ mod tests {
             .world_mut()
             .spawn((
                 client::Replicate::default(),
-                Component1(1.0),
+                ComponentSyncModeFull(1.0),
                 PrePredicted::default(),
             ))
             .id();
@@ -258,12 +260,16 @@ mod tests {
         //     .with_max_level(tracing::Level::DEBUG)
         //     .init();
         let mut stepper = BevyStepper::default();
-        let child = stepper.client_app.world_mut().spawn(Component3(0.0)).id();
+        let child = stepper
+            .client_app
+            .world_mut()
+            .spawn(ComponentSyncModeOnce(0.0))
+            .id();
         let parent = stepper
             .client_app
             .world_mut()
             .spawn((
-                Component2(0.0),
+                ComponentSyncModeSimple(0.0),
                 client::Replicate::default(),
                 PrePredicted::default(),
             ))
@@ -285,13 +291,13 @@ mod tests {
         let server_parent = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<Component2>>()
+            .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
             .get_single(stepper.server_app.world())
             .expect("parent entity was not replicated");
         let server_child = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<Component3>>()
+            .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
             .get_single(stepper.server_app.world())
             .expect("child entity was not replicated");
         assert_eq!(

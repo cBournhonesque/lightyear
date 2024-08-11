@@ -15,7 +15,9 @@ use tracing::{debug, error, trace};
 use crate::client::components::ComponentSyncMode;
 use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
-use crate::client::prediction::plugin::add_prediction_systems;
+use crate::client::prediction::plugin::{
+    add_non_networked_rollback_systems, add_prediction_systems,
+};
 use crate::prelude::client::SyncComponent;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, ClientId, Message, Tick};
@@ -909,6 +911,9 @@ pub trait AppComponentExt {
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
 
+    /// Enable rollbacks for a component even if the component is not networked
+    fn add_rollback<C: Component + PartialEq + Clone>(&mut self);
+
     /// Enable prediction systems for this component.
     /// You can specify the prediction [`ComponentSyncMode`]
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode);
@@ -1091,6 +1096,15 @@ impl AppComponentExt for App {
         }
     }
 
+    // TODO: move this away from protocol? since it doesn't even use the registry at all
+    //  maybe put this in the PredictionPlugin?
+    fn add_rollback<C: Component + PartialEq + Clone>(&mut self) {
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
+        if is_client {
+            add_non_networked_rollback_systems::<C>(self);
+        }
+    }
+
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_prediction_mode::<C>(prediction_mode);
@@ -1191,11 +1205,11 @@ mod tests {
     #[test]
     fn test_custom_serde() {
         let mut registry = ComponentRegistry::default();
-        registry.register_component_custom_serde::<Component2>(SerializeFns {
+        registry.register_component_custom_serde::<ComponentSyncModeSimple>(SerializeFns {
             serialize: serialize_component2,
             deserialize: deserialize_component2,
         });
-        let component = Component2(1.0);
+        let component = ComponentSyncModeSimple(1.0);
         let mut writer = Writer::default();
         registry.serialize(&component, &mut writer).unwrap();
         let data = writer.to_bytes();
