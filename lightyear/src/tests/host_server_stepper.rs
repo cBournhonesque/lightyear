@@ -248,7 +248,6 @@ impl HostServerStepper {
         self.client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
-
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self

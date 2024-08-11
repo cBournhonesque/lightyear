@@ -357,6 +357,7 @@ fn on_connect_host_server(
     netcode: Res<ClientConnection>,
     mut metadata: ResMut<HostServerMetadata>,
     mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
+    mut connect_event_writer: EventWriter<ConnectEvent>,
 ) {
     // spawn an entity for the client
     let client_entity = commands.spawn(ControlledEntities::default()).id();
@@ -367,6 +368,9 @@ fn on_connect_host_server(
         .unwrap()
         .set_local_client();
     metadata.client_entity = Some(client_entity);
+    connect_event_writer.send(ConnectEvent::new(netcode.id()));
+    // also trigger the event
+    commands.trigger(ConnectEvent::new(netcode.id()));
 }
 
 /// System that runs when we enter the Disconnected state
@@ -525,5 +529,77 @@ mod utils {
             S::register_state(schedule);
             self
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::time::Duration;
+
+    use bevy::prelude::*;
+
+    use crate::{
+        client::config::ClientConfig,
+        prelude::{client::ClientCommands, server::*, SharedConfig, TickConfig},
+        tests::host_server_stepper::{HostServerStepper, Step},
+    };
+
+    #[derive(Resource, Default)]
+    struct CheckCounter(usize);
+
+    fn receive_connect_event(mut reader: EventReader<ConnectEvent>, mut res: ResMut<CheckCounter>) {
+        for event in reader.read() {
+            res.0 += 1;
+        }
+    }
+
+    fn receive_disconnect_event(
+        mut reader: EventReader<DisconnectEvent>,
+        mut res: ResMut<CheckCounter>,
+    ) {
+        for event in reader.read() {
+            res.0 += 1;
+        }
+    }
+
+    #[test]
+    fn test_host_server_connect_event() {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let client_config = ClientConfig::default();
+
+        let mut stepper = HostServerStepper::new(shared_config, client_config, frame_duration);
+
+        stepper
+            .server_app
+            .init_resource::<CheckCounter>()
+            .add_systems(Update, receive_connect_event);
+        stepper.init();
+        assert_eq!(stepper.server_app.world().resource::<CheckCounter>().0, 2); // 2 because local client as well as external client connect
+    }
+
+    #[test]
+    fn test_host_server_disconnect_event() {
+        let mut stepper = HostServerStepper::default();
+
+        stepper
+            .server_app
+            .init_resource::<CheckCounter>()
+            .add_systems(Update, receive_disconnect_event);
+        let mut client_world = stepper.client_app.world_mut();
+        client_world.commands().disconnect_client();
+
+        client_world = stepper.server_app.world_mut();
+        client_world.commands().disconnect_client();
+
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+        assert_eq!(stepper.server_app.world().resource::<CheckCounter>().0, 2); // 2 because local client as well as external client disconnect
     }
 }
