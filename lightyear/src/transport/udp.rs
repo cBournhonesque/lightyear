@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_udp_socket_with_conditioner() {
-        use mock_instant::MockClock;
+        use mock_instant::global::MockClock;
 
         // let the OS assign a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();

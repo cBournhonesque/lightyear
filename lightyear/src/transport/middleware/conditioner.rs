@@ -14,7 +14,7 @@ use crate::utils::ready_buffer::ReadyBuffer;
 
 cfg_if! {
     if #[cfg(test)] {
-        use mock_instant::Instant;
+        use mock_instant::global::Instant;
     } else {
         use bevy::utils::Instant;
     }

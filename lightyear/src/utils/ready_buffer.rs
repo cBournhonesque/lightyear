@@ -185,8 +185,8 @@ impl<K: Ord, T: PartialEq> Ord for ItemWithReadyKey<K, T> {
 #[cfg(test)]
 mod tests {
     use bevy::utils::Duration;
-    use mock_instant::Instant;
-    use mock_instant::MockClock;
+    use mock_instant::global::Instant;
+    use mock_instant::global::MockClock;
 
     use crate::shared::tick_manager::Tick;
 

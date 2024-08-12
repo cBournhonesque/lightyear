@@ -234,7 +234,7 @@ impl MultiBevyStepper {
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         self.server_app
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        mock_instant::MockClock::advance(duration);
+        mock_instant::global::MockClock::advance(duration);
     }
 }
 
