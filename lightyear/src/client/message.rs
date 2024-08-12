@@ -228,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn client_send_message_as_host_server() {
+    fn client_send_message_as_host_server_client() {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_max_level(tracing::Level::ERROR)
         //     .init();

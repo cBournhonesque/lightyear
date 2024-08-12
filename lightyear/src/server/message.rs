@@ -180,8 +180,8 @@ pub(crate) fn add_server_receive_message_from_client<M: Message>(app: &mut App) 
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::ClientId;
-    use crate::tests::host_server_stepper::{HostServerStepper, Step, LOCAL_CLIENT_ID};
+    use crate::prelude::NetworkTarget;
+    use crate::tests::host_server_stepper::{HostServerStepper, Step};
     use crate::tests::protocol::{Channel1, StringMessage};
     use bevy::app::Update;
     use bevy::prelude::{EventReader, ResMut, Resource};
@@ -209,16 +209,18 @@ mod tests {
         let mut stepper = HostServerStepper::default();
 
         stepper.server_app.init_resource::<Counter>();
+        stepper.client_app.init_resource::<Counter>();
         stepper.server_app.add_systems(Update, count_messages);
+        stepper.client_app.add_systems(Update, count_messages);
 
-        // send a message from the local client to the server
+        // send a message from the host-server server to all clients
         stepper
             .server_app
             .world_mut()
             .resource_mut::<crate::prelude::server::ConnectionManager>()
-            .send_message::<Channel1, StringMessage>(
-                ClientId::Local(LOCAL_CLIENT_ID),
+            .send_message_to_target::<Channel1, StringMessage>(
                 &StringMessage("a".to_string()),
+                NetworkTarget::All,
             )
             .unwrap();
         stepper.frame_step();
@@ -226,7 +228,10 @@ mod tests {
         stepper.frame_step();
         stepper.frame_step();
 
-        // verify that the server received the message
+        // verify that the local-client received the message
         assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+
+        // verify that the other client received the message
+        assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
     }
 }
