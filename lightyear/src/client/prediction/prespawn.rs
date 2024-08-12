@@ -463,12 +463,18 @@ mod tests {
         let entity_1 = stepper
             .client_app
             .world_mut()
-            .spawn((Component1(1.0), PreSpawnedPlayerObject::default()))
+            .spawn((
+                ComponentSyncModeFull(1.0),
+                PreSpawnedPlayerObject::default(),
+            ))
             .id();
         let entity_2 = stepper
             .client_app
             .world_mut()
-            .spawn((Component1(1.0), PreSpawnedPlayerObject::default()))
+            .spawn((
+                ComponentSyncModeFull(1.0),
+                PreSpawnedPlayerObject::default(),
+            ))
             .id();
         stepper.frame_step();
 
@@ -497,14 +503,14 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity_1)
-                .get::<PredictionHistory<Component1>>()
+                .get::<PredictionHistory<ComponentSyncModeFull>>()
                 .unwrap()
                 .buffer
                 .heap
                 .peek(),
             Some(&ItemWithReadyKey {
                 key: current_tick,
-                item: ComponentState::Updated(Component1(1.0)),
+                item: ComponentState::Updated(ComponentSyncModeFull(1.0)),
             })
         );
     }

@@ -3,8 +3,8 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, OnRemove, Or, Query, Ref, Res, Trigger, With,
-    Without,
+    Added, Commands, Component, DetectChanges, Entity, OnRemove, Or, Query, Ref, Res, Trigger,
+    With, Without,
 };
 use tracing::{debug, trace};
 
@@ -27,7 +27,7 @@ pub(crate) enum ComponentState<C> {
 
 /// To know if we need to do rollback, we need to compare the predicted entity's history with the server's state updates
 #[derive(Component, Debug)]
-pub(crate) struct PredictionHistory<C: PartialEq> {
+pub(crate) struct PredictionHistory<C> {
     // TODO: add a max size for the buffer
     // We want to avoid using a SequenceBuffer for optimization (we don't want to store a copy of the component for each history tick)
     // We can afford to use a ReadyBuffer because we will get server updates with monotonically increasing ticks
@@ -45,7 +45,7 @@ impl<C: PartialEq> Default for PredictionHistory<C> {
     }
 }
 
-impl<C: SyncComponent> PartialEq for PredictionHistory<C> {
+impl<C: PartialEq> PartialEq for PredictionHistory<C> {
     fn eq(&self, other: &Self) -> bool {
         let mut self_history: Vec<_> = self.buffer.heap.iter().collect();
         let mut other_history: Vec<_> = other.buffer.heap.iter().collect();
@@ -55,7 +55,7 @@ impl<C: SyncComponent> PartialEq for PredictionHistory<C> {
     }
 }
 
-impl<C: SyncComponent> PredictionHistory<C> {
+impl<C: PartialEq + Clone> PredictionHistory<C> {
     /// Reset the history for this component
     pub(crate) fn clear(&mut self) {
         self.buffer = ReadyBuffer::new();
@@ -86,6 +86,31 @@ impl<C: SyncComponent> PredictionHistory<C> {
             self.buffer.push(tick, state.clone());
             state
         })
+    }
+}
+
+// TODO: should this be handled with observers? to avoid running a system
+//  for something that happens relatively rarely
+/// System that adds a `PredictedHistory` for rollback components that
+/// were added to a Predicted entity, but are not networked
+pub(crate) fn add_non_networked_component_history<C: Component + PartialEq + Clone>(
+    mut commands: Commands,
+    tick_manager: Res<TickManager>,
+    predicted_entities: Query<
+        (Entity, &C),
+        (
+            Without<PredictionHistory<C>>,
+            // for all types of predicted entities, we want to add the component history to enable them to be rolled-back
+            With<Predicted>,
+            Added<C>,
+        ),
+    >,
+) {
+    let tick = tick_manager.tick();
+    for (entity, predicted_component) in predicted_entities.iter() {
+        let mut history = PredictionHistory::<C>::default();
+        history.add_update(tick, predicted_component.clone());
+        commands.entity(entity).insert(history);
     }
 }
 
@@ -222,7 +247,7 @@ fn add_history<C: SyncComponent>(
 /// If ComponentSyncMode::Full, we store every update on the predicted entity in the PredictionHistory
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
-pub(crate) fn update_prediction_history<T: SyncComponent>(
+pub(crate) fn update_prediction_history<T: Component + PartialEq + Clone>(
     mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
     tick_manager: Res<TickManager>,
     rollback: Res<Rollback>,
@@ -241,7 +266,7 @@ pub(crate) fn update_prediction_history<T: SyncComponent>(
 
 /// If a component is removed on the Predicted entity, and the ComponentSyncMode == FULL
 /// Add the removal to the history (for potential rollbacks)
-pub(crate) fn apply_component_removal_predicted<C: SyncComponent>(
+pub(crate) fn apply_component_removal_predicted<C: Component + PartialEq + Clone>(
     trigger: Trigger<OnRemove, C>,
     tick_manager: Res<TickManager>,
     rollback: Res<Rollback>,
@@ -320,28 +345,28 @@ mod tests {
     /// Test adding and removing updates to the component history
     #[test]
     fn test_component_history() {
-        let mut component_history = PredictionHistory::<Component1>::default();
+        let mut component_history = PredictionHistory::<ComponentSyncModeFull>::default();
 
         // check when we try to access a value when the buffer is empty
         assert_eq!(component_history.pop_until_tick(Tick(0)), None);
 
         // check when we try to access an exact tick
-        component_history.add_update(Tick(1), Component1(1.0));
-        component_history.add_update(Tick(2), Component1(2.0));
+        component_history.add_update(Tick(1), ComponentSyncModeFull(1.0));
+        component_history.add_update(Tick(2), ComponentSyncModeFull(2.0));
         assert_eq!(
             component_history.pop_until_tick(Tick(2)),
-            Some(ComponentState::Updated(Component1(2.0)))
+            Some(ComponentState::Updated(ComponentSyncModeFull(2.0)))
         );
         // check that we cleared older ticks, and that the most recent value still remains
         assert_eq!(component_history.buffer.len(), 1);
         assert!(component_history.buffer.has_item(&Tick(2)));
 
         // check when we try to access a value in-between ticks
-        component_history.add_update(Tick(4), Component1(4.0));
+        component_history.add_update(Tick(4), ComponentSyncModeFull(4.0));
         // we retrieve the most recent value older or equal to Tick(3)
         assert_eq!(
             component_history.pop_until_tick(Tick(3)),
-            Some(ComponentState::Updated(Component1(2.0)))
+            Some(ComponentState::Updated(ComponentSyncModeFull(2.0)))
         );
         assert_eq!(component_history.buffer.len(), 2);
         // check that the most recent value got added back to the buffer at the popped tick
@@ -349,7 +374,7 @@ mod tests {
             component_history.buffer.heap.peek(),
             Some(&ItemWithReadyKey {
                 key: Tick(2),
-                item: ComponentState::Updated(Component1(2.0))
+                item: ComponentState::Updated(ComponentSyncModeFull(2.0))
             })
         );
         assert!(component_history.buffer.has_item(&Tick(4)));
@@ -401,17 +426,17 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component1(1.0));
+            .insert(ComponentSyncModeFull(1.0));
         stepper.frame_step();
         assert_eq!(
             stepper
                 .client_app
                 .world_mut()
                 .entity_mut(predicted)
-                .get_mut::<PredictionHistory<Component1>>()
+                .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(ComponentState::Updated(Component1(1.0))),
+            Some(ComponentState::Updated(ComponentSyncModeFull(1.0))),
             "Expected component value to be added to prediction history"
         );
         assert_eq!(
@@ -419,9 +444,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .expect("Expected component to be added to predicted entity"),
-            &Component1(1.0),
+            &ComponentSyncModeFull(1.0),
             "Expected component to be added to predicted entity"
         );
 
@@ -431,17 +456,17 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .insert(Component5(1.0));
+            .insert(ComponentSyncModeFull2(1.0));
         stepper.frame_step();
         assert_eq!(
             stepper
                 .client_app
                 .world_mut()
                 .entity_mut(predicted)
-                .get_mut::<PredictionHistory<Component5>>()
+                .get_mut::<PredictionHistory<ComponentSyncModeFull2>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(ComponentState::Updated(Component5(1.0))),
+            Some(ComponentState::Updated(ComponentSyncModeFull2(1.0))),
             "Expected component value to be added to prediction history"
         );
         assert_eq!(
@@ -449,9 +474,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<Component5>()
+                .get::<ComponentSyncModeFull2>()
                 .expect("Expected component to be added to predicted entity"),
-            &Component5(1.0),
+            &ComponentSyncModeFull2(1.0),
             "Expected component to be added to predicted entity"
         );
 
@@ -461,14 +486,14 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component2(1.0));
+            .insert(ComponentSyncModeSimple(1.0));
         stepper.frame_step();
         assert!(
             stepper
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<PredictionHistory<Component2>>()
+                .get::<PredictionHistory<ComponentSyncModeSimple>>()
                 .is_none(),
             "Expected component value to not be added to prediction history for ComponentSyncMode::Simple"
         );
@@ -477,9 +502,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<Component2>()
+                .get::<ComponentSyncModeSimple>()
                 .expect("Expected component to be added to predicted entity"),
-            &Component2(1.0),
+            &ComponentSyncModeSimple(1.0),
             "Expected component to be added to predicted entity"
         );
 
@@ -489,13 +514,13 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component3(1.0));
+            .insert(ComponentSyncModeOnce(1.0));
         stepper.frame_step();
         assert!(
             stepper
                 .client_app
                 .world()                .entity(predicted)
-                .get::<PredictionHistory<Component3>>()
+                .get::<PredictionHistory<ComponentSyncModeOnce>>()
                 .is_none(),
             "Expected component value to not be added to prediction history for ComponentSyncMode::Once"
         );
@@ -504,9 +529,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<Component3>()
+                .get::<ComponentSyncModeOnce>()
                 .expect("Expected component to be added to predicted entity"),
-            &Component3(1.0),
+            &ComponentSyncModeOnce(1.0),
             "Expected component to be added to predicted entity"
         );
     }
@@ -548,13 +573,13 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component1(1.0));
+            .insert(ComponentSyncModeFull(1.0));
         stepper.frame_step();
         stepper
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .get_mut::<Component1>()
+            .get_mut::<ComponentSyncModeFull>()
             .unwrap()
             .0 = 2.0;
         stepper.frame_step();
@@ -564,10 +589,10 @@ mod tests {
                 .client_app
                 .world_mut()
                 .entity_mut(predicted)
-                .get_mut::<PredictionHistory<Component1>>()
+                .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(ComponentState::Updated(Component1(2.0))),
+            Some(ComponentState::Updated(ComponentSyncModeFull(2.0))),
             "Expected component value to be updated in prediction history"
         );
 
@@ -576,13 +601,13 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(Component2(1.0));
+            .insert(ComponentSyncModeSimple(1.0));
         stepper.frame_step();
         stepper
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .get_mut::<Component2>()
+            .get_mut::<ComponentSyncModeSimple>()
             .unwrap()
             .0 = 2.0;
         let tick = stepper.client_tick();
@@ -592,9 +617,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<Component2>()
+                .get::<ComponentSyncModeSimple>()
                 .expect("Expected component to be added to predicted entity"),
-            &Component2(2.0),
+            &ComponentSyncModeSimple(2.0),
             "Expected ComponentSyncMode::Simple component to be updated in predicted entity"
         );
 
@@ -603,7 +628,7 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .remove::<Component1>();
+            .remove::<ComponentSyncModeFull>();
         stepper.frame_step();
         let tick = stepper.client_tick();
         assert_eq!(
@@ -611,7 +636,7 @@ mod tests {
                 .client_app
                 .world_mut()
                 .entity_mut(predicted)
-                .get_mut::<PredictionHistory<Component1>>()
+                .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
             Some(ComponentState::Removed),
@@ -623,7 +648,7 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .remove::<Component2>();
+            .remove::<ComponentSyncModeSimple>();
         let tick = stepper.client_tick();
         stepper.frame_step();
         assert!(
@@ -631,7 +656,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<Component2>()
+                .get::<ComponentSyncModeSimple>()
                 .is_none(),
             "Expected component value to be removed from predicted entity"
         );
@@ -648,20 +673,20 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .insert(Component1(3.0));
+            .insert(ComponentSyncModeFull(3.0));
         stepper
             .client_app
             .world_mut()
-            .run_system_once(update_prediction_history::<Component1>);
+            .run_system_once(update_prediction_history::<ComponentSyncModeFull>);
         assert_eq!(
             stepper
                 .client_app
                 .world_mut()
                 .entity_mut(predicted)
-                .get_mut::<PredictionHistory<Component1>>()
+                .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(rollback_tick),
-            Some(ComponentState::Updated(Component1(3.0))),
+            Some(ComponentState::Updated(ComponentSyncModeFull(3.0))),
             "Expected component value to be updated in prediction history"
         );
 
@@ -670,17 +695,17 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .remove::<Component1>();
+            .remove::<ComponentSyncModeFull>();
         stepper
             .client_app
             .world_mut()
-            .run_system_once(update_prediction_history::<Component1>);
+            .run_system_once(update_prediction_history::<ComponentSyncModeFull>);
         assert_eq!(
             stepper
                 .client_app
                 .world_mut()
                 .entity_mut(predicted)
-                .get_mut::<PredictionHistory<Component1>>()
+                .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(rollback_tick),
             Some(ComponentState::Removed),

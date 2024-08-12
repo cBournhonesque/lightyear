@@ -1140,7 +1140,11 @@ pub(crate) mod send {
         fn test_entity_spawn_preexisting_target() {
             let mut stepper = BevyStepper::default();
 
-            let client_entity = stepper.client_app.world_mut().spawn(Component1(1.0)).id();
+            let client_entity = stepper
+                .client_app
+                .world_mut()
+                .spawn(ComponentSyncModeFull(1.0))
+                .id();
             stepper.frame_step();
             let server_entity = stepper
                 .server_app
@@ -1173,7 +1177,7 @@ pub(crate) mod send {
             assert!(stepper
                 .client_app
                 .world()
-                .get::<Component1>(client_entity)
+                .get::<ComponentSyncModeFull>(client_entity)
                 .is_some());
         }
 
@@ -1474,7 +1478,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Component1(1.0));
+                .insert(ComponentSyncModeFull(1.0));
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1484,9 +1488,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
         }
 
@@ -1517,7 +1521,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Component6(vec![3, 4]));
+                .insert(ComponentDeltaCompression(vec![3, 4]));
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1527,9 +1531,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![3, 4])
+                &ComponentDeltaCompression(vec![3, 4])
             );
         }
 
@@ -1543,8 +1547,8 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((
                     Replicate::default(),
-                    Component6(vec![1, 2]),
-                    DeltaCompression::<Component6>::default(),
+                    ComponentDeltaCompression(vec![1, 2]),
+                    DeltaCompression::<ComponentDeltaCompression>::default(),
                 ))
                 .id();
             stepper.frame_step();
@@ -1564,9 +1568,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![1, 2])
+                &ComponentDeltaCompression(vec![1, 2])
             );
             // check that the component value was stored in the delta manager cache
             assert!(stepper
@@ -1578,7 +1582,7 @@ pub(crate) mod send {
                 .get_component_value(
                     server_entity,
                     tick,
-                    ComponentKind::of::<Component6>(),
+                    ComponentKind::of::<ComponentDeltaCompression>(),
                     ReplicationGroupId(server_entity.to_bits())
                 )
                 .is_some());
@@ -1618,7 +1622,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Component1(1.0));
+                .insert(ComponentSyncModeFull(1.0));
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1628,9 +1632,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
         }
 
@@ -1656,7 +1660,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Component1(1.0));
+                .insert(ComponentSyncModeFull(1.0));
             stepper
                 .server_app
                 .world_mut()
@@ -1679,9 +1683,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
         }
 
@@ -1711,7 +1715,10 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert((Component1(1.0), DisabledComponent::<Component1>::default()));
+                .insert((
+                    ComponentSyncModeFull(1.0),
+                    DisabledComponent::<ComponentSyncModeFull>::default(),
+                ));
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1720,7 +1727,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .entity(client_entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .is_none());
         }
 
@@ -1734,8 +1741,8 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((
                     Replicate::default(),
-                    Component1(1.0),
-                    OverrideTargetComponent::<Component1>::new(NetworkTarget::Single(
+                    ComponentSyncModeFull(1.0),
+                    OverrideTargetComponent::<ComponentSyncModeFull>::new(NetworkTarget::Single(
                         ClientId::Netcode(TEST_CLIENT_ID_1),
                     )),
                 ))
@@ -1765,15 +1772,15 @@ pub(crate) mod send {
                     .client_app_1
                     .world()
                     .entity(client_entity_1)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
             assert!(stepper
                 .client_app_2
                 .world()
                 .entity(client_entity_2)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .is_none());
         }
 
@@ -1793,9 +1800,9 @@ pub(crate) mod send {
                         relevance_mode: NetworkRelevanceMode::InterestManagement,
                         ..default()
                     },
-                    Component1(1.0),
+                    ComponentSyncModeFull(1.0),
                     // override target is only client 1
-                    OverrideTargetComponent::<Component1>::new(NetworkTarget::Single(
+                    OverrideTargetComponent::<ComponentSyncModeFull>::new(NetworkTarget::Single(
                         ClientId::Netcode(TEST_CLIENT_ID_1),
                     )),
                 ))
@@ -1832,15 +1839,15 @@ pub(crate) mod send {
                     .client_app_1
                     .world()
                     .entity(client_entity_1)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
             assert!(stepper
                 .client_app_2
                 .world()
                 .entity(client_entity_2)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .is_none());
         }
 
@@ -1852,7 +1859,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Replicate::default(), Component1(1.0)))
+                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1870,7 +1877,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Component1(2.0));
+                .insert(ComponentSyncModeFull(2.0));
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1880,9 +1887,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(2.0)
+                &ComponentSyncModeFull(2.0)
             );
         }
 
@@ -1894,7 +1901,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Component1(0.0), Replicate::default()))
+                .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
                 .id();
 
             // replicate to client
@@ -1923,7 +1930,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Component1(1.0));
+                .insert(ComponentSyncModeFull(1.0));
 
             // make sure the client receives the replication message
             stepper.frame_step();
@@ -1942,9 +1949,9 @@ pub(crate) mod send {
                 stepper
                     .client_app
                     .world()
-                    .get::<Component1>(client_entity)
+                    .get::<ComponentSyncModeFull>(client_entity)
                     .unwrap(),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
         }
 
@@ -1963,7 +1970,7 @@ pub(crate) mod send {
                             .set_send_frequency(Duration::from_millis(40)),
                         ..default()
                     },
-                    Component1(1.0),
+                    ComponentSyncModeFull(1.0),
                 ))
                 .id();
             stepper.frame_step();
@@ -1982,7 +1989,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Component1(2.0));
+                .insert(ComponentSyncModeFull(2.0));
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1992,9 +1999,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
             // it has been 4 ticks, the component was updated
             stepper.frame_step();
@@ -2004,9 +2011,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(2.0)
+                &ComponentSyncModeFull(2.0)
             );
         }
 
@@ -2020,8 +2027,8 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((
                     Replicate::default(),
-                    Component6(vec![1, 2]),
-                    DeltaCompression::<Component6>::default(),
+                    ComponentDeltaCompression(vec![1, 2]),
+                    DeltaCompression::<ComponentDeltaCompression>::default(),
                 ))
                 .id();
             let group_id = ReplicationGroupId(server_entity.to_bits());
@@ -2042,9 +2049,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![1, 2])
+                &ComponentDeltaCompression(vec![1, 2])
             );
             // check that the component value was stored in the delta manager cache
             assert!(stepper
@@ -2056,7 +2063,7 @@ pub(crate) mod send {
                 .get_component_value(
                     server_entity,
                     insert_tick,
-                    ComponentKind::of::<Component6>(),
+                    ComponentKind::of::<ComponentDeltaCompression>(),
                     group_id,
                 )
                 .is_some());
@@ -2066,7 +2073,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .get_mut::<Component6>()
+                .get_mut::<ComponentDeltaCompression>()
                 .unwrap()
                 .0 = vec![1, 2, 3];
             stepper.frame_step();
@@ -2081,7 +2088,7 @@ pub(crate) mod send {
                 .get_component_value(
                     server_entity,
                     insert_tick,
-                    ComponentKind::of::<Component6>(),
+                    ComponentKind::of::<ComponentDeltaCompression>(),
                     group_id,
                 )
                 .is_some());
@@ -2106,9 +2113,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![1, 2, 3])
+                &ComponentDeltaCompression(vec![1, 2, 3])
             );
             // check that the component value for the update_tick was stored in the delta manager cache
             assert!(stepper
@@ -2120,7 +2127,7 @@ pub(crate) mod send {
                 .get_component_value(
                     server_entity,
                     update_tick,
-                    ComponentKind::of::<Component6>(),
+                    ComponentKind::of::<ComponentDeltaCompression>(),
                     group_id,
                 )
                 .is_some());
@@ -2135,7 +2142,7 @@ pub(crate) mod send {
                 .get_component_value(
                     server_entity,
                     insert_tick,
-                    ComponentKind::of::<Component6>(),
+                    ComponentKind::of::<ComponentDeltaCompression>(),
                     group_id,
                 )
                 .is_none());
@@ -2165,9 +2172,9 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((
                     Replicate::default(),
-                    Component1(1.0),
-                    Component6(vec![1, 2]),
-                    DeltaCompression::<Component6>::default(),
+                    ComponentSyncModeFull(1.0),
+                    ComponentDeltaCompression(vec![1, 2]),
+                    DeltaCompression::<ComponentDeltaCompression>::default(),
                 ))
                 .id();
             let group_id = ReplicationGroupId(server_entity.to_bits());
@@ -2189,9 +2196,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![1, 2])
+                &ComponentDeltaCompression(vec![1, 2])
             );
             // check that the component value was stored in the delta manager cache
             assert!(stepper
@@ -2203,7 +2210,7 @@ pub(crate) mod send {
                 .get_component_value(
                     server_entity,
                     insert_tick,
-                    ComponentKind::of::<Component6>(),
+                    ComponentKind::of::<ComponentDeltaCompression>(),
                     group_id,
                 )
                 .is_some());
@@ -2213,7 +2220,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .get_mut::<Component1>()
+                .get_mut::<ComponentSyncModeFull>()
                 .unwrap()
                 .0 = 1.0;
             stepper.frame_step();
@@ -2224,7 +2231,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .get_mut::<Component6>()
+                .get_mut::<ComponentDeltaCompression>()
                 .unwrap()
                 .0 = vec![1, 2, 3];
             stepper.frame_step();
@@ -2239,7 +2246,7 @@ pub(crate) mod send {
                 .get_component_value(
                     server_entity,
                     insert_tick,
-                    ComponentKind::of::<Component6>(),
+                    ComponentKind::of::<ComponentDeltaCompression>(),
                     group_id,
                 )
                 .is_some());
@@ -2264,9 +2271,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![1, 2, 3])
+                &ComponentDeltaCompression(vec![1, 2, 3])
             );
             // check that the component value for the update_tick was stored in the delta manager cache
             assert!(stepper
@@ -2278,7 +2285,7 @@ pub(crate) mod send {
                 .get_component_value(
                     server_entity,
                     update_tick,
-                    ComponentKind::of::<Component6>(),
+                    ComponentKind::of::<ComponentDeltaCompression>(),
                     group_id,
                 )
                 .is_some());
@@ -2293,7 +2300,7 @@ pub(crate) mod send {
                 .get_component_value(
                     server_entity,
                     insert_tick,
-                    ComponentKind::of::<Component6>(),
+                    ComponentKind::of::<ComponentDeltaCompression>(),
                     group_id,
                 )
                 .is_none());
@@ -2350,8 +2357,8 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((
                     Replicate::default(),
-                    Component6(vec![1, 2]),
-                    DeltaCompression::<Component6>::default(),
+                    ComponentDeltaCompression(vec![1, 2]),
+                    DeltaCompression::<ComponentDeltaCompression>::default(),
                 ))
                 .id();
             let group_id = ReplicationGroupId(server_entity.to_bits());
@@ -2372,9 +2379,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![1, 2])
+                &ComponentDeltaCompression(vec![1, 2])
             );
             // apply update (we haven't received the ack from the client so our diff should be
             // from the base value, aka [2, 3])
@@ -2382,7 +2389,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .get_mut::<Component6>()
+                .get_mut::<ComponentDeltaCompression>()
                 .unwrap()
                 .0 = vec![1, 2, 3];
             stepper.frame_step();
@@ -2409,9 +2416,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![1, 2, 3])
+                &ComponentDeltaCompression(vec![1, 2, 3])
             );
             // the insert_tick message hasn't been acked yet
             assert_eq!(
@@ -2446,7 +2453,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .get_mut::<Component6>()
+                .get_mut::<ComponentDeltaCompression>()
                 .unwrap()
                 .0 = vec![1, 2, 3, 4];
             stepper.frame_step();
@@ -2457,7 +2464,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .get_mut::<Component6>()
+                .get_mut::<ComponentDeltaCompression>()
                 .unwrap()
                 .0 = vec![1, 2, 3, 4, 5];
             stepper.frame_step();
@@ -2467,9 +2474,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![1, 2, 3, 4])
+                &ComponentDeltaCompression(vec![1, 2, 3, 4])
             );
             stepper.frame_step();
             // the client receives the second update, it still works well because we apply the diff
@@ -2479,9 +2486,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component6>()
+                    .get::<ComponentDeltaCompression>()
                     .expect("component missing"),
-                &Component6(vec![1, 2, 3, 4, 5])
+                &ComponentDeltaCompression(vec![1, 2, 3, 4, 5])
             );
         }
 
@@ -2522,8 +2529,8 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((
                     Replicate::default(),
-                    Component7(HashSet::from([1])),
-                    DeltaCompression::<Component7>::default(),
+                    ComponentDeltaCompression2(HashSet::from([1])),
+                    DeltaCompression::<ComponentDeltaCompression2>::default(),
                 ))
                 .id();
             let group_id = ReplicationGroupId(server_entity.to_bits());
@@ -2534,7 +2541,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .get_mut::<Component7>()
+                .get_mut::<ComponentDeltaCompression2>()
                 .unwrap()
                 .0 = HashSet::from([2]);
             // replicate and make sure that the server received the client ack
@@ -2558,9 +2565,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component7>()
+                    .get::<ComponentDeltaCompression2>()
                     .expect("component missing"),
-                &Component7(HashSet::from([2]))
+                &ComponentDeltaCompression2(HashSet::from([2]))
             );
             // check that the server received an ack
             assert!(stepper
@@ -2578,7 +2585,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .get_mut::<Component7>()
+                .get_mut::<ComponentDeltaCompression2>()
                 .unwrap()
                 .0 = HashSet::from([3]);
             stepper.frame_step();
@@ -2588,7 +2595,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .get_mut::<Component7>()
+                .get_mut::<ComponentDeltaCompression2>()
                 .unwrap()
                 .0 = HashSet::from([4]);
             stepper.frame_step();
@@ -2598,9 +2605,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component7>()
+                    .get::<ComponentDeltaCompression2>()
                     .expect("component missing"),
-                &Component7(HashSet::from([3]))
+                &ComponentDeltaCompression2(HashSet::from([3]))
             );
             stepper.frame_step();
             // the client receives the second update, and it still works well because we apply the diff
@@ -2610,9 +2617,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component7>()
+                    .get::<ComponentDeltaCompression2>()
                     .expect("component missing"),
-                &Component7(HashSet::from([4]))
+                &ComponentDeltaCompression2(HashSet::from([4]))
             );
             // check that the history still contains the component for the component update
             // (because we only purge when we receive a strictly more recent tick)
@@ -2620,7 +2627,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .entity(client_entity)
-                .get::<DeltaComponentHistory<Component7>>()
+                .get::<DeltaComponentHistory<ComponentDeltaCompression2>>()
                 .expect("component missing")
                 .buffer
                 .contains_key(&update_tick));
@@ -2629,7 +2636,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .entity(client_entity)
-                .get::<DeltaComponentHistory<Component7>>()
+                .get::<DeltaComponentHistory<ComponentDeltaCompression2>>()
                 .expect("component missing")
                 .buffer
                 .contains_key(&insert_tick));
@@ -2645,7 +2652,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Replicate::default(), Component1(1.0)))
+                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -2663,7 +2670,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Component1(2.0))
+                .insert(ComponentSyncModeFull(2.0))
                 .remove::<ReplicationTarget>();
             stepper.frame_step();
             stepper.frame_step();
@@ -2674,9 +2681,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
 
             // re-add the replication_target component
@@ -2693,9 +2700,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(2.0)
+                &ComponentSyncModeFull(2.0)
             );
         }
 
@@ -2707,7 +2714,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Replicate::default(), Component1(1.0)))
+                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -2725,7 +2732,10 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert((Component1(2.0), DisabledComponent::<Component1>::default()));
+                .insert((
+                    ComponentSyncModeFull(2.0),
+                    DisabledComponent::<ComponentSyncModeFull>::default(),
+                ));
             stepper.frame_step();
             stepper.frame_step();
 
@@ -2735,9 +2745,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
         }
 
@@ -2751,8 +2761,8 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((
                     Replicate::default(),
-                    Component1(1.0),
-                    ReplicateOnceComponent::<Component1>::default(),
+                    ComponentSyncModeFull(1.0),
+                    ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
                 ))
                 .id();
             stepper.frame_step();
@@ -2771,9 +2781,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
 
             // update component
@@ -2781,7 +2791,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Component1(2.0));
+                .insert(ComponentSyncModeFull(2.0));
             stepper.frame_step();
             stepper.frame_step();
 
@@ -2791,9 +2801,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
         }
 
@@ -2805,7 +2815,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Replicate::default(), Component1(1.0)))
+                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -2822,9 +2832,9 @@ pub(crate) mod send {
                     .client_app
                     .world()
                     .entity(client_entity)
-                    .get::<Component1>()
+                    .get::<ComponentSyncModeFull>()
                     .expect("component missing"),
-                &Component1(1.0)
+                &ComponentSyncModeFull(1.0)
             );
 
             // remove component
@@ -2832,7 +2842,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .remove::<Component1>();
+                .remove::<ComponentSyncModeFull>();
             stepper.frame_step();
             stepper.frame_step();
 
@@ -2841,7 +2851,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .entity(client_entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .is_none());
         }
 
@@ -2901,7 +2911,7 @@ pub(crate) mod send {
 
             stepper.client_app.add_systems(
                 Update,
-                |mut events: EventReader<ComponentUpdateEvent<Component1>>| {
+                |mut events: EventReader<ComponentUpdateEvent<ComponentSyncModeFull>>| {
                     if let Some(event) = events.read().next() {
                         panic!(
                             "ComponentUpdateEvent received for entity: {:?}",
@@ -2912,9 +2922,17 @@ pub(crate) mod send {
             );
 
             // spawn an entity on server
-            let server_entity = stepper.server_app.world_mut().spawn(Component1(1.0)).id();
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(ComponentSyncModeFull(1.0))
+                .id();
             // spawn an entity on the client with the component value
-            let client_entity = stepper.client_app.world_mut().spawn(Component1(1.0)).id();
+            let client_entity = stepper
+                .client_app
+                .world_mut()
+                .spawn(ComponentSyncModeFull(1.0))
+                .id();
 
             // add replication with a pre-existing target
             stepper
@@ -2942,14 +2960,22 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
-            let server_entity = stepper.server_app.world_mut().spawn(Component1(2.0)).id();
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(ComponentSyncModeFull(2.0))
+                .id();
             // spawn an entity on the client with the component value
-            let client_entity = stepper.client_app.world_mut().spawn(Component1(1.0)).id();
+            let client_entity = stepper
+                .client_app
+                .world_mut()
+                .spawn(ComponentSyncModeFull(1.0))
+                .id();
 
             stepper.client_app.init_resource::<Counter>();
             stepper.client_app.add_systems(
                 Update,
-                move |mut events: EventReader<ComponentUpdateEvent<Component1>>,
+                move |mut events: EventReader<ComponentUpdateEvent<ComponentSyncModeFull>>,
                       mut counter: ResMut<Counter>| {
                     for events in events.read() {
                         counter.0 += 1;
@@ -3025,14 +3051,14 @@ pub(crate) mod commands {
             let entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Component1(1.0), Replicate::default()))
+                .spawn((ComponentSyncModeFull(1.0), Replicate::default()))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .query_filtered::<Entity, With<Component1>>()
+                .query_filtered::<Entity, With<ComponentSyncModeFull>>()
                 .get_single(stepper.client_app.world())
                 .unwrap();
 
@@ -3050,7 +3076,7 @@ pub(crate) mod commands {
             assert!(stepper
                 .client_app
                 .world_mut()
-                .query::<&Component1>()
+                .query::<&ComponentSyncModeFull>()
                 .get_single(stepper.client_app.world())
                 .is_err());
 
@@ -3058,14 +3084,14 @@ pub(crate) mod commands {
             let entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Component1(1.0), Replicate::default()))
+                .spawn((ComponentSyncModeFull(1.0), Replicate::default()))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
             assert!(stepper
                 .client_app
                 .world_mut()
-                .query::<&Component1>()
+                .query::<&ComponentSyncModeFull>()
                 .get_single(stepper.client_app.world())
                 .is_ok());
 
@@ -3077,7 +3103,7 @@ pub(crate) mod commands {
             assert!(stepper
                 .client_app
                 .world_mut()
-                .query::<&Component1>()
+                .query::<&ComponentSyncModeFull>()
                 .get_single(stepper.client_app.world())
                 .is_ok());
         }

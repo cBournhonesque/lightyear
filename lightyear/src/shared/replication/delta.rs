@@ -220,44 +220,44 @@ impl DeltaComponentStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::protocol::Component6;
+    use crate::tests::protocol::ComponentDeltaCompression;
 
     #[test]
     fn test_add_get_data() {
         let mut registry = ComponentRegistry::default();
-        registry.register_component::<Component6>();
-        registry.set_delta_compression::<Component6>();
+        registry.register_component::<ComponentDeltaCompression>();
+        registry.set_delta_compression::<ComponentDeltaCompression>();
         let mut store = DeltaComponentStore::default();
         let entity = Entity::from_raw(0);
         let tick = Tick(0);
         let replication_group = ReplicationGroupId(0);
-        let component = Component6(vec![1, 2]);
+        let component = ComponentDeltaCompression(vec![1, 2]);
         let ptr = Ptr::from(&component);
-        let kind = ComponentKind::of::<Component6>();
+        let kind = ComponentKind::of::<ComponentDeltaCompression>();
 
         store.store_component_value(entity, tick, kind, ptr, replication_group, &registry);
 
         let retrieved = store
             .get_component_value(entity, tick, kind, replication_group)
             .unwrap();
-        let retrieved_component = unsafe { retrieved.deref::<Component6>() };
+        let retrieved_component = unsafe { retrieved.deref::<ComponentDeltaCompression>() };
         assert_eq!(retrieved_component, &component);
     }
 
     #[test]
     fn test_delete_old_data() {
         let mut registry = ComponentRegistry::default();
-        registry.register_component::<Component6>();
-        registry.set_delta_compression::<Component6>();
+        registry.register_component::<ComponentDeltaCompression>();
+        registry.set_delta_compression::<ComponentDeltaCompression>();
         let mut store = DeltaComponentStore::default();
         let entity = Entity::from_raw(0);
         let tick_1 = Tick(1);
         let tick_2 = Tick(2);
         let tick_3 = Tick(3);
         let replication_group = ReplicationGroupId(0);
-        let component = Component6(vec![1, 2]);
+        let component = ComponentDeltaCompression(vec![1, 2]);
         let ptr = Ptr::from(&component);
-        let kind = ComponentKind::of::<Component6>();
+        let kind = ComponentKind::of::<ComponentDeltaCompression>();
 
         store.store_component_value(entity, tick_1, kind, ptr, replication_group, &registry);
         store.store_component_value(entity, tick_2, kind, ptr, replication_group, &registry);
@@ -271,12 +271,12 @@ mod tests {
         let retrieved = store
             .get_component_value(entity, tick_2, kind, replication_group)
             .unwrap();
-        let retrieved_component = unsafe { retrieved.deref::<Component6>() };
+        let retrieved_component = unsafe { retrieved.deref::<ComponentDeltaCompression>() };
         assert_eq!(retrieved_component, &component);
         let retrieved = store
             .get_component_value(entity, tick_3, kind, replication_group)
             .unwrap();
-        let retrieved_component = unsafe { retrieved.deref::<Component6>() };
+        let retrieved_component = unsafe { retrieved.deref::<ComponentDeltaCompression>() };
         assert_eq!(retrieved_component, &component);
     }
 }

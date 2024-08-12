@@ -1,6 +1,6 @@
 use bevy::prelude::{
-    not, App, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    PostUpdate, PreUpdate, Res, SystemSet,
+    not, App, Component, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
+    Plugin, PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
@@ -15,8 +15,9 @@ use crate::client::prediction::despawn::{
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
 use crate::client::prediction::predicted_history::{
-    add_prespawned_component_history, apply_component_removal_confirmed,
-    apply_component_removal_predicted, update_prediction_history,
+    add_non_networked_component_history, add_prespawned_component_history,
+    apply_component_removal_confirmed, apply_component_removal_predicted,
+    update_prediction_history,
 };
 use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
@@ -29,8 +30,8 @@ use crate::shared::sets::{ClientMarker, InternalMainSet};
 use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{
-    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_prespawn,
-    run_rollback, Rollback, RollbackState,
+    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
+    prepare_rollback_prespawn, run_rollback, Rollback, RollbackState,
 };
 use super::spawn::spawn_predicted_entity;
 
@@ -180,6 +181,22 @@ pub enum PredictionSet {
 /// Returns true if we are doing rollback
 pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
     rollback.is_some_and(|rollback| rollback.is_rollback())
+}
+
+/// Enable rollbacking a component even if the component is not networked
+pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app: &mut App) {
+    app.observe(apply_component_removal_predicted::<C>);
+    app.add_systems(
+        PreUpdate,
+        (
+            add_non_networked_component_history::<C>.in_set(PredictionSet::SpawnHistory),
+            prepare_rollback_non_networked::<C>.in_set(PredictionSet::PrepareRollback),
+        ),
+    );
+    app.add_systems(
+        FixedPostUpdate,
+        update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
+    );
 }
 
 pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {

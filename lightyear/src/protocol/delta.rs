@@ -93,16 +93,16 @@ impl ErasedDeltaFns {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::protocol::Component6;
+    use crate::tests::protocol::ComponentDeltaCompression;
 
     #[test]
     fn test_erased_clone() {
-        let erased_fns = ErasedDeltaFns::new::<Component6>();
-        let data = Component6(vec![1]);
+        let erased_fns = ErasedDeltaFns::new::<ComponentDeltaCompression>();
+        let data = ComponentDeltaCompression(vec![1]);
         // clone data
         let cloned = unsafe { (erased_fns.clone)(Ptr::from(&data)) };
         // cast the ptr to the original type
-        let casted = cloned.cast::<Component6>();
+        let casted = cloned.cast::<ComponentDeltaCompression>();
         assert_eq!(unsafe { casted.as_ref() }, &data);
         // free the leaked memory
         unsafe { (erased_fns.drop)(casted.cast()) };
@@ -124,9 +124,9 @@ mod tests {
 
     #[test]
     fn test_erased_diff() {
-        let erased_fns = ErasedDeltaFns::new::<Component6>();
-        let old_data = Component6(vec![1]);
-        let new_data = Component6(vec![1, 2]);
+        let erased_fns = ErasedDeltaFns::new::<ComponentDeltaCompression>();
+        let old_data = ComponentDeltaCompression(vec![1]);
+        let new_data = ComponentDeltaCompression(vec![1, 2]);
 
         let diff = old_data.diff(&new_data);
         assert_eq!(diff, vec![2]);
@@ -150,8 +150,8 @@ mod tests {
 
     #[test]
     fn test_erased_from_base_diff() {
-        let erased_fns = ErasedDeltaFns::new::<Component6>();
-        let new_data = Component6(vec![1, 2]);
+        let erased_fns = ErasedDeltaFns::new::<ComponentDeltaCompression>();
+        let new_data = ComponentDeltaCompression(vec![1, 2]);
         let delta = unsafe { (erased_fns.diff_from_base)(Ptr::from(&new_data)) };
         let casted = delta.cast::<DeltaMessage<Vec<usize>>>();
         let delta_message = unsafe { casted.as_ref() };
@@ -165,10 +165,10 @@ mod tests {
 
     #[test]
     fn test_apply_diff() {
-        let erased_fns = ErasedDeltaFns::new::<Component6>();
-        let mut old_data = Component6(vec![1]);
-        let diff: <Component6 as Diffable>::Delta = vec![2];
+        let erased_fns = ErasedDeltaFns::new::<ComponentDeltaCompression>();
+        let mut old_data = ComponentDeltaCompression(vec![1]);
+        let diff: <ComponentDeltaCompression as Diffable>::Delta = vec![2];
         unsafe { (erased_fns.apply_diff)(PtrMut::from(&mut old_data), Ptr::from(&diff)) };
-        assert_eq!(old_data, Component6(vec![1, 2]));
+        assert_eq!(old_data, ComponentDeltaCompression(vec![1, 2]));
     }
 }

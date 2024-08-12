@@ -1,4 +1,16 @@
-- 
+- Add rollback for non-networked components. We will only consider entities that have `Predicted` (but no `Confirmed`!)
+  - the components will be added to the prediction_registry with mode=FULL?
+  - add a PredictedHistory
+    - !!`add_component_history` needs to be adapted to handle no confirmed entities
+  - component removed on Predicted -> added to history (`apply_component_removal_predicted`)
+  - `check_rollback`: no need to modify, we don't want to check rollback for non-networked components since we don't receive server updates
+  - !!`prepare_rollback`: reset the state to the PredictedHistory state
+  - `update_prediction_history`: works fine, needed for non-networked components
+  - DESPAWN:
+    - `remove_component_for_despawn_predicted`: OK
+
+
+
 - Replication serialization:
   - to improve performance, we want to:
     - entities that don't have SerializationGroup are considered part of SerializationGroup for the PLACEHOLDER entity (this should be ok since the PLACEHOLDER is never instantiated)
