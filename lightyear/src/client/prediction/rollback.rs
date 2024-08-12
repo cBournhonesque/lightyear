@@ -755,7 +755,6 @@ mod unit_tests {
 mod integration_tests {
     use super::test_utils::*;
 
-    use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::prelude::client::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
