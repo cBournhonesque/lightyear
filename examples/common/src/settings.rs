@@ -1,4 +1,5 @@
 //! This module parses the settings.ron file and builds a lightyear configuration from it
+#![allow(unused_imports)]
 #![allow(unused_variables)]
 use std::net::{Ipv4Addr, SocketAddr};
 
