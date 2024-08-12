@@ -3,8 +3,8 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, OnRemove, Or, Query, Ref, Res, Trigger, With,
-    Without,
+    Added, Commands, Component, DetectChanges, Entity, OnRemove, Or, Query, Ref, Res, Trigger,
+    With, Without,
 };
 use tracing::{debug, trace};
 
@@ -86,6 +86,31 @@ impl<C: PartialEq + Clone> PredictionHistory<C> {
             self.buffer.push(tick, state.clone());
             state
         })
+    }
+}
+
+// TODO: should this be handled with observers? to avoid running a system
+//  for something that happens relatively rarely
+/// System that adds a `PredictedHistory` for rollback components that
+/// were added to a Predicted entity, but are not networked
+pub(crate) fn add_non_networked_component_history<C: Component + PartialEq + Clone>(
+    mut commands: Commands,
+    tick_manager: Res<TickManager>,
+    predicted_entities: Query<
+        (Entity, &C),
+        (
+            Without<PredictionHistory<C>>,
+            // for all types of predicted entities, we want to add the component history to enable them to be rolled-back
+            With<Predicted>,
+            Added<C>,
+        ),
+    >,
+) {
+    let tick = tick_manager.tick();
+    for (entity, predicted_component) in predicted_entities.iter() {
+        let mut history = PredictionHistory::<C>::default();
+        history.add_update(tick, predicted_component.clone());
+        commands.entity(entity).insert(history);
     }
 }
 
