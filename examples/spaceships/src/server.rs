@@ -113,11 +113,10 @@ fn init(mut commands: Commands) {
 
 pub(crate) fn replicate_inputs(
     mut connection: ResMut<ConnectionManager>,
-    mut input_events: EventReader<MessageEvent<InputMessage<PlayerActions>>>,
+    mut input_events: ResMut<Events<MessageEvent<InputMessage<PlayerActions>>>>,
 ) {
-    for event in input_events.read() {
-        let inputs = event.message();
-        let client_id = event.context();
+    for mut event in input_events.drain() {
+        let client_id = *event.context();
 
         // Optional: do some validation on the inputs to check that there's no cheating
         // Inputs for a specific tick should be write *once*. Don't let players change old inputs.
@@ -125,8 +124,8 @@ pub(crate) fn replicate_inputs(
         // rebroadcast the input to other clients
         connection
             .send_message_to_target::<InputChannel, _>(
-                inputs,
-                NetworkTarget::AllExceptSingle(*client_id),
+                &mut event.message,
+                NetworkTarget::AllExceptSingle(client_id),
             )
             .unwrap()
     }

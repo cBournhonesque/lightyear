@@ -314,14 +314,17 @@ mod lobby {
                                                             // send a message to join the game
                                                             let _ = connection_manager
                                                                 .send_message::<Channel1, _>(
-                                                                    &StartGame { lobby_id, host },
+                                                                    &mut StartGame {
+                                                                        lobby_id,
+                                                                        host,
+                                                                    },
                                                                 );
                                                         }
                                                     } else {
                                                         if ui.button("Join Lobby").clicked() {
                                                             connection_manager
                                                                 .send_message::<Channel1, _>(
-                                                                    &JoinLobby { lobby_id },
+                                                                    &mut JoinLobby { lobby_id },
                                                                 )
                                                                 .unwrap();
                                                             next_app_state.set(AppState::Lobby {
@@ -397,7 +400,7 @@ mod lobby {
                                 if let Some(lobby_id) = joined_lobby {
                                     if ui.button("Exit lobby").clicked() {
                                         connection_manager
-                                            .send_message::<Channel1, _>(&ExitLobby {
+                                            .send_message::<Channel1, _>(&mut ExitLobby {
                                                 lobby_id: *lobby_id,
                                             })
                                             .unwrap();
@@ -408,7 +411,7 @@ mod lobby {
                                         let host = lobby_table.get_host();
                                         // send a message to server/client to start the game and possibly act as server
                                         let _ = connection_manager.send_message::<Channel1, _>(
-                                            &StartGame {
+                                            &mut StartGame {
                                                 lobby_id: *lobby_id,
                                                 host,
                                             },

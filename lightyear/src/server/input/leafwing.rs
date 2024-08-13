@@ -120,7 +120,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                         .remote_entity_map
                         .remote_to_local,
                 ) {
-                    Ok(message) => {
+                    Ok(mut message) => {
                         debug!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
                         // TODO: UPDATE THIS
                         for (target, start, diffs) in &message.diffs {
@@ -172,12 +172,20 @@ fn receive_input_message<A: LeafwingUserAction>(
                         //  - it's hard to specify on the client who we want to rebroadcast to
                         //  - we shouldn't rebroadcast immediately, instead we want to let the server inspect the input
                         //    to verify that there's no cheating
+                        //  Instead, add a system that manually rebroadcast inputs
 
                         // rebroadcast
                         if target != NetworkTarget::None {
-                            if let Ok(()) =
-                                message_registry.serialize(&message, &mut connection_manager.writer)
-                            {
+                            if let Ok(()) = message_registry.serialize(
+                                &mut message,
+                                &mut connection_manager.writer,
+                                Some(
+                                    &mut connection
+                                        .replication_receiver
+                                        .remote_entity_map
+                                        .local_to_remote,
+                                ),
+                            ) {
                                 connection.messages_to_rebroadcast.push((
                                     reader.consume(),
                                     target,
