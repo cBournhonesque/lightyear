@@ -381,10 +381,21 @@ impl MessageRegistry {
         erased_fns.add_map_entities::<M>();
     }
 
+    /// Returns true if we have a registered `map_entities` function for this message type
+    pub(crate) fn is_map_entities<M: 'static>(&self) -> bool {
+        let kind = MessageKind::of::<M>();
+        let erased_fns = self
+            .serialize_fns_map
+            .get(&kind)
+            .expect("the message is not part of the protocol");
+        erased_fns.map_entities.is_some()
+    }
+
     pub(crate) fn serialize<M: Message>(
         &self,
-        message: &M,
+        message: &mut M,
         writer: &mut Writer,
+        entity_map: Option<&mut EntityMap>,
     ) -> Result<(), MessageError> {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
@@ -395,7 +406,7 @@ impl MessageRegistry {
         net_id.to_bytes(writer)?;
         // SAFETY: the ErasedSerializeFns was created for the type M
         unsafe {
-            erased_fns.serialize(message, writer)?;
+            erased_fns.serialize(message, writer, entity_map)?;
         }
         Ok(())
     }
@@ -441,17 +452,18 @@ impl From<TypeId> for MessageKind {
 mod tests {
     use super::*;
     use crate::tests::protocol::{
-        deserialize_resource2, serialize_resource2, Resource1, Resource2,
+        deserialize_resource2, serialize_resource2, ComponentMapEntities, Resource1, Resource2,
     };
+    use bevy::prelude::Entity;
 
     #[test]
     fn test_serde() {
         let mut registry = MessageRegistry::default();
         registry.add_message::<Resource1>(MessageType::Normal);
 
-        let message = Resource1(1.0);
+        let mut message = Resource1(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&message, &mut writer).unwrap();
+        registry.serialize(&mut message, &mut writer, None).unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
@@ -459,6 +471,28 @@ mod tests {
             .deserialize(&mut reader, &mut EntityMap::default())
             .unwrap();
         assert_eq!(message, read);
+    }
+
+    #[test]
+    fn test_serde_map() {
+        let mut registry = MessageRegistry::default();
+        registry.add_message::<ComponentMapEntities>(MessageType::Normal);
+        registry.add_map_entities::<ComponentMapEntities>();
+
+        let mut message = ComponentMapEntities(Entity::from_raw(0));
+        let mut writer = Writer::default();
+        let mut map = EntityMap::default();
+        map.insert(Entity::from_raw(0), Entity::from_raw(1));
+        registry
+            .serialize(&mut message, &mut writer, Some(&mut map))
+            .unwrap();
+        let data = writer.to_bytes();
+
+        let mut reader = Reader::from(data);
+        let read = registry
+            .deserialize::<ComponentMapEntities>(&mut reader, &mut EntityMap::default())
+            .unwrap();
+        assert_eq!(read, ComponentMapEntities(Entity::from_raw(1)));
     }
 
     #[test]
@@ -472,9 +506,9 @@ mod tests {
             },
         );
 
-        let message = Resource2(1.0);
+        let mut message = Resource2(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&message, &mut writer).unwrap();
+        registry.serialize(&mut message, &mut writer, None).unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);

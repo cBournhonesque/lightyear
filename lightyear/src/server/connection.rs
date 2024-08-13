@@ -141,7 +141,7 @@ impl ConnectionManager {
     /// Queues up a message to be sent to all clients matching the specific [`NetworkTarget`]
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
@@ -150,7 +150,7 @@ impl ConnectionManager {
     /// Send a message to all clients in a room
     pub fn send_message_to_room<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         room_id: RoomId,
         room_manager: &RoomManager,
     ) -> Result<(), ServerError> {
@@ -165,7 +165,7 @@ impl ConnectionManager {
     pub fn send_message<C: Channel, M: Message>(
         &mut self,
         client_id: ClientId,
-        message: &M,
+        message: &mut M,
     ) -> Result<(), ServerError> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
     }
@@ -301,7 +301,7 @@ impl ConnectionManager {
         entity
     }
 
-    pub(crate) fn buffer_message(
+    pub(crate) fn buffer_message_bytes(
         &mut self,
         message: Bytes,
         channel: ChannelKind,
@@ -310,28 +310,69 @@ impl ConnectionManager {
         self.connections
             .iter_mut()
             .filter(|(id, _)| target.targets(id))
-            // NOTE: this clone is O(1), it just increments the reference count
             .try_for_each(|(_, c)| {
                 // for local clients, we don't want to buffer messages in the MessageManager since
                 // there is no io
                 if c.is_local_client() {
                     c.local_messages_to_send.push(message.clone())
                 } else {
+                    // NOTE: this clone is O(1), it just increments the reference count
                     c.buffer_message(message.clone(), channel)?;
                 }
                 Ok::<(), ServerError>(())
             })
     }
 
+    /// Buffer a `MapEntities` message to remote clients.
+    /// We cannot serialize the message once, we need to instead map the message for each client
+    /// using the `EntityMap` of that connection.
+    fn buffer_map_entities_message<M: Message>(
+        &mut self,
+        message: &mut M,
+        channel: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<(), ServerError> {
+        self.connections
+            .iter_mut()
+            .filter(|(id, _)| target.targets(id))
+            .try_for_each(|(_, c)| {
+                self.message_registry.serialize(
+                    message,
+                    &mut self.writer,
+                    Some(&mut c.replication_receiver.remote_entity_map.local_to_remote),
+                )?;
+                let message_bytes = self.writer.split();
+                // for local clients, we don't want to buffer messages in the MessageManager since
+                // there is no io
+                if c.is_local_client() {
+                    c.local_messages_to_send.push(message_bytes);
+                } else {
+                    c.buffer_message(message_bytes, channel)?;
+                }
+                Ok::<(), ServerError>(())
+            })
+    }
+
+    /// Serialize the message and buffer it to be sent in each `Connection`.
+    ///
+    /// - If the message is not `MapEntities`, we can serialize it once and reuse the same bytes
+    ///   for all `Connections`.
+    /// - If it is `MapEntities`, we need to map it in each connection.
     pub(crate) fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        self.message_registry.serialize(message, &mut self.writer)?;
-        let message_bytes = self.writer.split();
-        self.buffer_message(message_bytes, channel_kind, target)
+        if self.message_registry.is_map_entities::<M>() {
+            self.buffer_map_entities_message(message, channel_kind, target)?;
+        } else {
+            self.message_registry
+                .serialize(message, &mut self.writer, None)?;
+            let message_bytes = self.writer.split();
+            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
+        }
+        Ok(())
     }
 
     /// Buffer all the replication messages to send.
@@ -382,7 +423,7 @@ impl ConnectionManager {
                 Ok::<(), ServerError>(())
             })?;
         for (message, target, channel_kind) in messages_to_rebroadcast {
-            self.buffer_message(message, channel_kind, target)?;
+            self.buffer_message_bytes(message, channel_kind, target)?;
         }
         Ok(())
     }
@@ -396,14 +437,14 @@ impl ConnectionManager {
         group_id: ReplicationGroupId,
         client_id: ClientId,
         component_registry: &ComponentRegistry,
-        data: &C,
+        data: &mut C,
         bevy_tick: BevyTick,
     ) -> Result<(), ServerError> {
         let net_id = component_registry
             .get_net_id::<C>()
             .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
         // We store the Bytes in a hashmap, maybe more efficient to write the replication message directly?
-        component_registry.serialize(data, &mut self.writer)?;
+        component_registry.serialize(data, &mut self.writer, None)?;
         let raw_data = self.writer.split();
         self.connection_mut(client_id)?
             .replication_sender
@@ -1006,7 +1047,7 @@ impl MessageSend for ConnectionManager {
     type Error = ServerError;
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
         self.send_message_to_target::<C, M>(message, target)
@@ -1014,7 +1055,7 @@ impl MessageSend for ConnectionManager {
 
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {

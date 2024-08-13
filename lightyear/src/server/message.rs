@@ -219,7 +219,7 @@ mod tests {
             .world_mut()
             .resource_mut::<crate::prelude::server::ConnectionManager>()
             .send_message_to_target::<Channel1, StringMessage>(
-                &StringMessage("a".to_string()),
+                &mut StringMessage("a".to_string()),
                 NetworkTarget::All,
             )
             .unwrap();

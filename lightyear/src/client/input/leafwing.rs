@@ -650,9 +650,9 @@ fn send_input_messages<A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
 ) {
-    for message in message_buffer.0.drain(..) {
+    for mut message in message_buffer.0.drain(..) {
         connection
-            .send_message::<InputChannel, InputMessage<A>>(&message)
+            .send_message::<InputChannel, InputMessage<A>>(&mut message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             });

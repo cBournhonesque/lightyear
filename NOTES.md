@@ -1,14 +1,90 @@
-- Add rollback for non-networked components. We will only consider entities that have `Predicted` (but no `Confirmed`!)
-  - the components will be added to the prediction_registry with mode=FULL?
-  - add a PredictedHistory
-    - !!`add_component_history` needs to be adapted to handle no confirmed entities
-  - component removed on Predicted -> added to history (`apply_component_removal_predicted`)
-  - `check_rollback`: no need to modify, we don't want to check rollback for non-networked components since we don't receive server updates
-  - !!`prepare_rollback`: reset the state to the PredictedHistory state
-  - `update_prediction_history`: works fine, needed for non-networked components
-  - DESPAWN:
-    - `remove_component_for_despawn_predicted`: OK
+# Entity mapping
 
+- SOLUTION 0: the entity receiver always keeps the mapping.
+  - we always try to apply the mapping from remote->local on receive side
+  - we always try to apply the mapping from local->remote on send side.
+  - C1 spawns E1, sends to S, S spawns E0. S replicated to C2 who spawns E2
+    C1 sends a message about E1, entity gets mapped to E0.
+    S rebroadcasts to C1, mapping from E0 to E1.
+    S rebroadcasts to C2, no mapping. The receiver maps E0 to E2.
+  - We know there are no conflicts because only the receiver has the mapping!
+    - i.e. we cannot be in a situation where C maps to the remote and sends it to S, and S receives it,
+      tries to map it from remote to local, but fails because it was already mapped!
+      
+
+- SOLUTION 1: the client always keeps the mapping
+  - if S spawns and sends the client, client has the mapping. When client sends a message about the entity, it 
+    converts it using the mapping. If client receives a message about the entity, it convers it using the mapping.
+  - if C spawns the entity, it sends it to S. S spawns an entity, sends a message back to C containing the mapping.
+    From this point on C has the mapping.
+  - CONS:
+    - additional bandwidth
+    - there's a period of time where no mapping is available
+    - is it compatible with simulator vs replication-server
+
+- SOLUTION 2: the receiver always keeps the mapping
+  - C1 spawns E1, sends it to S which spawns E2. 
+    - S adds E2<>E1 to its mapping
+    - when S sends a component or message to C1; if the entity contains Replicated that means we are the receiver,
+      so we apply entity mapping? i.e. the message contains E2, but is converted to E1 at sending time.
+      Or if the entity is in the local-map we apply the mapping? i.e. we always try to refer to entities in the local World,
+    - when C1 sends a message related to E1, we know we are the sender (because Replicated is missing, so we don't apply entity mapping. The receiver will apply mapping)
+  - S spawns E0, sends it to C1 which spawns E1, sends it to C2 which spawns E2
+    - C1 adds E1<>E0 in its mapping, etc.
+    - when S sends a message, it knows it is not Replicated so its not the sender so it doesn't apply any mapping.
+    - when C sends a message about E1, it knows it is the receiver, etc.
+  - On Authority Transfer we need to remove `Replicated` also, and maybe update the entity mappings.
+  - CONS:
+    - the mappers are more complicated
+    - what happens on authority transfer where the receiver becomes the sender?
+
+- SOLUTION 3: replication-server
+  - when we spawn an entity to replicate. We ask the replication-server to spawn it, it spawns it (whether we are client 
+    or server), we receive it and can update our mapping. Each client/simulator is the receiver and can always do mapping
+  - we could also do this approach right now. Spawning an entity means that the 
+  - CONS:
+    - need a way to handle pre-spawned entities.
+    - need to implement replication-server
+  
+
+
+# Authority Transfer
+
+- Introduce a ReplicationServer and a Simulator?
+  - the ReplicationServer handles:
+    - forwarding messages between the clients (same as the current server)
+    - holds the state of the world
+    - maintains an entity mapping 
+  - the simulator is basically the same as a normal client. Just no input handling, prediction, interpolation.
+  - basically ReplicationServer = server, and we can just add the concept of 'simulators' which are like clients. The difference is that the ReplicationServer should not run any simulation systems,
+    it just replicates to all clients/simulators.
+  - clients AND simulator would have the current server replication components:
+    - ReplicationTarget that specifies other clients and simulators
+    - SyncTarget to specify who should predict/interpolate? ideally the clients should decide for themselves
+    - NetworkRelevanceMode: visibility of who receives the entity
+    - ControlledBy: connects/disconnects are sent to every client?
+    - ReplicationGroup: ok
+    - Hierarchy: ok
+
+- What would P2P look like?
+  - the ReplicationServer is also the client! Either in different Worlds (to keep visibility, etc.),
+    or in the same World
+  - the Simulator can also be merged with the client World? i.e. a client can be both a Simulator and a Client.
+
+- ReplicationServer (server) contains the full entity mapping
+  - client 1 spawns E1, sends it to the RS which spawns E1*. RS replicates it to other clients/simulators.
+
+```rust
+enum AuthorityOwner {
+    Server,
+    Client(ClientId),
+    // the entity becomes orphaned and are not simulated
+    None,
+}
+```
+- commands.transfer_authority(entity, AuthorityOwner):
+  - remove Replicate on the entity
+  - send a message to the new owner to add the Replicate component
 
 
 - Replication serialization:

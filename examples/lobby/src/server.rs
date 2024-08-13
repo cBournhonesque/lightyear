@@ -236,7 +236,7 @@ mod lobby {
                 // send the StartGame message to the client who is trying to join the game
                 let _ = connection_manager.send_message::<Channel1, _>(
                     *client_id,
-                    &StartGame {
+                    &mut StartGame {
                         lobby_id,
                         host: lobby.host,
                     },
@@ -252,7 +252,7 @@ mod lobby {
                 }
                 // redirect the StartGame message to all other clients in the lobby
                 let _ = connection_manager.send_message_to_target::<Channel1, _>(
-                    &StartGame {
+                    &mut StartGame {
                         lobby_id,
                         host: lobby.host,
                     },

@@ -8,13 +8,13 @@ pub(crate) trait MessageSend: Resource {
     type Error: Error;
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         target: NetworkTarget,
     ) -> Result<(), Self::Error>;
 
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), Self::Error>;
