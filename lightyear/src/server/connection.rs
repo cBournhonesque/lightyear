@@ -356,7 +356,7 @@ impl ConnectionManager {
     /// Serialize the message and buffer it to be sent in each `Connection`.
     ///
     /// - If the message is not `MapEntities`, we can serialize it once and reuse the same bytes
-    /// for all `Connections`.
+    ///   for all `Connections`.
     /// - If it is `MapEntities`, we need to map it in each connection.
     pub(crate) fn erased_send_message_to_target<M: Message>(
         &mut self,
