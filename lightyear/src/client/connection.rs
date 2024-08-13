@@ -241,7 +241,10 @@ impl ConnectionManager {
     }
 
     /// Send a [`Message`] to the server using a specific [`Channel`]
-    pub fn send_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
+    pub fn send_message<C: Channel, M: Message>(
+        &mut self,
+        message: &mut M,
+    ) -> Result<(), ClientError> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::None)
     }
 
@@ -250,7 +253,7 @@ impl ConnectionManager {
     /// The message will be sent to the server and re-broadcasted to all clients that match the [`NetworkTarget`]
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
@@ -259,7 +262,7 @@ impl ConnectionManager {
     /// Serialize a message and buffer it internally so that it can be sent later
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
@@ -267,7 +270,11 @@ impl ConnectionManager {
         // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
         target.to_bytes(&mut self.writer)?;
         // then write the message
-        self.message_registry.serialize(message, &mut self.writer)?;
+        self.message_registry.serialize(
+            message,
+            &mut self.writer,
+            Some(&mut self.replication_receiver.remote_entity_map.local_to_remote),
+        )?;
         let message_bytes = self.writer.split();
 
         // TODO: emit logs/metrics about the message being buffered?
@@ -538,7 +545,7 @@ impl MessageSend for ConnectionManager {
     type Error = ClientError;
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
         self.send_message_to_target::<C, M>(message, target)
@@ -546,7 +553,7 @@ impl MessageSend for ConnectionManager {
 
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {

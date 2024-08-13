@@ -589,7 +589,7 @@ pub(crate) mod send {
                         group_id,
                         client_id,
                         component_registry,
-                        &Controlled,
+                        &mut Controlled,
                         system_ticks.this_run(),
                     )?;
                 }
@@ -601,7 +601,7 @@ pub(crate) mod send {
                         group_id,
                         client_id,
                         component_registry,
-                        &ShouldBePredicted,
+                        &mut ShouldBePredicted,
                         system_ticks.this_run(),
                     )?;
                 }
@@ -611,7 +611,7 @@ pub(crate) mod send {
                         group_id,
                         client_id,
                         component_registry,
-                        &ShouldBeInterpolated,
+                        &mut ShouldBeInterpolated,
                         system_ticks.this_run(),
                     )?;
                 }

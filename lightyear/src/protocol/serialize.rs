@@ -33,7 +33,8 @@ type ErasedSerializeFn = unsafe fn(
 type SerializeFn<M> = fn(message: &M, writer: &mut Writer) -> Result<(), SerializationError>;
 type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>;
 
-pub(crate) type ErasedMapEntitiesFn = unsafe fn(message: PtrMut, entity_map: &mut EntityMap);
+pub(crate) type ErasedMapEntitiesFn =
+    for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut EntityMap) -> PtrMut<'a>;
 
 unsafe fn erased_serialize_fn<M: Message>(
     erased_serialize_fn: &ErasedSerializeFns,
@@ -63,12 +64,13 @@ fn default_deserialize<M: Message + DeserializeOwned>(
 }
 
 /// SAFETY: the PtrMut must be a valid pointer to a value of type M
-unsafe fn erased_map_entities<M: MapEntities + 'static>(
-    message: PtrMut,
+unsafe fn erased_map_entities<'a, M: MapEntities + 'static>(
+    message: PtrMut<'a>,
     entity_map: &mut EntityMap,
-) {
+) -> PtrMut<'a> {
     let data = message.deref_mut::<M>();
     M::map_entities(data, entity_map);
+    PtrMut::from(data)
 }
 
 impl ErasedSerializeFns {
@@ -124,7 +126,9 @@ impl ErasedSerializeFns {
     pub(crate) fn map_entities<M: 'static>(&self, message: &mut M, entity_map: &mut EntityMap) {
         let ptr = PtrMut::from(message);
         if let Some(map_entities_fn) = self.map_entities {
-            unsafe { map_entities_fn(ptr, entity_map) }
+            unsafe {
+                map_entities_fn(ptr, entity_map);
+            }
         }
     }
 
@@ -137,14 +141,28 @@ impl ErasedSerializeFns {
         (self.erased_serialize)(self, message, writer)
     }
 
+    /// Serialize the message into the writer.
+    /// If available, we try to map the entities in the message from local to remote.
+    ///
     /// SAFETY: the ErasedSerializeFns must be created for the type M
     pub(crate) unsafe fn serialize<M: 'static>(
         &self,
-        message: &M,
+        message: &mut M,
         writer: &mut Writer,
+        entity_map: Option<&mut EntityMap>,
     ) -> Result<(), SerializationError> {
         let fns = unsafe { self.typed::<M>() };
-        (fns.serialize)(message, writer)
+        if let Some(map_entities) = self.map_entities {
+            let message_ptr = map_entities(
+                PtrMut::from(message),
+                entity_map.expect("EntityMap is required to serialize this message"),
+            );
+            // SAFETY: the PtrMut was created for the message of type M
+            let message = unsafe { message_ptr.deref_mut() };
+            (fns.serialize)(message, writer)
+        } else {
+            (fns.serialize)(message, writer)
+        }
     }
 
     /// Deserialize the message value from the reader

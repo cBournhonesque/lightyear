@@ -242,7 +242,7 @@ mod tests {
             .server_app
             .world_mut()
             .resource_mut::<crate::prelude::client::ConnectionManager>()
-            .send_message::<Channel1, StringMessage>(&StringMessage("a".to_string()))
+            .send_message::<Channel1, StringMessage>(&mut StringMessage("a".to_string()))
             .unwrap();
         stepper.frame_step();
         stepper.frame_step();

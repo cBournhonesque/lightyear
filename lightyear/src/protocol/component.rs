@@ -311,8 +311,9 @@ mod serialize {
 
         pub(crate) fn serialize<C: 'static>(
             &self,
-            component: &C,
+            component: &mut C,
             writer: &mut Writer,
+            entity_map: Option<&mut EntityMap>,
         ) -> Result<(), ComponentError> {
             let kind = ComponentKind::of::<C>();
             let erased_fns = self
@@ -324,7 +325,7 @@ mod serialize {
             net_id.to_bytes(writer)?;
             // SAFETY: the ErasedFns corresponds to type C
             unsafe {
-                erased_fns.serialize(component, writer)?;
+                erased_fns.serialize(component, writer, entity_map)?;
             }
             Ok(())
         }
@@ -1209,9 +1210,11 @@ mod tests {
             serialize: serialize_component2,
             deserialize: deserialize_component2,
         });
-        let component = ComponentSyncModeSimple(1.0);
+        let mut component = ComponentSyncModeSimple(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&component, &mut writer).unwrap();
+        registry
+            .serialize(&mut component, &mut writer, None)
+            .unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
