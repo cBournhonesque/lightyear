@@ -7,11 +7,12 @@ use bevy::utils::Duration;
 
 use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::{
-    AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig,
-    MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject,
-    ShouldBePredicted, TickConfig,
+    AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ComponentRegistry,
+    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
+    PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
 };
 use crate::shared::config::SharedConfig;
+use crate::shared::replication::authority::AuthorityChange;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
@@ -146,6 +147,10 @@ impl Plugin for SharedPlugin {
         app.register_component::<Controlled>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_message::<AuthorityChange>(ChannelDirection::ServerToClient)
+            .add_map_entities();
+
         // check that the protocol was built correctly
         app.world().resource::<ComponentRegistry>().check();
     }

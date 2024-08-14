@@ -9,10 +9,14 @@ use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 pub(crate) mod receive {
     use super::*;
+    use crate::prelude::client::MessageEvent;
     use crate::prelude::{
         client::{is_connected, is_synced},
         is_host_server,
     };
+    use crate::shared::replication::authority::{AuthorityChange, HasAuthority};
+    use crate::shared::sets::InternalMainSet;
+
     #[derive(Default)]
     pub struct ClientReplicationReceivePlugin {
         pub tick_interval: Duration,
@@ -38,6 +42,29 @@ pub(crate) mod receive {
                         .and_then(not(is_host_server)),
                 ),
             );
+
+            app.add_systems(
+                PreUpdate,
+                handle_authority_change.after(InternalMainSet::<ClientMarker>::EmitEvents),
+            );
+        }
+    }
+
+    /// Apply authority changes requested by the server
+    // TODO: use observer to handle these?
+    fn handle_authority_change(
+        mut commands: Commands,
+        mut messages: ResMut<Events<MessageEvent<AuthorityChange>>>,
+    ) {
+        for message in messages.drain() {
+            let entity = message.message.entity;
+            if let Some(mut entity_mut) = commands.get_entity(entity) {
+                if message.message.gain_authority {
+                    entity_mut.insert(HasAuthority);
+                } else {
+                    entity_mut.remove::<HasAuthority>();
+                }
+            }
         }
     }
 }
@@ -59,7 +86,10 @@ pub(crate) mod send {
 
     use crate::shared::replication::components::{Replicating, ReplicationGroupId};
 
-    use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
+    use crate::shared::replication::archetypes::{
+        get_erased_component, ClientReplicatedArchetypes,
+    };
+    use crate::shared::replication::authority::HasAuthority;
     use crate::shared::replication::error::ReplicationError;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
@@ -149,6 +179,11 @@ pub(crate) mod send {
         /// Marker indicating that the entity should be replicated to the server.
         /// If this component is removed, the entity will be despawned on the server.
         pub target: ReplicateToServer,
+        /// Marker component that indicates that the client has authority over the entity.
+        /// This means that this client:
+        /// - is allowed to send replication updates for this entity
+        /// - will not accept any replication messages for this entity
+        pub authority: HasAuthority,
         /// The replication group defines how entities are grouped (sent as a single message) for replication.
         ///
         /// After the entity is first replicated, the replication group of the entity should not be modified.
@@ -209,7 +244,7 @@ pub(crate) mod send {
     pub(crate) fn replicate(
         tick_manager: Res<TickManager>,
         component_registry: Res<ComponentRegistry>,
-        mut replicated_archetypes: Local<ReplicatedArchetypes<ReplicateToServer>>,
+        mut replicated_archetypes: Local<ClientReplicatedArchetypes>,
         system_ticks: SystemChangeTick,
         mut set: ParamSet<(&World, ResMut<ConnectionManager>)>,
     ) {

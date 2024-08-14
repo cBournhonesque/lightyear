@@ -27,7 +27,49 @@ impl Plugin for ServerEventsPlugin {
             .add_event::<ConnectEvent>()
             .add_event::<DisconnectEvent>()
             // PLUGIN
-            .add_plugins(EventsPlugin::<ConnectionManager>::default());
+            .add_plugins(EventsPlugin::<ConnectionManager>::default())
+            // SYSTEMS
+            .add_systems(
+                PreUpdate,
+                // TODO: check if this should be between Receive and EmitEvents
+                emit_connect_events.in_set(InternalMainSet::<ServerMarker>::EmitEvents),
+            );
+    }
+}
+
+/// Emit events related to connections and disconnections
+fn emit_connect_events(
+    mut commands: Commands,
+    mut connect_events: EventWriter<ConnectEvent>,
+    mut disconnect_events: EventWriter<DisconnectEvent>,
+    mut connection_manager: ResMut<ConnectionManager>,
+) {
+    // EVENTS: Write the received events into bevy events
+    if !connection_manager.events.is_empty() {
+        // Connection / Disconnection events
+        if connection_manager.events.has_connections() {
+            for connect_event in connection_manager.events.iter_connections() {
+                debug!("Client connected event: {}", connect_event.client_id);
+                connect_events.send(connect_event);
+                // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
+                // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
+                //  so a bunch of Resources have been removed from the World
+                commands.trigger(connect_event);
+                // world.trigger(connect_event);
+            }
+        }
+
+        if connection_manager.events.has_disconnections() {
+            for disconnect_event in connection_manager.events.iter_disconnections() {
+                debug!("Client disconnected event: {}", disconnect_event.client_id);
+                disconnect_events.send(disconnect_event);
+                // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
+                // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
+                //  so a bunch of Resources have been removed from the World
+                commands.trigger(disconnect_event);
+                // world.trigger(disconnect_event);
+            }
+        }
     }
 }
 

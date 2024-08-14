@@ -59,7 +59,10 @@ pub(crate) mod send {
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
-    use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
+    use crate::shared::replication::archetypes::{
+        get_erased_component, ServerReplicatedArchetypes,
+    };
+    use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
         Cached, Controlled, Replicating, ReplicationGroupId, ReplicationTarget,
         ShouldBeInterpolated,
@@ -133,6 +136,7 @@ pub(crate) mod send {
             );
 
             app.observe(replicate_entity_local_despawn);
+            app.observe(add_has_authority_component);
         }
     }
 
@@ -211,6 +215,9 @@ pub(crate) mod send {
     pub struct Replicate {
         /// Which clients should this entity be replicated to?
         pub target: ReplicationTarget,
+        // TODO: if AuthorityPeer::Server is added, need to add HasAuthority (via observer)
+        /// Who has authority over the entity? i.e. who is in charge of simulating the entity and sending replication updates?
+        pub authority: AuthorityPeer,
         /// Which clients should predict/interpolate the entity?
         pub sync: SyncTarget,
         /// How do we control the visibility of the entity?
@@ -342,10 +349,31 @@ pub(crate) mod send {
         }
     }
 
+    /// Add HasAuthority component to a newly replicated entity if the server has
+    /// authority over it
+    fn add_has_authority_component(
+        // NOTE: we do not trigger on OnMutate, it's only when AuthorityPeer is first
+        // added that we check if the server has authority. After that, we should
+        // rely only on commands.transfer_authority
+        trigger: Trigger<OnAdd, AuthorityPeer>,
+        mut commands: Commands,
+    ) {
+        commands
+            .entity(trigger.entity())
+            .add(|mut entity_mut: EntityWorldMut| {
+                if entity_mut
+                    .get::<AuthorityPeer>()
+                    .is_some_and(|authority| *authority == AuthorityPeer::Server)
+                {
+                    entity_mut.insert(HasAuthority);
+                }
+            });
+    }
+
     pub(crate) fn replicate(
         tick_manager: Res<TickManager>,
         component_registry: Res<ComponentRegistry>,
-        mut replicated_archetypes: Local<ReplicatedArchetypes<ReplicationTarget>>,
+        mut replicated_archetypes: Local<ServerReplicatedArchetypes>,
         system_ticks: SystemChangeTick,
         mut set: ParamSet<(&World, ResMut<ConnectionManager>)>,
     ) {
@@ -888,7 +916,6 @@ pub(crate) mod send {
         }
     }
 
-    // TODO: do removals!
     /// This system sends updates for all components that were removed
     pub(crate) fn send_component_removed<C: Component>(
         registry: Res<ComponentRegistry>,
@@ -3011,9 +3038,131 @@ pub(crate) mod send {
 }
 
 pub(crate) mod commands {
-    use crate::prelude::Replicating;
+    use crate::channel::builder::AuthorityChannel;
+    use crate::prelude::{Replicating, ServerConnectionManager};
+    use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
+
+    pub trait AuthorityCommandExt {
+        /// This command is used to transfer the authority of an entity to a different peer.
+        fn transfer_authority(&mut self, new_owner: AuthorityPeer);
+    }
+
+    impl AuthorityCommandExt for EntityCommands<'_> {
+        fn transfer_authority(&mut self, new_owner: AuthorityPeer) {
+            self.add(move |entity: Entity, world: &mut World| {
+                // check who the current owner is
+                let current_owner =
+                    world
+                        .get_entity(entity)
+                        .map_or(AuthorityPeer::None, |entity| {
+                            entity
+                                .get::<AuthorityPeer>()
+                                .copied()
+                                .unwrap_or(AuthorityPeer::None)
+                        });
+
+                match (current_owner, new_owner) {
+                    (x, y) if x == y => (),
+                    (AuthorityPeer::None, AuthorityPeer::Server) => {
+                        world
+                            .entity_mut(entity)
+                            .insert((HasAuthority, AuthorityPeer::Server));
+                    }
+                    (AuthorityPeer::None, AuthorityPeer::Client(c)) => {
+                        world.entity_mut(entity).insert(AuthorityPeer::Client(c));
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: true,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    (AuthorityPeer::Server, AuthorityPeer::None) => {
+                        world
+                            .entity_mut(entity)
+                            .remove::<HasAuthority>()
+                            .insert(AuthorityPeer::None);
+                    }
+                    (AuthorityPeer::Client(c), AuthorityPeer::None) => {
+                        world.entity_mut(entity).insert(AuthorityPeer::None);
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: false,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    (AuthorityPeer::Client(c), AuthorityPeer::Server) => {
+                        // TODO: only gain the authority when we have received an ack
+                        //  that the client has received the message?
+                        world
+                            .entity_mut(entity)
+                            .insert((HasAuthority, AuthorityPeer::Server));
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: false,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    (AuthorityPeer::Server, AuthorityPeer::Client(c)) => {
+                        world
+                            .entity_mut(entity)
+                            .remove::<HasAuthority>()
+                            .insert(AuthorityPeer::Client(c));
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: true,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    (AuthorityPeer::Client(c1), AuthorityPeer::Client(c2)) => {
+                        world.entity_mut(entity).insert(AuthorityPeer::Client(c2));
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c1,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: false,
+                                },
+                            )
+                            .expect("could not send message");
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c2,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: true,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    _ => unreachable!(),
+                }
+            });
+        }
+    }
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {
         // remove replicating separately so that when we despawn the entity and trigger the observer

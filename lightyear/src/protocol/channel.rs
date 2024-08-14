@@ -4,7 +4,9 @@ use bevy::utils::Duration;
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings, PongChannel};
+use crate::channel::builder::{
+    AuthorityChannel, Channel, ChannelBuilder, ChannelSettings, PongChannel,
+};
 use crate::channel::builder::{
     ChannelContainer, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
 };
@@ -109,6 +111,12 @@ impl ChannelRegistry {
             send_frequency: input_send_interval,
             // we always want to include the inputs in the packet
             priority: f32::INFINITY,
+        });
+        registry.add_channel::<AuthorityChannel>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            send_frequency: Duration::default(),
+            // we want to send the authority transfers as soon as possible
+            priority: 10.0,
         });
         registry
     }

@@ -239,3 +239,8 @@ pub struct PongChannel;
 #[derive(ChannelInternal)]
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;
+
+#[derive(ChannelInternal)]
+/// Channel to send messages related to Authority transfers
+/// This is an Ordered Reliable channel
+pub struct AuthorityChannel;
