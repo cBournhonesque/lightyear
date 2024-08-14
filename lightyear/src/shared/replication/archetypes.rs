@@ -20,14 +20,14 @@ use bevy::{
 /// Cached information about all replicated archetypes.
 ///
 /// The generic component is the component that is used to identify if the archetype is used for Replication.
-/// This is the [`ReplicateToServer`](crate::client::replication::send::ReplicateToServer) or [`ReplicationTarget`](crate::prelude::ReplicationTarget) component.
+/// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
 /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
 // NOTE: we keep the generic so that we can have both resources in the same world in
 // host-server mode
 #[derive(Resource)]
 pub(crate) struct ReplicatedArchetypes<C: Component> {
     /// ID of the component identifying if the archetype is used for Replication.
-    /// This is the [`ReplicateToServer`](crate::client::replication::send::ReplicateToServer) or [`ReplicationTarget`](crate::prelude::ReplicationTarget) component.
+    /// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
     /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
     replication_component_id: ComponentId,
     /// ID of the [`Replicating`] component, which indicates that the entity is being replicated.

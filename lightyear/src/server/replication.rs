@@ -3064,7 +3064,7 @@ pub(crate) mod commands {
                         });
 
                 match (current_owner, new_owner) {
-                    (x, y) if x == y => return,
+                    (x, y) if x == y => (),
                     (AuthorityPeer::None, AuthorityPeer::Server) => {
                         world
                             .entity_mut(entity)
