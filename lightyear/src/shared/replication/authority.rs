@@ -61,7 +61,7 @@ mod tests {
     use crate::server::replication::commands::AuthorityCommandExt;
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::tests::protocol::ComponentSyncModeSimple;
-    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
     #[test]
     fn test_transfer_authority_server_to_client() {
