@@ -62,4 +62,4 @@ TODO:
 - maybe let the client always accept updates from the server, even if the client has `HasAuthority`? What is the goal of disallowing the client to accept updates from the server if it has
 `HasAuthority`?
 - maybe include a timestamp/tick to the `ChangeAuthority` messages so that any in-flight replication updates can be handled correctly? 
-  
+- maybe have an API `request_authority` where the client requests the authority? and receives a response from the server telling it if the request is accepted or not?
