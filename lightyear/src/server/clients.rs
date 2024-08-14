@@ -161,7 +161,7 @@ mod tests {
     use crate::server::clients::ControlledEntities;
     use crate::server::replication::send::Lifetime;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
-    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::ecs::entity::EntityHashMap;
     use bevy::prelude::{default, Entity, With};
 

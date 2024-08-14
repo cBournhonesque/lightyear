@@ -24,15 +24,6 @@ use crate::transport::LOCAL_SOCKET;
 pub const LOCAL_CLIENT_ID: u64 = 111;
 pub const EXTERNAL_CLIENT_ID: u64 = 112;
 
-/// Helpers to setup a bevy app where I can just step the world easily
-pub trait Step {
-    /// Advance both apps by one frame duration
-    fn frame_step(&mut self);
-
-    /// Advance both apps by on fixed timestep duration
-    fn tick_step(&mut self);
-}
-
 pub struct HostServerStepper {
     // App for another external client
     pub client_app: App,
@@ -312,17 +303,15 @@ impl HostServerStepper {
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         mock_instant::global::MockClock::advance(duration);
     }
-}
 
-impl Step for HostServerStepper {
     /// Advance the world by one frame duration
-    fn frame_step(&mut self) {
+    pub(crate) fn frame_step(&mut self) {
         self.advance_time(self.frame_duration);
         self.client_app.update();
         self.server_app.update();
     }
 
-    fn tick_step(&mut self) {
+    pub(crate) fn tick_step(&mut self) {
         self.advance_time(self.tick_duration);
         self.client_app.update();
         self.server_app.update();

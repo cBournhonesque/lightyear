@@ -599,7 +599,7 @@ impl ReplicationSend for ConnectionManager {
 mod tests {
     use crate::prelude::{client, server, ClientConnectionManager};
     use crate::tests::protocol::EntityMessage;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     /// Check that we can map entities from the local world to the remote world
     /// using the ConnectionManager

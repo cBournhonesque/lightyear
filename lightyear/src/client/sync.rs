@@ -566,7 +566,7 @@ mod tests {
     use crate::prelude::*;
     use crate::server::events::InputEvent;
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     use super::*;
 

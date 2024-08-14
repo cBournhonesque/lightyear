@@ -809,7 +809,7 @@ mod tests {
     use crate::prelude::server::Replicate;
     use crate::prelude::{client, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     fn build_stepper_with_input_delay(delay_ticks: u16) -> BevyStepper {
         let frame_duration = Duration::from_millis(10);

@@ -452,7 +452,7 @@ mod tests {
 
     use crate::prelude::*;
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
     use crate::utils::ready_buffer::ItemWithReadyKey;
 
     #[test]

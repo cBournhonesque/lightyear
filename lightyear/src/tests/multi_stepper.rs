@@ -20,7 +20,7 @@ use crate::prelude::client::{
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::tests::protocol::*;
-use crate::tests::stepper::{BevyStepper, Step};
+use crate::tests::stepper::BevyStepper;
 use crate::transport::LOCAL_SOCKET;
 
 pub(crate) const TEST_CLIENT_ID_1: u64 = 1;
@@ -236,11 +236,9 @@ impl MultiBevyStepper {
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         mock_instant::global::MockClock::advance(duration);
     }
-}
 
-impl Step for MultiBevyStepper {
     /// Advance the world by one frame duration
-    fn frame_step(&mut self) {
+    pub(crate) fn frame_step(&mut self) {
         self.advance_time(self.frame_duration);
         self.client_app_1.update();
         self.client_app_2.update();
@@ -250,7 +248,7 @@ impl Step for MultiBevyStepper {
         std::thread::sleep(Duration::from_millis(1));
     }
 
-    fn tick_step(&mut self) {
+    pub(crate) fn tick_step(&mut self) {
         self.advance_time(self.tick_duration);
         self.client_app_1.update();
         self.client_app_2.update();
