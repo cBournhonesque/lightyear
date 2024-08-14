@@ -2,21 +2,29 @@
 
 use std::fmt::Debug;
 
-use bevy::prelude::{FromReflect, TypePath};
-use bevy::reflect::Reflect;
 use leafwing_input_manager::Actionlike;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-pub use input_buffer::InputMessage;
-
-use crate::protocol::BitSerializable;
-
-pub(crate) mod input_buffer;
+pub(crate) mod action_diff;
+pub mod input_buffer;
+pub(crate) mod input_message;
 
 /// An enum that represents a list of user actions.
 ///
 /// See more information in the leafwing_input_manager crate: [`Actionlike`]
-pub trait LeafwingUserAction: Serialize + DeserializeOwned + Copy + Debug + Actionlike {}
+pub trait LeafwingUserAction:
+    Serialize + DeserializeOwned + Copy + Debug + Actionlike + bevy::reflect::GetTypeRegistration
+{
+}
 
-impl<A: Serialize + DeserializeOwned + Copy + Debug + Actionlike> LeafwingUserAction for A {}
+impl<
+        A: Serialize
+            + DeserializeOwned
+            + Copy
+            + Debug
+            + Actionlike
+            + bevy::reflect::GetTypeRegistration,
+    > LeafwingUserAction for A
+{
+}

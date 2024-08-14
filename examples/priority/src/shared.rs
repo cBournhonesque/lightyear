@@ -1,10 +1,10 @@
-use std::ops::Deref;
-
+use bevy::color::palettes::css::{BLUE, GREEN, RED};
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::action_state::ActionState;
+use std::ops::Deref;
 
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
@@ -91,7 +91,7 @@ pub(crate) fn draw_props(mut gizmos: Gizmos, props: Query<(&Position, &Shape)>) 
     for (position, shape) in props.iter() {
         match shape {
             Shape::Circle => {
-                gizmos.circle_2d(*position.deref(), PROP_SIZE, Color::GREEN);
+                gizmos.circle_2d(*position.deref(), PROP_SIZE, GREEN);
             }
             Shape::Triangle => {
                 gizmos.linestrip_2d(
@@ -101,16 +101,11 @@ pub(crate) fn draw_props(mut gizmos: Gizmos, props: Query<(&Position, &Shape)>) 
                         *position.deref() + Vec2::new(-PROP_SIZE, -PROP_SIZE),
                         *position.deref() + Vec2::new(0.0, PROP_SIZE),
                     ],
-                    Color::RED,
+                    RED,
                 );
             }
             Shape::Square => {
-                gizmos.rect_2d(
-                    *position.deref(),
-                    0.0,
-                    Vec2::splat(PROP_SIZE * 2.0),
-                    Color::BLUE,
-                );
+                gizmos.rect_2d(*position.deref(), 0.0, Vec2::splat(PROP_SIZE * 2.0), BLUE);
             }
         }
     }

@@ -13,7 +13,7 @@ use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 use bevy_mod_picking::picking_core::Pickable;
 use bevy_mod_picking::prelude::{Click, On, Pointer};
-
+use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -26,7 +26,10 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_connect_button);
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
+        app.add_systems(
+            PreUpdate,
+            (handle_connection, handle_disconnection).after(MainSet::Receive),
+        );
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
@@ -72,6 +75,15 @@ pub(crate) fn handle_connection(
             ),
             ClientIdText,
         ));
+    }
+}
+
+/// Listen for events to know when the client is disconnected, and print out the reason
+/// of the disconnection
+pub(crate) fn handle_disconnection(mut events: EventReader<DisconnectEvent>) {
+    for event in events.read() {
+        let reason = &event.reason;
+        error!("Disconnected from server: {:?}", reason);
     }
 }
 
@@ -170,7 +182,11 @@ pub(crate) fn receive_player_id_insert(mut reader: EventReader<ComponentInsertEv
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
-        color.0.set_s(0.3);
+        let hsva = Hsva {
+            saturation: 0.4,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
     }
 }
 
@@ -181,7 +197,11 @@ pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
 ) {
     for mut color in interpolated.iter_mut() {
-        color.0.set_s(0.1);
+        let hsva = Hsva {
+            saturation: 0.1,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
     }
 }
 
@@ -217,7 +237,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                             ..default()
                         },
                         border_color: BorderColor(Color::BLACK),
-                        background_color: Color::rgb(0.15, 0.15, 0.15).into(),
+                        image: UiImage::default().with_color(Color::srgb(0.15, 0.15, 0.15)),
                         ..default()
                     },
                     On::<Pointer<Click>>::run(|| {}),
@@ -228,7 +248,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                             "Connect",
                             TextStyle {
                                 font_size: 20.0,
-                                color: Color::rgb(0.9, 0.9, 0.9),
+                                color: Color::srgb(0.9, 0.9, 0.9),
                                 ..default()
                             },
                         ),

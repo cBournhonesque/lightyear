@@ -1,10 +1,8 @@
 //! Map between local and remote entities
-use anyhow::Context;
-use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
-use bevy::prelude::{Component, Deref, DerefMut, Entity, EntityWorldMut, World};
+use bevy::ecs::entity::{EntityHashMap, EntityMapper};
+use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use bevy::utils::hashbrown::hash_map::Entry;
-use std::cell::UnsafeCell;
 
 #[derive(Default, Debug, Reflect, Deref, DerefMut)]
 pub struct EntityMap(pub(crate) EntityHashMap<Entity>);
@@ -68,10 +66,9 @@ impl RemoteEntityMap {
         &mut self,
         world: &'a mut World,
         remote_entity: Entity,
-    ) -> anyhow::Result<EntityWorldMut<'a>> {
+    ) -> Option<EntityWorldMut<'a>> {
         self.get_local(remote_entity)
             .and_then(|e| world.get_entity_mut(*e))
-            .context("Failed to get local entity")
     }
 
     /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
@@ -122,47 +119,24 @@ impl RemoteEntityMap {
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
 
-    use crate::prelude::client::*;
+    use crate::prelude::server::Replicate;
     use crate::prelude::*;
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     // An entity gets replicated from server to client,
     // then a component gets removed from that entity on server,
     // that component should also removed on client as well.
     #[test]
-    fn test_replicated_entity_mapping() -> anyhow::Result<()> {
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default();
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
-        stepper.init();
+    fn test_replicated_entity_mapping() {
+        let mut stepper = BevyStepper::default();
 
         // Create an entity on server
         let server_entity = stepper
             .server_app
-            .world
-            .spawn((Component1(0.0), Replicate::default()))
+            .world_mut()
+            .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
             .id();
         // we need to step twice because we run client before server
         stepper.frame_step();
@@ -171,7 +145,7 @@ mod tests {
         // Check that the entity is replicated to client
         let client_entity = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -180,18 +154,18 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap(),
-            &Component1(0.0)
+            &ComponentSyncModeFull(0.0)
         );
 
         // Create an entity with a component that needs to be mapped
         let server_entity_2 = stepper
             .server_app
-            .world
-            .spawn((Component4(server_entity), Replicate::default()))
+            .world_mut()
+            .spawn((ComponentMapEntities(server_entity), Replicate::default()))
             .id();
         stepper.frame_step();
         stepper.frame_step();
@@ -199,7 +173,7 @@ mod tests {
         // Check that this entity was replicated correctly, and that the component got mapped
         let client_entity_2 = *stepper
             .client_app
-            .world
+            .world()
             .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
@@ -209,12 +183,11 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(client_entity_2)
-                .get::<Component4>()
+                .get::<ComponentMapEntities>()
                 .unwrap(),
-            &Component4(client_entity)
+            &ComponentMapEntities(client_entity)
         );
-        Ok(())
     }
 }

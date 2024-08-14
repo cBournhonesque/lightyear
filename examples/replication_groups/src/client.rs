@@ -1,9 +1,9 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
-
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
+use bevy::prelude::*;
+use bevy::utils::Duration;
+use lightyear::client::input::native::InputSystemSet;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -113,7 +113,11 @@ pub(crate) fn handle_predicted_spawn(
     predicted_tails: Query<Entity, (With<PlayerParent>, Added<Predicted>)>,
 ) {
     for (entity, mut color) in predicted_heads.iter_mut() {
-        color.0.set_s(0.3);
+        let hsva = Hsva {
+            saturation: 0.4,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
         // add visual interpolation for the head position of the predicted entity
         // so that the position gets updated smoothly every frame
         // (updating it only during FixedUpdate might cause visual artifacts, see:
@@ -131,7 +135,11 @@ pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
 ) {
     for mut color in interpolated.iter_mut() {
-        color.0.set_s(0.1);
+        let hsva = Hsva {
+            saturation: 0.1,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
     }
 }
 

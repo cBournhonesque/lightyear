@@ -1,14 +1,29 @@
+use crate::client::connection::ConnectionManager;
+use crate::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
 use bevy::app::{App, Plugin, PostUpdate};
 use bevy::diagnostic::Diagnostics;
 use bevy::prelude::{not, Condition, IntoSystemConfigs, Real, Res, ResMut, Time};
+use bevy::time::common_conditions::on_timer;
+use bevy::utils::Duration;
 
-use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::SharedConfig;
+use crate::prelude::{client::is_disconnected, is_host_server};
+use crate::shared::ping::diagnostics::PingDiagnosticsPlugin;
 use crate::transport::io::IoDiagnosticsPlugin;
 
-#[derive(Default, Debug)]
-pub struct ClientDiagnosticsPlugin;
+// TODO: ideally make this a plugin group? but nested plugin groups are not supported
+#[derive(Debug)]
+pub struct ClientDiagnosticsPlugin {
+    flush_interval: Duration,
+}
+
+impl Default for ClientDiagnosticsPlugin {
+    fn default() -> Self {
+        Self {
+            flush_interval: Duration::from_millis(200),
+        }
+    }
+}
 
 fn io_diagnostics_system(
     mut netclient: ResMut<ClientConnection>,
@@ -19,14 +34,35 @@ fn io_diagnostics_system(
         IoDiagnosticsPlugin::update_diagnostics(&mut io.stats, &time, &mut diagnostics);
     }
 }
+
+fn ping_diagnostics_system(connection: Res<ConnectionManager>, diagnostics: Diagnostics) {
+    PingDiagnosticsPlugin::add_measurements(&connection.ping_manager, diagnostics);
+}
+
 impl Plugin for ClientDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(IoDiagnosticsPlugin);
-        app.add_systems(
-            PostUpdate,
-            io_diagnostics_system.run_if(not(
-                SharedConfig::is_host_server_condition.or_else(is_disconnected)
-            )),
-        );
+        {
+            let ping_plugin = PingDiagnosticsPlugin::default();
+            let flush_interval = ping_plugin.flush_interval;
+            app.add_plugins(ping_plugin);
+            app.add_systems(
+                PostUpdate,
+                ping_diagnostics_system.run_if(
+                    on_timer(flush_interval).and_then(not(is_host_server.or_else(is_disconnected))),
+                ),
+            );
+        }
+        app.add_plugins(PredictionDiagnosticsPlugin::default());
+
+        {
+            app.add_plugins(IoDiagnosticsPlugin);
+            app.add_systems(
+                PostUpdate,
+                io_diagnostics_system.run_if(
+                    // on_timer(self.flush_interval).and_then(
+                    not(is_host_server.or_else(is_disconnected)),
+                ),
+            );
+        }
     }
 }

@@ -1,33 +1,30 @@
-use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::connection::server::NetServer;
-use crate::packet::packet::Packet;
+use crate::connection::server::{
+    ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, NetServer,
+};
+use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::LinkConditionerConfig;
-use crate::serialize::bitcode::reader::BufferPool;
 use crate::server::io::Io;
-use crate::transport::LOCAL_SOCKET;
-use anyhow::{anyhow, Context, Result};
 use bevy::utils::HashMap;
+use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use steamworks::networking_sockets::{ListenSocket, NetConnection};
-use steamworks::networking_types::{
-    ListenSocketEvent, NetConnectionEnd, NetworkingConfigEntry, NetworkingConfigValue, SendFlags,
-};
-use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SingleClient, SteamError};
+use steamworks::networking_types::{ListenSocketEvent, NetConnectionEnd, SendFlags};
+use steamworks::{ClientManager, ServerMode, SteamError};
 use tracing::{error, info};
 
-use super::{get_networking_options, SingleClientThreadSafe};
+use super::steamworks_client::SteamworksClient;
 
 #[derive(Debug, Clone)]
 pub struct SteamConfig {
     pub app_id: u32,
-    pub server_ip: Ipv4Addr,
-    pub game_port: u16,
-    pub query_port: u16,
+    pub socket_config: SocketConfig,
     pub max_clients: usize,
+    /// A closure that will be used to accept or reject incoming connections
+    pub connection_request_handler: Arc<dyn ConnectionRequestHandler>,
     // pub mode: ServerMode,
     // TODO: name this protocol to match netcode?
     pub version: String,
@@ -38,54 +35,82 @@ impl Default for SteamConfig {
         Self {
             // app id of the public Space Wars demo app
             app_id: 480,
-            server_ip: Ipv4Addr::new(127, 0, 0, 1),
-            game_port: 27015,
-            query_port: 27016,
+            socket_config: Default::default(),
             max_clients: 16,
+            connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
             // mode: ServerMode::NoAuthentication,
             version: "1.0".to_string(),
         }
     }
 }
 
+/// Steam socket configuration for servers
+#[derive(Debug, Clone)]
+pub enum SocketConfig {
+    /// This server accepts connections via IP address. Suitable for dedicated servers.
+    Ip {
+        server_ip: Ipv4Addr,
+        game_port: u16,
+        query_port: u16,
+    },
+    /// This server accepts Steam P2P connections. Suitable for peer-to-peer games.
+    P2P { virtual_port: i32 },
+}
+
+impl Default for SocketConfig {
+    fn default() -> Self {
+        Self::Ip {
+            server_ip: Ipv4Addr::new(127, 0, 0, 1),
+            game_port: 27015,
+            query_port: 27016,
+        }
+    }
+}
+
 // TODO: enable p2p by replacing ServerManager with ClientManager?
 pub struct Server {
-    // TODO: update to use ServerManager...
-    client: steamworks::Client<ClientManager>,
-    single_client: SingleClientThreadSafe,
-    server: steamworks::Server,
+    steamworks_client: Arc<RwLock<SteamworksClient>>,
+    server: Option<steamworks::Server>,
     config: SteamConfig,
     listen_socket: Option<ListenSocket<ClientManager>>,
     connections: HashMap<ClientId, NetConnection<ClientManager>>,
-    packet_queue: VecDeque<(Packet, ClientId)>,
-    buffer_pool: BufferPool,
+    packet_queue: VecDeque<(RecvPayload, ClientId)>,
     new_connections: Vec<ClientId>,
     new_disconnections: Vec<ClientId>,
     conditioner: Option<LinkConditionerConfig>,
 }
 
 impl Server {
-    pub fn new(config: SteamConfig, conditioner: Option<LinkConditionerConfig>) -> Result<Self> {
-        let (client, single) = steamworks::Client::init_app(config.app_id)
-            .context("could not initialize steam client")?;
-        let (server, _) = steamworks::Server::init(
-            config.server_ip,
-            config.game_port,
-            config.query_port,
-            ServerMode::NoAuthentication,
-            // config.mode.clone(),
-            &config.version.clone(),
-        )
-        .context("could not initialize steam server")?;
+    pub fn new(
+        steamworks_client: Arc<RwLock<SteamworksClient>>,
+        config: SteamConfig,
+        conditioner: Option<LinkConditionerConfig>,
+    ) -> Result<Self, ConnectionError> {
+        let server = match &config.socket_config {
+            SocketConfig::Ip {
+                server_ip,
+                game_port,
+                query_port,
+            } => {
+                let (server, _) = steamworks::Server::init(
+                    *server_ip,
+                    *game_port,
+                    *query_port,
+                    ServerMode::NoAuthentication,
+                    // config.mode.clone(),
+                    &config.version.clone(),
+                )?;
+                Some(server)
+            }
+            SocketConfig::P2P { .. } => None,
+        };
         Ok(Self {
-            client,
-            single_client: SingleClientThreadSafe(single),
+            steamworks_client,
             server,
             config,
             listen_socket: None,
             connections: HashMap::new(),
             packet_queue: VecDeque::new(),
-            buffer_pool: BufferPool::default(),
             new_connections: Vec::new(),
             new_disconnections: Vec::new(),
             conditioner,
@@ -94,21 +119,46 @@ impl Server {
 }
 
 impl NetServer for Server {
-    fn start(&mut self) -> Result<()> {
-        let options = get_networking_options(&self.conditioner);
-        let server_addr = SocketAddr::new(self.config.server_ip.into(), self.config.game_port);
-        self.listen_socket = Some(
-            self.client
-                .networking_sockets()
-                // TODO: using the NetworkingConfigEntry options seems to cause an issue. See: https://github.com/Noxime/steamworks-rs/issues/169
-                .create_listen_socket_ip(server_addr, vec![])
-                .context("could not create server listen socket")?,
-        );
-        info!("Steam socket started on {:?}", server_addr);
+    fn start(&mut self) -> Result<(), ConnectionError> {
+        // TODO: using the NetworkingConfigEntry options seems to cause an issue. See: https://github.com/Noxime/steamworks-rs/issues/169
+        // let options = get_networking_options(&self.conditioner);
+
+        match self.config.socket_config {
+            SocketConfig::Ip {
+                server_ip,
+                game_port,
+                ..
+            } => {
+                let server_addr = SocketAddr::new(server_ip.into(), game_port);
+                self.listen_socket = Some(
+                    self.steamworks_client
+                        .try_read()
+                        .expect("could not get steamworks client")
+                        .get_client()
+                        .networking_sockets()
+                        .create_listen_socket_ip(server_addr, vec![])?,
+                );
+                info!("Steam socket started on {:?}", server_addr);
+            }
+            SocketConfig::P2P { virtual_port } => {
+                self.listen_socket = Some(
+                    self.steamworks_client
+                        .try_read()
+                        .expect("could not get steamworks client")
+                        .get_client()
+                        .networking_sockets()
+                        .create_listen_socket_p2p(virtual_port, vec![])?,
+                );
+                info!(
+                    "Steam P2P socket started on virtual port: {:?}",
+                    virtual_port
+                );
+            }
+        };
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<()> {
+    fn stop(&mut self) -> Result<(), ConnectionError> {
         self.listen_socket = None;
         for (client_id, connection) in self.connections.drain() {
             let _ = connection.close(NetConnectionEnd::AppGeneric, None, true);
@@ -118,7 +168,7 @@ impl NetServer for Server {
         Ok(())
     }
 
-    fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+    fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError> {
         match client_id {
             ClientId::Steam(id) => {
                 if let Some(connection) = self.connections.remove(&client_id) {
@@ -127,7 +177,7 @@ impl NetServer for Server {
                 }
                 Ok(())
             }
-            _ => Err(anyhow!("the client id must be of type Steam")),
+            _ => Err(ConnectionError::InvalidConnectionType),
         }
     }
 
@@ -135,8 +185,12 @@ impl NetServer for Server {
         self.connections.keys().cloned().collect()
     }
 
-    fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        self.single_client.0.run_callbacks();
+    fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
+        self.steamworks_client
+            .try_write()
+            .expect("could not get steamworks client")
+            .get_single()
+            .run_callbacks();
 
         // reset connection events
         self.new_connections.clear();
@@ -184,16 +238,18 @@ impl NetServer for Server {
                         continue;
                     };
                     info!("Client with id: {:?} requesting connection!", steam_id);
-                    // TODO: improve permission check
-                    let permitted = true;
-                    if permitted {
+                    if let Some(denied_reason) = self
+                        .config
+                        .connection_request_handler
+                        .handle_request(ClientId::Steam(steam_id.raw()))
+                    {
+                        event.reject(NetConnectionEnd::AppGeneric, Some("{denied_reason:?}"));
+                        continue;
+                    } else {
                         if let Err(e) = event.accept() {
                             error!("Failed to accept connection from {steam_id:?}: {e}");
                         }
                         info!("Accepted connection from client {:?}", steam_id);
-                    } else {
-                        event.reject(NetConnectionEnd::AppGeneric, Some("Not allowed"));
-                        continue;
                     }
                 }
             }
@@ -202,39 +258,33 @@ impl NetServer for Server {
         // buffer incoming packets
         for (client_id, connection) in self.connections.iter_mut() {
             // TODO: avoid allocating messages into a separate buffer, instead provide our own buffer?
-            for message in connection
-                .receive_messages(MAX_PACKET_SIZE)
-                .context("Failed to receive messages")?
-            {
-                // get a buffer from the pool to avoid new allocations
-                let mut reader = self.buffer_pool.start_read(message.data());
-                let packet = Packet::decode(&mut reader).context("could not decode packet")?;
-                // return the buffer to the pool
-                self.buffer_pool.attach(reader);
-                self.packet_queue.push_back((packet, *client_id));
+            for message in connection.receive_messages(MAX_PACKET_SIZE)? {
+                // // get a buffer from the pool to avoid new allocations
+                // let mut reader = self.buffer_pool.start_read(message.data());
+                // let packet = Packet::decode(&mut reader).context("could not decode packet")?;
+                // // return the buffer to the pool
+                // self.buffer_pool.attach(reader);
+                let payload = RecvPayload::copy_from_slice(message.data());
+                self.packet_queue.push_back((payload, *client_id));
             }
             // TODO: is this necessary since I disabled nagle?
-            connection
-                .flush_messages()
-                .context("Failed to flush messages")?;
+            connection.flush_messages()?
         }
 
         // send any keep-alives or connection-related packets
         Ok(())
     }
 
-    fn recv(&mut self) -> Option<(Packet, ClientId)> {
+    fn recv(&mut self) -> Option<(RecvPayload, ClientId)> {
         self.packet_queue.pop_front()
     }
 
-    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<()> {
+    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<(), ConnectionError> {
         let Some(connection) = self.connections.get_mut(&client_id) else {
-            return Err(SteamError::NoConnection.into());
+            return Err(ConnectionError::ConnectionNotFound);
         };
         // TODO: compare this with self.listen_socket.send_messages()
-        connection
-            .send_message(buf, SendFlags::UNRELIABLE_NO_NAGLE)
-            .context("Failed to send message")?;
+        connection.send_message(buf, SendFlags::UNRELIABLE_NO_NAGLE)?;
         Ok(())
     }
 

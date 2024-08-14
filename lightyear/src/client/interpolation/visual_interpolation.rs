@@ -33,8 +33,9 @@
 // - in PreUpdate, we restore the component value to the previous tick values
 
 use bevy::prelude::*;
+use bevy::transform::TransformSystem::TransformPropagate;
 
-use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::components::SyncComponent;
 use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::prelude::{ComponentRegistry, TickManager, TimeManager};
 
@@ -66,7 +67,10 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
             FixedPostUpdate,
             InterpolationSet::UpdateVisualInterpolationState,
         );
-        app.configure_sets(PostUpdate, InterpolationSet::VisualInterpolation);
+        app.configure_sets(
+            PostUpdate,
+            InterpolationSet::VisualInterpolation.before(TransformPropagate),
+        );
 
         // SYSTEMS
         app.add_systems(
@@ -97,6 +101,9 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
 /// - overstep = `Time<Fixed>`.overstep_percentage() = TimeManager.overstep()
 #[derive(Component, PartialEq, Debug)]
 pub struct VisualInterpolateStatus<C: Component> {
+    /// If true, every change of the component due to visual interpolation will trigger change detection
+    /// (this can be useful for `Transform` to trigger a `TransformPropagate` system)
+    pub trigger_change_detection: bool,
     /// Value of the component at the previous tick
     pub previous_value: Option<C>,
     /// Value of the component at the current tick
@@ -107,6 +114,7 @@ pub struct VisualInterpolateStatus<C: Component> {
 impl<C: Component> Default for VisualInterpolateStatus<C> {
     fn default() -> Self {
         Self {
+            trigger_change_detection: false,
             previous_value: None,
             current_value: None,
         }
@@ -140,8 +148,12 @@ pub(crate) fn visual_interpolation<C: SyncComponent>(
             ?overstep,
             "Visual interpolation of fixed-update component!"
         );
-        *component.bypass_change_detection() =
-            component_registry.interpolate(previous_value, current_value, overstep);
+        if !interpolate_status.trigger_change_detection {
+            *component.bypass_change_detection() =
+                component_registry.interpolate(previous_value, current_value, overstep);
+        } else {
+            *component = component_registry.interpolate(previous_value, current_value, overstep);
+        }
     }
 }
 
@@ -180,15 +192,14 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
 
 #[cfg(test)]
 mod tests {
+    use crate::client::config::ClientConfig;
     use approx::assert_relative_eq;
     use bevy::prelude::*;
     use bevy::utils::Duration;
 
-    use crate::client::sync::SyncConfig;
-    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::prelude::{SharedConfig, TickConfig};
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     use super::*;
 
@@ -200,41 +211,28 @@ mod tests {
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default();
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
+        // we create the stepper manually to not run init()
+        let mut stepper = BevyStepper::new(shared_config, ClientConfig::default(), frame_duration);
         stepper
             .client_app
             .add_systems(FixedUpdate, fixed_update_increment);
-        stepper.client_app.world.insert_resource(Toggle(true));
+        stepper.client_app.world_mut().insert_resource(Toggle(true));
         stepper
             .client_app
-            .add_plugins(VisualInterpolationPlugin::<Component1>::default());
+            .add_plugins(VisualInterpolationPlugin::<ComponentSyncModeFull>::default());
         let entity = stepper
             .client_app
-            .world
+            .world_mut()
             .spawn((
-                Component1(0.0),
-                VisualInterpolateStatus::<Component1>::default(),
+                ComponentSyncModeFull(0.0),
+                VisualInterpolateStatus::<ComponentSyncModeFull>::default(),
             ))
             .id();
+        stepper.build();
         (stepper, entity)
     }
 
-    fn fixed_update_increment(mut query: Query<&mut Component1>, enabled: Res<Toggle>) {
+    fn fixed_update_increment(mut query: Query<&mut ComponentSyncModeFull>, enabled: Res<Toggle>) {
         if enabled.0 {
             for mut component1 in query.iter_mut() {
                 component1.0 += 1.0;
@@ -251,9 +249,9 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             1.0
@@ -261,19 +259,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
-                current_value: Some(Component1(1.0)),
+                current_value: Some(ComponentSyncModeFull(1.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.33,
@@ -284,9 +283,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             1.66,
@@ -295,19 +294,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(1.0)),
-                current_value: Some(Component1(2.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(1.0)),
+                current_value: Some(ComponentSyncModeFull(2.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.66,
@@ -318,9 +318,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             3.00,
@@ -329,19 +329,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(3.0)),
-                current_value: Some(Component1(4.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(3.0)),
+                current_value: Some(ComponentSyncModeFull(4.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.00,
@@ -352,9 +353,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             4.33,
@@ -363,19 +364,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(4.0)),
-                current_value: Some(Component1(5.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(4.0)),
+                current_value: Some(ComponentSyncModeFull(5.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.33,
@@ -392,9 +394,9 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             1.0
@@ -402,19 +404,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
-                current_value: Some(Component1(1.0)),
+                current_value: Some(ComponentSyncModeFull(1.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.33,
@@ -425,9 +428,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             1.66,
@@ -436,33 +439,34 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(1.0)),
-                current_value: Some(Component1(2.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(1.0)),
+                current_value: Some(ComponentSyncModeFull(2.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.66,
             max_relative = 0.1
         );
 
-        stepper.client_app.world.resource_mut::<Toggle>().0 = false;
+        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = false;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             2.00,
@@ -471,19 +475,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(2.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(2.0)),
                 current_value: None,
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.00,
@@ -494,9 +499,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             2.0,
@@ -505,32 +510,33 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(2.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(2.0)),
                 current_value: None,
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.33,
             max_relative = 0.1
         );
-        stepper.client_app.world.resource_mut::<Toggle>().0 = true;
+        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = true;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             2.66,
@@ -539,19 +545,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(2.0)),
-                current_value: Some(Component1(3.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(2.0)),
+                current_value: Some(ComponentSyncModeFull(3.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.66,
@@ -567,9 +574,9 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             0.0
@@ -577,11 +584,12 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
                 current_value: None,
             }
@@ -589,7 +597,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.75,
@@ -600,9 +608,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             1.0,
@@ -611,19 +619,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
-                current_value: Some(Component1(1.0)),
+                current_value: Some(ComponentSyncModeFull(1.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.5,
@@ -634,9 +643,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             1.25,
@@ -645,19 +654,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(1.0)),
-                current_value: Some(Component1(2.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(1.0)),
+                current_value: Some(ComponentSyncModeFull(2.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.25,
@@ -668,9 +678,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             2.0,
@@ -679,19 +689,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(2.0)),
-                current_value: Some(Component1(3.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(2.0)),
+                current_value: Some(ComponentSyncModeFull(3.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.0,
@@ -702,9 +713,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             2.75,
@@ -713,19 +724,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(2.0)),
-                current_value: Some(Component1(3.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(2.0)),
+                current_value: Some(ComponentSyncModeFull(3.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.75,
@@ -741,9 +753,9 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             0.0
@@ -751,11 +763,12 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
                 current_value: None,
             }
@@ -763,7 +776,7 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.75,
@@ -774,9 +787,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             1.0,
@@ -785,19 +798,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
+                trigger_change_detection: false,
                 previous_value: None,
-                current_value: Some(Component1(1.0)),
+                current_value: Some(ComponentSyncModeFull(1.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.5,
@@ -808,9 +822,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             1.25,
@@ -819,33 +833,34 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(1.0)),
-                current_value: Some(Component1(2.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(1.0)),
+                current_value: Some(ComponentSyncModeFull(2.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.25,
             max_relative = 0.1
         );
 
-        stepper.client_app.world.resource_mut::<Toggle>().0 = false;
+        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = false;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             2.0,
@@ -854,19 +869,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(2.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(2.0)),
                 current_value: None,
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.0,
@@ -877,9 +893,9 @@ mod tests {
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             2.0,
@@ -888,33 +904,34 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(2.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(2.0)),
                 current_value: None,
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.75,
             max_relative = 0.1
         );
 
-        stepper.client_app.world.resource_mut::<Toggle>().0 = true;
+        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = true;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<Component1>()
+                .get::<ComponentSyncModeFull>()
                 .unwrap()
                 .0,
             2.5,
@@ -923,19 +940,20 @@ mod tests {
         assert_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<Component1>>()
+                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
-                previous_value: Some(Component1(2.0)),
-                current_value: Some(Component1(3.0)),
+                trigger_change_detection: false,
+                previous_value: Some(ComponentSyncModeFull(2.0)),
+                current_value: Some(ComponentSyncModeFull(3.0)),
             }
         );
         assert_relative_eq!(
             stepper
                 .client_app
-                .world
+                .world()
                 .resource::<TimeManager>()
                 .overstep(),
             0.5,

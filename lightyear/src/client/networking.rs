@@ -1,35 +1,32 @@
 //! Defines the plugin related to the client networking (sending and receiving packets).
 use std::ops::DerefMut;
 
-use anyhow::{anyhow, Context, Result};
 use async_channel::TryRecvError;
-use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
+use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
 
-use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
+use crate::client::events::{ConnectEvent, DisconnectEvent};
 use crate::client::interpolation::Interpolated;
 use crate::client::io::ClientIoEvent;
+use crate::client::networking::utils::AppStateExt;
 use crate::client::prediction::Predicted;
+use crate::client::replication::send::ReplicateToServer;
+use crate::client::run_conditions::is_disconnected;
 use crate::client::sync::SyncSet;
-use crate::connection::client::{ClientConnection, NetClient, NetConfig};
-use crate::connection::server::{IoConfig, ServerConnections};
+use crate::connection::client::{ClientConnection, ConnectionState, DisconnectReason, NetClient};
+use crate::connection::server::IoConfig;
 use crate::prelude::{
-    ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager,
+    is_host_server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
-use crate::server::networking::is_started;
 use crate::shared::config::Mode;
-use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::components::Replicated;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
-use crate::shared::tick_manager::TickEvent;
-use crate::shared::time_manager::is_client_ready_to_send;
 use crate::transport::io::IoState;
 
 #[derive(Default)]
@@ -39,45 +36,36 @@ impl Plugin for ClientNetworkingPlugin {
     fn build(&self, app: &mut App) {
         app
             // REFLECTION
+            .register_type::<HostServerMetadata>()
             .register_type::<IoConfig>()
             // STATE
-            .init_state::<NetworkingState>()
+            .init_state_without_entering(NetworkingState::Disconnected)
             // RESOURCE
             .init_resource::<HostServerMetadata>()
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
                 (
-                    InternalMainSet::<ClientMarker>::Receive.in_set(MainSet::Receive),
+                    InternalMainSet::<ClientMarker>::Receive
+                        .in_set(MainSet::Receive)
+                        // do not receive packets when running in host-server mode
+                        .run_if(not(is_host_server)),
+                    // we still want to emit events when running in host-server mode
                     InternalMainSet::<ClientMarker>::EmitEvents.in_set(MainSet::EmitEvents),
                 )
                     .chain()
-                    .run_if(not(
-                        SharedConfig::is_host_server_condition.or_else(is_disconnected)
-                    )),
+                    .run_if(not(is_disconnected)),
             )
             .configure_sets(
                 PostUpdate,
                 // run sync before send because some send systems need to know if the client is synced
                 // we don't send packets every frame, but on a timer instead
                 (
-                    SyncSet,
-                    InternalMainSet::<ClientMarker>::Send
-                        .in_set(MainSet::Send)
-                        .run_if(is_client_ready_to_send),
+                    SyncSet.run_if(not(is_host_server)),
+                    InternalMainSet::<ClientMarker>::Send.in_set(MainSet::Send),
                 )
-                    .run_if(not(
-                        SharedConfig::is_host_server_condition.or_else(is_disconnected)
-                    ))
+                    .run_if(not(is_disconnected))
                     .chain(),
-            )
-            .configure_sets(
-                PostUpdate,
-                // send packets is when we call the actual `send` system, it's inside
-                // the `Send` system-sets so that we can run it less frequently than every frame
-                InternalMainSet::<ClientMarker>::SendPackets
-                    .in_set(InternalMainSet::<ClientMarker>::Send)
-                    .in_set(MainSet::SendPackets),
             )
             // SYSTEMS
             .add_systems(
@@ -86,29 +74,25 @@ impl Plugin for ClientNetworkingPlugin {
                     // we are running the listen_io_state in a different set because it can impact the run_condition for the
                     // Receive system set
                     .before(InternalMainSet::<ClientMarker>::Receive)
-                    .run_if(not(
-                        SharedConfig::is_host_server_condition.or_else(is_disconnected)
-                    )),
+                    .run_if(not(is_host_server.or_else(is_disconnected))),
             )
             .add_systems(
                 PreUpdate,
                 (listen_io_state, receive).in_set(InternalMainSet::<ClientMarker>::Receive),
             )
+            // TODO: make HostServer a computed state?
             .add_systems(
                 PostUpdate,
                 (
-                    send.in_set(InternalMainSet::<ClientMarker>::SendPackets),
+                    (
+                        send.run_if(not(is_host_server)),
+                        send_host_server.run_if(is_host_server),
+                    )
+                        .in_set(InternalMainSet::<ClientMarker>::Send),
                     // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
                     sync_update.in_set(SyncSet),
                 ),
             );
-
-        // STARTUP
-        // TODO: update all systems that need these to only run when needed, so that we don't have to create
-        //  a ConnectionManager or a NetConfig at startup
-        // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
-        // that depend on these resources do not panic
-        app.world.run_system_once(rebuild_client_connection);
 
         // CONNECTING
         app.add_systems(OnEnter(NetworkingState::Connecting), connect);
@@ -116,10 +100,7 @@ impl Plugin for ClientNetworkingPlugin {
         // CONNECTED
         app.add_systems(
             OnEnter(NetworkingState::Connected),
-            (
-                on_connect,
-                on_connect_host_server.run_if(SharedConfig::is_host_server_condition),
-            ),
+            (on_connect, on_connect_host_server.run_if(is_host_server)),
         );
 
         // DISCONNECTED
@@ -127,84 +108,80 @@ impl Plugin for ClientNetworkingPlugin {
             OnEnter(NetworkingState::Disconnected),
             (
                 on_disconnect,
-                on_disconnect_host_server.run_if(SharedConfig::is_host_server_condition),
+                on_disconnect_host_server.run_if(is_host_server),
             ),
         );
     }
+
+    // This runs after all plugins have run build() and finish()
+    // so we are sure that the ComponentRegistry has been built
+    fn cleanup(&self, app: &mut App) {
+        // TODO: update all systems that need these to only run when needed, so that we don't have to create
+        //  a ConnectionManager or a NetConfig at startup
+        // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
+        // that depend on these resources do not panic
+        // We build it here so that it uses the latest Protocol
+        app.world_mut().run_system_once(rebuild_client_connection);
+    }
 }
 
-pub(crate) fn receive(world: &mut World) {
+pub(crate) fn receive(
+    mut commands: Commands,
+    mut connection: ResMut<ConnectionManager>,
+    state: Res<State<NetworkingState>>,
+    mut next_state: ResMut<NextState<NetworkingState>>,
+    mut netclient: ResMut<ClientConnection>,
+    mut time_manager: ResMut<TimeManager>,
+    tick_manager: Res<TickManager>,
+    virtual_time: Res<Time<Virtual>>,
+    component_registry: Res<ComponentRegistry>,
+    message_registry: Res<MessageRegistry>,
+    system_change_tick: SystemChangeTick,
+) {
     trace!("Receive server packets");
-    // TODO: here we can control time elapsed from the client's perspective?
+    let delta = virtual_time.delta();
+    // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
+    time_manager.update(delta);
+    trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
-    // TODO: THE CLIENT COULD DO PHYSICS UPDATES INSIDE FIXED-UPDATE SYSTEMS
-    //  WE SHOULD BE CALLING UPDATE INSIDE THOSE AS WELL SO THAT WE CAN SEND UPDATES
-    //  IN THE MIDDLE OF THE FIXED UPDATE LOOPS
-    //  WE JUST KEEP AN INTERNAL TIMER TO KNOW IF WE REACHED OUR TICK AND SHOULD RECEIVE/SEND OUT PACKETS?
-    //  FIXED-UPDATE.expend() updates the clock zR the fixed update interval
-    //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
-    world.resource_scope(
-        |world: &mut World, mut connection: Mut<ConnectionManager>| {
-            world.resource_scope(
-                |world: &mut World, mut netclient: Mut<ClientConnection>| {
-                        world.resource_scope(
-                            |world: &mut World, mut time_manager: Mut<TimeManager>| {
-                                world.resource_scope(
-                                    |world: &mut World, tick_manager: Mut<TickManager>| {
-                                        world.resource_scope(
-                                            |world: &mut World, state: Mut<State<NetworkingState>>| {
-                                                world.resource_scope(
-                                                    |world: &mut World, mut next_state: Mut<NextState<NetworkingState>>| {
-                                                        let delta = world.resource::<Time<Virtual>>().delta();
-                                                        // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
-                                                        time_manager.update(delta);
-                                                        trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
+    if !matches!(netclient.state(), ConnectionState::Disconnected { .. }) {
+        let _ = netclient.try_update(delta.as_secs_f64()).map_err(|e| {
+            error!("Error updating netcode: {}", e);
+        });
+    }
 
-                                                        if netclient.state() != NetworkingState::Disconnected {
-                                                            let _ = netclient
-                                                                .try_update(delta.as_secs_f64())
-                                                                .map_err(|e| {
-                                                                    error!("Error updating netcode: {}", e);
-                                                                });
-                                                        }
+    if matches!(netclient.state(), ConnectionState::Connected) {
+        // we just connected, do a state transition
+        if state.get() != &NetworkingState::Connected {
+            debug!("Setting the networking state to connected");
+            next_state.set(NetworkingState::Connected);
+        }
 
-                                                        if netclient.state() == NetworkingState::Connected {
-                                                            // we just connected, do a state transition
-                                                            if state.get() != &NetworkingState::Connected {
-                                                                debug!("Setting the networking state to connected");
-                                                                next_state.set(NetworkingState::Connected);
-                                                            }
+        // update the connection (message manager, ping manager, etc.)
+        connection.update(
+            system_change_tick.this_run(),
+            time_manager.as_ref(),
+            tick_manager.as_ref(),
+        );
+    }
+    if let ConnectionState::Disconnected { reason } = netclient.state() {
+        netclient.disconnect_reason = reason;
+        // we just disconnected, do a state transition
+        if state.get() != &NetworkingState::Disconnected {
+            next_state.set(NetworkingState::Disconnected);
+        }
+    }
 
-                                                            // update the connection (message manager, ping manager, etc.)
-                                                            connection.update(
-                                                                time_manager.as_ref(),
-                                                                tick_manager.as_ref(),
-                                                            );
-                                                        }
-                                                        if netclient.state() == NetworkingState::Disconnected {
-                                                            // we just disconnected, do a state transition
-                                                            if state.get() != &NetworkingState::Disconnected {
-                                                                next_state.set(NetworkingState::Disconnected);
-                                                            }
-                                                        }
-
-                                                        // RECV PACKETS: buffer packets into message managers
-                                                        while let Some(packet) = netclient.recv() {
-                                                            connection
-                                                                .recv_packet(packet, tick_manager.as_ref())
-                                                                .unwrap();
-                                                        }
-                                                        // RECEIVE: receive packets from message managers
-                                                        connection.receive(world, time_manager.as_ref(), tick_manager.as_ref());
-                                                    });
-                                            });
-                                        });
-                                    },
-                                )
-                            }
-                    );
-                }
-            );
+    // RECV PACKETS: buffer packets into message managers
+    while let Some(packet) = netclient.recv() {
+        connection
+            .recv_packet(packet, tick_manager.as_ref(), component_registry.as_ref())
+            .unwrap();
+    }
+    // RECEIVE: receive packets from message managers
+    let _ = connection
+        .receive(&mut commands, time_manager.as_ref(), tick_manager.as_ref())
+        .inspect_err(|e| error!("Error receiving packets: {}", e));
     trace!("client finished recv");
 }
 
@@ -216,12 +193,6 @@ pub(crate) fn send(
     mut connection: ResMut<ConnectionManager>,
 ) {
     trace!("Send packets to server");
-    // finalize any packets that are needed for replication
-    connection
-        .buffer_replication_messages(tick_manager.tick(), system_change_tick.this_run())
-        .unwrap_or_else(|e| {
-            error!("Error preparing replicate send: {}", e);
-        });
     // SEND_PACKETS: send buffered packets to io
     let packet_bytes = connection
         .send_packets(time_manager.as_ref(), tick_manager.as_ref())
@@ -236,20 +207,38 @@ pub(crate) fn send(
     // client.connection.clear();
 }
 
+/// Send messages in host-server mode
+/// We cannot use the normal `send` function because there is no IO available
+pub(crate) fn send_host_server(
+    netcode: Res<ClientConnection>,
+    mut client_manager: ResMut<ConnectionManager>,
+    mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
+) {
+    let _ = client_manager
+        .send_packets_host_server(netcode.id(), server_manager.as_mut())
+        .inspect_err(|e| {
+            error!(
+                "Error sending messages from local client to server in host-server mode: {}",
+                e
+            )
+        });
+}
+
 /// Update the sync manager.
 /// We run this at PostUpdate because:
 /// - client prediction time is computed from ticks, which haven't been updated yet at PreUpdate
 /// - server prediction time is computed from time, which has been updated via delta
-/// Also server sends the tick after FixedUpdate, so it makes sense that we would compare to the client tick after FixedUpdate
+///
+/// Also, server sends the tick after FixedUpdate, so it makes sense that we would compare to the client tick after FixedUpdate
 /// So instead we update the sync manager at PostUpdate, after both ticks/time have been updated
 pub(crate) fn sync_update(
+    mut commands: Commands,
     config: Res<ClientConfig>,
     netclient: Res<ClientConnection>,
     connection: ResMut<ConnectionManager>,
     mut time_manager: ResMut<TimeManager>,
     mut tick_manager: ResMut<TickManager>,
     mut virtual_time: ResMut<Time<Virtual>>,
-    mut tick_events: EventWriter<TickEvent>,
 ) {
     let connection = connection.into_inner();
     // NOTE: this triggers change detection
@@ -259,9 +248,10 @@ pub(crate) fn sync_update(
         tick_manager.deref_mut(),
         &connection.ping_manager,
         &config.interpolation.delay,
-        config.shared.server_send_interval,
+        // TODO: how to adjust this for replication groups that have a custom send_interval?
+        config.shared.server_replication_send_interval,
     ) {
-        tick_events.send(tick_event);
+        commands.trigger(tick_event);
     }
 
     if connection.sync_manager.is_synced() {
@@ -270,7 +260,7 @@ pub(crate) fn sync_update(
             tick_manager.deref_mut(),
             &connection.ping_manager,
         ) {
-            tick_events.send(tick_event);
+            commands.trigger(tick_event);
         }
         let relative_speed = time_manager.get_relative_speed();
         virtual_time.set_relative_speed(relative_speed);
@@ -305,6 +295,7 @@ fn listen_io_state(
                 Ok(ClientIoEvent::Disconnected(e)) => {
                     error!("Error from io: {}", e);
                     io.state = IoState::Disconnected;
+                    netclient.disconnect_reason = Some(DisconnectReason::Transport(e));
                     disconnect = true;
                 }
                 Err(TryRecvError::Empty) => {
@@ -312,6 +303,9 @@ fn listen_io_state(
                 }
                 Err(TryRecvError::Closed) => {
                     error!("Io status channel has been closed when it shouldn't be");
+                    netclient.disconnect_reason = Some(DisconnectReason::Transport(
+                        std::io::Error::other("Io status channel has been closed").into(),
+                    ));
                     disconnect = true;
                 }
             }
@@ -320,6 +314,7 @@ fn listen_io_state(
     if disconnect {
         debug!("Going to NetworkingState::Disconnected because of io error.");
         next_state.set(NetworkingState::Disconnected);
+        // TODO: do we need to disconnect here? we disconnect in the OnEnter(Disconnected) system anyway
         let _ = netclient
             .disconnect()
             .inspect_err(|e| debug!("error disconnecting netclient: {e:?}"));
@@ -327,7 +322,8 @@ fn listen_io_state(
 }
 
 /// Holds metadata necessary when running in HostServer mode
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 struct HostServerMetadata {
     /// entity for the client running as host-server
     client_entity: Option<Entity>,
@@ -335,12 +331,24 @@ struct HostServerMetadata {
 
 /// System that runs when we enter the Connected state
 /// Updates the ConnectEvent events
-fn on_connect(mut connect_event_writer: EventWriter<ConnectEvent>, netcode: Res<ClientConnection>) {
+fn on_connect(
+    mut connect_event_writer: EventWriter<ConnectEvent>,
+    mut commands: Commands,
+    netcode: Res<ClientConnection>,
+    mut query: Query<&mut ReplicateToServer>,
+) {
+    // Set all the ReplicateToServer ticks to changed, so that we replicate existing entities to the server
+    for mut replicate in query.iter_mut() {
+        // TODO: ideally set is_added instead of simply changed
+        replicate.set_changed();
+    }
     debug!(
         "Running OnConnect schedule with client id: {:?}",
         netcode.id()
     );
     connect_event_writer.send(ConnectEvent::new(netcode.id()));
+    // also trigger the event
+    commands.trigger(ConnectEvent::new(netcode.id()));
 }
 
 /// Same as on-connect, but only runs if we are in host-server mode
@@ -348,16 +356,21 @@ fn on_connect_host_server(
     mut commands: Commands,
     netcode: Res<ClientConnection>,
     mut metadata: ResMut<HostServerMetadata>,
-    mut server_connect_event_writer: ResMut<Events<crate::server::events::ConnectEvent>>,
+    mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
+    mut connect_event_writer: EventWriter<ConnectEvent>,
 ) {
     // spawn an entity for the client
     let client_entity = commands.spawn(ControlledEntities::default()).id();
-    error!("send connect event to server");
-    server_connect_event_writer.send(crate::server::events::ConnectEvent {
-        client_id: netcode.id(),
-        entity: client_entity,
-    });
+    // start a server connection for that client (which will also send a ConnectEvent on the server)
+    server_manager.add(netcode.id(), client_entity);
+    server_manager
+        .connection_mut(netcode.id())
+        .unwrap()
+        .set_local_client();
     metadata.client_entity = Some(client_entity);
+    connect_event_writer.send(ConnectEvent::new(netcode.id()));
+    // also trigger the event
+    commands.trigger(ConnectEvent::new(netcode.id()));
 }
 
 /// System that runs when we enter the Disconnected state
@@ -365,25 +378,29 @@ fn on_connect_host_server(
 fn on_disconnect(
     mut connection_manager: ResMut<ConnectionManager>,
     mut disconnect_event_writer: EventWriter<DisconnectEvent>,
-    mut netcode: ResMut<ClientConnection>,
+    mut netclient: ResMut<ClientConnection>,
     mut commands: Commands,
     received_entities: Query<Entity, Or<(With<Replicated>, With<Predicted>, With<Interpolated>)>>,
 ) {
     info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
-    received_entities
-        .iter()
-        .for_each(|e| commands.entity(e).despawn_recursive());
+    received_entities.iter().for_each(|e| {
+        if let Some(commands) = commands.get_entity(e) {
+            commands.despawn_recursive();
+        }
+    });
 
     // set synced to false
     connection_manager.sync_manager.synced = false;
 
     // try to disconnect again to close io tasks (in case the disconnection is from the io)
-    let _ = netcode.disconnect();
+    let _ = netclient.disconnect();
 
     // no need to update the io state, because we will recreate a new `ClientConnection`
     // for the next connection attempt
-    disconnect_event_writer.send(DisconnectEvent);
+    let reason = std::mem::take(&mut netclient.disconnect_reason);
+    disconnect_event_writer.send(DisconnectEvent { reason });
+    // commands.trigger(DisconnectEvent { reason });
     // TODO: remove ClientConnection and ConnectionManager resources?
 }
 
@@ -399,39 +416,6 @@ fn on_disconnect_host_server(
             entity: client_entity,
         });
     }
-}
-
-/// This run condition is provided to check if the client is connected.
-///
-/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
-/// since the `StateTransition` schedule runs after `PreUpdate`
-pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient.map_or(false, |c| {
-        c.state() == NetworkingState::Connected
-            && c.io()
-                .map_or(false, |io| matches!(io.state, IoState::Connected))
-    })
-}
-
-// TODO: this means that we are failing to exit the disconnecting mode!
-/// This run condition is provided to check if the client is disconnected.
-///
-/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
-/// since the `StateTransition` schedule runs after `PreUpdate`
-pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient.as_ref().map_or(true, |c| {
-        c.state() == NetworkingState::Disconnected
-            || c.io()
-                .map_or(true, |io| matches!(io.state, IoState::Disconnected))
-    })
-    // error!("Is Disconnected: {res:?}");
-    // if let Some(c) = netclient.as_ref() {
-    //     error!("ClientConnection state: {:?}", c.state());
-    //     if let Some(io) = c.io() {
-    //         error!("Io state: {:?}", io.state);
-    //     }
-    // }
-    // res
 }
 
 /// This runs only when we enter the [`Connecting`](NetworkingState::Connecting) state.
@@ -454,10 +438,7 @@ fn rebuild_client_connection(world: &mut World) {
         world.resource::<ComponentRegistry>(),
         world.resource::<MessageRegistry>(),
         world.resource::<ChannelRegistry>(),
-        client_config.packet,
-        client_config.sync,
-        client_config.ping,
-        client_config.prediction.input_delay_ticks,
+        &client_config,
     );
     world.insert_resource(connection_manager);
 
@@ -495,8 +476,10 @@ fn connect(world: &mut World) {
         });
     let config = world.resource::<ClientConfig>();
 
-    if world.resource::<ClientConnection>().state() == NetworkingState::Connected
-        && config.shared.mode == Mode::HostServer
+    if matches!(
+        world.resource::<ClientConnection>().state(),
+        ConnectionState::Connected
+    ) && config.shared.mode == Mode::HostServer
     {
         // TODO: also check if the connection is of type local?
         // in host server mode, there is no connecting phase, we directly become connected
@@ -506,16 +489,6 @@ fn connect(world: &mut World) {
             .set(NetworkingState::Connected);
     }
 }
-
-// pub struct ConnectClient;
-//
-// impl Command for ConnectClient {
-//     fn apply(self, world: &mut World) {
-//         world
-//             .resource_mut::<NextState<NetworkingState>>()
-//             .set(NetworkingState::Connecting);
-//     }
-// }
 
 pub trait ClientCommands {
     /// Start the connection process
@@ -527,14 +500,106 @@ pub trait ClientCommands {
 
 impl ClientCommands for Commands<'_, '_> {
     fn connect_client(&mut self) {
-        self.insert_resource(NextState::<NetworkingState>(Some(
-            NetworkingState::Connecting,
-        )));
+        self.insert_resource(NextState::Pending(NetworkingState::Connecting));
     }
 
     fn disconnect_client(&mut self) {
-        self.insert_resource(NextState::<NetworkingState>(Some(
-            NetworkingState::Disconnected,
-        )));
+        self.insert_resource(NextState::Pending(NetworkingState::Disconnected));
+    }
+}
+
+mod utils {
+    use bevy::app::App;
+    use bevy::prelude::{NextState, State, StateTransition, StateTransitionEvent};
+    use bevy::state::state::{setup_state_transitions_in_world, FreelyMutableState};
+
+    pub(super) trait AppStateExt {
+        // Helper function that runs `init_state::<S>` without entering the state
+        // This is useful for us as we don't want to run OnEnter<NetworkingState::Disconnected> when we start the app
+        fn init_state_without_entering<S: FreelyMutableState>(&mut self, state: S) -> &mut Self;
+    }
+
+    impl AppStateExt for App {
+        fn init_state_without_entering<S: FreelyMutableState>(&mut self, state: S) -> &mut Self {
+            setup_state_transitions_in_world(self.world_mut());
+            self.insert_resource::<State<S>>(State::new(state.clone()))
+                .init_resource::<NextState<S>>()
+                .add_event::<StateTransitionEvent<S>>();
+            let schedule = self.get_schedule_mut(StateTransition).unwrap();
+            S::register_state(schedule);
+            self
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::time::Duration;
+
+    use bevy::prelude::*;
+
+    use crate::{
+        client::config::ClientConfig,
+        prelude::{client::ClientCommands, server::*, SharedConfig, TickConfig},
+        tests::host_server_stepper::HostServerStepper,
+    };
+
+    #[derive(Resource, Default)]
+    struct CheckCounter(usize);
+
+    fn receive_connect_event(mut reader: EventReader<ConnectEvent>, mut res: ResMut<CheckCounter>) {
+        for event in reader.read() {
+            res.0 += 1;
+        }
+    }
+
+    fn receive_disconnect_event(
+        mut reader: EventReader<DisconnectEvent>,
+        mut res: ResMut<CheckCounter>,
+    ) {
+        for event in reader.read() {
+            res.0 += 1;
+        }
+    }
+
+    #[test]
+    fn test_host_server_connect_event() {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let client_config = ClientConfig::default();
+
+        let mut stepper = HostServerStepper::new(shared_config, client_config, frame_duration);
+
+        stepper
+            .server_app
+            .init_resource::<CheckCounter>()
+            .add_systems(Update, receive_connect_event);
+        stepper.init();
+        assert_eq!(stepper.server_app.world().resource::<CheckCounter>().0, 2); // 2 because local client as well as external client connect
+    }
+
+    #[test]
+    fn test_host_server_disconnect_event() {
+        let mut stepper = HostServerStepper::default();
+
+        stepper
+            .server_app
+            .init_resource::<CheckCounter>()
+            .add_systems(Update, receive_disconnect_event);
+        let mut client_world = stepper.client_app.world_mut();
+        client_world.commands().disconnect_client();
+
+        client_world = stepper.server_app.world_mut();
+        client_world.commands().disconnect_client();
+
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+        assert_eq!(stepper.server_app.world().resource::<CheckCounter>().0, 2); // 2 because local client as well as external client disconnect
     }
 }

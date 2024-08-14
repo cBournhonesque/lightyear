@@ -1,4 +1,5 @@
 //! The transport layer is responsible for sending and receiving raw byte arrays packets through the network.
+#![allow(unused_imports)]
 
 use std::net::SocketAddr;
 
@@ -11,10 +12,8 @@ use crate::client::io::transport::ClientTransportEnum;
 use crate::server::io::transport::ServerTransportEnum;
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
-use crate::transport::io::IoState;
-use crate::transport::local::{LocalChannel, LocalChannelBuilder};
-#[cfg(not(target_family = "wasm"))]
-use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
+use crate::transport::local::LocalChannel;
+use crate::transport::udp::UdpSocket;
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
@@ -35,8 +34,6 @@ pub mod io;
 pub(crate) mod local;
 
 /// The transport is a UDP socket
-#[cfg_attr(docsrs, doc(cfg(not(target_family = "wasm"))))]
-#[cfg(not(target_family = "wasm"))]
 pub(crate) mod udp;
 
 /// The transport is a map of channels (used for server, during testing)
@@ -63,6 +60,11 @@ pub const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
 /// Maximum transmission units; maximum size in bytes of a UDP packet
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
 pub(crate) const MTU: usize = 1472;
+
+/// Minimum MTU used by QUIC. Any packets bigger than this will error with TooLarge
+/// There is MTU Discovery to potentially allow bigger MTUs, and this is the minimum
+/// the discovery will start from.
+pub(crate) const MIN_MTU: usize = 1300;
 
 pub(crate) type BoxedSender = Box<dyn PacketSender + Send + Sync>;
 pub(crate) type BoxedReceiver = Box<dyn PacketReceiver + Send + Sync>;

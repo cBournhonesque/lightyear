@@ -13,11 +13,15 @@ categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+pprof = { version = "0.13.0", features = ["flamegraph", "frame-pointer"] }
 lightyear = { path = "../lightyear" }
+criterion = { version = "0.5", features = ["html_reports"] }
 crossbeam-channel = "0.5.10"
-anyhow = { version = "1.0.75", features = [] }
-bevy = { version = "0.13", features = ["bevy_core_pipeline"] }
-derive_more = { version = "0.99", features = ["add", "mul"] }
+bevy = { version = "0.14", default-features = true, features = [
+  "bevy_core_pipeline",
+  "multi_threaded",
+  "bevy_state",
+] }
 divan = "0.1.14"
 serde = { version = "1.0.188", features = ["derive"] }
 
@@ -26,10 +30,14 @@ rand = "0.8.5"
 rand_chacha = "0.3.1"
 lz4_flex = { version = "0.11.2", default-features = false }
 
+[[bin]]
+name = "replication_profiling"
+path = "replication_profiling.rs"
+
 
 [[bench]]
-name = "spawn"
-path = "spawn.rs"
+name = "replication"
+path = "replication.rs"
 harness = false
 
 [[bench]]

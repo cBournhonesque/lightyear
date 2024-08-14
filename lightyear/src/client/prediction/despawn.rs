@@ -1,13 +1,12 @@
-use std::marker::PhantomData;
-
-use bevy::ecs::system::{Command, EntityCommands};
+use bevy::ecs::system::EntityCommands;
+use bevy::ecs::world::Command;
 use bevy::prelude::{
-    Commands, Component, Entity, Query, Reflect, RemovedComponents, Res, ResMut, With, Without,
-    World,
+    Commands, Component, DespawnRecursiveExt, Entity, OnRemove, Query, Reflect, Res, ResMut,
+    Trigger, With, Without, World,
 };
 use tracing::{debug, error, trace};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
@@ -88,26 +87,24 @@ impl PredictionDespawnCommandsExt for EntityCommands<'_> {
 
 /// Despawn predicted entities when the confirmed entity gets despawned
 pub(crate) fn despawn_confirmed(
+    trigger: Trigger<OnRemove, Confirmed>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
-    mut query: RemovedComponents<Confirmed>,
 ) {
-    for confirmed_entity in query.read() {
-        if let Some(predicted) = manager
-            .predicted_entity_map
-            .get_mut()
-            .confirmed_to_predicted
-            .remove(&confirmed_entity)
-        {
-            if let Some(mut entity_mut) = commands.get_entity(predicted) {
-                entity_mut.despawn();
-            }
+    if let Some(predicted) = manager
+        .predicted_entity_map
+        .get_mut()
+        .confirmed_to_predicted
+        .remove(&trigger.entity())
+    {
+        if let Some(entity_mut) = commands.get_entity(predicted) {
+            entity_mut.despawn_recursive();
         }
     }
 }
 
 #[derive(Component)]
-pub struct RemovedCache<C: Component>(pub Option<C>);
+pub(crate) struct RemovedCache<C: Component>(pub Option<C>);
 
 #[allow(clippy::type_complexity)]
 /// Instead of despawning the entity, we remove all components except the history and the predicted marker
@@ -205,7 +202,7 @@ pub(crate) fn remove_despawn_marker(
 //     use crate::prelude::client::*;
 //     use crate::prelude::*;
 //     use crate::tests::protocol::*;
-//     use crate::tests::stepper::{BevyStepper, Step};
+//     use crate::tests::stepper::{BevyStepper};
 //     use bevy::prelude::*;
 //     use bevy::utils::Duration;
 //
@@ -261,7 +258,7 @@ pub(crate) fn remove_despawn_marker(
 //         // Create a confirmed entity
 //         let confirmed = stepper
 //             .client_app
-//             .world
+//             .world_mut()
 //             .spawn((Component1(0.0), ShouldBePredicted))
 //             .id();
 //
@@ -270,8 +267,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(stepper.client().tick(), Tick(1));
 //         let predicted = stepper
 //             .client_app
-//             .world
-//             .get::<Confirmed>(confirmed)
+//             .world()//             .get::<Confirmed>(confirmed)
 //             .unwrap()
 //             .predicted
 //             .unwrap();
@@ -280,8 +276,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<Predicted>(predicted)
+//                 .world()//                 .get::<Predicted>(predicted)
 //                 .unwrap()
 //                 .confirmed_entity,
 //             confirmed
@@ -298,8 +293,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<PredictionHistory<Component1>>(predicted)
+//                 .world()//                 .get::<PredictionHistory<Component1>>(predicted)
 //                 .unwrap(),
 //             &history,
 //         );
@@ -307,8 +301,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<Component1>(predicted)
+//                 .world()//                 .get::<Component1>(predicted)
 //                 .unwrap(),
 //             &Component1(1.0)
 //         );
@@ -322,15 +315,13 @@ pub(crate) fn remove_despawn_marker(
 //         // check that the component got removed on predicted
 //         assert!(stepper
 //             .client_app
-//             .world
-//             .get::<Component1>(predicted)
+//             .world()//             .get::<Component1>(predicted)
 //             .is_none());
 //         // // check that predicted has the despawn marker
 //         // assert_eq!(
 //         //     stepper
 //         //         .client_app
-//         //         .world
-//         //         .get::<PredictionDespawnMarker>(predicted)
+//         //         .world()//         //         .get::<PredictionDespawnMarker>(predicted)
 //         //         .unwrap(),
 //         //     &PredictionDespawnMarker {
 //         //         death_tick: Tick(5)
@@ -347,8 +338,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<PredictionHistory<Component1>>(predicted)
+//                 .world()//                 .get::<PredictionHistory<Component1>>(predicted)
 //                 .unwrap(),
 //             &history,
 //         );
@@ -360,7 +350,7 @@ pub(crate) fn remove_despawn_marker(
 //             .set_latest_received_server_tick(Tick(3));
 //         stepper
 //             .client_app
-//             .world
+//             .world_mut()
 //             .get_mut::<Component1>(confirmed)
 //             .unwrap()
 //             .0 = 1.0;
@@ -371,7 +361,7 @@ pub(crate) fn remove_despawn_marker(
 //         // predicted exists, and got the component re-added
 //         stepper
 //             .client_app
-//             .world
+//             .world_mut()
 //             .get_mut::<Component1>(predicted)
 //             .unwrap()
 //             .0 = 4.0;
@@ -385,8 +375,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<PredictionHistory<Component1>>(predicted)
+//                 .world()//                 .get::<PredictionHistory<Component1>>(predicted)
 //                 .unwrap(),
 //             &history
 //         );
@@ -450,7 +439,7 @@ pub(crate) fn remove_despawn_marker(
 //         // Create a confirmed entity
 //         let confirmed = stepper
 //             .client_app
-//             .world
+//             .world_mut()
 //             .spawn((Component1(0.0), ShouldBePredicted))
 //             .id();
 //
@@ -459,8 +448,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(stepper.client().tick(), Tick(1));
 //         let predicted = stepper
 //             .client_app
-//             .world
-//             .get::<Confirmed>(confirmed)
+//             .world()//             .get::<Confirmed>(confirmed)
 //             .unwrap()
 //             .predicted
 //             .unwrap();
@@ -469,8 +457,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<Predicted>(predicted)
+//                 .world()//                 .get::<Predicted>(predicted)
 //                 .unwrap()
 //                 .confirmed_entity,
 //             confirmed
@@ -484,8 +471,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<PredictionHistory<Component1>>(predicted)
+//                 .world()//                 .get::<PredictionHistory<Component1>>(predicted)
 //                 .unwrap(),
 //             &history,
 //         );
@@ -493,8 +479,7 @@ pub(crate) fn remove_despawn_marker(
 //         assert_eq!(
 //             stepper
 //                 .client_app
-//                 .world
-//                 .get::<Component1>(predicted)
+//                 .world()//                 .get::<Component1>(predicted)
 //                 .unwrap(),
 //             &Component1(1.0)
 //         );
@@ -507,7 +492,7 @@ pub(crate) fn remove_despawn_marker(
 //         // we set it to 5 so that it gets despawned during FixedUpdate::Main
 //         stepper
 //             .client_app
-//             .world
+//             .world_mut()
 //             .get_mut::<Component1>(confirmed)
 //             .unwrap()
 //             .0 = 4.0;
@@ -516,8 +501,8 @@ pub(crate) fn remove_despawn_marker(
 //
 //         // check that rollback happened
 //         // confirmed and predicted both got despawned
-//         assert!(stepper.client_app.world.get_entity(confirmed).is_none());
-//         assert!(stepper.client_app.world.get_entity(predicted).is_none());
+//         assert!(stepper.client_app.world().get_entity(confirmed).is_none());
+//         assert!(stepper.client_app.world().get_entity(predicted).is_none());
 //
 //         Ok(())
 //     }

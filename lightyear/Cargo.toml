@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.14.1"
+version = "0.16.4"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.76"
@@ -13,6 +13,9 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
 [features]
+# Enable sending messages bigger than 300KB
+big_messages = []
+trace = []
 metrics = [
   "dep:metrics",
   "metrics-util",
@@ -29,31 +32,30 @@ webtransport = [
   "dep:wasm-bindgen-futures",
 ]
 leafwing = ["dep:leafwing-input-manager"]
-xpbd_2d = ["dep:bevy_xpbd_2d"]
+avian2d = ["dep:avian2d"]
+avian3d = ["dep:avian3d", "avian3d/3d"]
 websocket = [
   "dep:tokio-tungstenite",
   "dep:futures-util",
   "dep:web-sys",
   "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
 ]
 steam = ["dep:steamworks"]
+
+# compression
+lz4 = ["dep:lz4_flex"]
 zstd = ["dep:zstd"]
 
 [dependencies]
 # utils
-anyhow = "1.0"
-base64 = "0.22.1"
 chrono = "=0.4.34"
 cfg-if = "1.0"
-derive_more = "0.99.17"
 enum_dispatch = "0.3"
 hashbrown = "0.14"
-# used to have the same instant in wasm and native. (maybe can be replaced by bevy_utils in 0.13)
-instant = "0.1.12"
 governor = "0.6.0"
 mock_instant = { version = "0.4.0", optional = true }
 nonzero_ext = "0.3.0"
-once_cell = "1.19.0"
 parking_lot = "0.12.1"
 paste = "1.0"
 rand = "0.8"
@@ -61,27 +63,25 @@ ringbuffer = "0.15"
 thiserror = "1.0.50"
 seahash = "4.1.0"
 
-
 # input
-leafwing-input-manager = { version = "0.13", optional = true }
+leafwing-input-manager = { version = "0.15", optional = true }
 
 # physics
-bevy_xpbd_2d = { version = "0.4", optional = true, default-features = false }
+avian2d = { version = "0.1.1", optional = true, default-features = false }
+avian3d = { version = "0.1.1", optional = true, default-features = false }
 
 # serialization
-bitcode = { version = "0.5.1", package = "bitcode_lightyear_patch", path = "../vendor/bitcode", features = [
-  "serde",
-] }
+bincode = { version = "2.0.0-rc.3", features = ["serde"] }
+byteorder = "1.5.0"
 bytes = { version = "1.5", features = ["serde"] }
 self_cell = "1.0"
-serde = { version = "1.0.193", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 
 # netcode
 chacha20poly1305 = { version = "0.10", features = ["std"] }
-byteorder = "1.5.0"
 
 # derive
-lightyear_macros = { version = "0.14.1", path = "../macros" }
+lightyear_macros = { version = "0.16.4", path = "../macros" }
 
 # tracing
 tracing = "0.1.40"
@@ -95,18 +95,24 @@ tracing-subscriber = { version = "0.3.17", features = [
 crossbeam-channel = { version = "0.5.8", features = [] }
 
 # metrics
-metrics = { version = "0.22", optional = true }
+metrics = { version = "0.23", optional = true }
 metrics-util = { version = "0.15", optional = true }
 metrics-tracing-context = { version = "0.15", optional = true }
-metrics-exporter-prometheus = { version = "0.13.0", optional = true, default-features = false, features = [
+metrics-exporter-prometheus = { version = "0.15.1", optional = true, default-features = false, features = [
   "http-listener",
 ] }
 
 # bevy
-bevy = { version = "0.13", default-features = false, features = [
-  "multi-threaded",
+bevy = { version = "0.14", default-features = false, features = [
+  "multi_threaded",
+  "bevy_state",
+  "serialize",
 ] }
 
+# compression
+lz4_flex = { version = "0.11", optional = true, default-features = false, features = [
+  "std",
+] }
 
 # WebSocket
 futures-util = { version = "0.3.30", optional = true }
@@ -126,12 +132,13 @@ async-channel = "2.2.0"
 # steamworks-sys doesn't build on wasm
 steamworks = { version = "0.11", optional = true }
 # webtransport
-wtransport = { version = "=0.1.13", optional = true, features = [
+wtransport = { version = "=0.1.14", optional = true, features = [
+  "quinn",
   "self-signed",
   "dangerous-configuration",
 ] }
 # websocket
-tokio-tungstenite = { version = "0.21.0", optional = true, features = [
+tokio-tungstenite = { version = "0.23.0", optional = true, features = [
   "connect",
   "handshake",
 ] }
@@ -142,6 +149,7 @@ zstd = { version = "0.13.1", optional = true }
 console_error_panic_hook = { version = "0.1.7" }
 ring = { version = "0.17.8", optional = true, default-features = false }
 web-sys = { version = "0.3", optional = true, features = [
+  "Document",
   "WebTransport",
   "WebTransportHash",
   "WebTransportOptions",
@@ -157,12 +165,13 @@ web-sys = { version = "0.3", optional = true, features = [
   "MessageEvent",
   "BinaryType",
 ] }
+bevy_web_keepalive = "0.3"
 futures-lite = { version = "2.1.0", optional = true }
 getrandom = { version = "0.2.11", features = [
   "js", # feature 'js' is required for wasm
 ] }
-xwt-core = { version = "0.4", optional = true }
-xwt-web-sys = { version = "0.11", optional = true }
+xwt-core = { version = "0.5", optional = true }
+xwt-web-sys = { version = "0.12", optional = true }
 wasm-bindgen = { version = "0.2.90", optional = true }
 wasm-bindgen-futures = { version = "0.4.42", optional = true }
 # compression
@@ -171,25 +180,16 @@ zstd = { version = "0.13.1", optional = true, features = ["wasm"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.39"
-derive_more = { version = "0.99", features = ["add", "mul"] }
-mock_instant = { version = "0.4.0" }
+mock_instant = { version = "0.5" }
 tracing-subscriber = "0.3.17"
 bitvec = "1.0"
 approx = "0.5.1"
 
+
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
-# we cannot use all-features = true, because we need to provide additional features for bevy_xpbd_2d
+# we cannot use all-features = true, because we need to provide additional features for avian
 # when building the docs
-features = [
-  "metrics",
-  "webtransport",
-  "leafwing",
-  "xpbd_2d",
-  "websocket",
-  "steam",
-  "zstd",
-  "bevy_xpbd_2d/2d",
-  "bevy_xpbd_2d/f32",
-]
+# NOTE: building docs.rs doesn't work if I include avian
+features = ["metrics", "webtransport", "leafwing", "websocket", "steam", "zstd"]
 rustdoc-args = ["--cfg", "docsrs"]

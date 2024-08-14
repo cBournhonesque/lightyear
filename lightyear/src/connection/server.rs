@@ -1,45 +1,80 @@
-use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
-use std::net::SocketAddr;
+use enum_dispatch::enum_dispatch;
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
+use std::sync::Arc;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-use crate::connection::steam::server::SteamConfig;
-use crate::packet::packet::Packet;
-use crate::prelude::client::ClientTransport;
+use crate::connection::steam::{server::SteamConfig, steamworks_client::SteamworksClient};
+use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::server::ServerTransport;
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::prelude::LinkConditionerConfig;
 use crate::server::config::NetcodeConfig;
 use crate::server::io::Io;
 use crate::transport::config::SharedIoConfig;
 
+/// Reasons for denying a connection request
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub enum DeniedReason {
+    ServerFull,
+    Banned,
+    InternalError,
+    AlreadyConnected,
+    TokenAlreadyUsed,
+    InvalidToken,
+    Custom(String),
+}
+
+/// Trait for handling connection requests from clients.
+pub trait ConnectionRequestHandler: Debug + Send + Sync {
+    /// Handle a connection request from a client.
+    /// Returns None if the connection is accepted,
+    /// Returns Some(reason) if the connection is denied.
+    fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason>;
+}
+
+/// By default, all connection requests are accepted by the server.
+#[derive(Debug, Clone)]
+pub struct DefaultConnectionRequestHandler;
+
+impl ConnectionRequestHandler for DefaultConnectionRequestHandler {
+    fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason> {
+        None
+    }
+}
+
+#[enum_dispatch]
 pub trait NetServer: Send + Sync {
     /// Start the server
     /// (i.e. start listening for client connections)
-    fn start(&mut self) -> Result<()>;
+    fn start(&mut self) -> Result<(), ConnectionError>;
 
     /// Stop the server
     /// (i.e. stop listening for client connections and stop all networking)
-    fn stop(&mut self) -> Result<()>;
+    fn stop(&mut self) -> Result<(), ConnectionError>;
 
     // TODO: should we also have an API for accepting a client? i.e. we receive a connection request
     //  and we decide whether to accept it or not
     /// Disconnect a specific client
     /// Is also responsible for adding the client to the list of new disconnections.
-    fn disconnect(&mut self, client_id: ClientId) -> Result<()>;
+    fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError>;
 
     /// Return the list of connected clients
     fn connected_client_ids(&self) -> Vec<ClientId>;
 
     /// Update the connection states + internal bookkeeping (keep-alives, etc.)
-    fn try_update(&mut self, delta_ms: f64) -> Result<()>;
+    fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError>;
 
     /// Receive a packet from one of the connected clients
-    fn recv(&mut self) -> Option<(Packet, ClientId)>;
+    fn recv(&mut self) -> Option<(RecvPayload, ClientId)>;
 
     /// Send a packet to one of the connected clients
-    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<()>;
+    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<(), ConnectionError>;
 
     fn new_connections(&self) -> Vec<ClientId>;
 
@@ -50,10 +85,11 @@ pub trait NetServer: Send + Sync {
     fn io_mut(&mut self) -> Option<&mut Io>;
 }
 
-/// A wrapper around a `Box<dyn NetServer>`
-#[derive(Resource)]
-pub struct ServerConnection {
-    server: Box<dyn NetServer>,
+#[enum_dispatch(NetServer)]
+pub enum ServerConnection {
+    Netcode(super::netcode::Server),
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    Steam(super::steam::server::Server),
 }
 
 pub type IoConfig = SharedIoConfig<ServerTransport>;
@@ -67,9 +103,28 @@ pub enum NetConfig {
     },
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     Steam {
+        steamworks_client: Option<Arc<RwLock<SteamworksClient>>>,
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
     },
+}
+
+impl NetConfig {
+    /// Update the `accept_connection_request_fn` field in the config
+    pub fn set_connection_request_handler(
+        &mut self,
+        connection_request_handler: Arc<dyn ConnectionRequestHandler>,
+    ) {
+        match self {
+            NetConfig::Netcode { config, .. } => {
+                config.connection_request_handler = connection_request_handler;
+            }
+            #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+            NetConfig::Steam { config, .. } => {
+                config.connection_request_handler = connection_request_handler;
+            }
+        }
+    }
 }
 
 impl Default for NetConfig {
@@ -86,71 +141,28 @@ impl NetConfig {
         match self {
             NetConfig::Netcode { config, io } => {
                 let server = super::netcode::Server::new(config, io);
-                ServerConnection {
-                    server: Box::new(server),
-                }
+                ServerConnection::Netcode(server)
             }
             // TODO: might want to distinguish between steam with direct ip connections
             //  vs steam with p2p connections
             #[cfg(all(feature = "steam", not(target_family = "wasm")))]
             NetConfig::Steam {
+                steamworks_client,
                 config,
                 conditioner,
             } => {
                 // TODO: handle errors
-                let server = super::steam::server::Server::new(config, conditioner)
-                    .expect("could not create steam server");
-                ServerConnection {
-                    server: Box::new(server),
-                }
+                let server = super::steam::server::Server::new(
+                    steamworks_client.unwrap_or_else(|| {
+                        Arc::new(RwLock::new(SteamworksClient::new(config.app_id)))
+                    }),
+                    config,
+                    conditioner,
+                )
+                .expect("could not create steam server");
+                ServerConnection::Steam(server)
             }
         }
-    }
-}
-
-impl NetServer for ServerConnection {
-    fn start(&mut self) -> Result<()> {
-        self.server.start()
-    }
-
-    fn stop(&mut self) -> Result<()> {
-        self.server.stop()
-    }
-
-    fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
-        self.server.disconnect(client_id)
-    }
-
-    fn connected_client_ids(&self) -> Vec<ClientId> {
-        self.server.connected_client_ids()
-    }
-
-    fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        self.server.try_update(delta_ms)
-    }
-
-    fn recv(&mut self) -> Option<(Packet, ClientId)> {
-        self.server.recv()
-    }
-
-    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<()> {
-        self.server.send(buf, client_id)
-    }
-
-    fn new_connections(&self) -> Vec<ClientId> {
-        self.server.new_connections()
-    }
-
-    fn new_disconnections(&self) -> Vec<ClientId> {
-        self.server.new_disconnections()
-    }
-
-    fn io(&self) -> Option<&Io> {
-        self.server.io()
-    }
-
-    fn io_mut(&mut self) -> Option<&mut Io> {
-        self.server.io_mut()
     }
 }
 
@@ -162,7 +174,7 @@ type ServerConnectionIdx = usize;
 #[derive(Resource)]
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub(crate) servers: Vec<ServerConnection>,
+    pub servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
     /// Track whether the server is ready to listen to incoming connections
@@ -184,7 +196,7 @@ impl ServerConnections {
     }
 
     /// Start listening for client connections on all internal servers
-    pub fn start(&mut self) -> Result<()> {
+    pub fn start(&mut self) -> Result<(), ConnectionError> {
         for server in &mut self.servers {
             server.start()?;
         }
@@ -193,7 +205,7 @@ impl ServerConnections {
     }
 
     /// Stop listening for client connections on all internal servers
-    pub fn stop(&mut self) -> Result<()> {
+    pub fn stop(&mut self) -> Result<(), ConnectionError> {
         for server in &mut self.servers {
             server.stop()?;
         }
@@ -202,11 +214,9 @@ impl ServerConnections {
     }
 
     /// Disconnect a specific client
-    pub fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+    pub fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError> {
         self.client_server_map.get(&client_id).map_or(
-            Err(anyhow!(
-                "Could not find the server instance associated with client: {client_id:?}"
-            )),
+            Err(ConnectionError::ConnectionNotFound),
             |&server_idx| {
                 self.servers[server_idx].disconnect(client_id)?;
                 // NOTE: we don't remove the client from the map here because it is done
@@ -221,4 +231,28 @@ impl ServerConnections {
     pub(crate) fn is_listening(&self) -> bool {
         self.is_listening
     }
+}
+
+/// Errors related to the server connection
+#[derive(thiserror::Error, Debug)]
+pub enum ConnectionError {
+    #[error("io is not initialized")]
+    IoNotInitialized,
+    #[error("connection not found")]
+    ConnectionNotFound,
+    #[error("the connection type for this client is invalid")]
+    InvalidConnectionType,
+    #[error(transparent)]
+    Transport(#[from] crate::transport::error::Error),
+    #[error("netcode error: {0}")]
+    Netcode(#[from] super::netcode::error::Error),
+    #[error(transparent)]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    SteamInvalidHandle(#[from] steamworks::networking_sockets::InvalidHandle),
+    #[error(transparent)]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    SteamInitError(#[from] steamworks::SteamAPIInitError),
+    #[error(transparent)]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    SteamError(#[from] steamworks::SteamError),
 }

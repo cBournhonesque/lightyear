@@ -8,13 +8,13 @@ use std::net::SocketAddr;
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-
+use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::server::ServerCommands;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use common::settings::{get_client_net_config, Settings};
+use lightyear_examples_common::settings::{get_client_net_config, Settings};
 
 pub struct ExampleClientPlugin {
     pub(crate) settings: Settings,
@@ -39,6 +39,7 @@ impl Plugin for ExampleClientPlugin {
         app.init_resource::<lobby::LobbyTable>();
         app.init_resource::<Lobbies>();
         app.init_state::<AppState>();
+        app.add_systems(Startup, on_disconnect);
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         app.add_systems(
             FixedPreUpdate,
@@ -183,7 +184,11 @@ mod game {
     /// - keep track of it in the Global resource
     pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
         for mut color in predicted.iter_mut() {
-            color.0.set_s(0.3);
+            let hsva = Hsva {
+                saturation: 0.4,
+                ..Hsva::from(color.0)
+            };
+            color.0 = Color::from(hsva);
         }
     }
 
@@ -194,7 +199,11 @@ mod game {
         mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
     ) {
         for mut color in interpolated.iter_mut() {
-            color.0.set_s(0.1);
+            let hsva = Hsva {
+                saturation: 0.1,
+                ..Hsva::from(color.0)
+            };
+            color.0 = Color::from(hsva);
         }
     }
 }
@@ -305,14 +314,17 @@ mod lobby {
                                                             // send a message to join the game
                                                             let _ = connection_manager
                                                                 .send_message::<Channel1, _>(
-                                                                    &StartGame { lobby_id, host },
+                                                                    &mut StartGame {
+                                                                        lobby_id,
+                                                                        host,
+                                                                    },
                                                                 );
                                                         }
                                                     } else {
                                                         if ui.button("Join Lobby").clicked() {
                                                             connection_manager
                                                                 .send_message::<Channel1, _>(
-                                                                    &JoinLobby { lobby_id },
+                                                                    &mut JoinLobby { lobby_id },
                                                                 )
                                                                 .unwrap();
                                                             next_app_state.set(AppState::Lobby {
@@ -388,7 +400,7 @@ mod lobby {
                                 if let Some(lobby_id) = joined_lobby {
                                     if ui.button("Exit lobby").clicked() {
                                         connection_manager
-                                            .send_message::<Channel1, _>(&ExitLobby {
+                                            .send_message::<Channel1, _>(&mut ExitLobby {
                                                 lobby_id: *lobby_id,
                                             })
                                             .unwrap();
@@ -399,7 +411,7 @@ mod lobby {
                                         let host = lobby_table.get_host();
                                         // send a message to server/client to start the game and possibly act as server
                                         let _ = connection_manager.send_message::<Channel1, _>(
-                                            &StartGame {
+                                            &mut StartGame {
                                                 lobby_id: *lobby_id,
                                                 host,
                                             },

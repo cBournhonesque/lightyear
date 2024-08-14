@@ -1,17 +1,17 @@
 use std::collections::VecDeque;
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Reflect, Vec2,
 };
-use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace};
 
 use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::client::LerpFn;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroup;
 
@@ -45,13 +45,13 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                target: ReplicationTarget {
+                sync: SyncTarget {
                     prediction: NetworkTarget::Single(id),
                     interpolation: NetworkTarget::AllExceptSingle(id),
-                    ..default()
                 },
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(id),
+                    ..default()
                 },
                 // the default is: the replication group id is a u64 value generated from the entity (`entity.to_bits()`)
                 group: ReplicationGroup::default(),
@@ -72,13 +72,13 @@ impl TailBundle {
             points: TailPoints(points),
             length: TailLength(length),
             replicate: Replicate {
-                target: ReplicationTarget {
+                sync: SyncTarget {
                     prediction: NetworkTarget::Single(id),
                     interpolation: NetworkTarget::AllExceptSingle(id),
-                    ..default()
                 },
                 controlled_by: ControlledBy {
                     target: NetworkTarget::Single(id),
+                    ..default()
                 },
                 // replicate this entity within the same replication group as the parent
                 group: ReplicationGroup::default().set_id(parent.to_bits()),
@@ -93,10 +93,16 @@ impl TailBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(ClientId);
 
-#[derive(
-    Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Reflect,
-)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Reflect)]
 pub struct PlayerPosition(pub(crate) Vec2);
+
+impl Add for PlayerPosition {
+    type Output = PlayerPosition;
+    #[inline]
+    fn add(self, rhs: PlayerPosition) -> PlayerPosition {
+        PlayerPosition(self.0.add(rhs.0))
+    }
+}
 
 impl Mul<f32> for &PlayerPosition {
     type Output = PlayerPosition;
@@ -150,13 +156,13 @@ impl PlayerPosition {
     }
 }
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerColor(pub(crate) Color);
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct TailLength(pub(crate) f32);
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 // tail inflection points, from front (point closest to the head) to back (tail end point)
 pub struct TailPoints(pub(crate) VecDeque<(Vec2, Direction)>);
 
@@ -230,7 +236,7 @@ pub struct Message1(pub usize);
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Default, Reflect)]
 // To simplify, we only allow one direction at a time
 pub enum Direction {
     #[default]
@@ -290,7 +296,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components

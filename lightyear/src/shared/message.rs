@@ -1,20 +1,21 @@
 use crate::prelude::{Channel, ChannelKind, Message};
 use crate::shared::replication::network_target::NetworkTarget;
 use bevy::prelude::Resource;
-use std::fmt::Debug;
-use std::hash::Hash;
+use std::error::Error;
 
+/// Shared trait between client and server to send messages to a target
 pub(crate) trait MessageSend: Resource {
+    type Error: Error;
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         target: NetworkTarget,
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), Self::Error>;
 
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), Self::Error>;
 }

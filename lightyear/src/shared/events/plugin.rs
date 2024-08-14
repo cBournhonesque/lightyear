@@ -1,12 +1,12 @@
 //! Create the bevy [`Plugin`]
 
 use bevy::app::{App, PreUpdate};
-use bevy::prelude::{IntoSystemConfigs, Plugin, PostUpdate};
+use bevy::prelude::{IntoSystemConfigs, Plugin};
 
 use crate::shared::events::components::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::shared::events::systems::{clear_events, push_entity_events};
 use crate::shared::replication::ReplicationReceive;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
+use crate::shared::sets::InternalMainSet;
 
 pub struct EventsPlugin<R> {
     marker: std::marker::PhantomData<R>,
@@ -31,9 +31,8 @@ impl<R: ReplicationReceive> Plugin for EventsPlugin<R> {
             push_entity_events::<R>.in_set(InternalMainSet::<R::SetMarker>::EmitEvents),
         );
         app.add_systems(
-            PostUpdate,
-            // NOTE: we add this to the All system-set so that this system doesn't run if the host is disconnected
-            clear_events::<R>.in_set(InternalReplicationSet::<R::SetMarker>::All),
+            PreUpdate,
+            clear_events::<R>.after(InternalMainSet::<R::SetMarker>::EmitEvents),
         );
     }
 }

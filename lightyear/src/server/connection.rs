@@ -1,56 +1,56 @@
 //! Specify how a Server sends/receives messages with a Client
-use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{Component, Entity, Mut, Resource, World};
-use bevy::utils::{HashMap, HashSet};
+use bevy::prelude::{Commands, Component, Entity, Resource};
+use bevy::ptr::Ptr;
+use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
 use hashbrown::hash_map::Entry;
-use serde::Serialize;
-use tracing::{debug, error, info, trace, trace_span, warn};
+use tracing::{debug, info, info_span, trace, trace_span};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
-use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
-use bitcode::encoding::Fixed;
+use crate::channel::builder::{
+    EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel,
+};
 
+use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
 use crate::connection::id::ClientId;
-use crate::inputs::native::input_buffer::InputBuffer;
+use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::packet::Packet;
-use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::prelude::server::{DisconnectEvent, RoomId, RoomManager};
 use crate::prelude::{
-    Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ReplicationGroup,
-    ShouldBePredicted, TargetEntity,
+    Channel, ChannelKind, Message, PreSpawnedPlayerObject, ReplicationConfig, ReplicationGroup,
+    ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::{ComponentNetId, ComponentRegistry};
-use crate::protocol::message::{MessageRegistry, MessageType};
+use crate::protocol::component::{
+    ComponentError, ComponentKind, ComponentNetId, ComponentRegistry,
+};
+use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::reader::Reader;
+use crate::serialize::writer::Writer;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::server::config::PacketConfig;
+use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
-use crate::server::message::ServerMessage;
+use crate::server::relevance::error::RelevanceError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
-use crate::shared::ping::message::{Ping, Pong, SyncMessage};
-use crate::shared::replication::components::{
-    Controlled, ControlledBy, Replicate, ReplicationGroupId, ReplicationTarget,
-    ShouldBeInterpolated,
-};
+use crate::shared::ping::message::{Ping, Pong};
+use crate::shared::replication::components::ReplicationGroupId;
+use crate::shared::replication::delta::DeltaManager;
+use crate::shared::replication::entity_map::EntityMap;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::systems::ReplicateCache;
-use crate::shared::replication::{ReplicationMessage, ReplicationReceive, ReplicationSend};
-use crate::shared::replication::{ReplicationMessageData, ReplicationPeer};
+use crate::shared::replication::{EntityActionsMessage, EntityUpdatesMessage, ReplicationPeer};
+use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 use crate::shared::sets::ServerMarker;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
@@ -64,25 +64,37 @@ pub struct ConnectionManager {
     pub(crate) message_registry: MessageRegistry,
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents,
-
-    // NOTE: we put this here because we only need one per world, not one per connection
-    /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
-    /// (when the entity is despawned, we don't have access to its components anymore, so we cache them here)
-    pub(crate) replicate_component_cache: EntityHashMap<Entity, ReplicateCache>,
+    pub delta_manager: DeltaManager,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
-    pub(crate) writer: BitcodeWriter,
-    pub(crate) reader_pool: BufferPool,
+    pub(crate) writer: Writer,
+
+    // CONFIG
+    replication_config: ReplicationConfig,
     packet_config: PacketConfig,
     ping_config: PingConfig,
+}
+
+// This is useful in cases where we need to temporarily store a fake ConnectionManager
+impl Default for ConnectionManager {
+    fn default() -> Self {
+        Self::new(
+            MessageRegistry::default(),
+            ChannelRegistry::default(),
+            ReplicationConfig::default(),
+            PacketConfig::default(),
+            PingConfig::default(),
+        )
+    }
 }
 
 impl ConnectionManager {
     pub(crate) fn new(
         message_registry: MessageRegistry,
         channel_registry: ChannelRegistry,
+        replication_config: ReplicationConfig,
         packet_config: PacketConfig,
         ping_config: PingConfig,
     ) -> Self {
@@ -91,17 +103,17 @@ impl ConnectionManager {
             message_registry,
             channel_registry,
             events: ServerEvents::new(),
-            replicate_component_cache: EntityHashMap::default(),
+            delta_manager: DeltaManager::default(),
             new_clients: vec![],
-            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
-            reader_pool: BufferPool::new(1),
+            writer: Writer::with_capacity(MAX_PACKET_SIZE),
+            replication_config,
             packet_config,
             ping_config,
         }
     }
 
     /// Return the [`Entity`] associated with the given [`ClientId`]
-    pub fn client_entity(&self, client_id: ClientId) -> Result<Entity> {
+    pub fn client_entity(&self, client_id: ClientId) -> Result<Entity, ServerError> {
         self.connection(client_id).map(|c| c.entity)
     }
 
@@ -110,23 +122,41 @@ impl ConnectionManager {
         self.connections.keys().copied()
     }
 
+    // TODO: we need `&mut self` because MapEntities requires `&mut EntityMapper` even though it's not needed here
+    /// Convert entities in the message to be compatible with the remote world of the provided client
+    pub fn map_entities_to_remote<M: Message + MapEntities>(
+        &mut self,
+        message: &mut M,
+        client_id: ClientId,
+    ) -> Result<(), ServerError> {
+        let mapper = &mut self
+            .connection_mut(client_id)?
+            .replication_receiver
+            .remote_entity_map
+            .local_to_remote;
+        message.map_entities(mapper);
+        Ok(())
+    }
+
     /// Queues up a message to be sent to all clients matching the specific [`NetworkTarget`]
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
     }
 
     /// Send a message to all clients in a room
     pub fn send_message_to_room<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         room_id: RoomId,
         room_manager: &RoomManager,
-    ) -> Result<()> {
-        let room = room_manager.get_room(room_id).context("room not found")?;
+    ) -> Result<(), ServerError> {
+        let room = room_manager
+            .get_room(room_id)
+            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
         let target = NetworkTarget::Only(room.clients.iter().copied().collect());
         self.send_message_to_target::<C, M>(message, target)
     }
@@ -135,9 +165,9 @@ impl ConnectionManager {
     pub fn send_message<C: Channel, M: Message>(
         &mut self,
         client_id: ClientId,
-        message: &M,
-    ) -> Result<()> {
-        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
+        message: &mut M,
+    ) -> Result<(), ServerError> {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
     }
 
     /// Update the priority of a `ReplicationGroup` that is replicated to a given client
@@ -146,7 +176,7 @@ impl ConnectionManager {
         replication_group_id: ReplicationGroupId,
         client_id: ClientId,
         priority: f32,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         debug!(
             ?client_id,
             ?replication_group_id,
@@ -159,24 +189,28 @@ impl ConnectionManager {
         Ok(())
     }
 
-    /// Find the list of clients that should receive the replication message
-    pub(crate) fn apply_replication(
-        &mut self,
+    /// Find the list of connected clients that match the provided [`NetworkTarget`]
+    pub(crate) fn connected_targets(
+        &self,
         target: NetworkTarget,
     ) -> Box<dyn Iterator<Item = ClientId>> {
-        let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
+        // TODO: avoid extra allocations ...
         match target {
             NetworkTarget::All => {
                 // TODO: maybe only send stuff when the client is time-synced ?
+                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
                 Box::new(connected_clients.into_iter())
             }
-            NetworkTarget::AllExceptSingle(client_id) => Box::new(
-                connected_clients
-                    .into_iter()
-                    .filter(move |id| *id != client_id),
-            ),
+            NetworkTarget::AllExceptSingle(client_id) => {
+                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
+                Box::new(
+                    connected_clients
+                        .into_iter()
+                        .filter(move |id| *id != client_id),
+                )
+            }
             NetworkTarget::AllExcept(client_ids) => {
-                let client_ids: HashSet<ClientId> = HashSet::from_iter(client_ids);
+                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
                 Box::new(
                     connected_clients
                         .into_iter()
@@ -190,30 +224,38 @@ impl ConnectionManager {
                     Box::new(std::iter::empty())
                 }
             }
-            NetworkTarget::Only(client_ids) => Box::new(
-                connected_clients
-                    .into_iter()
-                    .filter(move |id| client_ids.contains(id)),
-            ),
+            NetworkTarget::Only(client_ids) => {
+                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
+                Box::new(
+                    connected_clients
+                        .into_iter()
+                        .filter(move |id| client_ids.contains(id)),
+                )
+            }
             NetworkTarget::None => Box::new(std::iter::empty()),
         }
     }
 
-    pub(crate) fn connection(&self, client_id: ClientId) -> Result<&Connection> {
+    pub fn connection(&self, client_id: ClientId) -> Result<&Connection, ServerError> {
         self.connections
             .get(&client_id)
-            .context("client id not found")
+            .ok_or(ServerError::ClientIdNotFound(client_id))
     }
 
-    pub(crate) fn connection_mut(&mut self, client_id: ClientId) -> Result<&mut Connection> {
+    pub fn connection_mut(&mut self, client_id: ClientId) -> Result<&mut Connection, ServerError> {
         self.connections
             .get_mut(&client_id)
-            .context("client id not found")
+            .ok_or(ServerError::ClientIdNotFound(client_id))
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    pub(crate) fn update(
+        &mut self,
+        world_tick: BevyTick,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) {
         self.connections.values_mut().for_each(|connection| {
-            connection.update(time_manager, tick_manager);
+            connection.update(world_tick, time_manager, tick_manager);
         });
     }
 
@@ -225,10 +267,12 @@ impl ConnectionManager {
 
             info!("New connection from id: {}", client_id);
             let connection = Connection::new(
+                client_id,
                 client_entity,
                 &self.channel_registry,
-                self.packet_config.clone(),
-                self.ping_config.clone(),
+                self.replication_config,
+                self.packet_config,
+                self.ping_config,
             );
             self.events.add_connect_event(ConnectEvent {
                 client_id,
@@ -257,77 +301,131 @@ impl ConnectionManager {
         entity
     }
 
-    pub(crate) fn buffer_message(
+    pub(crate) fn buffer_message_bytes(
         &mut self,
-        message: RawData,
+        message: Bytes,
         channel: ChannelKind,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
+        dbg!(&target);
         self.connections
             .iter_mut()
             .filter(|(id, _)| target.targets(id))
-            // TODO: is it worth it to use Arc<Vec<u8>> or Bytes to have a free clone?
-            //  at some point the bytes will have to be copied into the final message, so maybe do it now?
-            .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
+            .try_for_each(|(_, c)| {
+                // for local clients, we don't want to buffer messages in the MessageManager since
+                // there is no io
+                if c.is_local_client() {
+                    c.local_messages_to_send.push(message.clone())
+                } else {
+                    dbg!("sending resource message2");
+                    // NOTE: this clone is O(1), it just increments the reference count
+                    c.buffer_message(message.clone(), channel)?;
+                }
+                Ok::<(), ServerError>(())
+            })
     }
 
+    /// Buffer a `MapEntities` message to remote clients.
+    /// We cannot serialize the message once, we need to instead map the message for each client
+    /// using the `EntityMap` of that connection.
+    fn buffer_map_entities_message<M: Message>(
+        &mut self,
+        message: &mut M,
+        channel: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<(), ServerError> {
+        self.connections
+            .iter_mut()
+            .filter(|(id, _)| target.targets(id))
+            .try_for_each(|(_, c)| {
+                self.message_registry.serialize(
+                    message,
+                    &mut self.writer,
+                    Some(&mut c.replication_receiver.remote_entity_map.local_to_remote),
+                )?;
+                let message_bytes = self.writer.split();
+                // for local clients, we don't want to buffer messages in the MessageManager since
+                // there is no io
+                if c.is_local_client() {
+                    c.local_messages_to_send.push(message_bytes);
+                } else {
+                    c.buffer_message(message_bytes, channel)?;
+                }
+                Ok::<(), ServerError>(())
+            })
+    }
+
+    /// Serialize the message and buffer it to be sent in each `Connection`.
+    ///
+    /// - If the message is not `MapEntities`, we can serialize it once and reuse the same bytes
+    ///   for all `Connections`.
+    /// - If it is `MapEntities`, we need to map it in each connection.
     pub(crate) fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
-    ) -> Result<()> {
-        let message_bytes = self
-            .message_registry
-            .serialize(message, &mut self.writer)
-            .context("could not serialize message")?;
-        self.buffer_message(message_bytes, channel_kind, target)
+    ) -> Result<(), ServerError> {
+        if self.message_registry.is_map_entities::<M>() {
+            self.buffer_map_entities_message(message, channel_kind, target)?;
+        } else {
+            self.message_registry
+                .serialize(message, &mut self.writer, None)?;
+            let message_bytes = self.writer.split();
+            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
+        }
+        Ok(())
     }
 
     /// Buffer all the replication messages to send.
     /// Keep track of the bevy Change Tick: when a message is acked, we know that we only have to send
     /// the updates since that Change Tick
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn buffer_replication_messages(
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-    ) -> Result<()> {
-        let _span = trace_span!("buffer_replication_messages").entered();
+        time_manager: &TimeManager,
+    ) -> Result<(), ServerError> {
+        let _span = info_span!("buffer_replication_messages").entered();
         self.connections
             .values_mut()
-            .try_for_each(move |c| c.buffer_replication_messages(tick, bevy_tick))
+            .try_for_each(move |c| c.buffer_replication_messages(tick, bevy_tick, time_manager))
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn receive(
         &mut self,
-        world: &mut World,
+        commands: &mut Commands,
+        component_registry: &ComponentRegistry,
+        message_registry: &MessageRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         let mut messages_to_rebroadcast = vec![];
         // TODO: do this in parallel
         self.connections
             .iter_mut()
-            .for_each(|(client_id, connection)| {
+            .try_for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
-                world.resource_scope(|world, component_registry: Mut<ComponentRegistry>| {
-                    // receive events on the connection
-                    let events = connection.receive(
-                        world,
-                        component_registry.as_ref(),
-                        time_manager,
-                        tick_manager,
-                    );
-                    // move the events from the connection to the connection manager
-                    self.events.push_events(*client_id, events);
-                });
+                // receive events on the connection
+                let events = connection.receive(
+                    commands,
+                    component_registry,
+                    message_registry,
+                    time_manager,
+                    tick_manager,
+                )?;
+                // move the events from the connection to the connection manager
+                self.events.push_events(*client_id, events);
 
                 // rebroadcast messages
                 messages_to_rebroadcast
                     .extend(std::mem::take(&mut connection.messages_to_rebroadcast));
-            });
+                Ok::<(), ServerError>(())
+            })?;
         for (message, target, channel_kind) in messages_to_rebroadcast {
-            self.buffer_message(message, channel_kind, target)?;
+            self.buffer_message_bytes(message, channel_kind, target)?;
         }
         Ok(())
     }
@@ -341,25 +439,29 @@ impl ConnectionManager {
         group_id: ReplicationGroupId,
         client_id: ClientId,
         component_registry: &ComponentRegistry,
-        data: &C,
-    ) -> Result<()> {
+        data: &mut C,
+        bevy_tick: BevyTick,
+    ) -> Result<(), ServerError> {
         let net_id = component_registry
             .get_net_id::<C>()
-            .context(format!("{} is not registered", std::any::type_name::<C>()))?;
-        let raw_data = component_registry.serialize(data, &mut self.writer)?;
+            .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
+        // We store the Bytes in a hashmap, maybe more efficient to write the replication message directly?
+        component_registry.serialize(data, &mut self.writer, None)?;
+        let raw_data = self.writer.split();
         self.connection_mut(client_id)?
             .replication_sender
-            .prepare_component_insert(entity, group_id, net_id, raw_data);
+            .prepare_component_insert(entity, group_id, raw_data, bevy_tick);
         Ok(())
     }
 }
 
 /// Wrapper that handles the connection between the server and a client
 pub struct Connection {
+    client_id: ClientId,
     /// We create one entity per connected client, so that users
     /// can store metadata about the client using the ECS
     entity: Entity,
-    pub(crate) message_manager: MessageManager,
+    pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
     pub(crate) events: ConnectionEvents,
@@ -372,35 +474,52 @@ pub struct Connection {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
         HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
-    writer: BitcodeWriter,
-    pub(crate) reader_pool: BufferPool,
+    writer: Writer,
     // messages that we have received that need to be rebroadcasted to other clients
-    pub(crate) messages_to_rebroadcast: Vec<(RawData, NetworkTarget, ChannelKind)>,
+    pub(crate) messages_to_rebroadcast: Vec<(Bytes, NetworkTarget, ChannelKind)>,
+    /// True if this connection corresponds to a local client when running in host-server mode
+    is_local_client: bool,
+    /// Messages to send to the local client (we don't buffer them in the MessageManager because there is no io)
+    pub(crate) local_messages_to_send: Vec<Bytes>,
 }
 
 impl Connection {
     pub(crate) fn new(
+        client_id: ClientId,
         entity: Entity,
         channel_registry: &ChannelRegistry,
+        replication_config: ReplicationConfig,
         packet_config: PacketConfig,
         ping_config: PingConfig,
     ) -> Self {
+        let bandwidth_cap_enabled = packet_config.bandwidth_cap_enabled;
         // create the message manager and the channels
-        let mut message_manager = MessageManager::new(channel_registry, packet_config.into());
-        // get the acks-tracker for entity updates
-        let update_acks_tracker = message_manager
+        let mut message_manager = MessageManager::new(
+            channel_registry,
+            packet_config.nack_rtt_multiple,
+            packet_config.into(),
+        );
+        // get notified about acks/nacks for replication-update messages
+        let entity_updates_sender = &mut message_manager
             .channels
             .get_mut(&ChannelKind::of::<EntityUpdatesChannel>())
             .unwrap()
-            .sender
-            .subscribe_acks();
+            .sender;
+        let update_nacks_receiver = entity_updates_sender.subscribe_nacks();
+        let update_acks_receiver = entity_updates_sender.subscribe_acks();
         // get a channel to get notified when a replication update message gets actually send (to update priority)
         let replication_update_send_receiver =
             message_manager.get_replication_update_send_receiver();
-        let replication_sender =
-            ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
+        let replication_sender = ReplicationSender::new(
+            update_acks_receiver,
+            update_nacks_receiver,
+            replication_update_send_receiver,
+            replication_config,
+            bandwidth_cap_enabled,
+        );
         let replication_receiver = ReplicationReceiver::new();
         Self {
+            client_id,
             entity,
             message_manager,
             replication_sender,
@@ -411,95 +530,108 @@ impl Connection {
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            writer: BitcodeWriter::with_capacity(PACKET_BUFFER_CAPACITY),
-            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
-            reader_pool: BufferPool::new(1),
+            writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_rebroadcast: vec![],
+            is_local_client: false,
+            local_messages_to_send: vec![],
         }
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    /// Update the connection to make clear that it corresponds to the local client
+    pub(crate) fn set_local_client(&mut self) {
+        self.is_local_client = true;
+    }
+
+    /// Returns true if this connection corresponds to the local client in HostServer mode
+    pub(crate) fn is_local_client(&self) -> bool {
+        self.is_local_client
+    }
+
+    /// Map from the local entities to the remote entities
+    pub fn local_to_remote_map(&mut self) -> &mut EntityMap {
+        &mut self.replication_receiver.remote_entity_map.local_to_remote
+    }
+
+    /// Return the latest estimate of rtt
+    pub fn rtt(&self) -> Duration {
+        self.ping_manager.rtt()
+    }
+
+    /// Return the latest estimate of jitter
+    pub fn jitter(&self) -> Duration {
+        self.ping_manager.jitter()
+    }
+
+    pub(crate) fn update(
+        &mut self,
+        world_tick: BevyTick,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) {
+        if self.is_local_client() {
+            return;
+        }
         self.message_manager
             .update(time_manager, &self.ping_manager, tick_manager);
+        self.replication_sender.update(world_tick);
         self.ping_manager.update(time_manager);
     }
 
-    pub(crate) fn buffer_message(&mut self, message: Vec<u8>, channel: ChannelKind) -> Result<()> {
+    pub(crate) fn buffer_message(
+        &mut self,
+        message: Bytes,
+        channel: ChannelKind,
+    ) -> Result<(), ServerError> {
         // TODO: i know channel names never change so i should be able to get them as static
         // TODO: just have a channel registry enum as well?
         let channel_name = self
             .message_manager
             .channel_registry
             .name(&channel)
-            .unwrap_or("unknown")
-            .to_string();
-        let message = ServerMessage::Message(message);
-        self.writer.start_write();
-        message.encode(&mut self.writer)?;
-        // TODO: doesn't this serialize the bytes twice?
-        let message_bytes = self.writer.finish_write().to_vec();
+            .ok_or::<ServerError>(MessageError::NotRegistered.into())?;
         // message.emit_send_logs(&channel_name);
-        self.message_manager.buffer_send(message_bytes, channel)?;
+        self.message_manager.buffer_send(message, channel)?;
         Ok(())
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn buffer_replication_messages(
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-    ) -> Result<()> {
-        self.replication_sender
-            .finalize(tick)
-            .into_iter()
-            .try_for_each(|(channel, group_id, message_data, priority)| {
-                let should_track_ack = matches!(message_data, ReplicationMessageData::Updates(_));
-                let channel_name = self
-                    .message_manager
-                    .channel_registry
-                    .name(&channel)
-                    .unwrap_or("unknown")
-                    .to_string();
-                let message = ClientMessage::Replication(ReplicationMessage {
-                    group_id,
-                    data: message_data,
-                });
-                self.writer.start_write();
-                message.encode(&mut self.writer)?;
-                // TODO: doesn't this serialize the bytes twice?
-                let message_bytes = self.writer.finish_write().to_vec();
-                // message.emit_send_logs(&channel_name);
-                let message_id = self
-                    .message_manager
-                    .buffer_send_with_priority(message_bytes, channel, priority)?
-                    .expect("The replication channels should always return a message_id");
-
-                // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
-                if should_track_ack {
-                    self.replication_sender
-                        .updates_message_id_to_group_id
-                        .insert(message_id, (group_id, bevy_tick));
-                }
-                Ok(())
-            })
+        time_manager: &TimeManager,
+    ) -> Result<(), ServerError> {
+        self.replication_sender.accumulate_priority(time_manager);
+        self.replication_sender.send_actions_messages(
+            tick,
+            bevy_tick,
+            &mut self.writer,
+            &mut self.message_manager,
+        )?;
+        self.replication_sender.send_updates_messages(
+            tick,
+            bevy_tick,
+            &mut self.writer,
+            &mut self.message_manager,
+        )?;
+        Ok(())
     }
 
-    fn send_ping(&mut self, ping: Ping) -> Result<()> {
+    fn send_ping(&mut self, ping: Ping) -> Result<(), ServerError> {
         trace!("Sending ping {:?}", ping);
-        self.writer.start_write();
-        ServerMessage::Ping(ping).encode(&mut self.writer)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        ping.to_bytes(&mut self.writer)?;
+        let message_bytes = self.writer.split();
         self.message_manager
             .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
         Ok(())
     }
 
-    fn send_pong(&mut self, pong: Pong) -> Result<()> {
+    fn send_pong(&mut self, pong: Pong) -> Result<(), ServerError> {
         trace!("Sending pong {:?}", pong);
-        self.writer.start_write();
-        ServerMessage::Pong(pong).encode(&mut self.writer)?;
-        let message_bytes = self.writer.finish_write().to_vec();
+        pong.to_bytes(&mut self.writer)?;
+        let message_bytes = self.writer.split();
         self.message_manager
-            .buffer_send(message_bytes, ChannelKind::of::<PingChannel>())?;
+            .buffer_send(message_bytes, ChannelKind::of::<PongChannel>())?;
         Ok(())
     }
 
@@ -508,178 +640,427 @@ impl Connection {
         &mut self,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> Result<Vec<Payload>> {
+    ) -> Result<Vec<Payload>, ServerError> {
         // update the ping manager with the actual send time
         // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
 
-        // no need to check if `time_manager.is_server_ready_to_send()` since we only send packets when we are ready to send
-        if time_manager.is_server_ready_to_send() {
-            // maybe send pings
-            // same thing, we want the correct send time for the ping
-            // (and not have the delay between when we prepare the ping and when we send the packet)
-            if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
-                self.send_ping(ping)?;
-            }
-
-            // prepare the pong messages with the correct send time
-            self.ping_manager
-                .take_pending_pongs()
-                .into_iter()
-                .try_for_each(|mut pong| {
-                    trace!("Sending pong {:?}", pong);
-                    // update the send time of the pong
-                    pong.pong_sent_time = time_manager.current_time();
-                    self.send_pong(pong)?;
-                    Ok::<(), anyhow::Error>(())
-                })?;
+        // maybe send pings
+        // same thing, we want the correct send time for the ping
+        // (and not have the delay between when we prepare the ping and when we send the packet)
+        if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
+            self.send_ping(ping)?;
         }
-        let payloads = self.message_manager.send_packets(tick_manager.tick());
+
+        // prepare the pong messages with the correct send time
+        self.ping_manager
+            .take_pending_pongs()
+            .into_iter()
+            .try_for_each(|mut pong| {
+                trace!("Sending pong {:?}", pong);
+                // update the send time of the pong
+                pong.pong_sent_time = time_manager.current_time();
+                self.send_pong(pong)?;
+                Ok::<(), ServerError>(())
+            })?;
+        let payloads = self.message_manager.send_packets(tick_manager.tick())?;
 
         // update the replication sender about which messages were actually sent, and accumulate priority
         self.replication_sender.recv_send_notification();
-        payloads
+        Ok(payloads)
     }
 
     pub fn receive(
         &mut self,
-        world: &mut World,
+        commands: &mut Commands,
         component_registry: &ComponentRegistry,
+        message_registry: &MessageRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> ConnectionEvents {
+    ) -> Result<ConnectionEvents, ServerError> {
         let _span = trace_span!("receive").entered();
-        let message_registry = world.resource::<MessageRegistry>();
-        for (channel_kind, messages) in self.message_manager.read_messages() {
-            let channel_name = self
-                .message_manager
-                .channel_registry
-                .name(&channel_kind)
-                .unwrap_or("unknown");
-            let _span_channel = trace_span!("channel", channel = channel_name).entered();
+        self.message_manager
+            .channels
+            .iter_mut()
+            .try_for_each(|(channel_kind, channel)| {
+                while let Some((tick, single_data)) = channel.receiver.read_message() {
+                    // let channel_name = self
+                    //     .message_manager
+                    //     .channel_registry
+                    //     .name(&channel_kind)
+                    //     .unwrap_or("unknown");
+                    // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
-            if !messages.is_empty() {
-                trace!(?channel_name, ?messages, "Received messages");
-                for (tick, single_data) in messages.into_iter() {
-                    trace!(?tick, ?single_data, "received message");
-                    // TODO: in this case, it looks like we might not need the pool?
-                    //  we can just have a single buffer, and keep re-using that buffer
-                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
-                    // TODO: maybe just decode a single bit to know if it's message vs replication?
-                    let message = ClientMessage::decode(&mut reader)
-                        .expect("Could not decode server message");
-                    self.reader_pool.attach(reader);
+                    trace!(?channel_kind, ?tick, ?single_data, "received message");
+                    let mut reader = Reader::from(single_data);
+                    // TODO: get const type ids
+                    if channel_kind == &ChannelKind::of::<PingChannel>() {
+                        let ping = Ping::from_bytes(&mut reader)?;
+                        // prepare a pong in response (but do not send yet, because we need
+                        // to set the correct send time)
+                        self.ping_manager
+                            .buffer_pending_pong(&ping, time_manager.current_time());
+                        trace!("buffer pong");
+                    } else if channel_kind == &ChannelKind::of::<PongChannel>() {
+                        let pong = Pong::from_bytes(&mut reader)?;
+                        // process the pong
+                        self.ping_manager
+                            .process_pong(&pong, time_manager.current_time());
+                    } else if channel_kind == &ChannelKind::of::<EntityActionsChannel>() {
+                        let actions = EntityActionsMessage::from_bytes(&mut reader)?;
+                        trace!(?tick, ?actions, "received replication actions message");
+                        // buffer the replication message
+                        self.replication_receiver.recv_actions(actions, tick);
+                    } else if channel_kind == &ChannelKind::of::<EntityUpdatesChannel>() {
+                        let updates = EntityUpdatesMessage::from_bytes(&mut reader)?;
+                        trace!(?tick, ?updates, "received replication updates message");
+                        // buffer the replication message
+                        self.replication_receiver.recv_updates(updates, tick);
+                    } else {
+                        // TODO: THIS IS DUPLICATED FROM THE `receive_message` FUNCTION BUT THERE ARE BORROW CHECKER
+                        //  BECAUSE SPLIT BORROWS ARE NOT WELL HANDLED!
 
-                    match message {
-                        ClientMessage::Message(message, target) => {
-                            let mut reader = self.reader_pool.start_read(message.as_slice());
-                            let net_id = reader
-                                .decode::<NetId>(Fixed)
-                                .expect("could not decode MessageKind");
-                            self.reader_pool.attach(reader);
+                        // TODO: we only get RawData here, does that mean we're deserializing multiple times?
+                        //  instead just read the bytes for the target!!
+                        let ClientMessage { message, target } =
+                            ClientMessage::from_bytes(&mut reader)?;
 
-                            // we are also sending target and channel kind so the message can be
-                            // rebroadcasted to other clients after we have converted the entities from the
-                            // client World to the server World
-                            // TODO: but do we have data to convert the entities from the client to the server?
-                            //  I don't think so... maybe the sender should map_entities themselves?
-                            //  or it matters for input messages?
-                            // TODO: avoid clone with Arc<[u8]>?
-                            let data = (message.clone().into(), target.clone(), channel_kind);
-
-                            match message_registry.message_type(net_id) {
-                                #[cfg(feature = "leafwing")]
-                                MessageType::LeafwingInput => self
-                                    .received_leafwing_input_messages
+                        let mut reader = Reader::from(message);
+                        let net_id = NetId::from_bytes(&mut reader)?;
+                        // we are also sending target and channel kind so the message can be
+                        // rebroadcasted to other clients after we have converted the entities from the
+                        // client World to the server World
+                        // TODO: but do we have data to convert the entities from the client to the server?
+                        //  I don't think so... maybe the sender should map_entities themselves?
+                        //  or it matters for input messages?
+                        // TODO: avoid clone with Arc<[u8]>?
+                        let data = (reader.consume(), target, *channel_kind);
+                        match message_registry.message_type(net_id) {
+                            #[cfg(feature = "leafwing")]
+                            MessageType::LeafwingInput => self
+                                .received_leafwing_input_messages
+                                .entry(net_id)
+                                .or_default()
+                                .push(data),
+                            MessageType::NativeInput => {
+                                self.received_input_messages
                                     .entry(net_id)
                                     .or_default()
-                                    .push(data),
-                                MessageType::NativeInput => {
-                                    self.received_input_messages
-                                        .entry(net_id)
-                                        .or_default()
-                                        .push(data);
-                                }
-                                MessageType::Normal => {
-                                    self.received_messages.entry(net_id).or_default().push(data);
-                                }
+                                    .push(data);
                             }
-                        }
-                        ClientMessage::Replication(replication) => {
-                            trace!(?tick, ?replication, "received replication message");
-                            // buffer the replication message
-                            self.replication_receiver.recv_message(replication, tick);
-                        }
-                        ClientMessage::Ping(ping) => {
-                            // prepare a pong in response (but do not send yet, because we need
-                            // to set the correct send time)
-                            self.ping_manager
-                                .buffer_pending_pong(&ping, time_manager.current_time());
-                            trace!("buffer pong");
-                        }
-                        ClientMessage::Pong(pong) => {
-                            // process the pong
-                            self.ping_manager
-                                .process_pong(&pong, time_manager.current_time());
+                            MessageType::Normal => {
+                                self.received_messages.entry(net_id).or_default().push(data);
+                            }
                         }
                     }
                 }
-            }
-        }
+                Ok::<(), SerializationError>(())
+            })?;
 
-        // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
         // Check if we have any replication messages we can apply to the World (and emit events)
-        for (group, replication_list) in
-            self.replication_receiver.read_messages(tick_manager.tick())
-        {
-            trace!(?group, ?replication_list, "read replication messages");
-            replication_list
-                .into_iter()
-                .for_each(|(tick, replication)| {
-                    // TODO: we could include the server tick when this replication_message was sent.
-                    self.replication_receiver.apply_world(
-                        world,
-                        component_registry,
-                        tick,
-                        replication,
-                        group,
-                        &mut self.events,
-                    );
-                });
-        }
+        self.replication_receiver.apply_world(
+            commands,
+            Some(self.client_id),
+            component_registry,
+            tick_manager.tick(),
+            &mut self.events,
+        );
 
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
         //  is it because of push_connection?
-        std::mem::replace(&mut self.events, ConnectionEvents::new())
+        Ok(std::mem::replace(&mut self.events, ConnectionEvents::new()))
     }
 
-    pub fn recv_packet(&mut self, packet: Packet, tick_manager: &TickManager) -> Result<()> {
+    /// Receive bytes for a single message.
+    ///
+    /// Adds them to an internal buffer, so that we can decode them into the correct type.
+    pub(crate) fn receive_message(
+        &mut self,
+        mut reader: Reader,
+        channel_kind: ChannelKind,
+        message_registry: &MessageRegistry,
+    ) -> Result<(), SerializationError> {
+        // TODO: we only get RawData here, does that mean we're deserializing multiple times?
+        //  instead just read the bytes for the target!!
+        let ClientMessage { message, target } = ClientMessage::from_bytes(&mut reader)?;
+
+        let mut reader = Reader::from(message);
+        let net_id = NetId::from_bytes(&mut reader)?;
+        // we are also sending target and channel kind so the message can be
+        // rebroadcasted to other clients after we have converted the entities from the
+        // client World to the server World
+        // TODO: but do we have data to convert the entities from the client to the server?
+        //  I don't think so... maybe the sender should map_entities themselves?
+        //  or it matters for input messages?
+        // TODO: avoid clone with Arc<[u8]>?
+        let data = (reader.consume(), target, channel_kind);
+        match message_registry.message_type(net_id) {
+            #[cfg(feature = "leafwing")]
+            MessageType::LeafwingInput => self
+                .received_leafwing_input_messages
+                .entry(net_id)
+                .or_default()
+                .push(data),
+            MessageType::NativeInput => {
+                self.received_input_messages
+                    .entry(net_id)
+                    .or_default()
+                    .push(data);
+            }
+            MessageType::Normal => {
+                self.received_messages.entry(net_id).or_default().push(data);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn recv_packet(
+        &mut self,
+        packet: RecvPayload,
+        tick_manager: &TickManager,
+        component_registry: &ComponentRegistry,
+        delta_manager: &mut DeltaManager,
+    ) -> Result<(), ServerError> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(packet)?;
         // notify the replication sender that some sent messages were received
-        self.replication_sender.recv_update_acks();
+        self.replication_sender
+            .recv_update_acks(component_registry, delta_manager);
         debug!("Received server packet with tick: {:?}", tick);
         Ok(())
     }
 }
 
+impl ConnectionManager {
+    pub(crate) fn prepare_entity_despawn(
+        &mut self,
+        entity: Entity,
+        group_id: ReplicationGroupId,
+        target: NetworkTarget,
+    ) -> Result<(), ServerError> {
+        self.connected_targets(target).try_for_each(|client_id| {
+            // trace!(
+            //     ?entity,
+            //     ?client_id,
+            //     "Send entity despawn for tick {:?}",
+            //     self.tick_manager.tick()
+            // );
+            self.connection_mut(client_id)?
+                .replication_sender
+                .prepare_entity_despawn(entity, group_id);
+            Ok(())
+        })
+    }
+
+    pub(crate) fn prepare_component_remove(
+        &mut self,
+        entity: Entity,
+        kind: ComponentNetId,
+        group: &ReplicationGroup,
+        target: NetworkTarget,
+    ) -> Result<(), ServerError> {
+        let group_id = group.group_id(Some(entity));
+        debug!(?entity, ?kind, "Sending RemoveComponent");
+        self.connected_targets(target).try_for_each(|client_id| {
+            // TODO: I don't think it's actually correct to only correct the changes since that action.
+            //  what if we do:
+            //  - Frame 1: update is ACKED
+            //  - Frame 2: update
+            //  - Frame 3: action
+            //  - Frame 4: send
+            //  then we won't send the frame-2 update because we only collect changes since frame 3
+            self.connection_mut(client_id)?
+                .replication_sender
+                .prepare_component_remove(entity, group_id, kind);
+            Ok(())
+        })
+    }
+
+    // TODO: perf gain if we batch this? (send vec of components) (same for update/removes)
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prepare_component_insert(
+        &mut self,
+        entity: Entity,
+        kind: ComponentKind,
+        component_data: Ptr,
+        component_registry: &ComponentRegistry,
+        prediction_target: Option<&NetworkTarget>,
+        group_id: ReplicationGroupId,
+        target: NetworkTarget,
+        delta_compression: bool,
+        tick: Tick,
+        bevy_tick: BevyTick,
+    ) -> Result<(), ServerError> {
+        // TODO: first check that the target is not empty!
+
+        // TODO: think about this. this feels a bit clumsy
+        // TODO: this might not be required anymore since we separated ShouldBePredicted from PrePredicted
+
+        // handle ShouldBePredicted separately because of pre-spawning behaviour
+        // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.
+        // Then we rebroadcast it to other clients. If an entity `1` already exists on other clients; we will start using that entity
+        //     as our Prediction target! That means that we should:
+        // - even if pre-spawned replication, require users to set the `prediction_target` correctly
+        //     - only broadcast `ShouldBePredicted` to the clients who have `prediction_target` set.
+        // let should_be_predicted_kind =
+        //     P::ComponentKinds::from(P::Components::from(ShouldBePredicted {
+        //         client_entity: None,
+        //     }));
+
+        // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
+        let mut actual_target = target;
+        let should_be_predicted_kind = ComponentKind::of::<ShouldBePredicted>();
+        let pre_spawned_player_object_kind = ComponentKind::of::<PreSpawnedPlayerObject>();
+        if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
+            actual_target = prediction_target.unwrap().clone();
+        }
+
+        // even with delta-compression enabled
+        // the diff can be shared for every client since we're inserting
+        if delta_compression {
+            // store the component value in a storage shared between all connections, so that we can compute diffs
+            // NOTE: we don't update the ack data because we only receive acks for ReplicationUpdate messages
+            self.delta_manager.data.store_component_value(
+                entity,
+                tick,
+                kind,
+                component_data,
+                group_id,
+                component_registry,
+            );
+            // SAFETY: the component_data corresponds to the kind
+            unsafe {
+                component_registry.serialize_diff_from_base_value(
+                    component_data,
+                    &mut self.writer,
+                    kind,
+                )?;
+            }
+        } else {
+            component_registry.erased_serialize(component_data, &mut self.writer, kind)?;
+        };
+        let raw_data = self.writer.split();
+        self.connected_targets(actual_target)
+            .try_for_each(|client_id| {
+                // trace!(
+                //     ?entity,
+                //     component = ?kind,
+                //     tick = ?self.tick_manager.tick(),
+                //     "Inserting single component"
+                // );
+                let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+
+                // update the collect changes tick
+                // replication_sender
+                //     .group_channels
+                //     .entry(group)
+                //     .or_default()
+                //     .update_collect_changes_since_this_tick(system_current_tick);
+                self.connection_mut(client_id)?
+                    .replication_sender
+                    // TODO: avoid the clone by using Arc<u8>?
+                    .prepare_component_insert(entity, group_id, raw_data.clone(), bevy_tick);
+                Ok(())
+            })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prepare_component_update(
+        &mut self,
+        entity: Entity,
+        kind: ComponentKind,
+        component: Ptr,
+        registry: &ComponentRegistry,
+        group_id: ReplicationGroupId,
+        target: NetworkTarget,
+        component_change_tick: BevyTick,
+        system_current_tick: BevyTick,
+        tick: Tick,
+        delta_compression: bool,
+    ) -> Result<(), ServerError> {
+        let mut num_targets = 0;
+        let mut existing_bytes: Option<Bytes> = None;
+        self.connected_targets(target).try_for_each(|client_id| {
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            let replication_sender = &mut self.connections.get_mut(&client_id).ok_or(ServerError::ClientIdNotFound(client_id))?.replication_sender;
+            let send_tick = replication_sender
+                .group_channels
+                .entry(group_id)
+                .or_default()
+                .send_tick;
+            // send the update for all changes newer than the last send_tick for the group
+            debug!(
+                ?kind,
+                change_tick = ?component_change_tick,
+                ?send_tick,
+                "prepare entity update changed check (we want the component-change-tick to be higher than send_tick)"
+            );
+
+            if send_tick.map_or(true, |tick| {
+                component_change_tick.is_newer_than(tick, system_current_tick)
+            }) {
+                num_targets += 1;
+                trace!(
+                    ?entity,
+                    ?tick,
+                    name = ?registry.name(kind),
+                    "Updating single component"
+                );
+                if delta_compression {
+                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick)?;
+                } else {
+                    // we serialize once and re-use the result for all clients
+                    // serialize only if there is at least one client that needs the update
+                    if existing_bytes.is_none() {
+                        registry.erased_serialize(component, &mut self.writer, kind)?;
+                        existing_bytes = Some(self.writer.split());
+                    }
+                    let raw_data = existing_bytes.clone().unwrap();
+                    replication_sender.prepare_component_update(entity, group_id, raw_data);
+                }
+            }
+            Ok::<(), ServerError>(())
+        })?;
+
+        if delta_compression && num_targets > 0 {
+            // store the component value in a storage shared between all connections, so that we can compute diffs
+            self.delta_manager
+                .data
+                .store_component_value(entity, tick, kind, component, group_id, registry);
+            // register the number of clients that the component was sent to
+            // (if we receive an ack from all these clients for a given tick, we can remove the component value from the storage
+            //  for all the ticks that are older than the last acked tick)
+            // TODO: if clients 1 and 2 send an ACK for tick 3, and client 3 sends an ack for tick 5 (but lost tick 3),
+            //  we should still consider that we can delete all the data older than tick 3!
+            self.delta_manager
+                .acks
+                .entry(group_id)
+                .or_default()
+                .insert(tick, num_targets);
+        }
+
+        Ok(())
+    }
+}
+
 impl MessageSend for ConnectionManager {
+    type Error = ServerError;
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         self.send_message_to_target::<C, M>(message, target)
     }
 
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: &mut M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
-    ) -> Result<()> {
+    ) -> Result<(), ServerError> {
         self.erased_send_message_to_target(message, channel_kind, target)
     }
 }
@@ -704,184 +1085,14 @@ impl ReplicationReceive for ConnectionManager {
 }
 
 impl ReplicationSend for ConnectionManager {
-    fn writer(&mut self) -> &mut BitcodeWriter {
+    type Error = ServerError;
+
+    fn writer(&mut self) -> &mut Writer {
         &mut self.writer
     }
 
     fn new_connected_clients(&self) -> Vec<ClientId> {
         self.new_clients.clone()
-    }
-
-    fn prepare_entity_despawn(
-        &mut self,
-        entity: Entity,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        let group_id = group.group_id(Some(entity));
-        self.apply_replication(target).try_for_each(|client_id| {
-            // trace!(
-            //     ?entity,
-            //     ?client_id,
-            //     "Send entity despawn for tick {:?}",
-            //     self.tick_manager.tick()
-            // );
-            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
-            self.connection_mut(client_id)?
-                .replication_sender
-                .prepare_entity_despawn(entity, group_id);
-            Ok(())
-        })
-    }
-
-    // TODO: perf gain if we batch this? (send vec of components) (same for update/removes)
-    fn prepare_component_insert(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
-        component_registry: &ComponentRegistry,
-        replication_target: &ReplicationTarget,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        let group_id = group.group_id(Some(entity));
-
-        // TODO: think about this. this feels a bit clumsy
-        // TODO: this might not be required anymore since we separated ShouldBePredicted from PrePredicted
-
-        // handle ShouldBePredicted separately because of pre-spawning behaviour
-        // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.
-        // Then we rebroadcast it to other clients. If an entity `1` already exists on other clients; we will start using that entity
-        //     as our Prediction target! That means that we should:
-        // - even if pre-spawned replication, require users to set the `prediction_target` correctly
-        //     - only broadcast `ShouldBePredicted` to the clients who have `prediction_target` set.
-        // let should_be_predicted_kind =
-        //     P::ComponentKinds::from(P::Components::from(ShouldBePredicted {
-        //         client_entity: None,
-        //     }));
-
-        // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
-        let mut actual_target = target;
-        let should_be_predicted_kind = component_registry
-            .get_net_id::<ShouldBePredicted>()
-            .context("ShouldBePredicted is not registered")?;
-        let pre_spawned_player_object_kind = component_registry
-            .get_net_id::<PreSpawnedPlayerObject>()
-            .context("PreSpawnedPlayerObject is not registered")?;
-        if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
-            actual_target = replication_target.prediction.clone();
-        }
-        self.apply_replication(actual_target)
-            .try_for_each(|client_id| {
-                // trace!(
-                //     ?entity,
-                //     component = ?kind,
-                //     tick = ?self.tick_manager.tick(),
-                //     "Inserting single component"
-                // );
-                let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
-                // update the collect changes tick
-                // replication_sender
-                //     .group_channels
-                //     .entry(group)
-                //     .or_default()
-                //     .update_collect_changes_since_this_tick(system_current_tick);
-                self.connection_mut(client_id)?
-                    .replication_sender
-                    .prepare_component_insert(entity, group_id, kind, component.clone());
-                Ok(())
-            })
-    }
-
-    fn prepare_component_remove(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()> {
-        let group_id = group.group_id(Some(entity));
-        debug!(?entity, ?kind, "Sending RemoveComponent");
-        self.apply_replication(target).try_for_each(|client_id| {
-            // TODO: I don't think it's actually correct to only correct the changes since that action.
-            //  what if we do:
-            //  - Frame 1: update is ACKED
-            //  - Frame 2: update
-            //  - Frame 3: action
-            //  - Frame 4: send
-            //  then we won't send the frame-2 update because we only collect changes since frame 3
-            self.connection_mut(client_id)?
-                .replication_sender
-                .prepare_component_remove(entity, group_id, kind);
-            Ok(())
-        })
-    }
-
-    fn prepare_component_update(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-        component_change_tick: BevyTick,
-        system_current_tick: BevyTick,
-    ) -> Result<()> {
-        trace!(
-            ?kind,
-            ?entity,
-            ?component_change_tick,
-            ?system_current_tick,
-            "Prepare entity update"
-        );
-
-        let group_id = group.group_id(Some(entity));
-        self.apply_replication(target).try_for_each(|client_id| {
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
-            let collect_changes_since_this_tick = replication_sender
-                .group_channels
-                .entry(group_id)
-                .or_default()
-                .collect_changes_since_this_tick;
-            // send the update for all changes newer than the last ack bevy tick for the group
-            debug!(
-                ?kind,
-                change_tick = ?component_change_tick,
-                ?collect_changes_since_this_tick,
-                "prepare entity update changed check (we want the component-change-tick to be higher than collect-changes-since-this-tick)"
-            );
-
-            if collect_changes_since_this_tick.map_or(true, |tick| {
-                component_change_tick.is_newer_than(tick, system_current_tick)
-            }) {
-                trace!(
-                    change_tick = ?component_change_tick,
-                    ?collect_changes_since_this_tick,
-                    current_tick = ?system_current_tick,
-                    "prepare entity update changed check"
-                );
-                // trace!(
-                //     ?entity,
-                //     component = ?kind,
-                //     tick = ?self.tick_manager.tick(),
-                //     "Updating single component"
-                // );
-                // TODO: avoid component clone with Arc<[u8]>
-                replication_sender.prepare_entity_update(entity, group_id, kind, component.clone());
-            }
-            Ok(())
-        })
-    }
-
-    /// Buffer the replication messages
-    fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()> {
-        self.buffer_replication_messages(tick, bevy_tick)
-    }
-
-    fn get_mut_replicate_cache(&mut self) -> &mut bevy::ecs::entity::EntityHashMap<ReplicateCache> {
-        &mut self.replicate_component_cache
     }
 
     fn cleanup(&mut self, tick: Tick) {

@@ -1,65 +1,148 @@
 //! Module to handle replicating entities and components from server to client
+use bevy::ecs::entity::EntityHash;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use anyhow::Result;
-use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHashMap;
-use bevy::prelude::{Component, Entity, Resource};
-use bevy::reflect::Map;
-use bevy::utils::HashSet;
-use serde::{Deserialize, Serialize};
+use bevy::prelude::{Entity, Resource};
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use bytes::Bytes;
+use hashbrown::HashMap;
 
-use bitcode::{Decode, Encode};
-use network_target::NetworkTarget;
-
-use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{ReplicationGroup, Tick};
-use crate::protocol::component::{ComponentNetId, ComponentRegistry};
-use crate::protocol::registry::NetId;
+use crate::prelude::Tick;
+use crate::protocol::component::ComponentNetId;
 use crate::protocol::EventContext;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::reader::Reader;
+use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
+use crate::serialize::writer::Writer;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::events::connection::{
     ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
-use crate::shared::replication::components::{ReplicationGroupId, ReplicationTarget};
-use crate::shared::replication::systems::ReplicateCache;
+use crate::shared::replication::components::ReplicationGroupId;
 
 pub mod components;
 
-mod commands;
+pub(crate) mod archetypes;
+pub mod delta;
 pub mod entity_map;
+pub mod error;
 pub(crate) mod hierarchy;
 pub mod network_target;
 pub(crate) mod plugin;
+pub(crate) mod prespawn;
 pub(crate) mod receive;
 pub(crate) mod resources;
 pub(crate) mod send;
 pub(crate) mod systems;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+/// Serialize Entity as two varints for the index and generation (because they will probably be low).
+/// Revisit this when relations comes out
+///
+/// TODO: optimize for the case where generation == 1, which should be most cases
+impl ToBytes for Entity {
+    fn len(&self) -> usize {
+        varint_len(self.index() as u64) + varint_len(self.generation() as u64)
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_varint(self.index() as u64)?;
+        buffer.write_varint(self.generation() as u64)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let index = buffer.read_varint()?;
+        let generation = buffer.read_varint()?;
+        let bits = generation << 32 | index;
+        Ok(Entity::from_bits(bits))
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct EntityActions {
     pub(crate) spawn: SpawnAction,
     // TODO: maybe do HashMap<NetId, RawData>? for example for ShouldReuseTarget
-    pub(crate) insert: Vec<RawData>,
-    #[bitcode(with_serde)]
-    // TODO: use a ComponentNetId instead of NetId?
-    pub(crate) remove: HashSet<NetId>,
-    pub(crate) updates: Vec<RawData>,
+    pub(crate) insert: Vec<Bytes>,
+    pub(crate) remove: Vec<ComponentNetId>,
+    pub(crate) updates: Vec<Bytes>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
+impl ToBytes for EntityActions {
+    fn len(&self) -> usize {
+        self.spawn.len() + self.insert.len() + self.remove.len() + self.updates.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.spawn.to_bytes(buffer)?;
+        self.insert.to_bytes(buffer)?;
+        self.remove.to_bytes(buffer)?;
+        self.updates.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            spawn: SpawnAction::from_bytes(buffer)?,
+            insert: Vec::from_bytes(buffer)?,
+            remove: Vec::from_bytes(buffer)?,
+            updates: Vec::from_bytes(buffer)?,
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) enum SpawnAction {
     None,
     Spawn,
     Despawn,
     // the u64 is the entity's bits (we cannot use Entity directly because it doesn't implement Encode/Decode)
-    Reuse(u64),
+    Reuse(Entity),
+}
+
+impl ToBytes for SpawnAction {
+    fn len(&self) -> usize {
+        match &self {
+            SpawnAction::None => 1,
+            SpawnAction::Spawn => 1,
+            SpawnAction::Despawn => 1,
+            SpawnAction::Reuse(entity) => 1 + entity.len(),
+        }
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        match &self {
+            SpawnAction::None => buffer.write_u8(0)?,
+            SpawnAction::Spawn => buffer.write_u8(1)?,
+            SpawnAction::Despawn => buffer.write_u8(2)?,
+            SpawnAction::Reuse(entity) => {
+                buffer.write_u8(3)?;
+                entity.to_bytes(buffer)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        match buffer.read_u8()? {
+            0 => Ok(SpawnAction::None),
+            1 => Ok(SpawnAction::Spawn),
+            2 => Ok(SpawnAction::Despawn),
+            3 => Ok(SpawnAction::Reuse(Entity::from_bytes(buffer)?)),
+            _ => Err(SerializationError::InvalidPacketType),
+        }
+    }
 }
 
 impl Default for EntityActions {
@@ -67,44 +150,149 @@ impl Default for EntityActions {
         Self {
             spawn: SpawnAction::None,
             insert: Vec::new(),
-            remove: HashSet::new(),
+            remove: Vec::new(),
             updates: Vec::new(),
         }
     }
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub struct SendEntityActionsMessage {
+    sequence_id: MessageId,
+    group_id: ReplicationGroupId,
+    pub(crate) actions: HashMap<Entity, EntityActions, EntityHash>,
+}
+
+impl ToBytes for SendEntityActionsMessage {
+    fn len(&self) -> usize {
+        self.sequence_id.len() + self.group_id.len() + self.actions.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.sequence_id.to_bytes(buffer)?;
+        self.group_id.to_bytes(buffer)?;
+        self.actions.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError> {
+        Ok(Self {
+            sequence_id: MessageId::from_bytes(buffer)?,
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            actions: HashMap::<Entity, EntityActions, EntityHash>::from_bytes(buffer)?,
+        })
+    }
+}
+
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub struct EntityActionMessage {
+/// All the entity actions (Spawn/despawn/inserts/removals) for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
+#[derive(Clone, PartialEq, Debug)]
+pub struct EntityActionsMessage {
     sequence_id: MessageId,
-    #[bitcode(with_serde)]
+    group_id: ReplicationGroupId,
+    // TODO: for better compression, we should use columnar storage
     // we use vec but the order of entities should not matter
     pub(crate) actions: Vec<(Entity, EntityActions)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub struct EntityUpdatesMessage {
+impl ToBytes for EntityActionsMessage {
+    fn len(&self) -> usize {
+        self.sequence_id.len() + self.group_id.len() + self.actions.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.sequence_id.to_bytes(buffer)?;
+        self.group_id.to_bytes(buffer)?;
+        self.actions.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError> {
+        Ok(Self {
+            sequence_id: MessageId::from_bytes(buffer)?,
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            actions: Vec::<(Entity, EntityActions)>::from_bytes(buffer)?,
+        })
+    }
+}
+
+/// Same as EntityUpdatesMessage, but avoids having to convert a hashmap into a vec
+#[derive(Clone, PartialEq, Debug)]
+pub struct SendEntityUpdatesMessage {
+    pub(crate) group_id: ReplicationGroupId,
     /// The last tick for which we sent an EntityActionsMessage for this group
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
     /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
     last_action_tick: Option<Tick>,
-    #[bitcode(with_serde)]
-    pub(crate) updates: Vec<(Entity, Vec<RawData>)>,
+    /// Updates containing the full component data
+    pub(crate) updates: HashMap<Entity, Vec<Bytes>, EntityHash>,
+    // /// Updates containing diffs with a previous value
+    // #[bitcode(with_serde)]
+    // diff_updates: Vec<(Entity, Vec<RawData>)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub enum ReplicationMessageData {
-    /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
-    Actions(EntityActionMessage),
-    /// All the entity updates for a given group
-    Updates(EntityUpdatesMessage),
+impl ToBytes for SendEntityUpdatesMessage {
+    fn len(&self) -> usize {
+        self.group_id.len() + self.last_action_tick.len() + self.updates.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.group_id.to_bytes(buffer)?;
+        self.last_action_tick.to_bytes(buffer)?;
+        self.updates.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            last_action_tick: Option::<Tick>::from_bytes(buffer)?,
+            updates: HashMap::<Entity, Vec<Bytes>, EntityHash>::from_bytes(buffer)?,
+        })
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Encode, Decode)]
-pub struct ReplicationMessage {
+/// All the component updates for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
+#[derive(Clone, PartialEq, Debug)]
+pub struct EntityUpdatesMessage {
     pub(crate) group_id: ReplicationGroupId,
-    pub(crate) data: ReplicationMessageData,
+    /// The last tick for which we sent an EntityActionsMessage for this group
+    /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
+    /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
+    last_action_tick: Option<Tick>,
+    /// Updates containing the full component data
+    pub(crate) updates: Vec<(Entity, Vec<Bytes>)>,
+    // /// Updates containing diffs with a previous value
+    // #[bitcode(with_serde)]
+    // diff_updates: Vec<(Entity, Vec<RawData>)>,
+}
+
+impl ToBytes for EntityUpdatesMessage {
+    fn len(&self) -> usize {
+        self.group_id.len() + self.last_action_tick.len() + self.updates.len()
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        self.group_id.to_bytes(buffer)?;
+        self.last_action_tick.to_bytes(buffer)?;
+        self.updates.to_bytes(buffer)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            group_id: ReplicationGroupId::from_bytes(buffer)?,
+            last_action_tick: Option::<Tick>::from_bytes(buffer)?,
+            updates: Vec::<(Entity, Vec<Bytes>)>::from_bytes(buffer)?,
+        })
+    }
 }
 
 /// Trait for a service that participates in replication.
@@ -140,64 +328,12 @@ pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
 ///
 /// The trait is made public because it is needed in the macros
 pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
-    fn writer(&mut self) -> &mut BitcodeWriter;
+    type Error: std::error::Error;
+    fn writer(&mut self) -> &mut Writer;
 
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
     fn new_connected_clients(&self) -> Vec<ClientId>;
-
-    fn prepare_entity_despawn(
-        &mut self,
-        entity: Entity,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()>;
-
-    #[allow(clippy::too_many_arguments)]
-    fn prepare_component_insert(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
-        component_registry: &ComponentRegistry,
-        replication_target: &ReplicationTarget,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()>;
-
-    fn prepare_component_remove(
-        &mut self,
-        entity: Entity,
-        component_kind: ComponentNetId,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-    ) -> Result<()>;
-
-    #[allow(clippy::too_many_arguments)]
-    fn prepare_component_update(
-        &mut self,
-        entity: Entity,
-        kind: ComponentNetId,
-        component: RawData,
-        group: &ReplicationGroup,
-        target: NetworkTarget,
-        // bevy_tick when the component changes
-        component_change_tick: BevyTick,
-        // bevy_tick for the current system run
-        system_current_tick: BevyTick,
-    ) -> Result<()>;
-
-    /// Any operation that needs to happen before we can send the replication messages
-    /// (for example collecting the individual single component updates into a single message,
-    ///
-    /// Similarly, we want to collect all ComponentInsert and ComponentRemove into a single message.
-    /// Why? Because if we create separate message for each ComponentInsert (for example when the entity gets spawned)
-    /// Then those 2 component inserts might be stored in different packets, and arrive at different times because of jitter
-    ///
-    /// But the receiving systems might expect both components to be present at the same time.
-    fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
-
-    fn get_mut_replicate_cache(&mut self) -> &mut EntityHashMap<ReplicateCache>;
 
     /// Do some regular cleanup on the internals of replication
     /// - account for tick wrapping by resetting some internal ticks for each replication group

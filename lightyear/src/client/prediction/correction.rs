@@ -9,7 +9,7 @@
 use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
 use tracing::debug;
 
-use crate::client::components::{LerpFn, SyncComponent, SyncMetadata};
+use crate::client::components::{LerpFn, SyncComponent};
 use crate::client::easings::ease_out_quad;
 use crate::prelude::{ComponentRegistry, Tick, TickManager};
 
@@ -60,7 +60,6 @@ pub struct InterpolatedCorrector;
 // }
 
 #[derive(Component, Debug)]
-#[component(storage = "SparseSet")]
 pub struct Correction<C: Component> {
     /// This is what the original predicted value was before any correction was applied
     pub original_prediction: C,

@@ -7,8 +7,10 @@ use leafwing_input_manager::prelude::ActionState;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
+use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
+use lightyear::shared::plugin::Identity;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;
@@ -101,16 +103,12 @@ pub(crate) fn shared_player_movement(
 ) {
     const PLAYER_MOVE_SPEED: f32 = 10.0;
     // warn!(?action, "action state");
-    let Some(cursor_data) = action.action_data(&PlayerActions::MoveCursor) else {
+    let Some(cursor_data) = action.dual_axis_data(&PlayerActions::MoveCursor) else {
         return;
     };
-    let mouse_position = cursor_data
-        .axis_pair
-        .map(|axis| axis.xy())
-        .unwrap_or_default();
     // warn!(?mouse_position);
     let angle =
-        Vec2::new(0.0, 1.0).angle_between(mouse_position - transform.translation.truncate());
+        Vec2::new(0.0, 1.0).angle_between(cursor_data.pair - transform.translation.truncate());
     // careful to only activate change detection if there was an actual change
     if (angle - transform.rotation.to_euler(EulerRot::XYZ).2).abs() > EPS {
         transform.rotation = Quat::from_rotation_z(angle);
@@ -142,6 +140,7 @@ fn player_movement(
     >,
 ) {
     for (transform, action_state, player_id) in player_query.iter_mut() {
+        // info!(tick = ?tick_manager.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
         shared_player_movement(transform, action_state);
         // info!(tick = ?tick_manager.tick(), ?transform, actions = ?action_state.get_pressed(), "applying movement to predicted player");
     }
@@ -234,18 +233,12 @@ pub(crate) fn shoot_bullet(
 ) {
     let tick = tick_manager.tick();
     const BALL_MOVE_SPEED: f32 = 10.0;
-    for (id, transform, color, mut action) in query.iter_mut() {
-        // NOTE: cannot use FixedUpdate + JustPressed in case we have a frame with no FixedUpdate, then the JustPressed would be lost
-        // NOTE: cannot use Update + JustPressed, because in case we have a frame with no FixedUpdate, the action-diff would be sent for
-        //  a different diff than the one where the action was executed. (but maybe we can account for that)
+    for (id, transform, color, action) in query.iter_mut() {
         // NOTE: cannot spawn the bullet during FixedUpdate because then during rollback we spawn a new bullet! For now just set the system to
         //  run when not in rollback
-        // TODO:  if we were running this in FixedUpdate, we would need to `consume` the action. (in case there are several fixed-update steps
-        //  ine one frame). We also cannot use JustPressed, because we could have a frame with no FixedUpdate.
-        // NOTE: pressed lets you shoot many bullets, which can be cool
-        if action.pressed(&PlayerActions::Shoot) {
-            action.consume(&PlayerActions::Shoot);
 
+        // NOTE: pressed lets you shoot many bullets, which can be cool
+        if action.just_pressed(&PlayerActions::Shoot) {
             error!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
 
             for delta in &[-0.2, 0.2] {
@@ -267,8 +260,7 @@ pub(crate) fn shoot_bullet(
                         //  unless you set the hash manually before PostUpdate to a value of your choice
                         PreSpawnedPlayerObject::default(),
                         Replicate {
-                            target: ReplicationTarget {
-                                replication: NetworkTarget::All,
+                            sync: SyncTarget {
                                 // the bullet is predicted for the client who shot it
                                 prediction: NetworkTarget::Single(id.0),
                                 // the bullet is interpolated for other clients

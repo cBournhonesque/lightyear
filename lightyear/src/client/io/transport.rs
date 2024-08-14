@@ -1,6 +1,6 @@
 use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::transport::dummy::DummyIo;
-use crate::transport::error::Result;
+use crate::transport::error::Error as TransportError;
 use crate::transport::io::IoState;
 use crate::transport::local::{LocalChannel, LocalChannelBuilder};
 #[cfg(not(target_family = "wasm"))]
@@ -22,12 +22,15 @@ pub(crate) trait ClientTransportBuilder: Send + Sync {
     /// Attempt to connect to the remote
     fn connect(
         self,
-    ) -> Result<(
-        ClientTransportEnum,
-        IoState,
-        Option<ClientIoEventReceiver>,
-        Option<ClientNetworkEventSender>,
-    )>;
+    ) -> Result<
+        (
+            ClientTransportEnum,
+            IoState,
+            Option<ClientIoEventReceiver>,
+            Option<ClientNetworkEventSender>,
+        ),
+        TransportError,
+    >;
 }
 
 #[enum_dispatch(ClientTransportBuilder)]

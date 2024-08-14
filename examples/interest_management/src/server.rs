@@ -31,8 +31,8 @@ impl Plugin for ExampleServerPlugin {
             (
                 handle_connections,
                 // we don't have to run interest management every tick, only every time
-                // the server is ready to send packets
-                interest_management.in_set(MainSet::Send),
+                // we are buffering replication messages
+                interest_management.in_set(ReplicationSet::SendMessages),
                 receive_message,
             ),
         );
@@ -70,7 +70,7 @@ pub(crate) fn init(mut commands: Commands) {
                 CircleMarker,
                 Replicate {
                     // use rooms for replication
-                    visibility: VisibilityMode::InterestManagement,
+                    relevance_mode: NetworkRelevanceMode::InterestManagement,
                     ..default()
                 },
             ));
@@ -105,7 +105,7 @@ pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>)
 /// Here we perform more "immediate" interest management: we will make a circle visible to a client
 /// depending on the distance to the client's entity
 pub(crate) fn interest_management(
-    mut visibility_manager: ResMut<VisibilityManager>,
+    mut relevance_manager: ResMut<RelevanceManager>,
     player_query: Query<
         (&PlayerId, Ref<Position>),
         (Without<CircleMarker>, With<ReplicationTarget>),
@@ -118,9 +118,9 @@ pub(crate) fn interest_management(
             for (circle_entity, circle_position) in circle_query.iter() {
                 let distance = position.distance(**circle_position);
                 if distance < INTEREST_RADIUS {
-                    visibility_manager.gain_visibility(client_id.0, circle_entity);
+                    relevance_manager.gain_relevance(client_id.0, circle_entity);
                 } else {
-                    visibility_manager.lose_visibility(client_id.0, circle_entity);
+                    relevance_manager.lose_relevance(client_id.0, circle_entity);
                 }
             }
         }

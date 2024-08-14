@@ -3,7 +3,6 @@ use crate::client::sync::SyncConfig;
 use crate::prelude::client::{InterpolationConfig, PredictionConfig};
 use crate::prelude::{SharedConfig, TickConfig};
 use crate::tests::multi_stepper::MultiBevyStepper;
-use crate::tests::stepper::Step;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
@@ -29,15 +28,14 @@ fn test_multi_transport() {
     // since the clients are synced, the ClientMetadata entities should be replicated already
     // let client_metadata_1 = stepper
     //     .client_app_1
-    //     .world
-    //     .query::<&ClientMetadata>()
-    //     .get_single(&stepper.client_app_1.world);
+    //     .world()    //     .query::<&ClientMetadata>()
+    //     .get_single(&stepper.client_app_1.world_mut());
     // dbg!(client_metadata_1);
 
     // // spawn an entity on the server
     // stepper
     //     .server_app
-    //     .world
+    //     .world_mut()
     //     .spawn((Component1(1.0), Replicate::default()));
     // stepper.frame_step();
     // stepper.frame_step();

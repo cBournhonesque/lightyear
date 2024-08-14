@@ -1,18 +1,20 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
-
-use crate::client::input::InputManager;
-use crate::prelude::client::{InputSystemSet, SyncConfig};
-use crate::prelude::server::InputEvent;
+use crate::client::input::native::InputSystemSet;
+use crate::prelude::client::{InputManager, SyncConfig};
+use crate::prelude::server::{InputEvent, Replicate};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
-use crate::tests::stepper::{BevyStepper, Step};
+use crate::tests::stepper::BevyStepper;
+use bevy::prelude::*;
+use bevy::utils::Duration;
 
 fn press_input(mut input_manager: ResMut<InputManager<MyInput>>, tick_manager: Res<TickManager>) {
     input_manager.add_input(MyInput(0), tick_manager.tick());
 }
-fn increment(mut query: Query<&mut Component1>, mut ev: EventReader<InputEvent<MyInput>>) {
+fn increment(
+    mut query: Query<&mut ComponentSyncModeFull>,
+    mut ev: EventReader<InputEvent<MyInput>>,
+) {
     for _ in ev.read() {
         for mut c in query.iter_mut() {
             c.0 += 1.0;
@@ -24,38 +26,20 @@ fn increment(mut query: Query<&mut Component1>, mut ev: EventReader<InputEvent<M
 /// is on a new tick generation
 #[test]
 fn test_sync_after_tick_wrap() {
-    let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
     let tick_duration = Duration::from_millis(10);
-    let shared_config = SharedConfig {
-        tick: TickConfig::new(tick_duration),
-        ..Default::default()
-    };
-    let link_conditioner = LinkConditionerConfig {
-        incoming_latency: Duration::from_millis(20),
-        incoming_jitter: Duration::from_millis(0),
-        incoming_loss: 0.0,
-    };
-    let mut stepper = BevyStepper::new(
-        shared_config,
-        SyncConfig::default(),
-        client::PredictionConfig::default(),
-        client::InterpolationConfig::default(),
-        link_conditioner,
-        frame_duration,
-    );
-    stepper.init();
+    let mut stepper = BevyStepper::default();
 
     // set time to end of wrapping
     let new_tick = Tick(u16::MAX - 100);
     let new_time = WrappedTime::from_duration(tick_duration * (new_tick.0 as u32));
     stepper
         .server_app
-        .world
+        .world_mut()
         .resource_mut::<TimeManager>()
         .set_current_time(new_time);
     stepper
         .server_app
-        .world
+        .world_mut()
         .resource_mut::<TickManager>()
         .set_tick_to(new_tick);
 
@@ -67,8 +51,8 @@ fn test_sync_after_tick_wrap() {
 
     let server_entity = stepper
         .server_app
-        .world
-        .spawn((Component1(0.0), Replicate::default()))
+        .world_mut()
+        .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
         .id();
 
     // advance 200 ticks to wrap ticks around u16::MAX
@@ -79,9 +63,9 @@ fn test_sync_after_tick_wrap() {
     dbg!(&stepper.client_tick());
     stepper
         .server_app
-        .world
+        .world_mut()
         .entity_mut(server_entity)
-        .insert(Component1(1.0));
+        .insert(ComponentSyncModeFull(1.0));
 
     // make sure the client receives the replication message
     for i in 0..5 {
@@ -90,7 +74,7 @@ fn test_sync_after_tick_wrap() {
 
     let client_entity = *stepper
         .client_app
-        .world
+        .world()
         .resource::<client::ConnectionManager>()
         .replication_receiver
         .remote_entity_map
@@ -99,10 +83,10 @@ fn test_sync_after_tick_wrap() {
     assert_eq!(
         stepper
             .client_app
-            .world
-            .get::<Component1>(client_entity)
+            .world()
+            .get::<ComponentSyncModeFull>(client_entity)
             .unwrap(),
-        &Component1(1.0)
+        &ComponentSyncModeFull(1.0)
     );
 }
 
@@ -110,38 +94,20 @@ fn test_sync_after_tick_wrap() {
 /// is u16::MAX ticks ahead
 #[test]
 fn test_sync_after_tick_half_wrap() {
-    let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
     let tick_duration = Duration::from_millis(10);
-    let shared_config = SharedConfig {
-        tick: TickConfig::new(tick_duration),
-        ..Default::default()
-    };
-    let link_conditioner = LinkConditionerConfig {
-        incoming_latency: Duration::from_millis(20),
-        incoming_jitter: Duration::from_millis(0),
-        incoming_loss: 0.0,
-    };
-    let mut stepper = BevyStepper::new(
-        shared_config,
-        SyncConfig::default(),
-        client::PredictionConfig::default(),
-        client::InterpolationConfig::default(),
-        link_conditioner,
-        frame_duration,
-    );
-    stepper.init();
+    let mut stepper = BevyStepper::default();
 
     // set time to end of wrapping
     let new_tick = Tick(u16::MAX / 2 - 10);
     let new_time = WrappedTime::from_duration(tick_duration * (new_tick.0 as u32));
     stepper
         .server_app
-        .world
+        .world_mut()
         .resource_mut::<TimeManager>()
         .set_current_time(new_time);
     stepper
         .server_app
-        .world
+        .world_mut()
         .resource_mut::<TickManager>()
         .set_tick_to(new_tick);
 
@@ -152,8 +118,8 @@ fn test_sync_after_tick_half_wrap() {
 
     let server_entity = stepper
         .server_app
-        .world
-        .spawn((Component1(0.0), Replicate::default()))
+        .world_mut()
+        .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
         .id();
 
     for i in 0..200 {
@@ -161,15 +127,15 @@ fn test_sync_after_tick_half_wrap() {
     }
     stepper
         .server_app
-        .world
+        .world_mut()
         .entity_mut(server_entity)
-        .insert(Component1(1.0));
+        .insert(ComponentSyncModeFull(1.0));
     // dbg!(&stepper.server_tick());
     // dbg!(&stepper.client_tick());
     let server_value = stepper
         .server_app
-        .world
-        .get::<Component1>(server_entity)
+        .world()
+        .get::<ComponentSyncModeFull>(server_entity)
         .unwrap();
 
     // make sure the client receives the replication message
@@ -179,7 +145,7 @@ fn test_sync_after_tick_half_wrap() {
 
     let client_entity = *stepper
         .client_app
-        .world
+        .world()
         .resource::<client::ConnectionManager>()
         .replication_receiver
         .remote_entity_map
@@ -188,9 +154,9 @@ fn test_sync_after_tick_half_wrap() {
     assert_eq!(
         stepper
             .client_app
-            .world
-            .get::<Component1>(client_entity)
+            .world()
+            .get::<ComponentSyncModeFull>(client_entity)
             .unwrap(),
-        &Component1(1.0)
+        &ComponentSyncModeFull(1.0)
     );
 }

@@ -5,7 +5,6 @@ pub(crate) mod transport;
 
 use crate::transport::error::{Error, Result};
 use crate::transport::io::{BaseIo, IoState};
-use async_channel::Receiver;
 use bevy::prelude::{Deref, DerefMut};
 use crossbeam_channel::Sender;
 use std::net::SocketAddr;
@@ -23,7 +22,7 @@ impl Io {
         self.state = IoState::Disconnected;
         if let Some(event_sender) = self.context.event_sender.as_mut() {
             event_sender
-                .send_blocking(ServerIoEvent::ServerDisconnected(
+                .try_send(ServerIoEvent::ServerDisconnected(
                     std::io::Error::other("server requested disconnection").into(),
                 ))
                 .map_err(Error::from)?;

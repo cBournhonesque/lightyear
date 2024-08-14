@@ -3,3 +3,6 @@
 pub mod builder;
 pub(crate) mod receivers;
 pub(crate) mod senders;
+
+#[cfg(feature = "trace")]
+pub mod stats;

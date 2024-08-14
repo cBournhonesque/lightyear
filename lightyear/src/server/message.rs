@@ -1,46 +1,15 @@
 use std::ops::DerefMut;
 
-use anyhow::Context;
-use bevy::app::{App, PreUpdate};
-use bevy::prelude::{EventWriter, IntoSystemConfigs, Res, ResMut, Resource};
-use bevy::utils::HashMap;
-use bytes::Bytes;
-use tracing::{error, info_span, trace};
-
-use bitcode::__private::Fixed;
-use bitcode::{Decode, Encode};
-
-use crate::packet::message::SingleData;
-use crate::prelude::{MainSet, Message};
+use crate::prelude::{server::is_started, Message};
 use crate::protocol::message::{MessageKind, MessageRegistry};
-use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
+use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::MessageEvent;
-use crate::server::networking::is_started;
-use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::network_target::NetworkTarget;
-use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 use crate::shared::sets::{InternalMainSet, ServerMarker};
-
-#[derive(Encode, Decode, Clone, Debug)]
-pub enum ServerMessage {
-    #[bitcode_hint(frequency = 2)]
-    // #[bitcode(with_serde)]
-    Message(RawData),
-    #[bitcode_hint(frequency = 3)]
-    // #[bitcode(with_serde)]
-    Replication(ReplicationMessage),
-    // the reason why we include sync here instead of doing another MessageManager is so that
-    // the sync messages can be added to packets that have other messages
-    #[bitcode_hint(frequency = 1)]
-    Ping(Ping),
-    #[bitcode_hint(frequency = 1)]
-    Pong(Pong),
-}
+use bevy::app::{App, PreUpdate};
+use bevy::prelude::{EventWriter, IntoSystemConfigs, Res, ResMut};
+use tracing::{error, trace};
 
 /// Read the messages received from the clients and emit the MessageEvent event
 fn read_message<M: Message>(
@@ -61,7 +30,7 @@ fn read_message<M: Message>(
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
-                let mut reader = connection.reader_pool.start_read(&message_bytes);
+                let mut reader = Reader::from(message_bytes);
                 match message_registry.deserialize::<M>(
                     &mut reader,
                     &mut connection
@@ -72,15 +41,11 @@ fn read_message<M: Message>(
                     Ok(message) => {
                         // rebroadcast
                         if target != NetworkTarget::None {
-                            if let Ok(message_bytes) =
-                                message_registry.serialize(&message, &mut connection_manager.writer)
-                            {
-                                connection.messages_to_rebroadcast.push((
-                                    message_bytes,
-                                    target,
-                                    channel_kind,
-                                ));
-                            }
+                            connection.messages_to_rebroadcast.push((
+                                reader.consume(),
+                                target,
+                                channel_kind,
+                            ));
                         }
                         event.send(MessageEvent::new(message, *client_id));
                         trace!("Received message: {:?}", std::any::type_name::<M>());
@@ -93,14 +58,13 @@ fn read_message<M: Message>(
                         );
                     }
                 }
-                connection.reader_pool.attach(reader);
             }
         }
     }
 }
 
-/// Register a message that can be sent from server to client
-pub(crate) fn add_client_to_server_message<M: Message>(app: &mut App) {
+/// Register a message that can be sent from client to server
+pub(crate) fn add_server_receive_message_from_client<M: Message>(app: &mut App) {
     app.add_event::<MessageEvent<M>>();
     app.add_systems(
         PreUpdate,
@@ -110,19 +74,6 @@ pub(crate) fn add_client_to_server_message<M: Message>(app: &mut App) {
     );
 }
 
-impl BitSerializable for ServerMessage {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
-        writer.encode(self, Fixed).context("could not encode")
-    }
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
-        reader.decode::<Self>(Fixed).context("could not decode")
-    }
-}
-
-//
 // impl ServerMessage {
 //     pub(crate) fn emit_send_logs(&self, channel_name: &str) {
 //         match self {
@@ -226,3 +177,61 @@ impl BitSerializable for ServerMessage {
 
 // TODO: another option is to add ClientMessage and ServerMessage to ProtocolMessage
 // then we can keep the shared logic in connection.mod. We just lose 1 bit everytime...
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::NetworkTarget;
+    use crate::tests::host_server_stepper::HostServerStepper;
+    use crate::tests::protocol::{Channel1, StringMessage};
+    use bevy::app::Update;
+    use bevy::prelude::{EventReader, ResMut, Resource};
+
+    #[derive(Resource, Default)]
+    struct Counter(usize);
+
+    /// System to check that we received the message on the server
+    fn count_messages(
+        mut counter: ResMut<Counter>,
+        mut events: EventReader<crate::client::events::MessageEvent<StringMessage>>,
+    ) {
+        for event in events.read() {
+            assert_eq!(event.message().0, "a".to_string());
+            counter.0 += 1;
+        }
+    }
+
+    /// In host-server mode, the server is sending a message to the local client
+    #[test]
+    fn server_send_message_to_local_client() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::ERROR)
+            .init();
+        let mut stepper = HostServerStepper::default();
+
+        stepper.server_app.init_resource::<Counter>();
+        stepper.client_app.init_resource::<Counter>();
+        stepper.server_app.add_systems(Update, count_messages);
+        stepper.client_app.add_systems(Update, count_messages);
+
+        // send a message from the host-server server to all clients
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<crate::prelude::server::ConnectionManager>()
+            .send_message_to_target::<Channel1, StringMessage>(
+                &mut StringMessage("a".to_string()),
+                NetworkTarget::All,
+            )
+            .unwrap();
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // verify that the local-client received the message
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+
+        // verify that the other client received the message
+        assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
+    }
+}

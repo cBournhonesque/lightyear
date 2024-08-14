@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
 use bytes::Bytes;
 use tracing::trace;
 
-use crate::packet::message::{FragmentData, MessageId, SingleData};
+use crate::packet::message::{FragmentData, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
+use crate::prelude::Tick;
 use crate::shared::time_manager::WrappedTime;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
+#[derive(Debug)]
 pub struct FragmentReceiver {
     fragment_messages: HashMap<MessageId, FragmentConstructor>,
 }
@@ -32,32 +33,34 @@ impl FragmentReceiver {
         })
     }
 
+    /// Receive a fragment of a FragmentData message.
+    ///
+    /// When we complete the final message by aggregating all fragments, we will return the
+    /// `remote_sent_tick` associated with the first fragment received.
     pub fn receive_fragment(
         &mut self,
         fragment: FragmentData,
+        remote_sent_tick: Tick,
         current_time: Option<WrappedTime>,
-    ) -> Result<Option<SingleData>> {
+    ) -> Option<(Tick, Bytes)> {
         let fragment_message = self
             .fragment_messages
             .entry(fragment.message_id)
-            .or_insert_with(|| FragmentConstructor::new(fragment.num_fragments as usize));
+            .or_insert_with(|| {
+                FragmentConstructor::new(remote_sent_tick, fragment.num_fragments as usize)
+            });
 
         // completed the fragmented message!
         if let Some(payload) = fragment_message.receive_fragment(
             fragment.fragment_id as usize,
             fragment.bytes.as_ref(),
             current_time,
-        )? {
+        ) {
             self.fragment_messages.remove(&fragment.message_id);
-            // TODO: code smell
-            //  we don't need the priority on the receiver side, just set 1.0 for now
-            let mut data = SingleData::new(Some(fragment.message_id), payload, 1.0);
-            // TODO: verify that all fragments had the same tick
-            data.tick = fragment.tick;
-            return Ok(Some(data));
+            return Some(payload);
         }
 
-        Ok(None)
+        None
     }
 }
 
@@ -70,16 +73,18 @@ pub struct FragmentConstructor {
     // bytes: Bytes,
     bytes: Vec<u8>,
 
+    tick: Tick,
     last_received: Option<WrappedTime>,
 }
 
 impl FragmentConstructor {
-    pub fn new(num_fragments: usize) -> Self {
+    pub fn new(tick: Tick, num_fragments: usize) -> Self {
         Self {
             num_fragments,
             num_received_fragments: 0,
             received: vec![false; num_fragments],
             bytes: vec![0; num_fragments * FRAGMENT_SIZE],
+            tick,
             last_received: None,
         }
     }
@@ -89,10 +94,11 @@ impl FragmentConstructor {
         fragment_index: usize,
         bytes: &[u8],
         received_time: Option<WrappedTime>,
-    ) -> Result<Option<Bytes>> {
+    ) -> Option<(Tick, Bytes)> {
         self.last_received = received_time;
 
         let is_last_fragment = fragment_index == self.num_fragments - 1;
+
         // TODO: check sizes?
 
         if !self.received[fragment_index] {
@@ -112,10 +118,10 @@ impl FragmentConstructor {
         if self.num_received_fragments == self.num_fragments {
             trace!("Received all fragments!");
             let payload = std::mem::take(&mut self.bytes);
-            return Ok(Some(payload.into()));
+            return Some((self.tick, payload.into()));
         }
 
-        Ok(None)
+        None
     }
 }
 
@@ -126,23 +132,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_receiver() -> Result<()> {
+    fn test_receiver() {
         let mut receiver = FragmentReceiver::new();
         let num_bytes = (FRAGMENT_SIZE as f32 * 1.5) as usize;
         let message_bytes = Bytes::from(vec![1u8; num_bytes]);
-        let fragments =
-            FragmentSender::new().build_fragments(MessageId(0), None, message_bytes.clone(), 0.0);
+        let fragments = FragmentSender::new()
+            .build_fragments(MessageId(0), None, message_bytes.clone())
+            .unwrap();
 
-        assert_eq!(receiver.receive_fragment(fragments[0].clone(), None)?, None);
         assert_eq!(
-            receiver.receive_fragment(fragments[1].clone(), None)?,
-            Some(SingleData {
-                id: Some(MessageId(0)),
-                tick: None,
-                bytes: message_bytes.clone(),
-                priority: 1.0
-            })
+            receiver.receive_fragment(fragments[0].clone(), Tick(0), None),
+            None
         );
-        Ok(())
+        assert_eq!(
+            receiver.receive_fragment(fragments[1].clone(), Tick(1), None),
+            Some((Tick(0), message_bytes.clone()))
+        );
     }
 }

@@ -1,16 +1,10 @@
 //! Handles logic related to prespawning entities
 
-use std::any::TypeId;
-use std::hash::{BuildHasher, Hash, Hasher};
-
+use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, TickManager};
 use bevy::ecs::component::Components;
 use bevy::prelude::*;
 
-use crate::prelude::{
-    ComponentRegistry, ParentSync, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
-};
-use crate::protocol::component::ComponentKind;
-use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::shared::replication::prespawn::compute_default_hash;
 
 /// Compute the hash of the spawned entity by hashing the NetId of all its components along with the tick at which it was created
 /// 1. Client spawns an entity and adds the PreSpawnedPlayerObject component
@@ -22,68 +16,36 @@ pub(crate) fn compute_hash(
     // (entity-mut conflicts with resources)
     mut set: ParamSet<(
         Query<EntityMut, Added<PreSpawnedPlayerObject>>,
-        Res<ComponentRegistry>,
+        // TODO: avoid this
+        ResMut<ComponentRegistry>,
         Res<TickManager>,
     )>,
     components: &Components,
 ) {
     let tick = set.p2().tick();
-    let net_id_map = set.p1().kind_map.kind_map.clone();
+    let component_registry = std::mem::take(&mut *set.p1());
 
     // get the list of entities that need to have a new hash computed, along with the hash
     for mut entity_mut in set.p0().iter_mut() {
         let entity = entity_mut.id();
         // the hash has already been computed by the user
-        if entity_mut
-            .get::<PreSpawnedPlayerObject>()
-            .unwrap()
-            .hash
-            .is_some()
-        {
+        let prespawn = entity_mut.get::<PreSpawnedPlayerObject>().unwrap();
+        if prespawn.hash.is_some() {
             trace!("Hash for pre-spawned player object was already computed!");
             continue;
         }
-        // let mut hasher = bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
-        let mut hasher = seahash::SeaHasher::new();
-        // let mut hasher = xxhash_rust::xxh3::Xxh3Builder::new()
-        //     .with_seed(1)
-        //     .build_hasher();
-        // TODO: the default hasher doesn't seem to be deterministic across processes
-        // let mut hasher = bevy::utils::AHasher::default();
-
-        // TODO: figure out how to hash the spawn tick
-        tick.hash(&mut hasher);
-
-        // NOTE: we cannot call hash() multiple times because the components in the archetype
-        //  might get iterated in any order!
-        //  Instead we will get the sorted list of types to hash first, sorted by net_id
-        let mut kinds_to_hash = entity_mut
-            .archetype()
-            .components()
-            .filter_map(|component_id| {
-                if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
-                    // ignore some book-keeping components
-                    if type_id != TypeId::of::<Replicate>()
-                        && type_id != TypeId::of::<PreSpawnedPlayerObject>()
-                        && type_id != TypeId::of::<ShouldBePredicted>()
-                        && type_id != TypeId::of::<DespawnTracker>()
-                        && type_id != TypeId::of::<ParentSync>()
-                    {
-                        return net_id_map.get(&ComponentKind::from(type_id)).copied();
-                    }
-                }
-                None
-            })
-            .collect::<Vec<_>>();
-        kinds_to_hash.sort();
-        kinds_to_hash.into_iter().for_each(|kind| {
-            trace!(?kind, "using kind for hash");
-            kind.hash(&mut hasher)
-        });
-
-        let hash = hasher.finish();
+        let hash = compute_default_hash(
+            &component_registry,
+            components,
+            entity_mut.archetype(),
+            tick,
+            prespawn.user_salt,
+        );
         debug!(?entity, ?tick, ?hash, "computed spawn hash for entity");
         let mut prespawn = entity_mut.get_mut::<PreSpawnedPlayerObject>().unwrap();
         prespawn.hash = Some(hash);
     }
+
+    // put the resources back
+    *set.p1() = component_registry;
 }

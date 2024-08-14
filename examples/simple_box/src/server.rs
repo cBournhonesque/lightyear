@@ -12,6 +12,7 @@ use bevy::utils::HashMap;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationTarget;
+use std::sync::Arc;
 
 use crate::protocol::*;
 use crate::shared;
@@ -59,13 +60,13 @@ pub(crate) fn handle_connections(
         let client_id = connection.client_id;
         // server and client are running in the same app, no need to replicate to the local client
         let replicate = Replicate {
-            target: ReplicationTarget {
+            sync: SyncTarget {
                 prediction: NetworkTarget::Single(client_id),
                 interpolation: NetworkTarget::AllExceptSingle(client_id),
-                ..default()
             },
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(client_id),
+                ..default()
             },
             ..default()
         };
@@ -94,8 +95,8 @@ pub(crate) fn handle_disconnections(
         debug!("Client {:?} disconnected", disconnection.client_id);
         if let Ok(client_entity) = manager.client_entity(disconnection.client_id) {
             if let Ok(controlled_entities) = client_query.get(client_entity) {
-                for entity in controlled_entities.iter() {
-                    commands.entity(*entity).despawn();
+                for entity in controlled_entities.entities() {
+                    commands.entity(entity).despawn();
                 }
             }
         }
@@ -138,7 +139,7 @@ pub(crate) fn send_message(
         let message = Message1(5);
         info!("Send message: {:?}", message);
         server
-            .send_message_to_target::<Channel1, Message1>(&Message1(5), NetworkTarget::All)
+            .send_message_to_target::<Channel1, Message1>(&mut Message1(5), NetworkTarget::All)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });

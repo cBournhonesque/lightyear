@@ -1,3 +1,157 @@
+# Entity mapping
+
+- SOLUTION 0: the entity receiver always keeps the mapping.
+  - we always try to apply the mapping from remote->local on receive side
+  - we always try to apply the mapping from local->remote on send side.
+  - C1 spawns E1, sends to S, S spawns E0. S replicated to C2 who spawns E2
+    C1 sends a message about E1, entity gets mapped to E0.
+    S rebroadcasts to C1, mapping from E0 to E1.
+    S rebroadcasts to C2, no mapping. The receiver maps E0 to E2.
+  - We know there are no conflicts because only the receiver has the mapping!
+    - i.e. we cannot be in a situation where C maps to the remote and sends it to S, and S receives it,
+      tries to map it from remote to local, but fails because it was already mapped!
+      
+
+- SOLUTION 1: the client always keeps the mapping
+  - if S spawns and sends the client, client has the mapping. When client sends a message about the entity, it 
+    converts it using the mapping. If client receives a message about the entity, it convers it using the mapping.
+  - if C spawns the entity, it sends it to S. S spawns an entity, sends a message back to C containing the mapping.
+    From this point on C has the mapping.
+  - CONS:
+    - additional bandwidth
+    - there's a period of time where no mapping is available
+    - is it compatible with simulator vs replication-server
+
+- SOLUTION 2: the receiver always keeps the mapping
+  - C1 spawns E1, sends it to S which spawns E2. 
+    - S adds E2<>E1 to its mapping
+    - when S sends a component or message to C1; if the entity contains Replicated that means we are the receiver,
+      so we apply entity mapping? i.e. the message contains E2, but is converted to E1 at sending time.
+      Or if the entity is in the local-map we apply the mapping? i.e. we always try to refer to entities in the local World,
+    - when C1 sends a message related to E1, we know we are the sender (because Replicated is missing, so we don't apply entity mapping. The receiver will apply mapping)
+  - S spawns E0, sends it to C1 which spawns E1, sends it to C2 which spawns E2
+    - C1 adds E1<>E0 in its mapping, etc.
+    - when S sends a message, it knows it is not Replicated so its not the sender so it doesn't apply any mapping.
+    - when C sends a message about E1, it knows it is the receiver, etc.
+  - On Authority Transfer we need to remove `Replicated` also, and maybe update the entity mappings.
+  - CONS:
+    - the mappers are more complicated
+    - what happens on authority transfer where the receiver becomes the sender?
+
+- SOLUTION 3: replication-server
+  - when we spawn an entity to replicate. We ask the replication-server to spawn it, it spawns it (whether we are client 
+    or server), we receive it and can update our mapping. Each client/simulator is the receiver and can always do mapping
+  - we could also do this approach right now. Spawning an entity means that the 
+  - CONS:
+    - need a way to handle pre-spawned entities.
+    - need to implement replication-server
+  
+
+
+# Authority Transfer
+
+- Introduce a ReplicationServer and a Simulator?
+  - the ReplicationServer handles:
+    - forwarding messages between the clients (same as the current server)
+    - holds the state of the world
+    - maintains an entity mapping 
+  - the simulator is basically the same as a normal client. Just no input handling, prediction, interpolation.
+  - basically ReplicationServer = server, and we can just add the concept of 'simulators' which are like clients. The difference is that the ReplicationServer should not run any simulation systems,
+    it just replicates to all clients/simulators.
+  - clients AND simulator would have the current server replication components:
+    - ReplicationTarget that specifies other clients and simulators
+    - SyncTarget to specify who should predict/interpolate? ideally the clients should decide for themselves
+    - NetworkRelevanceMode: visibility of who receives the entity
+    - ControlledBy: connects/disconnects are sent to every client?
+    - ReplicationGroup: ok
+    - Hierarchy: ok
+
+- What would P2P look like?
+  - the ReplicationServer is also the client! Either in different Worlds (to keep visibility, etc.),
+    or in the same World
+  - the Simulator can also be merged with the client World? i.e. a client can be both a Simulator and a Client.
+
+- ReplicationServer (server) contains the full entity mapping
+  - client 1 spawns E1, sends it to the RS which spawns E1*. RS replicates it to other clients/simulators.
+
+```rust
+enum AuthorityOwner {
+    Server,
+    Client(ClientId),
+    // the entity becomes orphaned and are not simulated
+    None,
+}
+```
+- commands.transfer_authority(entity, AuthorityOwner):
+  - remove Replicate on the entity
+  - send a message to the new owner to add the Replicate component
+
+
+- Replication serialization:
+  - to improve performance, we want to:
+    - entities that don't have SerializationGroup are considered part of SerializationGroup for the PLACEHOLDER entity (this should be ok since the PLACEHOLDER is never instantiated)
+    - we need to manually split the Updates messages for the PLACEHOLDER group into multiple packets if they are too big
+    - we include Option<ReplicationGroup> and use only 1 byte for the placeholder, or we could set it as a Channel, so that we use one 1 byte total! (channel ids use 1 byte up to 64 channels)
+    - we can only set priority on replication groups, still
+    - if an entity has a priority, then they need to use a replication group? i.e we recreate a replication group for them?
+    - to write the ActualMessage:
+      - serialize the message_id
+
+
+- Serialization strategy:
+  - SEND:
+    - we need to send individual messages early (because we don't want to clone the data, and we want to serialize only once even when sending to multiple clients), so we allocate a buffer for each message and serialize the data inside.
+       - maybe use an arena allocator at this stage so that all new messages are allocated quickly
+         (we only need them up to the end of the frame)
+       - this buffer then gets stored in the channels
+       - maybe it would gain to be a bytes for reliable channels (even after sending once), we need to store the message until we receive an ack
+       - Or can we reuse an existing buffer where we put all the messages that we clear after sending?
+    - for replication, we sometimes serialize components individually and buffer them before we can write the final message.
+      - we know the component is still owned by the world and not removed/changed at this point,
+        so we could just store the raw pointer + ComponentNetId at this point and serialize later in one go using the component registry? But the Ptr wouldn't work anymore because we're not querying, no?
+      - we could try to build the final message directly to avoid allocating once the structure to store the individual component data, and once to build the final message
+    - when building the packet to send, we can allocate a big buffer (of size MTU), then
+      iterate through the channels to find the packets that are ready, and pack them into the 
+      final packet. That buffer can just be a Vec<u8> since we are not doing any splitting.
+  - RECEIVE:
+    - we receive the bytes from the io, and we can store them in a big Bytes.
+    - we want to be able to read parts of it (header, channel_id) but then parts of the big Bytes 
+      would be stored in channel receivers. Hopefully using Bytes we can avoid allocating?
+      We can use `Bytes::slice` to create a new Bytes from a subset of the original Bytes!
+      -> DONE!
+    - When reading the replication messages, we can do the same trick where we split the bytes for each component? but then it's a waste because we need to store the length of the bytes. More efficient if we just read directly inline. 
+
+
+- Replication current policy:
+  - send all updates since last ACK tick for that entity.
+- Replication new policy: send all updates since last send
+  - for an entity E, keep track of ACK tick, send tick, and change tick.
+  - if the entity changed (i.e. change_tick > send_tick), send update and set send_tick to change_tick.
+  - Save for entity E that we sent a message at tick T
+  - If message is receives, bump ACK tick to send_tick
+  - Message is considered lost if we didn't receive an ack after 1.5 * RTT. (i.e. we didn't receive an ack after send_tick + 1.5 * RTT)
+    if that's the case, send the send_tick back to ACK_TICK, so that we need to send the message again.
+ 
+
+- needs tests for: 
+  - update at tick 10, send_tick = 10, ack_tick = None,
+  - update at tick 12, send_tick = 12, ack_tick = None,
+  - ack tick 10, send_tick = 12, ack_tick = 10,
+  - lost tick 12, send_tick = 10, ack_tick = 10 (we revert send_tick to ack_tick)
+
+  - update at tick 10, send_tick = 10, ack_tick = None,
+  - update at tick 12, send_tick = 12, ack_tick = None,
+  - lost tick 12, send_tick = 10, ack_tick = None (we revert send_tick to ack_tick)
+  - ack tick 10, send_tick = 10, ack_tick = 10,
+
+  - update at tick 10, send_tick = 10, ack_tick = None
+  - update at tick
+
+
+
+
+  - saves bandwidth because 99% of packets should arrive correctly.
+
 - Add a `Controlled` component to an entity to specify that the player is controlling the entity
   - field (`controlled_by: NetworkTarget`) on the server `Replicate`
   - it means that the `Controlled` component gets replicated to the client who has control of this entity.

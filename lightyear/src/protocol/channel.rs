@@ -1,19 +1,14 @@
 use bevy::app::App;
-use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Resource, TypePath};
-use bevy::reflect::Reflect;
-use serde::Deserialize;
+use bevy::utils::Duration;
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings};
+use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings, PongChannel};
 use crate::channel::builder::{
     ChannelContainer, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
 };
-use crate::prelude::{
-    ChannelDirection, ChannelMode, DefaultUnorderedUnreliableChannel, Message, ReliableSettings,
-    TickBufferChannel,
-};
+use crate::prelude::{ChannelMode, ReliableSettings};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 
 // TODO: derive Reflect once we reach bevy 0.14
@@ -55,7 +50,6 @@ impl From<TypeId> for ChannelKind {
 /// #  app.init_resource::<ChannelRegistry>();
 ///    app.add_channel::<MyChannel>(ChannelSettings {
 ///      mode: ChannelMode::UnorderedUnreliable,
-///      direction: ChannelDirection::Bidirectional,
 ///      ..default()
 ///    });
 /// # }
@@ -72,7 +66,7 @@ pub struct ChannelRegistry {
 }
 
 impl ChannelRegistry {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(input_send_interval: Duration) -> Self {
         let mut registry = Self {
             builder_map: HashMap::new(),
             kind_map: TypeMapper::new(),
@@ -81,37 +75,57 @@ impl ChannelRegistry {
         };
         registry.add_channel::<EntityUpdatesChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliableWithAcks,
-            direction: ChannelDirection::Bidirectional,
+            // we do not send the send_frequency to `replication_interval` here
+            // because we want to make sure that the entity updates for tick T
+            // are sent on tick T, so we will set the `replication_interval`
+            // directly on the replication_sender
+            send_frequency: Duration::default(),
             priority: 1.0,
         });
         registry.add_channel::<EntityActionsChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
-            direction: ChannelDirection::Bidirectional,
+            // we do not send the send_frequency to `replication_interval` here
+            // because we want to make sure that the entity updates for tick T
+            // are sent on tick T, so we will set the `replication_interval`
+            // directly on the replication_sender
+            send_frequency: Duration::default(),
             // we want to send the entity actions as soon as possible
             priority: 10.0,
         });
         registry.add_channel::<PingChannel>(ChannelSettings {
             mode: ChannelMode::SequencedUnreliable,
-            direction: ChannelDirection::Bidirectional,
+            send_frequency: Duration::default(),
             // we always want to include the ping in the packet
-            priority: 1000.0,
+            priority: f32::INFINITY,
+        });
+        registry.add_channel::<PongChannel>(ChannelSettings {
+            mode: ChannelMode::SequencedUnreliable,
+            send_frequency: Duration::default(),
+            // we always want to include the pong in the packet
+            priority: f32::INFINITY,
         });
         registry.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::ClientToServer,
-            priority: 3.0,
-        });
-        registry.add_channel::<DefaultUnorderedUnreliableChannel>(ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
-            priority: 1.0,
-        });
-        registry.add_channel::<TickBufferChannel>(ChannelSettings {
-            mode: ChannelMode::TickBuffered,
-            direction: ChannelDirection::ClientToServer,
-            priority: 1.0,
+            send_frequency: input_send_interval,
+            // we always want to include the inputs in the packet
+            priority: f32::INFINITY,
         });
         registry
+    }
+
+    /// Returns true if the net_id corresponds to a channel that is used for replication
+    pub(crate) fn is_replication_channel(&self, net_id: NetId) -> bool {
+        self.kind_map.kind(net_id).map_or(false, |kind| {
+            *kind == ChannelKind::of::<EntityUpdatesChannel>()
+                || *kind == ChannelKind::of::<EntityActionsChannel>()
+        })
+    }
+
+    /// Returns true if the net_id corresponds to a channel that is used for replicating updates
+    pub(crate) fn is_replication_update_channel(&self, net_id: NetId) -> bool {
+        self.kind_map.kind(net_id).map_or(false, |kind| {
+            *kind == ChannelKind::of::<EntityUpdatesChannel>()
+        })
     }
 
     /// Build all the channels in the registry
@@ -144,7 +158,7 @@ impl ChannelRegistry {
         self.kind_map.kind(channel_id)
     }
 
-    pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&NetId> {
+    pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&ChannelId> {
         self.kind_map.net_id(kind)
     }
 
@@ -170,7 +184,7 @@ pub trait AppChannelExt {
 
 impl AppChannelExt for App {
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) {
-        let mut registry = self.world.resource_mut::<ChannelRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ChannelRegistry>();
         registry.add_channel::<C>(settings);
     }
 }
@@ -180,7 +194,7 @@ mod tests {
     use bevy::prelude::{default, TypePath};
     use lightyear_macros::ChannelInternal;
 
-    use crate::channel::builder::{ChannelDirection, ChannelMode, ChannelSettings};
+    use crate::channel::builder::{ChannelMode, ChannelSettings};
 
     use super::*;
 
@@ -188,7 +202,7 @@ mod tests {
     pub struct MyChannel;
 
     #[test]
-    fn test_channel_registry() -> anyhow::Result<()> {
+    fn test_channel_registry() {
         let mut registry = ChannelRegistry::default();
 
         let settings = ChannelSettings {
@@ -204,6 +218,5 @@ mod tests {
             channel_container.setting.mode,
             ChannelMode::UnorderedUnreliable
         );
-        Ok(())
     }
 }

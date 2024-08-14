@@ -1,19 +1,17 @@
-use bevy::utils::Duration;
-use std::net::{IpAddr, Ipv4Addr};
 use std::{collections::VecDeque, net::SocketAddr};
 
-use anyhow::Context;
 use bevy::prelude::Resource;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 
 use crate::client::io::Io;
-use crate::connection::client::{IoConfig, NetClient};
+use crate::connection::client::{
+    ConnectionError, ConnectionState, DisconnectReason, IoConfig, NetClient,
+};
 use crate::connection::id;
-use crate::prelude::client::NetworkingState;
-use crate::serialize::bitcode::reader::BufferPool;
-use crate::serialize::reader::ReadBuffer;
+use crate::packet::packet_builder::RecvPayload;
 use crate::transport::io::IoState;
-use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
+use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
+use crate::utils::pool::Pool;
 
 use super::{
     bytes::Bytes,
@@ -194,8 +192,8 @@ pub struct NetcodeClient<Ctx = ()> {
     replay_protection: ReplayProtection,
     should_disconnect: bool,
     should_disconnect_state: ClientState,
-    packet_queue: VecDeque<crate::packet::packet::Packet>,
-    buffer_pool: BufferPool,
+    packet_queue: VecDeque<RecvPayload>,
+    buffer_pool: Pool<Vec<u8>>,
     cfg: ClientConfig<Ctx>,
 }
 
@@ -230,7 +228,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             should_disconnect: false,
             should_disconnect_state: ClientState::Disconnected,
             packet_queue: VecDeque::new(),
-            buffer_pool: BufferPool::default(),
+            buffer_pool: Pool::new(10, || vec![0u8; MAX_PKT_BUF_SIZE]),
             cfg,
         })
     }
@@ -361,8 +359,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             &self.token.client_to_server_key,
             self.token.protocol_id,
         )?;
-        io.send(&buf[..size], &self.server_addr())
-            .map_err(Error::from)?;
+        io.send(&buf[..size], &self.server_addr())?;
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -378,9 +375,13 @@ impl<Ctx> NetcodeClient<Ctx> {
         }
         match (packet, self.state) {
             (
-                Packet::Denied(_),
+                Packet::Denied(pkt),
                 ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse,
             ) => {
+                error!(
+                    "client connection denied by server. Reason: {:?}",
+                    pkt.reason
+                );
                 self.should_disconnect = true;
                 self.should_disconnect_state = ClientState::ConnectionDenied;
             }
@@ -401,21 +402,26 @@ impl<Ctx> NetcodeClient<Ctx> {
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
                 trace!("client received payload packet from server");
-                // TODO: we decode the data immediately so we don't need to keep the buffer around!
-                //  we could just
-                // instead of allocating a new buffer, fetch one from the pool
-                trace!("read from netcode client pre");
-                let mut reader = self.buffer_pool.start_read(pkt.buf);
-                let packet = crate::packet::packet::Packet::decode(&mut reader)
-                    .map_err(|_| super::packet::Error::InvalidPayload)?;
-                trace!(
-                    "read from netcode client post; pool len: {}",
-                    self.buffer_pool.0.len()
-                );
-                // return the buffer to the pool
-                self.buffer_pool.attach(reader);
+                // // TODO: we decode the data immediately so we don't need to keep the buffer around!
+                // //  we could just
+                // // instead of allocating a new buffer, fetch one from the pool
+                // trace!("read from netcode client pre");
+                // let mut reader = self.buffer_pool.start_read(pkt.buf);
+                // let packet = crate::packet::packet::Packet::decode(&mut reader)
+                //     .map_err(|_| super::packet::Error::InvalidPayload)?;
+                // trace!(
+                //     "read from netcode client post; pool len: {}",
+                //     self.buffer_pool.0.len()
+                // );
+                // // return the buffer to the pool
+                // self.buffer_pool.attach(reader);
+
+                // let buf = self.buffer_pool.pull(|| vec![0u8; pkt.buf.len()]);
+                // TODO: COPY THE PAYLOAD INTO A BUFFER FROM THE POOL! and we allocate buffers to the pool
+                //  outside of the hotpath? we could have a static pool of buffers?
+                let buf = bytes::Bytes::copy_from_slice(pkt.buf);
                 // TODO: control the size/memory of the packet queue?
-                self.packet_queue.push_back(packet);
+                self.packet_queue.push_back(buf);
             }
             (Packet::Disconnect(_), ClientState::Connected) => {
                 debug!("client received disconnect packet from server");
@@ -501,7 +507,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
         // number of seconds since unix epoch
         let now = utils::now();
-        while let Some((buf, addr)) = io.recv().map_err(Error::from)? {
+        while let Some((buf, addr)) = io.recv()? {
             self.recv_packet(buf, now, addr)?;
         }
         Ok(())
@@ -528,7 +534,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// Updates the client.
     ///
     /// * Updates the client's elapsed time.
-    /// [* Receives packets from the server, any received payload packets will be queued.]
+    /// * Receives packets from the server, any received payload packets will be queued.
     /// * Sends keep-alive or request/response packets to the server to establish/maintain a connection.
     /// * Updates the client's state - checks for timeouts, errors and transitions to new states.
     ///
@@ -586,7 +592,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     ///     thread::sleep(tick_rate);
     /// }
     /// ```
-    pub fn recv(&mut self) -> Option<crate::packet::packet::Packet> {
+    pub fn recv(&mut self) -> Option<RecvPayload> {
         self.packet_queue.pop_front()
     }
 
@@ -644,80 +650,84 @@ impl<Ctx> NetcodeClient<Ctx> {
     }
 }
 
-/// Client that can establish a connection to the Server
-#[derive(Resource)]
-pub struct Client<Ctx> {
-    pub client: NetcodeClient<Ctx>,
-    pub io_config: IoConfig,
-    pub io: Option<Io>,
-}
+pub(crate) mod connection {
+    use super::*;
+    use core::result::Result;
 
-impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
-    fn connect(&mut self) -> anyhow::Result<()> {
-        let io_config = self.io_config.clone();
-        let io = io_config.connect().context("could not connect io")?;
-        self.io = Some(io);
-        self.client.connect();
-        Ok(())
+    /// Client that can establish a connection to the Server
+    #[derive(Resource)]
+    pub struct Client<Ctx> {
+        pub client: NetcodeClient<Ctx>,
+        pub io_config: IoConfig,
+        pub io: Option<Io>,
     }
 
-    fn disconnect(&mut self) -> anyhow::Result<()> {
-        if let Some(io) = self.io.as_mut() {
-            self.client
-                .disconnect(io)
-                .context("Error when disconnecting from server")?;
-            // close and drop the io
-            io.close().context("Could not close the io")?;
-            std::mem::take(&mut self.io);
-        } else {
-            self.client.reset(ClientState::Disconnected);
+    impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
+        fn connect(&mut self) -> Result<(), ConnectionError> {
+            let io_config = self.io_config.clone();
+            let io = io_config.connect()?;
+            self.io = Some(io);
+            self.client.connect();
+            Ok(())
         }
-        Ok(())
-    }
 
-    fn state(&self) -> NetworkingState {
-        match self.client.state() {
-            ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse => {
-                NetworkingState::Connecting
+        fn disconnect(&mut self) -> Result<(), ConnectionError> {
+            if let Some(io) = self.io.as_mut() {
+                // TODO: add context to errors?
+                self.client.disconnect(io)?;
+                // close and drop the io
+                io.close()?;
+                std::mem::take(&mut self.io);
+            } else {
+                self.client.reset(ClientState::Disconnected);
             }
-            ClientState::Connected => NetworkingState::Connected,
-            _ => NetworkingState::Disconnected,
+            Ok(())
         }
-    }
 
-    fn try_update(&mut self, delta_ms: f64) -> anyhow::Result<()> {
-        let io = self
-            .io
-            .as_mut()
-            .context("io is not initialized, did you call connect?")?;
-        self.client
-            .try_update(delta_ms, io)
-            .inspect_err(|e| error!("error updating netcode client: {:?}", e))
-            .context("could not update client")
-    }
+        fn state(&self) -> ConnectionState {
+            match self.client.state() {
+                ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse => {
+                    ConnectionState::Connecting
+                }
+                ClientState::Connected => ConnectionState::Connected,
+                _ => ConnectionState::Disconnected {
+                    reason: Some(DisconnectReason::Netcode(self.client.state)),
+                },
+            }
+        }
 
-    fn recv(&mut self) -> Option<crate::packet::packet::Packet> {
-        self.client.recv()
-    }
+        fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
+            let io = self.io.as_mut().ok_or(ConnectionError::IoNotInitialized)?;
+            self.client
+                .try_update(delta_ms, io)
+                .inspect_err(|e| error!("error updating netcode client: {:?}", e))?;
+            Ok(())
+        }
 
-    fn send(&mut self, buf: &[u8]) -> anyhow::Result<()> {
-        let io = self.io.as_mut().context("io is not initialized")?;
-        self.client.send(buf, io).context("could not send")
-    }
+        fn recv(&mut self) -> Option<RecvPayload> {
+            self.client.recv()
+        }
 
-    fn id(&self) -> id::ClientId {
-        id::ClientId::Netcode(self.client.id())
-    }
+        fn send(&mut self, buf: &[u8]) -> Result<(), ConnectionError> {
+            let io = self.io.as_mut().ok_or(ConnectionError::IoNotInitialized)?;
+            self.client.send(buf, io)?;
+            Ok(())
+        }
 
-    fn local_addr(&self) -> SocketAddr {
-        self.io.as_ref().map_or(LOCAL_SOCKET, |io| io.local_addr())
-    }
+        fn id(&self) -> id::ClientId {
+            id::ClientId::Netcode(self.client.id())
+        }
 
-    fn io(&self) -> Option<&Io> {
-        self.io.as_ref()
-    }
+        fn local_addr(&self) -> SocketAddr {
+            self.io.as_ref().map_or(LOCAL_SOCKET, |io| io.local_addr())
+        }
 
-    fn io_mut(&mut self) -> Option<&mut Io> {
-        self.io.as_mut()
+        fn io(&self) -> Option<&Io> {
+            self.io.as_ref()
+        }
+
+        fn io_mut(&mut self) -> Option<&mut Io> {
+            self.io.as_mut()
+        }
     }
 }

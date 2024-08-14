@@ -1,9 +1,8 @@
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Vec2;
 use bevy::prelude::*;
-use derive_more::{Add, Mul};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::Actionlike;
@@ -12,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use lightyear::client::components::ComponentSyncMode;
+use lightyear::prelude::server::{ControlledBy, Replicate, SyncTarget};
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::VisibilityMode;
+use lightyear::shared::replication::components::NetworkRelevanceMode;
 use UserAction;
 
 use crate::shared::color_from_id;
@@ -26,23 +26,22 @@ pub(crate) struct PlayerBundle {
     color: PlayerColor,
     replicate: Replicate,
     action_state: ActionState<Inputs>,
-    action_state_override_target: OverrideTargetComponent<ActionState<Inputs>>,
 }
 
 impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
         let color = color_from_id(id);
         let replicate = Replicate {
-            target: ReplicationTarget {
+            sync: SyncTarget {
                 prediction: NetworkTarget::Single(id),
                 interpolation: NetworkTarget::AllExceptSingle(id),
-                ..default()
             },
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(id),
+                ..default()
             },
-            // use rooms for replication
-            visibility: VisibilityMode::InterestManagement,
+            // use network relevance for replication
+            relevance_mode: NetworkRelevanceMode::InterestManagement,
             ..default()
         };
         Self {
@@ -51,12 +50,6 @@ impl PlayerBundle {
             color: PlayerColor(color),
             replicate,
             action_state: ActionState::default(),
-            // We don't want to replicate the ActionState to the original client, since they are updating it with
-            // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-            // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-            action_state_override_target: OverrideTargetComponent::new(
-                NetworkTarget::AllExceptSingle(id),
-            ),
         }
     }
     pub(crate) fn get_input_map() -> InputMap<Inputs> {
@@ -80,8 +73,16 @@ impl PlayerBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct Position(pub(crate) Vec2);
+
+impl Add for Position {
+    type Output = Position;
+    #[inline]
+    fn add(self, rhs: Position) -> Position {
+        Position(self.0.add(rhs.0))
+    }
+}
 
 impl Mul<f32> for &Position {
     type Output = Position;
@@ -126,7 +127,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(LeafwingInputPlugin::<Inputs>::default());
         // components

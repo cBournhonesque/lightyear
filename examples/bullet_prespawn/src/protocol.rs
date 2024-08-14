@@ -1,9 +1,10 @@
 use bevy::prelude::*;
-use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
+use lightyear::prelude::client::Replicate;
+use lightyear::prelude::server::SyncTarget;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
 use lightyear::utils::bevy::*;
@@ -40,11 +41,6 @@ impl PlayerBundle {
             transform: Transform::from_xyz(position.x, position.y, 0.0),
             color: ColorComponent(color),
             replicate: Replicate {
-                target: ReplicationTarget {
-                    // For HostServer mode, remember to also set prediction/interpolation targets for other clients
-                    interpolation: NetworkTarget::AllExceptSingle(id),
-                    ..default()
-                },
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
                 group: ReplicationGroup::new_id(id.to_bits()),
@@ -107,7 +103,7 @@ pub struct Message1(pub usize);
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect)]
 pub enum PlayerActions {
     Up,
     Down,
@@ -115,6 +111,16 @@ pub enum PlayerActions {
     Right,
     Shoot,
     MoveCursor,
+}
+
+impl Actionlike for PlayerActions {
+    // Record what kind of inputs make sense for each action.
+    fn input_control_kind(&self) -> InputControlKind {
+        match self {
+            Self::MoveCursor => InputControlKind::DualAxis,
+            _ => InputControlKind::Button,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
@@ -129,7 +135,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
+        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());

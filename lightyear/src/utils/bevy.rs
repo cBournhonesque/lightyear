@@ -1,13 +1,9 @@
 //! Implement lightyear traits for some common bevy types
-use std::ops::Mul;
 
-use bevy::ecs::entity::{EntityHashSet, MapEntities};
-use bevy::hierarchy::Parent;
-use bevy::prelude::{Children, Entity, EntityMapper, Transform};
-use tracing::{info, trace};
+use bevy::prelude::{Quat, Transform};
+use tracing::trace;
 
-use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
-use crate::prelude::Message;
+use crate::client::components::LerpFn;
 
 pub struct TransformLinearInterpolation;
 
@@ -29,5 +25,14 @@ impl LerpFn<Transform> for TransformLinearInterpolation {
             res
         );
         res
+    }
+}
+
+/// Perform a spherical linear interpolation between two quaternions
+pub struct QuatSphericalLinearInterpolation;
+
+impl LerpFn<Quat> for QuatSphericalLinearInterpolation {
+    fn lerp(start: &Quat, other: &Quat, t: f32) -> Quat {
+        start.slerp(*other, t)
     }
 }

@@ -3,7 +3,7 @@ use crate::client::io::{Io, IoContext};
 use crate::prelude::CompressionConfig;
 use crate::transport::config::SharedIoConfig;
 use crate::transport::dummy::DummyIo;
-use crate::transport::error::{Error, Result};
+use crate::transport::error::Result;
 use crate::transport::io::{BaseIo, IoStats};
 use crate::transport::local::LocalChannelBuilder;
 #[cfg(feature = "zstd")]
@@ -11,7 +11,7 @@ use crate::transport::middleware::compression::zstd::compression::ZstdCompressor
 #[cfg(feature = "zstd")]
 use crate::transport::middleware::compression::zstd::decompression::ZstdDecompressor;
 use crate::transport::middleware::conditioner::LinkConditioner;
-use crate::transport::middleware::{PacketReceiverWrapper, PacketSenderWrapper};
+use crate::transport::middleware::PacketReceiverWrapper;
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(feature = "websocket")]
@@ -72,7 +72,7 @@ impl ClientTransport {
                 client_addr,
                 server_addr,
                 certificate_digest,
-            } => TransportBuilderEnum::WebTransportClient(WebTransportClientSocketBuilder {
+            } => ClientTransportBuilderEnum::WebTransportClient(WebTransportClientSocketBuilder {
                 client_addr,
                 server_addr,
                 certificate_digest,
@@ -121,9 +121,20 @@ impl SharedIoConfig<ClientTransport> {
             CompressionConfig::None => {}
             #[cfg(feature = "zstd")]
             CompressionConfig::Zstd { level } => {
+                use crate::transport::middleware::PacketSenderWrapper;
                 let compressor = ZstdCompressor::new(level);
                 sender = Box::new(compressor.wrap(sender));
                 let decompressor = ZstdDecompressor::new();
+                receiver = Box::new(decompressor.wrap(receiver));
+            }
+            #[cfg(feature = "lz4")]
+            CompressionConfig::Lz4 => {
+                use crate::transport::middleware::PacketSenderWrapper;
+                let compressor =
+                    crate::transport::middleware::compression::lz4::Compressor::default();
+                sender = Box::new(compressor.wrap(sender));
+                let decompressor =
+                    crate::transport::middleware::compression::lz4::Decompressor::default();
                 receiver = Box::new(decompressor.wrap(receiver));
             }
         }

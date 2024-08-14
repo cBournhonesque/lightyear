@@ -14,15 +14,16 @@
 //! ```
 
 use bevy::app::{App, Plugin, PreUpdate};
-use bevy::prelude::{Component, Event, Events, IntoSystemConfigs};
+use bevy::prelude::{Component, Event, IntoSystemConfigs};
 
 use crate::client::connection::ConnectionManager;
+use crate::connection::client::DisconnectReason;
 use crate::prelude::ClientId;
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
-/// Plugin that handles generating bevy [`Events`] related to networking and replication
+/// Plugin that handles generating bevy [`Events`](Event) related to networking and replication
 #[derive(Default)]
 pub struct ClientEventsPlugin;
 
@@ -66,7 +67,9 @@ impl ConnectEvent {
 
 /// Bevy [`Event`] emitted on the client on the frame where the connection is disconnected
 #[derive(Event, Default)]
-pub struct DisconnectEvent;
+pub struct DisconnectEvent {
+    pub reason: Option<DisconnectReason>,
+}
 
 /// Bevy [`Event`] emitted on the client to indicate the user input for the tick
 pub type InputEvent<I> = crate::shared::events::components::InputEvent<I, ()>;

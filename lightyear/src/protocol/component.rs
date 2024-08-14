@@ -1,56 +1,51 @@
-use anyhow::Context;
-use bevy::app::PreUpdate;
+use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
+use bevy::prelude::{App, Commands, Component, Entity, Mut, Resource, TypePath, World};
+use bevy::ptr::Ptr;
+use bevy::utils::HashMap;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::any::TypeId;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::{Add, Mul};
 
-use bevy::prelude::{
-    App, Component, DetectChangesMut, Entity, EntityMapper, EntityWorldMut, IntoSystemConfigs,
-    Resource, TypePath, World,
-};
-use bevy::reflect::{FromReflect, GetTypeRegistration};
-use bevy::utils::HashMap;
-use cfg_if::cfg_if;
+use tracing::{debug, error, trace};
 
-use bitcode::encoding::Fixed;
-use bitcode::Encode;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace, warn};
-
-use crate::client::components::{ComponentSyncMode, SyncMetadata};
+use crate::client::components::ComponentSyncMode;
 use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
-use crate::client::prediction::plugin::add_prediction_systems;
+use crate::client::prediction::plugin::{
+    add_non_networked_rollback_systems, add_prediction_systems,
+};
 use crate::prelude::client::SyncComponent;
-use crate::prelude::server::{ServerConfig, ServerPlugins};
-use crate::prelude::{
-    client, server, AppMessageExt, ChannelDirection, Message, MessageRegistry,
-    PreSpawnedPlayerObject, RemoteEntityMap, ReplicateResourceMetadata, Tick,
-};
-use crate::protocol::message::{MessageKind, MessageRegistration, MessageType};
+use crate::prelude::server::ServerConfig;
+use crate::prelude::{ChannelDirection, ClientId, Message, Tick};
+use crate::protocol::delta::ErasedDeltaFns;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
-use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn, SerializeFns};
-use crate::protocol::{BitSerializable, EventContext};
-use crate::serialize::bitcode::reader::BitcodeReader;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::serialize::RawData;
-use crate::server::networking::is_started;
-use crate::shared::events::connection::{
-    ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-};
-use crate::shared::replication::components::ShouldBePredicted;
-use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
+use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
+use crate::serialize::reader::Reader;
+use crate::serialize::SerializationError;
+use crate::shared::replication::delta::{DeltaMessage, Diffable};
 use crate::shared::replication::entity_map::EntityMap;
-use crate::shared::replication::systems::register_replicate_component_send;
-use crate::shared::replication::ReplicationSend;
-use crate::shared::sets::InternalMainSet;
 
 pub type ComponentNetId = NetId;
+
+#[derive(thiserror::Error, Debug)]
+pub enum ComponentError {
+    #[error("component is not registered in the protocol")]
+    NotRegistered,
+    #[error("missing replication functions for component")]
+    MissingReplicationFns,
+    #[error("missing serialization functions for component")]
+    MissingSerializationFns,
+    #[error("missing delta compression functions for component")]
+    MissingDeltaFns,
+    #[error("delta compression error: {0}")]
+    DeltaCompressionError(String),
+    #[error("component error: {0}")]
+    SerializationError(#[from] SerializationError),
+}
 
 /// A [`Resource`] that will keep track of all the [`Components`](Component) that can be replicated.
 ///
@@ -80,7 +75,7 @@ pub type ComponentNetId = NetId;
 /// There are some cases where you might want to define additional behaviour for a component.
 ///
 /// #### Entity Mapping
-/// If the component contains [`Entities`](Entity), you need to specify how those entities
+/// If the component contains [`Entities`](bevy::prelude::Entity), you need to specify how those entities
 /// will be mapped from the remote world to the local world.
 ///
 /// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
@@ -141,17 +136,23 @@ pub type ComponentNetId = NetId;
 /// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct ComponentRegistry {
-    replication_map: HashMap<ComponentKind, ReplicationMetadata>,
+    pub(crate) replication_map: HashMap<ComponentKind, ReplicationMetadata>,
     interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
     prediction_map: HashMap<ComponentKind, PredictionMetadata>,
     serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
+    delta_fns_map: HashMap<ComponentKind, ErasedDeltaFns>,
     pub(crate) kind_map: TypeMapper<ComponentKind>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
+    pub component_id: ComponentId,
+    pub delta_compression_id: ComponentId,
+    pub replicate_once_id: ComponentId,
+    pub override_target_id: ComponentId,
+    pub disabled_id: ComponentId,
     pub write: RawWriteFn,
-    pub remove: RawRemoveFn,
+    pub remove: Option<RawRemoveFn>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -166,11 +167,15 @@ pub struct PredictionMetadata {
 
 impl PredictionMetadata {
     fn default_from<C: PartialEq>(mode: ComponentSyncMode) -> Self {
-        let should_rollback: RollbackCheckFn<C> = <C as PartialEq>::ne;
+        let should_rollback: ShouldRollbackFn<C> = <C as PartialEq>::ne;
         Self {
             prediction_mode: mode,
             correction: None,
-            should_rollback: unsafe { std::mem::transmute(should_rollback) },
+            should_rollback: unsafe {
+                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
+                    should_rollback,
+                )
+            },
         }
     }
 }
@@ -181,23 +186,25 @@ pub struct InterpolationMetadata {
     pub interpolation: Option<unsafe fn()>,
 }
 
-type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
+type RawRemoveFn = fn(&ComponentRegistry, &mut Commands, Entity);
 type RawWriteFn = fn(
     &ComponentRegistry,
-    &mut BitcodeReader,
+    &mut Reader,
     ComponentNetId,
-    &mut EntityWorldMut,
+    Tick,
+    &mut Commands,
+    Entity,
     &mut EntityMap,
-    &mut ConnectionEvents,
-) -> anyhow::Result<()>;
+    Option<ClientId>,
+) -> Result<(), ComponentError>;
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
 pub type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
 
-/// Function used to check if a rollback is needed, by comparing the server's value with the client's predicted value.
-/// Defaults to PartialEq::eq
-type RollbackCheckFn<C> = fn(this: &C, that: &C) -> bool;
+/// Function that returns true if a rollback is needed, by comparing the server's value with the client's predicted value.
+/// Defaults to PartialEq::ne
+type ShouldRollbackFn<C> = fn(this: &C, that: &C) -> bool;
 
 pub trait Linear {
     fn lerp(start: &Self, other: &Self, t: f32) -> Self;
@@ -214,310 +221,651 @@ where
 }
 
 impl ComponentRegistry {
-    pub fn net_id<C: Component>(&self) -> ComponentNetId {
+    pub fn net_id<C: 'static>(&self) -> ComponentNetId {
         self.kind_map
             .net_id(&ComponentKind::of::<C>())
             .copied()
             .unwrap_or_else(|| panic!("Component {} is not registered", std::any::type_name::<C>()))
     }
-    pub fn get_net_id<C: Component>(&self) -> Option<ComponentNetId> {
+    pub fn get_net_id<C: 'static>(&self) -> Option<ComponentNetId> {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
     }
 
-    pub fn is_registered<C: Component>(&self) -> bool {
+    /// Return the name of the component from the [`ComponentKind`]
+    pub fn name(&self, kind: ComponentKind) -> &'static str {
+        self.serialize_fns_map.get(&kind).unwrap().type_name
+    }
+
+    pub fn is_registered<C: 'static>(&self) -> bool {
         self.kind_map.net_id(&ComponentKind::of::<C>()).is_some()
     }
 
     /// Check that the protocol is correct:
     /// - emits warnings for every component that has prediction/interpolation metadata but wasn't registered
     pub fn check(&self) {
-        let mut errors = false;
         for component_kind in self.prediction_map.keys() {
             if !self.serialize_fns_map.contains_key(component_kind) {
-                errors = true;
-                error!("A component has prediction metadata but wasn't registered");
+                panic!(
+                    "A component has prediction metadata but wasn't registered for serialization"
+                );
             }
         }
-        for component_kind in self.interpolation_map.keys() {
+        for (component_kind, interpolation_data) in &self.interpolation_map {
             if !self.serialize_fns_map.contains_key(component_kind) {
-                errors = true;
-                error!("A component has interpolation metadata but wasn't registered");
+                panic!("A component has interpolation metadata but wasn't registered for serialization");
+            } else if interpolation_data.interpolation_mode == ComponentSyncMode::Full
+                && interpolation_data.interpolation.is_none()
+            {
+                let name = self
+                    .serialize_fns_map
+                    .get(component_kind)
+                    .unwrap()
+                    .type_name;
+                panic!("The Component {name:?} was registered for interpolation with ComponentSyncMode::FULL but no interpolation function was provided!");
             }
-        }
-        if errors {
-            panic!("Detected some errors in the ComponentRegistry");
         }
     }
 
-    pub(crate) fn register_component<C: Component + Message + PartialEq>(&mut self) {
+    pub(crate) fn register_component<C: Message + Serialize + DeserializeOwned>(&mut self) {
         let component_kind = self.kind_map.add::<C>();
         self.serialize_fns_map
             .insert(component_kind, ErasedSerializeFns::new::<C>());
-        let write: RawWriteFn = Self::write::<C>;
-        let remove: RawRemoveFn = Self::remove::<C>;
-        self.replication_map
-            .insert(component_kind, ReplicationMetadata { write, remove });
     }
 
-    pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
-        let kind = ComponentKind::of::<C>();
-        if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
+    pub(crate) fn register_component_custom_serde<C: Message>(
+        &mut self,
+        serialize_fns: SerializeFns<C>,
+    ) {
+        let component_kind = self.kind_map.add::<C>();
+        self.serialize_fns_map.insert(
+            component_kind,
+            ErasedSerializeFns::new_custom_serde::<C>(serialize_fns),
+        );
+    }
+}
+
+mod serialize {
+    use super::*;
+    use crate::serialize::reader::Reader;
+    use crate::serialize::writer::Writer;
+    use crate::serialize::ToBytes;
+
+    impl ComponentRegistry {
+        pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
+            let kind = ComponentKind::of::<C>();
+            if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
+                erased_fns.add_map_entities::<C>();
+            }
+        }
+
+        pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
+            let kind = ComponentKind::of::<C>();
+            let erased_fns = self.serialize_fns_map.get_mut(&kind).unwrap_or_else(|| {
+                panic!(
+                    "Component {} is not part of the protocol",
+                    std::any::type_name::<C>()
+                )
+            });
             erased_fns.add_map_entities::<C>();
         }
-    }
 
-    pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
-        let kind = ComponentKind::of::<C>();
-        let erased_fns = self.serialize_fns_map.get_mut(&kind).unwrap_or_else(|| {
-            panic!(
-                "Component {} is not part of the protocol",
-                std::any::type_name::<C>()
-            )
-        });
-        erased_fns.add_map_entities::<C>();
-    }
+        pub(crate) fn serialize<C: 'static>(
+            &self,
+            component: &mut C,
+            writer: &mut Writer,
+            entity_map: Option<&mut EntityMap>,
+        ) -> Result<(), ComponentError> {
+            let kind = ComponentKind::of::<C>();
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .ok_or(ComponentError::MissingSerializationFns)?;
+            let net_id = self.kind_map.net_id(&kind).unwrap();
 
-    pub(crate) fn set_prediction_mode<C: SyncComponent>(&mut self, mode: ComponentSyncMode) {
-        let kind = ComponentKind::of::<C>();
-        let default_equality_fn = <C as PartialEq>::eq;
-        self.prediction_map
-            .entry(kind)
-            .or_insert_with(|| PredictionMetadata::default_from::<C>(mode));
-    }
-
-    pub(crate) fn set_rollback_check<C: Component + PartialEq>(
-        &mut self,
-        rollback_check: RollbackCheckFn<C>,
-    ) {
-        let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .entry(kind)
-            .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
-            .should_rollback = unsafe { std::mem::transmute(rollback_check) };
-    }
-
-    pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
-        self.set_correction(<C as Linear>::lerp);
-    }
-
-    pub(crate) fn set_correction<C: Component + PartialEq>(&mut self, correction_fn: LerpFn<C>) {
-        let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .entry(kind)
-            .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
-            .correction = Some(unsafe { std::mem::transmute(correction_fn) });
-    }
-
-    pub(crate) fn set_interpolation_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
-        let kind = ComponentKind::of::<C>();
-        self.interpolation_map
-            .entry(kind)
-            .or_insert_with(|| InterpolationMetadata {
-                interpolation_mode: mode,
-                interpolation: None,
-            });
-    }
-
-    pub(crate) fn set_linear_interpolation<C: Component + Linear>(&mut self) {
-        self.set_interpolation(<C as Linear>::lerp);
-    }
-
-    pub(crate) fn set_interpolation<C: Component>(&mut self, interpolation_fn: LerpFn<C>) {
-        let kind = ComponentKind::of::<C>();
-        self.interpolation_map
-            .entry(kind)
-            .or_insert_with(|| InterpolationMetadata {
-                interpolation_mode: ComponentSyncMode::Full,
-                interpolation: None,
-            })
-            .interpolation = Some(unsafe { std::mem::transmute(interpolation_fn) });
-    }
-
-    pub(crate) fn serialize<C: Component>(
-        &self,
-        component: &C,
-        writer: &mut BitcodeWriter,
-    ) -> anyhow::Result<RawData> {
-        let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .serialize_fns_map
-            .get(&kind)
-            .context("the component is not part of the protocol")?;
-        let net_id = self.kind_map.net_id(&kind).unwrap();
-        writer.start_write();
-        writer.encode(net_id, Fixed)?;
-        erased_fns.serialize(component, writer)?;
-        Ok(writer.finish_write().to_vec())
-    }
-
-    /// Deserialize only the component value (the ComponentNetId has already been read)
-    fn raw_deserialize<C: Component>(
-        &self,
-        reader: &mut BitcodeReader,
-        net_id: ComponentNetId,
-        entity_map: &mut EntityMap,
-    ) -> anyhow::Result<C> {
-        let kind = self
-            .kind_map
-            .kind(net_id)
-            .context("unknown component kind")?;
-        let erased_fns = self
-            .serialize_fns_map
-            .get(kind)
-            .context("the component is not part of the protocol")?;
-        erased_fns.deserialize(reader, entity_map)
-    }
-
-    pub(crate) fn deserialize<C: Component>(
-        &self,
-        reader: &mut BitcodeReader,
-        entity_map: &mut EntityMap,
-    ) -> anyhow::Result<C> {
-        let net_id = reader.decode::<ComponentNetId>(Fixed)?;
-        self.raw_deserialize(reader, net_id, entity_map)
-    }
-
-    pub(crate) fn map_entities<C: 'static>(&self, component: &mut C, entity_map: &mut EntityMap) {
-        let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .serialize_fns_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .unwrap();
-        erased_fns.map_entities(component, entity_map)
-    }
-
-    pub(crate) fn prediction_mode<C: Component>(&self) -> ComponentSyncMode {
-        let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .map_or(ComponentSyncMode::None, |metadata| metadata.prediction_mode)
-    }
-
-    pub(crate) fn interpolation_mode<C: Component>(&self) -> ComponentSyncMode {
-        let kind = ComponentKind::of::<C>();
-        self.interpolation_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .map_or(ComponentSyncMode::None, |metadata| {
-                metadata.interpolation_mode
-            })
-    }
-
-    pub(crate) fn has_correction<C: Component>(&self) -> bool {
-        let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .map_or(false, |metadata| metadata.correction.is_some())
-    }
-
-    /// Returns true if we should do a rollback
-    pub(crate) fn should_rollback<C: Component>(&self, this: &C, that: &C) -> bool {
-        let kind = ComponentKind::of::<C>();
-        let prediction_metadata = self
-            .prediction_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .unwrap();
-        let rollback_check_fn: RollbackCheckFn<C> =
-            unsafe { std::mem::transmute(prediction_metadata.should_rollback) };
-        rollback_check_fn(this, that)
-    }
-
-    pub(crate) fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
-        let kind = ComponentKind::of::<C>();
-        let prediction_metadata = self
-            .prediction_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .unwrap();
-        let correction_fn: LerpFn<C> =
-            unsafe { std::mem::transmute(prediction_metadata.correction.unwrap()) };
-        correction_fn(predicted, corrected, t)
-    }
-
-    pub(crate) fn interpolate<C: Component>(&self, start: &C, end: &C, t: f32) -> C {
-        let kind = ComponentKind::of::<C>();
-        let interpolation_metadata = self
-            .interpolation_map
-            .get(&kind)
-            .context("the component is not part of the protocol")
-            .unwrap();
-        let interpolation_fn: LerpFn<C> =
-            unsafe { std::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
-        interpolation_fn(start, end, t)
-    }
-
-    /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
-    pub(crate) fn raw_write(
-        &self,
-        reader: &mut BitcodeReader,
-        entity_world_mut: &mut EntityWorldMut,
-        entity_map: &mut EntityMap,
-        events: &mut ConnectionEvents,
-    ) -> anyhow::Result<()> {
-        let net_id = reader.decode::<ComponentNetId>(Fixed)?;
-        let kind = self
-            .kind_map
-            .kind(net_id)
-            .context("unknown component kind")?;
-        let replication_metadata = self
-            .replication_map
-            .get(kind)
-            .context("the component is not part of the protocol")?;
-        (replication_metadata.write)(self, reader, net_id, entity_world_mut, entity_map, events)
-    }
-
-    pub(crate) fn write<C: Component + PartialEq>(
-        &self,
-        reader: &mut BitcodeReader,
-        net_id: ComponentNetId,
-        entity_world_mut: &mut EntityWorldMut,
-        entity_map: &mut EntityMap,
-        events: &mut ConnectionEvents,
-    ) -> anyhow::Result<()> {
-        trace!("Writing component {} to entity", std::any::type_name::<C>());
-        let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
-        let entity = entity_world_mut.id();
-        // TODO: do we need the tick information in the event?
-        let tick = Tick(0);
-        // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
-        if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-            // only apply the update if the component is different, to not trigger change detection
-            if c.as_ref() != &component {
-                events.push_update_component(entity, net_id, tick);
-                *c = component;
+            net_id.to_bytes(writer)?;
+            // SAFETY: the ErasedFns corresponds to type C
+            unsafe {
+                erased_fns.serialize(component, writer, entity_map)?;
             }
-        } else {
-            events.push_insert_component(entity, net_id, tick);
-            entity_world_mut.insert(component);
+            Ok(())
         }
-        Ok(())
-    }
 
-    pub(crate) fn raw_remove(&self, net_id: ComponentNetId, entity_world_mut: &mut EntityWorldMut) {
-        let kind = self.kind_map.kind(net_id).expect("unknown component kind");
-        let replication_metadata = self
-            .replication_map
-            .get(kind)
-            .expect("the component is not part of the protocol");
-        (replication_metadata.remove)(self, entity_world_mut);
-    }
+        /// SAFETY: the Ptr must correspond to the correct ComponentKind
+        pub(crate) fn erased_serialize(
+            &self,
+            component: Ptr,
+            writer: &mut Writer,
+            kind: ComponentKind,
+        ) -> Result<(), ComponentError> {
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .ok_or(ComponentError::MissingSerializationFns)?;
+            let net_id = self.kind_map.net_id(&kind).unwrap();
+            net_id.to_bytes(writer)?;
+            // SAFETY: the ErasedSerializeFns corresponds to type C
+            unsafe {
+                (erased_fns.erased_serialize)(erased_fns, component, writer)?;
+            }
+            Ok(())
+        }
 
-    pub(crate) fn remove<C: Component>(&self, entity_world_mut: &mut EntityWorldMut) {
-        entity_world_mut.remove::<C>();
+        /// Deserialize only the component value (the ComponentNetId has already been read)
+        pub(crate) fn raw_deserialize<C: 'static>(
+            &self,
+            reader: &mut Reader,
+            net_id: ComponentNetId,
+            entity_map: &mut EntityMap,
+        ) -> Result<C, ComponentError> {
+            let kind = self
+                .kind_map
+                .kind(net_id)
+                .ok_or(ComponentError::NotRegistered)?;
+            let erased_fns = self
+                .serialize_fns_map
+                .get(kind)
+                .ok_or(ComponentError::MissingSerializationFns)?;
+            // SAFETY: the ErasedFns corresponds to type C
+            unsafe { erased_fns.deserialize(reader, entity_map) }.map_err(Into::into)
+        }
+
+        pub(crate) fn deserialize<C: Component>(
+            &self,
+            reader: &mut Reader,
+            entity_map: &mut EntityMap,
+        ) -> Result<C, ComponentError> {
+            let net_id = NetId::from_bytes(reader).map_err(SerializationError::from)?;
+            self.raw_deserialize(reader, net_id, entity_map)
+        }
+
+        pub(crate) fn map_entities<C: 'static>(
+            &self,
+            component: &mut C,
+            entity_map: &mut EntityMap,
+        ) -> Result<(), ComponentError> {
+            let kind = ComponentKind::of::<C>();
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .ok_or(ComponentError::MissingSerializationFns)?;
+            erased_fns.map_entities(component, entity_map);
+            Ok(())
+        }
+    }
+}
+
+mod prediction {
+    use super::*;
+
+    impl ComponentRegistry {
+        pub(crate) fn set_prediction_mode<C: SyncComponent>(&mut self, mode: ComponentSyncMode) {
+            let kind = ComponentKind::of::<C>();
+            let default_equality_fn = <C as PartialEq>::eq;
+            self.prediction_map
+                .entry(kind)
+                .or_insert_with(|| PredictionMetadata::default_from::<C>(mode));
+        }
+
+        pub(crate) fn set_should_rollback<C: Component + PartialEq>(
+            &mut self,
+            should_rollback: ShouldRollbackFn<C>,
+        ) {
+            let kind = ComponentKind::of::<C>();
+            self.prediction_map
+                .entry(kind)
+                .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
+                .should_rollback = unsafe {
+                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
+                    should_rollback,
+                )
+            };
+        }
+
+        pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
+            self.set_correction(<C as Linear>::lerp);
+        }
+
+        pub(crate) fn set_correction<C: Component + PartialEq>(
+            &mut self,
+            correction_fn: LerpFn<C>,
+        ) {
+            let kind = ComponentKind::of::<C>();
+            self.prediction_map
+                .entry(kind)
+                .or_insert_with(|| PredictionMetadata::default_from::<C>(ComponentSyncMode::Full))
+                .correction = Some(unsafe {
+                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
+                    correction_fn,
+                )
+            });
+        }
+        pub(crate) fn prediction_mode<C: Component>(&self) -> ComponentSyncMode {
+            let kind = ComponentKind::of::<C>();
+            self.prediction_map
+                .get(&kind)
+                .map_or(ComponentSyncMode::None, |metadata| metadata.prediction_mode)
+        }
+
+        pub(crate) fn has_correction<C: Component>(&self) -> bool {
+            let kind = ComponentKind::of::<C>();
+            self.prediction_map
+                .get(&kind)
+                .map_or(false, |metadata| metadata.correction.is_some())
+        }
+
+        /// Returns true if we should do a rollback
+        pub(crate) fn should_rollback<C: Component>(&self, this: &C, that: &C) -> bool {
+            let kind = ComponentKind::of::<C>();
+            let prediction_metadata = self
+                .prediction_map
+                .get(&kind)
+                .expect("the component is not part of the protocol");
+            let should_rollback_fn: ShouldRollbackFn<C> =
+                unsafe { std::mem::transmute(prediction_metadata.should_rollback) };
+            should_rollback_fn(this, that)
+        }
+
+        pub(crate) fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
+            let kind = ComponentKind::of::<C>();
+            let prediction_metadata = self
+                .prediction_map
+                .get(&kind)
+                .expect("the component is not part of the protocol");
+            let correction_fn: LerpFn<C> =
+                unsafe { std::mem::transmute(prediction_metadata.correction.unwrap()) };
+            correction_fn(predicted, corrected, t)
+        }
+    }
+}
+
+mod interpolation {
+    use super::*;
+
+    impl ComponentRegistry {
+        pub(crate) fn set_interpolation_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
+            let kind = ComponentKind::of::<C>();
+            self.interpolation_map
+                .entry(kind)
+                .or_insert_with(|| InterpolationMetadata {
+                    interpolation_mode: mode,
+                    interpolation: None,
+                });
+        }
+
+        pub(crate) fn set_linear_interpolation<C: Component + Linear>(&mut self) {
+            self.set_interpolation(<C as Linear>::lerp);
+        }
+
+        pub(crate) fn set_interpolation<C: Component>(&mut self, interpolation_fn: LerpFn<C>) {
+            let kind = ComponentKind::of::<C>();
+            self.interpolation_map
+                .entry(kind)
+                .or_insert_with(|| InterpolationMetadata {
+                    interpolation_mode: ComponentSyncMode::Full,
+                    interpolation: None,
+                })
+                .interpolation = Some(unsafe {
+                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
+                    interpolation_fn,
+                )
+            });
+        }
+        pub(crate) fn interpolation_mode<C: Component>(&self) -> ComponentSyncMode {
+            let kind = ComponentKind::of::<C>();
+            self.interpolation_map
+                .get(&kind)
+                .map_or(ComponentSyncMode::None, |metadata| {
+                    metadata.interpolation_mode
+                })
+        }
+        pub(crate) fn interpolate<C: Component>(&self, start: &C, end: &C, t: f32) -> C {
+            let kind = ComponentKind::of::<C>();
+            let interpolation_metadata = self
+                .interpolation_map
+                .get(&kind)
+                .expect("the component is not part of the protocol");
+            let interpolation_fn: LerpFn<C> =
+                unsafe { std::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
+            interpolation_fn(start, end, t)
+        }
+    }
+}
+
+mod replication {
+    use super::*;
+    use crate::prelude::{
+        ClientId, DeltaCompression, DisabledComponent, OverrideTargetComponent,
+        ReplicateOnceComponent,
+    };
+    use crate::serialize::reader::Reader;
+    use crate::serialize::ToBytes;
+    use crate::shared::replication::receive::get_connection_events;
+    use bevy::prelude::{Commands, Entity};
+
+    impl ComponentRegistry {
+        pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self, world: &mut World) {
+            let kind = ComponentKind::of::<C>();
+            let write: RawWriteFn = Self::write::<C>;
+            let remove: RawRemoveFn = Self::remove::<C>;
+            self.replication_map.insert(
+                kind,
+                ReplicationMetadata {
+                    component_id: world.init_component::<C>(),
+                    delta_compression_id: world.init_component::<DeltaCompression<C>>(),
+                    replicate_once_id: world.init_component::<ReplicateOnceComponent<C>>(),
+                    override_target_id: world.init_component::<OverrideTargetComponent<C>>(),
+                    disabled_id: world.init_component::<DisabledComponent<C>>(),
+                    write,
+                    remove: Some(remove),
+                },
+            );
+        }
+
+        /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
+        pub(crate) fn raw_write(
+            &self,
+            reader: &mut Reader,
+            commands: &mut Commands,
+            entity: Entity,
+            tick: Tick,
+            entity_map: &mut EntityMap,
+            remote_id: Option<ClientId>,
+        ) -> Result<(), ComponentError> {
+            let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
+            let kind = self
+                .kind_map
+                .kind(net_id)
+                .ok_or(ComponentError::NotRegistered)?;
+            let replication_metadata = self
+                .replication_map
+                .get(kind)
+                .ok_or(ComponentError::MissingReplicationFns)?;
+            (replication_metadata.write)(
+                self, reader, net_id, tick, commands, entity, entity_map, remote_id,
+            )
+        }
+
+        pub(crate) fn write<C: Component + PartialEq>(
+            &self,
+            reader: &mut Reader,
+            net_id: ComponentNetId,
+            tick: Tick,
+            commands: &mut Commands,
+            entity: Entity,
+            entity_map: &mut EntityMap,
+            remote_id: Option<ClientId>,
+        ) -> Result<(), ComponentError> {
+            trace!("Writing component {} to entity", std::any::type_name::<C>());
+            let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
+
+            commands.add(move |world: &mut World| {
+                let Some(mut entity_world_mut) = world.get_entity_mut(entity) else {
+                    return;
+                };
+                // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
+                if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                    // only apply the update if the component is different, to not trigger change detection
+                    if c.as_ref() != &component {
+                        *c = component;
+                        get_connection_events(world, remote_id)
+                            .push_update_component(entity, net_id, tick);
+                    }
+                } else {
+                    entity_world_mut.insert(component);
+                    get_connection_events(world, remote_id)
+                        .push_insert_component(entity, net_id, tick);
+                }
+            });
+            Ok(())
+        }
+
+        pub(crate) fn raw_remove(
+            &self,
+            net_id: ComponentNetId,
+            commands: &mut Commands,
+            entity: Entity,
+        ) {
+            let kind = self.kind_map.kind(net_id).expect("unknown component kind");
+            let replication_metadata = self
+                .replication_map
+                .get(kind)
+                .expect("the component is not part of the protocol");
+            let f = replication_metadata
+                .remove
+                .expect("the component does not have a remove function");
+            f(self, commands, entity);
+        }
+
+        pub(crate) fn remove<C: Component>(&self, commands: &mut Commands, entity: Entity) {
+            commands.entity(entity).remove::<C>();
+        }
+    }
+}
+
+mod delta {
+    use super::*;
+
+    use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
+
+    use crate::serialize::writer::Writer;
+    use crate::shared::replication::receive::get_connection_events;
+    use std::ptr::NonNull;
+
+    impl ComponentRegistry {
+        /// Register delta compression functions for a component
+        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self)
+        where
+            C::Delta: Serialize + DeserializeOwned,
+        {
+            let kind = ComponentKind::of::<C>();
+            let delta_kind = ComponentKind::of::<DeltaMessage<C::Delta>>();
+            // add the delta as a message
+            self.register_component::<DeltaMessage<C::Delta>>();
+            // add delta-related type-erased functions
+            self.delta_fns_map.insert(kind, ErasedDeltaFns::new::<C>());
+            // add write/remove functions associated with the delta component's net_id
+            // (since the serialized message will contain the delta component's net_id)
+            // update the write function to use the delta compression logic
+            let write: RawWriteFn = Self::write_delta::<C>;
+            self.replication_map.insert(
+                delta_kind,
+                ReplicationMetadata {
+                    // NOTE: we set these to 0 because they are never used for the DeltaMessage component
+                    component_id: ComponentId::new(0),
+                    delta_compression_id: ComponentId::new(0),
+                    replicate_once_id: ComponentId::new(0),
+                    override_target_id: ComponentId::new(0),
+                    disabled_id: ComponentId::new(0),
+                    write,
+                    remove: None,
+                },
+            );
+        }
+
+        /// SAFETY: the Ptr must correspond to the correct ComponentKind
+        pub(crate) unsafe fn erased_clone(
+            &self,
+            data: Ptr,
+            kind: ComponentKind,
+        ) -> Result<NonNull<u8>, ComponentError> {
+            let delta_fns = self
+                .delta_fns_map
+                .get(&kind)
+                .ok_or(ComponentError::MissingDeltaFns)?;
+            Ok((delta_fns.clone)(data))
+        }
+
+        /// SAFETY: the data from the Ptr must correspond to the correct ComponentKind
+        pub(crate) unsafe fn erased_drop(
+            &self,
+            data: NonNull<u8>,
+            kind: ComponentKind,
+        ) -> Result<(), ComponentError> {
+            let delta_fns = self
+                .delta_fns_map
+                .get(&kind)
+                .ok_or(ComponentError::MissingDeltaFns)?;
+            (delta_fns.drop)(data);
+            Ok(())
+        }
+
+        /// SAFETY: The Ptrs must correspond to the correct ComponentKind
+        pub(crate) unsafe fn serialize_diff(
+            &self,
+            start_tick: Tick,
+            start: Ptr,
+            new: Ptr,
+            writer: &mut Writer,
+            // kind for C, not for C::Delta
+            kind: ComponentKind,
+        ) -> Result<(), ComponentError> {
+            let delta_fns = self
+                .delta_fns_map
+                .get(&kind)
+                .ok_or(ComponentError::MissingDeltaFns)?;
+
+            let delta = (delta_fns.diff)(start_tick, start, new);
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
+            // drop the delta message
+            (delta_fns.drop_delta_message)(delta);
+            Ok(())
+        }
+
+        /// SAFETY: The Ptrs must correspond to the correct ComponentKind
+        pub(crate) unsafe fn serialize_diff_from_base_value(
+            &self,
+            component_data: Ptr,
+            writer: &mut Writer,
+            // kind for C, not for C::Delta
+            kind: ComponentKind,
+        ) -> Result<(), ComponentError> {
+            let delta_fns = self
+                .delta_fns_map
+                .get(&kind)
+                .ok_or(ComponentError::MissingDeltaFns)?;
+            let delta = (delta_fns.diff_from_base)(component_data);
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
+            // drop the delta message
+            (delta_fns.drop_delta_message)(delta);
+            Ok(())
+        }
+
+        /// Deserialize the DeltaMessage<C::Delta> and apply it to the component
+        pub(crate) fn write_delta<C: Component + PartialEq + Diffable>(
+            &self,
+            reader: &mut Reader,
+            net_id: ComponentNetId,
+            tick: Tick,
+            commands: &mut Commands,
+            entity: Entity,
+            entity_map: &mut EntityMap,
+            remote_id: Option<ClientId>,
+        ) -> Result<(), ComponentError> {
+            trace!(
+                "Writing component delta {} to entity",
+                std::any::type_name::<C>()
+            );
+            let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
+            let delta =
+                self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
+            // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
+            commands.add(move |world: &mut World| {
+                let Some(mut entity_world_mut) = world.get_entity_mut(entity) else {
+                    return
+                };
+                let mut is_update = false;
+                let mut is_insert = false;
+                match delta.delta_type {
+                    DeltaType::Normal { previous_tick } => {
+                        let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
+                        else {
+                            // TODO: maybe a command that pipes errors somewhere?
+                            error!("Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
+                                        std::any::type_name::<C>());
+                            return;
+                            // return Err(ComponentError::DeltaCompressionError(
+                            //     format!("Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
+                            //             std::any::type_name::<C>())
+                            // ));
+                        };
+                        let Some(past_value) = history.buffer.get(&previous_tick) else {
+                            error!("Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
+                                        std::any::type_name::<C>());
+                            return;
+                            // return Err(ComponentError::DeltaCompressionError(
+                            //     format!("Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
+                            //             std::any::type_name::<C>())
+                            // ));
+                        };
+                        // TODO: is it possible to have one clone instead of 2?
+                        let mut new_value = past_value.clone();
+                        new_value.apply_diff(&delta.delta);
+                        // we can remove all the values strictly older than previous_tick in the component history
+                        // (since we now that server has receive an ack for previous_tick)
+                        history.buffer = history.buffer.split_off(&previous_tick);
+                        // store the new value in the history
+                        history.buffer.insert(tick, new_value.clone());
+                        let Some(mut c) = entity_world_mut.get_mut::<C>() else {
+                            error!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
+                                        std::any::type_name::<C>());
+                            return;
+                            // return Err(ComponentError::DeltaCompressionError(
+                            //     format!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
+                            //             std::any::type_name::<C>())
+                            // ));
+                        };
+                        *c = new_value;
+                        is_update = true;
+                        let events = get_connection_events(world, remote_id);
+                        events.push_update_component(entity, net_id, tick);
+                    }
+                    DeltaType::FromBase => {
+                        let mut new_value = C::base_value();
+                        new_value.apply_diff(&delta.delta);
+                        let value = new_value.clone();
+                        if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                            // only apply the update if the component is different, to not trigger change detection
+                            if c.as_ref() != &new_value {
+                                *c = new_value;
+                                is_update = true;
+                            }
+                        } else {
+                            entity_world_mut.insert(new_value);
+                            is_insert = true;
+                        }
+                        // store the component value in the delta component history, so that we can compute
+                        // diffs from it
+                        if let Some(mut history) =
+                            entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
+                        {
+                            history.buffer.insert(tick, value);
+                        } else {
+                            // create a DeltaComponentHistory and insert the value
+                            let mut history = DeltaComponentHistory::default();
+                            history.buffer.insert(tick, value);
+                            entity_world_mut.insert(history);
+                        }
+                    }
+                }
+                let events = get_connection_events(world, remote_id);
+                if is_update {
+                    events.push_update_component(entity, net_id, tick);
+                } else if is_insert {
+                    events.push_insert_component(entity, net_id, tick);
+                }
+            });
+            Ok(())
+        }
     }
 }
 
 fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirection) {
-    let is_client = app.world.get_resource::<ClientConfig>().is_some();
-    let is_server = app.world.get_resource::<ServerConfig>().is_some();
+    let is_client = app.world().get_resource::<ClientConfig>().is_some();
+    let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
         ChannelDirection::ClientToServer => {
             if is_client {
-                register_replicate_component_send::<C, client::ConnectionManager>(app);
+                crate::client::replication::send::register_replicate_component_send::<C>(app);
             }
             if is_server {
                 debug!(
@@ -529,7 +877,7 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
         }
         ChannelDirection::ServerToClient => {
             if is_server {
-                register_replicate_component_send::<C, server::ConnectionManager>(app);
+                crate::server::replication::send::register_replicate_component_send::<C>(app);
             }
             if is_client {
                 debug!(
@@ -550,10 +898,22 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
 pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
-    fn register_component<C: Component + Message + PartialEq>(
+    fn register_component<C: Component + Message + Serialize + DeserializeOwned + PartialEq>(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C>;
+
+    /// Registers the component in the Registry: this component can now be sent over the network.
+    ///
+    /// You need to provide your own [`SerializeFns`]
+    fn register_component_custom_serde<C: Component + Message + PartialEq>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<C>,
+    ) -> ComponentRegistration<'_, C>;
+
+    /// Enable rollbacks for a component even if the component is not networked
+    fn add_rollback<C: Component + PartialEq + Clone>(&mut self);
 
     /// Enable prediction systems for this component.
     /// You can specify the prediction [`ComponentSyncMode`]
@@ -566,9 +926,10 @@ pub trait AppComponentExt {
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>);
 
     /// Add a custom function to use for checking if a rollback is needed.
-    /// (By default we use the PartialEq::eq function, but you can use this to override the
+    ///
+    /// (By default we use the PartialEq::ne function, but you can use this to override the
     ///  equality check. For example, you might want to add a threshold for floating point numbers)
-    fn add_rollback_check<C: SyncComponent>(&mut self, rollback_check: RollbackCheckFn<C>);
+    fn add_should_rollback_fn<C: SyncComponent>(&mut self, should_rollback: ShouldRollbackFn<C>);
 
     /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
     /// themselves (the interpolation_fn will not be used)
@@ -583,6 +944,11 @@ pub trait AppComponentExt {
 
     /// Add a `Interpolation` behaviour to this component.
     fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>);
+
+    /// Enable delta compression when serializing this component
+    fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self)
+    where
+        C::Delta: Serialize + DeserializeOwned;
 }
 
 pub struct ComponentRegistration<'a, C> {
@@ -597,7 +963,7 @@ impl<C> ComponentRegistration<'_, C> {
     where
         C: MapEntities + 'static,
     {
-        let mut registry = self.app.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
         registry.add_map_entities::<C>();
         self
     }
@@ -631,13 +997,14 @@ impl<C> ComponentRegistration<'_, C> {
     }
 
     /// Add a custom function to use for checking if a rollback is needed.
-    /// (By default we use the PartialEq::eq function, but you can use this to override the
+    ///
+    /// (By default we use the PartialEq::ne function, but you can use this to override the
     ///  equality check. For example, you might want to add a threshold for floating point numbers)
-    pub fn add_rollback_check(self, rollback_check: RollbackCheckFn<C>) -> Self
+    pub fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
     where
         C: SyncComponent,
     {
-        self.app.add_rollback_check::<C>(rollback_check);
+        self.app.add_should_rollback_fn::<C>(should_rollback);
         self
     }
 
@@ -678,18 +1045,31 @@ impl<C> ComponentRegistration<'_, C> {
         self.app.add_interpolation_fn::<C>(interpolation_fn);
         self
     }
+
+    /// Enable delta compression when serializing this component
+    pub fn add_delta_compression(self) -> Self
+    where
+        C: Component + PartialEq + Diffable,
+        C::Delta: Serialize + DeserializeOwned,
+    {
+        self.app.add_delta_compression::<C>();
+        self
+    }
 }
 
 impl AppComponentExt for App {
-    fn register_component<C: Component + Message + PartialEq>(
+    fn register_component<C: Component + Message + PartialEq + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C> {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
-        if !registry.is_registered::<C>() {
-            registry.register_component::<C>();
-        }
-        debug!("register component {}", std::any::type_name::<C>());
+        self.world_mut()
+            .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
+                if !registry.is_registered::<C>() {
+                    registry.register_component::<C>();
+                }
+                registry.set_replication_fns::<C>(world);
+                debug!("register component {}", std::any::type_name::<C>());
+            });
         register_component_send::<C>(self, direction);
         ComponentRegistration {
             app: self,
@@ -697,51 +1077,80 @@ impl AppComponentExt for App {
         }
     }
 
+    fn register_component_custom_serde<C: Component + Message + PartialEq>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<C>,
+    ) -> ComponentRegistration<'_, C> {
+        self.world_mut()
+            .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
+                if !registry.is_registered::<C>() {
+                    registry.register_component_custom_serde::<C>(serialize_fns);
+                }
+                registry.set_replication_fns::<C>(world);
+                debug!("register component {}", std::any::type_name::<C>());
+            });
+        register_component_send::<C>(self, direction);
+        ComponentRegistration {
+            app: self,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    // TODO: move this away from protocol? since it doesn't even use the registry at all
+    //  maybe put this in the PredictionPlugin?
+    fn add_rollback<C: Component + PartialEq + Clone>(&mut self) {
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
+        if is_client {
+            add_non_networked_rollback_systems::<C>(self);
+        }
+    }
+
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_prediction_mode::<C>(prediction_mode);
 
         // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_prediction_systems::<C>(self, prediction_mode);
         }
     }
 
     fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_linear_correction::<C>();
         // TODO: register correction systems only if correction is enabled?
     }
 
     fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_correction::<C>(correction_fn);
     }
 
-    fn add_rollback_check<C: SyncComponent>(&mut self, rollback_check: RollbackCheckFn<C>) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
-        registry.set_rollback_check::<C>(rollback_check);
+    fn add_should_rollback_fn<C: SyncComponent>(&mut self, rollback_check: ShouldRollbackFn<C>) {
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
+        registry.set_should_rollback::<C>(rollback_check);
     }
 
     fn add_custom_interpolation<C: SyncComponent>(
         &mut self,
         interpolation_mode: ComponentSyncMode,
     ) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
         // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_prepare_interpolation_systems::<C>(self, interpolation_mode);
         }
     }
 
     fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
         // TODO: make prediction/interpolation possible on server?
-        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_prepare_interpolation_systems::<C>(self, interpolation_mode);
             if interpolation_mode == ComponentSyncMode::Full {
@@ -752,19 +1161,27 @@ impl AppComponentExt for App {
     }
 
     fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_linear_interpolation::<C>();
     }
 
     fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>) {
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation::<C>(interpolation_fn);
+    }
+
+    fn add_delta_compression<C: Component + PartialEq + Diffable>(&mut self)
+    where
+        C::Delta: Serialize + DeserializeOwned,
+    {
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
+        registry.set_delta_compression::<C>();
     }
 }
 
 /// [`ComponentKind`] is an internal wrapper around the type of the component
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
-pub struct ComponentKind(TypeId);
+pub struct ComponentKind(pub(crate) TypeId);
 
 impl ComponentKind {
     pub fn of<C: 'static>() -> Self {
@@ -777,5 +1194,33 @@ impl TypeKind for ComponentKind {}
 impl From<TypeId> for ComponentKind {
     fn from(type_id: TypeId) -> Self {
         Self(type_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::serialize::writer::Writer;
+    use crate::tests::protocol::*;
+
+    #[test]
+    fn test_custom_serde() {
+        let mut registry = ComponentRegistry::default();
+        registry.register_component_custom_serde::<ComponentSyncModeSimple>(SerializeFns {
+            serialize: serialize_component2,
+            deserialize: deserialize_component2,
+        });
+        let mut component = ComponentSyncModeSimple(1.0);
+        let mut writer = Writer::default();
+        registry
+            .serialize(&mut component, &mut writer, None)
+            .unwrap();
+        let data = writer.to_bytes();
+
+        let mut reader = Reader::from(data);
+        let read = registry
+            .deserialize(&mut reader, &mut EntityMap::default())
+            .unwrap();
+        assert_eq!(component, read);
     }
 }

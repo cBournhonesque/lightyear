@@ -2,14 +2,42 @@
 
 This folder contains various examples that showcase various `lightyear` features.
 
-Each example runs in a similar way.
+
+## Easy
+
+- `simple_setup`: minimal example that just shows how to create the lightyear client and server plugins
+- `simple_box`: example that showcases how to send inputs from client to server, and how to add client-prediction and interpolation
+
+## Medium
+
+- `replication_groups`: example that shows how to replicate entities that refer to other entities
+  (e.g. they have a component containing an `Entity` id). You need to use `ReplicationGroup` to ensure that the
+  those entities are replicated in the same message
+- `interest_management`: example that shows how to use interest management to only replicate a subset of entities
+  to each player, via the `VisibilityManager` and the `RoomManager`
+- `client_replication`: example that shows how to replicate entities from the client to the server. (i.e. the client has authority)
+- `priority`: example that shows how to manage bandwidth by enabling priority accumulation. Messages will be sent in
+  order of their priority.
+
+## Advanced
+
+- `xpbd_physics`: example that shows how to replicate a physics simulation using xpbd.
+  We also use the `leafwing` feature for a better way to manage inputs.
+- `spaceships`: more advanced version of `xpbd_physics` with player movement based on forces, fully server authoritative, predicted bullet spawning. 
+- `bullet_prespawn`: example that shows how to spawn player-objects on the Predicted timeline. This is useful
+  to avoid having to wait a full round-trip before the object is spawned.
+- `auth`: an example that shows how a client can get a `ConnectToken` to connect to a server
+- `lobby`: an example that shows how the network topology can be changed at runtime.
+  Every client can potentially act as a host for the game (instead of the dedicated server).
 
 ## Running an example
+
+Each example runs in a similar way.
 
 There are different 'modes' of operation:
 
 - as a dedicated server with `cargo run -- server`
-- as a listen server with `cargo run -- listen-server`. This will launch 2 independent bevy apps (client and server) in
+- as a listen server with `cargo run -- client-and-server`. This will launch 2 independent bevy apps (client and server) in
   separate threads.
   They will communicate via channels (so with almost 0 latency)
 - as a listen server with `cargo run -- host-server`. This will launch a single bevy app, where the server will also act

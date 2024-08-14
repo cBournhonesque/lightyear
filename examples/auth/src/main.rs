@@ -1,8 +1,8 @@
-//! This example showcases how to use Lightyear with Bevy, to easily get replication along with prediction/interpolation working.
+//! This example showcases how to send a ConnectToken securely from a game server to the client.
 //!
-//! There is a lot of setup code, but it's mostly to have the examples work in all possible configurations of transport.
-//! (all transports are supported, as well as running the example in listen-server or host-server mode)
-//!
+//! Lightyear requires the client to have a ConnectToken to connect to the server. Normally the client
+//! would get it from a backend server (for example via a HTTPS connection to a webserver).
+//! If you don't have a separated backend server, you can use the game server to generate the ConnectToken.
 //!
 //! Run with
 //! - `cargo run -- server`
@@ -15,8 +15,8 @@ use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
-use common::app::Apps;
-use common::settings::Settings;
+use lightyear_examples_common::app::{Apps, Cli};
+use lightyear_examples_common::settings::{read_settings, Settings};
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
@@ -26,15 +26,10 @@ mod server;
 mod shared;
 
 fn main() {
-    let cli = common::app::cli();
+    let cli = Cli::default();
     let settings_str = include_str!("../assets/settings.ron");
-    let settings = common::settings::settings::<MySettings>(settings_str);
-    // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut app = common::app::build_app(settings.common.clone(), cli);
-    // add the lightyear [`ClientPlugins`] and [`ServerPlugins`]
-    app.add_lightyear_plugin_groups();
-    // add out plugins
+    let settings = read_settings::<MySettings>(settings_str);
+    // create user plugins
     let client_plugin = ExampleClientPlugin {
         auth_backend_address: SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::UNSPECIFIED,
@@ -53,9 +48,14 @@ fn main() {
             settings.netcode_auth_port,
         )),
     };
-    app.add_plugins(client_plugin, server_plugin, SharedPlugin);
+    // build the bevy app (this adds common plugin such as the DefaultPlugins)
+    let mut apps = Apps::new(settings.common, cli);
+    // add the lightyear [`ClientPlugins`] and [`ServerPlugins`]
+    apps.add_lightyear_plugins()
+        // add user plugins
+        .add_user_plugins(client_plugin, server_plugin, SharedPlugin);
     // run the app
-    app.run();
+    apps.run();
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

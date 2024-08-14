@@ -19,8 +19,6 @@ use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::{
     receive::ClientReplicationReceivePlugin, send::ClientReplicationSendPlugin,
 };
-use crate::prelude::server::{ServerConfig, ServerPlugins};
-use crate::shared::config::Mode;
 use crate::shared::plugin::SharedPlugin;
 
 use super::config::ClientConfig;
@@ -49,21 +47,27 @@ impl ClientPlugins {
 }
 
 impl PluginGroup for ClientPlugins {
+    #[allow(clippy::let_and_return)]
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
         let tick_interval = self.config.shared.tick.tick_duration;
-        let interpolation_config = self.config.interpolation.clone();
-        builder
+        let interpolation_config = self.config.interpolation;
+        let builder = builder
             .add(SetupPlugin {
                 config: self.config,
             })
             .add(ClientEventsPlugin)
             .add(ClientNetworkingPlugin)
-            .add(ClientDiagnosticsPlugin)
+            .add(ClientDiagnosticsPlugin::default())
             .add(ClientReplicationReceivePlugin { tick_interval })
             .add(ClientReplicationSendPlugin { tick_interval })
             .add(PredictionPlugin)
-            .add(InterpolationPlugin::new(interpolation_config))
+            .add(InterpolationPlugin::new(interpolation_config));
+
+        #[cfg(target_family = "wasm")]
+        let builder = builder.add(crate::client::web::WebPlugin);
+
+        builder
     }
 }
 
@@ -86,7 +90,7 @@ impl Plugin for SetupPlugin {
             app
                 // PLUGINS
                 .add_plugins(SharedPlugin {
-                    config: self.config.shared.clone(),
+                    config: self.config.shared,
                 });
         }
     }

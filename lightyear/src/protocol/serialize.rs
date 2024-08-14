@@ -1,55 +1,105 @@
-use crate::prelude::{
-    AppMessageExt, ChannelDirection, ComponentRegistry, Message, MessageRegistry,
-    ReplicateResourceMetadata,
-};
-use crate::protocol::message::MessageType;
-use crate::protocol::registry::NetId;
-use crate::protocol::BitSerializable;
-use crate::serialize::bitcode::reader::BitcodeReader;
-use crate::serialize::bitcode::writer::BitcodeWriter;
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
+use crate::prelude::{ComponentRegistry, Message, MessageRegistry};
+use crate::serialize::{reader::Reader, writer::Writer, SerializationError};
 use crate::shared::replication::entity_map::EntityMap;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::Resource;
-use bitcode::__private::Fixed;
+use bevy::ptr::{Ptr, PtrMut};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::any::TypeId;
 
-// TODO: maybe instead of MessageFns, use an erased trait objects? like dyn ErasedSerialize + ErasedDeserialize ?
-//  but how do we deal with implementing behaviour for types that don't have those traits?
+/// Stores function pointers related to serialization and deserialization
 #[derive(Clone, Debug, PartialEq)]
 pub struct ErasedSerializeFns {
     pub(crate) type_id: TypeId,
     pub(crate) type_name: &'static str,
     // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
     pub serialize: unsafe fn(),
+    pub erased_serialize: ErasedSerializeFn,
     pub deserialize: unsafe fn(),
-    pub map_entities: Option<unsafe fn()>,
+    pub map_entities: Option<ErasedMapEntitiesFn>,
 }
 
 pub struct SerializeFns<M> {
     pub serialize: SerializeFn<M>,
     pub deserialize: DeserializeFn<M>,
-    pub map_entities: Option<MapEntitiesFn<M>>,
 }
 
-type SerializeFn<M> = fn(&M, writer: &mut BitcodeWriter) -> anyhow::Result<()>;
-type DeserializeFn<M> = fn(reader: &mut BitcodeReader) -> anyhow::Result<M>;
-pub(crate) type MapEntitiesFn<M> = fn(&mut M, entity_map: &mut EntityMap);
+type ErasedSerializeFn = unsafe fn(
+    erased_serialize_fn: &ErasedSerializeFns,
+    message: Ptr,
+    writer: &mut Writer,
+) -> Result<(), SerializationError>;
+type SerializeFn<M> = fn(message: &M, writer: &mut Writer) -> Result<(), SerializationError>;
+type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>;
+
+pub(crate) type ErasedMapEntitiesFn =
+    for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut EntityMap) -> PtrMut<'a>;
+
+unsafe fn erased_serialize_fn<M: Message>(
+    erased_serialize_fn: &ErasedSerializeFns,
+    message: Ptr,
+    writer: &mut Writer,
+) -> Result<(), SerializationError> {
+    let typed_serialize_fns = erased_serialize_fn.typed::<M>();
+    let message = message.deref::<M>();
+    (typed_serialize_fns.serialize)(message, writer)
+}
+
+/// Default serialize function using bincode
+fn default_serialize<M: Message + Serialize>(
+    message: &M,
+    buffer: &mut Writer,
+) -> Result<(), SerializationError> {
+    let _ = bincode::serde::encode_into_std_write(message, buffer, bincode::config::standard())?;
+    Ok(())
+}
+
+/// Default deserialize function using bincode
+fn default_deserialize<M: Message + DeserializeOwned>(
+    buffer: &mut Reader,
+) -> Result<M, SerializationError> {
+    let data = bincode::serde::decode_from_std_read(buffer, bincode::config::standard())?;
+    Ok(data)
+}
+
+/// SAFETY: the PtrMut must be a valid pointer to a value of type M
+unsafe fn erased_map_entities<'a, M: MapEntities + 'static>(
+    message: PtrMut<'a>,
+    entity_map: &mut EntityMap,
+) -> PtrMut<'a> {
+    let data = message.deref_mut::<M>();
+    M::map_entities(data, entity_map);
+    PtrMut::from(data)
+}
 
 impl ErasedSerializeFns {
-    pub(crate) fn new<M: Message>() -> Self {
-        let serialize: SerializeFn<M> = <M as BitSerializable>::encode;
-        let deserialize: DeserializeFn<M> = <M as BitSerializable>::decode;
+    pub(crate) fn new<M: Message + Serialize + DeserializeOwned>() -> Self {
+        let serialize_fns = SerializeFns {
+            serialize: default_serialize::<M>,
+            deserialize: default_deserialize::<M>,
+        };
         Self {
             type_id: TypeId::of::<M>(),
             type_name: std::any::type_name::<M>(),
-            serialize: unsafe { std::mem::transmute(serialize) },
-            deserialize: unsafe { std::mem::transmute(deserialize) },
+            erased_serialize: erased_serialize_fn::<M>,
+            serialize: unsafe { std::mem::transmute(serialize_fns.serialize) },
+            deserialize: unsafe { std::mem::transmute(serialize_fns.deserialize) },
             map_entities: None,
         }
     }
+
+    pub(crate) fn new_custom_serde<M: Message>(serialize_fns: SerializeFns<M>) -> Self {
+        Self {
+            type_id: TypeId::of::<M>(),
+            type_name: std::any::type_name::<M>(),
+            erased_serialize: erased_serialize_fn::<M>,
+            serialize: unsafe { std::mem::transmute(serialize_fns.serialize) },
+            deserialize: unsafe { std::mem::transmute(serialize_fns.deserialize) },
+            map_entities: None,
+        }
+    }
+
     pub(crate) unsafe fn typed<M: 'static>(&self) -> SerializeFns<M> {
         debug_assert_eq!(
             self.type_id,
@@ -58,45 +108,75 @@ impl ErasedSerializeFns {
             self.type_name,
             std::any::type_name::<M>(),
         );
-
         SerializeFns {
             serialize: unsafe { std::mem::transmute(self.serialize) },
-            deserialize: unsafe { std::mem::transmute(self.deserialize) },
-            map_entities: self.map_entities.map(|m| unsafe { std::mem::transmute(m) }),
+            deserialize: unsafe {
+                std::mem::transmute::<
+                    unsafe fn(),
+                    for<'a> fn(&'a mut Reader) -> std::result::Result<M, SerializationError>,
+                >(self.deserialize)
+            },
         }
     }
 
     pub(crate) fn add_map_entities<M: MapEntities + 'static>(&mut self) {
-        let map_entities: MapEntitiesFn<M> = <M as MapEntities>::map_entities::<EntityMap>;
-        self.map_entities = Some(unsafe { std::mem::transmute(map_entities) });
+        self.map_entities = Some(erased_map_entities::<M>);
     }
 
     pub(crate) fn map_entities<M: 'static>(&self, message: &mut M, entity_map: &mut EntityMap) {
-        let fns = unsafe { self.typed::<M>() };
-        if let Some(map_entities_fn) = fns.map_entities {
-            map_entities_fn(message, entity_map)
+        let ptr = PtrMut::from(message);
+        if let Some(map_entities_fn) = self.map_entities {
+            unsafe {
+                map_entities_fn(ptr, entity_map);
+            }
         }
     }
 
-    pub(crate) fn serialize<M: 'static>(
+    /// SAFETY: the ErasedSerializeFns must be created for the type of the Ptr
+    pub(crate) unsafe fn erased_serialize(
         &self,
-        message: &M,
-        writer: &mut BitcodeWriter,
-    ) -> anyhow::Result<()> {
+        message: Ptr,
+        writer: &mut Writer,
+    ) -> Result<(), SerializationError> {
+        (self.erased_serialize)(self, message, writer)
+    }
+
+    /// Serialize the message into the writer.
+    /// If available, we try to map the entities in the message from local to remote.
+    ///
+    /// SAFETY: the ErasedSerializeFns must be created for the type M
+    pub(crate) unsafe fn serialize<M: 'static>(
+        &self,
+        message: &mut M,
+        writer: &mut Writer,
+        entity_map: Option<&mut EntityMap>,
+    ) -> Result<(), SerializationError> {
         let fns = unsafe { self.typed::<M>() };
-        (fns.serialize)(message, writer)
+        if let Some(map_entities) = self.map_entities {
+            let message_ptr = map_entities(
+                PtrMut::from(message),
+                entity_map.expect("EntityMap is required to serialize this message"),
+            );
+            // SAFETY: the PtrMut was created for the message of type M
+            let message = unsafe { message_ptr.deref_mut() };
+            (fns.serialize)(message, writer)
+        } else {
+            (fns.serialize)(message, writer)
+        }
     }
 
     /// Deserialize the message value from the reader
-    pub(crate) fn deserialize<M: 'static>(
+    ///
+    /// SAFETY: the ErasedSerializeFns must be created for the type M
+    pub(crate) unsafe fn deserialize<M: 'static>(
         &self,
-        reader: &mut BitcodeReader,
+        reader: &mut Reader,
         entity_map: &mut EntityMap,
-    ) -> anyhow::Result<M> {
+    ) -> Result<M, SerializationError> {
         let fns = unsafe { self.typed::<M>() };
         let mut message = (fns.deserialize)(reader)?;
-        if let Some(map_entities) = fns.map_entities {
-            map_entities(&mut message, entity_map);
+        if let Some(map_entities) = self.map_entities {
+            map_entities(PtrMut::from(&mut message), entity_map);
         }
         Ok(message)
     }
@@ -114,9 +194,9 @@ impl AppSerializeExt for App {
     // TODO: or have a single SerializeRegistry?
     // TODO: or should we just have add_message_map_entities and add_component_map_entities?
     fn add_map_entities<M: MapEntities + 'static>(&mut self) {
-        let mut registry = self.world.resource_mut::<MessageRegistry>();
+        let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
         registry.try_add_map_entities::<M>();
-        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.try_add_map_entities::<M>();
     }
 }

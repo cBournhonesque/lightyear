@@ -10,8 +10,7 @@ use crate::transport::middleware::compression::zstd::compression::ZstdCompressor
 #[cfg(feature = "zstd")]
 use crate::transport::middleware::compression::zstd::decompression::ZstdDecompressor;
 use crate::transport::middleware::conditioner::LinkConditioner;
-use crate::transport::middleware::{PacketReceiverWrapper, PacketSenderWrapper};
-#[cfg(not(target_family = "wasm"))]
+use crate::transport::middleware::PacketReceiverWrapper;
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::WebSocketServerSocketBuilder;
@@ -20,7 +19,6 @@ use crate::transport::webtransport::server::WebTransportServerSocketBuilder;
 use crate::transport::BoxedReceiver;
 use crate::transport::Transport;
 use bevy::prelude::TypePath;
-use bevy::reflect::Reflect;
 use std::net::IpAddr;
 #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
 use wtransport::Identity;
@@ -28,7 +26,6 @@ use wtransport::Identity;
 #[derive(Debug, TypePath)]
 pub enum ServerTransport {
     /// Use a [`UdpSocket`](std::net::UdpSocket)
-    #[cfg(not(target_family = "wasm"))]
     UdpSocket(SocketAddr),
     /// Use [`WebTransport`](https://wicg.github.io/web-transport/) as a transport layer
     #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
@@ -58,7 +55,6 @@ impl Clone for ServerTransport {
     #[inline]
     fn clone(&self) -> ServerTransport {
         match self {
-            #[cfg(not(target_family = "wasm"))]
             ServerTransport::UdpSocket(__self_0) => {
                 ServerTransport::UdpSocket(Clone::clone(__self_0))
             }
@@ -87,7 +83,6 @@ impl Clone for ServerTransport {
 impl ServerTransport {
     fn build(self) -> ServerTransportBuilderEnum {
         match self {
-            #[cfg(not(target_family = "wasm"))]
             ServerTransport::UdpSocket(addr) => {
                 ServerTransportBuilderEnum::UdpSocket(UdpSocketBuilder { local_addr: addr })
             }
@@ -136,9 +131,20 @@ impl SharedIoConfig<ServerTransport> {
             CompressionConfig::None => {}
             #[cfg(feature = "zstd")]
             CompressionConfig::Zstd { level } => {
+                use crate::transport::middleware::PacketSenderWrapper;
                 let compressor = ZstdCompressor::new(level);
                 sender = Box::new(compressor.wrap(sender));
                 let decompressor = ZstdDecompressor::new();
+                receiver = Box::new(decompressor.wrap(receiver));
+            }
+            #[cfg(feature = "lz4")]
+            CompressionConfig::Lz4 => {
+                use crate::transport::middleware::PacketSenderWrapper;
+                let compressor =
+                    crate::transport::middleware::compression::lz4::Compressor::default();
+                sender = Box::new(compressor.wrap(sender));
+                let decompressor =
+                    crate::transport::middleware::compression::lz4::Decompressor::default();
                 receiver = Box::new(decompressor.wrap(receiver));
             }
         }

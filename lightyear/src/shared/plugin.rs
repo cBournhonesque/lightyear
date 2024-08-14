@@ -3,17 +3,19 @@ use crate::client::config::ClientConfig;
 use crate::connection::server::ServerConnections;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use bevy::utils::Duration;
 
+use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::{
     AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig,
     MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject,
     ShouldBePredicted, TickConfig,
 };
-use crate::server::config::ServerConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
+use crate::transport::io::{IoState, IoStats};
 use crate::transport::middleware::compression::CompressionConfig;
 
 #[derive(Default, Debug)]
@@ -41,6 +43,31 @@ pub enum Identity {
     HostServer,
 }
 
+impl Identity {
+    pub(crate) fn get_from_world(world: &World) -> Self {
+        let Some(config) = world.get_resource::<ClientConfig>() else {
+            return Identity::Server;
+        };
+        if matches!(config.shared.mode, Mode::HostServer)
+            && world
+                .get_resource::<ServerConnections>()
+                .as_ref()
+                .map_or(false, |server| server.is_listening())
+        {
+            Identity::HostServer
+        } else {
+            Identity::Client
+        }
+    }
+
+    pub fn is_client(&self) -> bool {
+        self == &Identity::Client
+    }
+    pub fn is_server(&self) -> bool {
+        self == &Identity::Server || self == &Identity::HostServer
+    }
+}
+
 impl<'w, 's> NetworkIdentity<'w, 's> {
     pub fn identity(&self) -> Identity {
         let Some(config) = &self.client_config else {
@@ -58,10 +85,10 @@ impl<'w, 's> NetworkIdentity<'w, 's> {
         }
     }
     pub fn is_client(&self) -> bool {
-        self.identity() == Identity::Client
+        self.identity().is_client()
     }
     pub fn is_server(&self) -> bool {
-        self.identity() == Identity::Server
+        self.identity().is_server()
     }
 }
 
@@ -72,14 +99,25 @@ impl Plugin for SharedPlugin {
             .register_type::<SharedConfig>()
             .register_type::<TickConfig>()
             .register_type::<PingConfig>()
+            .register_type::<IoStats>()
+            .register_type::<IoState>()
             .register_type::<LinkConditionerConfig>()
             .register_type::<CompressionConfig>();
 
         // RESOURCES
-        // NOTE: this tick duration must be the same as any previous existing fixed timesteps
-        app.insert_resource(ChannelRegistry::new());
+        // the SharedPlugin is called after the ClientConfig is inserted
+        let input_send_interval =
+            if let Some(client_config) = app.world().get_resource::<ClientConfig>() {
+                // use the input_send_interval on the client
+                client_config.input.send_interval
+            } else {
+                // on the server (when rebroadcasting inputs), send inputs every frame
+                Duration::default()
+            };
+        app.insert_resource(ChannelRegistry::new(input_send_interval));
         app.insert_resource(ComponentRegistry::default());
         app.insert_resource(MessageRegistry::default());
+        // NOTE: this tick duration must be the same as any previous existing fixed timesteps
         app.insert_resource(Time::<Fixed>::from_seconds(
             self.config.tick.tick_duration.as_secs_f64(),
         ));
@@ -87,12 +125,9 @@ impl Plugin for SharedPlugin {
         // PLUGINS
         // we always keep running the tick_manager and time_manager even the client or server are stopped
         app.add_plugins(TickManagerPlugin {
-            config: self.config.tick.clone(),
+            config: self.config.tick,
         });
-        app.add_plugins(TimePlugin {
-            server_send_interval: self.config.server_send_interval,
-            client_send_interval: self.config.client_send_interval,
-        });
+        app.add_plugins(TimePlugin);
     }
 
     fn finish(&self, app: &mut App) {
@@ -108,8 +143,10 @@ impl Plugin for SharedPlugin {
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
         app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
             .add_map_entities();
-        app.register_component::<Controlled>(ChannelDirection::Bidirectional);
+        app.register_component::<Controlled>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
         // check that the protocol was built correctly
-        app.world.resource::<ComponentRegistry>().check();
+        app.world().resource::<ComponentRegistry>().check();
     }
 }

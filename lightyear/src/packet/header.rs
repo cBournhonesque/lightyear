@@ -1,19 +1,21 @@
 use bevy::utils::HashMap;
+use byteorder::NetworkEndian;
+use byteorder::ReadBytesExt;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
-use serde::{Deserialize, Serialize};
 use tracing::trace;
-
-use bitcode::{Decode, Encode};
 
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
-use crate::packet::stats_manager::PacketStatsManager;
+use crate::packet::stats_manager::packet::PacketStatsManager;
 use crate::prelude::TimeManager;
+use crate::serialize::reader::Reader;
+use crate::serialize::{SerializationError, ToBytes};
+use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::time_manager::WrappedTime;
 
 /// Header included at the start of all packets
-#[derive(Encode, Decode, Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PacketHeader {
     // TODO: this seems useless besides Data vs DataFragment
     /// Type of the packet sent
@@ -28,6 +30,42 @@ pub(crate) struct PacketHeader {
     ack_bitfield: u32,
     /// Current tick
     pub(crate) tick: Tick,
+}
+
+impl ToBytes for PacketHeader {
+    fn len(&self) -> usize {
+        11
+    }
+
+    fn to_bytes<T: byteorder::WriteBytesExt>(
+        &self,
+        buffer: &mut T,
+    ) -> Result<(), SerializationError> {
+        buffer.write_u8(self.packet_type as u8)?;
+        buffer.write_u16::<NetworkEndian>(self.packet_id.0)?;
+        buffer.write_u16::<NetworkEndian>(self.last_ack_packet_id.0)?;
+        buffer.write_u32::<NetworkEndian>(self.ack_bitfield)?;
+        buffer.write_u16::<NetworkEndian>(self.tick.0)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let packet_type = buffer.read_u8()?;
+        let packet_id = buffer.read_u16::<NetworkEndian>()?;
+        let last_ack_packet_id = buffer.read_u16::<NetworkEndian>()?;
+        let ack_bitfield = buffer.read_u32::<NetworkEndian>()?;
+        let tick = buffer.read_u16::<NetworkEndian>()?;
+        Ok(Self {
+            packet_type: PacketType::try_from(packet_type)?,
+            packet_id: PacketId(packet_id),
+            last_ack_packet_id: PacketId(last_ack_packet_id),
+            ack_bitfield,
+            tick: Tick(tick),
+        })
+    }
 }
 
 impl PacketHeader {
@@ -49,11 +87,17 @@ impl PacketHeader {
 const ACK_BITFIELD_SIZE: u8 = 32;
 // we can only buffer up to `MAX_SEND_PACKET_QUEUE_SIZE` packets for sending
 const MAX_SEND_PACKET_QUEUE_SIZE: u8 = 255;
-const CLEAR_UNACKED_PACKETS_DELAY: chrono::Duration = chrono::Duration::milliseconds(5000);
+
+/// minimum number of milliseconds after which we can consider a packet lost
+/// (to avoid edge case behaviour)
+const MIN_NACK_MILLIS: i64 = 10;
+
+/// maximum number of seconds after which we consider a packet lost
+const MAX_NACK_SECONDS: i64 = 3;
 
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct PacketHeaderManager {
     // Local packet id which we'll bump each time we send a new packet over the network.
     // (we always increment the packet_id, even when we resend a lost packet)
@@ -73,10 +117,15 @@ pub struct PacketHeaderManager {
     recv_buffer: ReceiveBuffer,
     // copy of current time so that we don't pollute the function signatures to much
     current_time: WrappedTime,
+    /// After how many multiples of RTT do we consider a packet to be lost?
+    ///
+    /// The default is 1.5; i.e. after 1.5 times the round trip time, we consider a packet lost if
+    /// we haven't received an ACK for it.
+    nack_rtt_multiple: f32,
 }
 
 impl PacketHeaderManager {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(nack_rtt_multiple: f32) -> Self {
         // let (ack_notification_sender, ack_notification_receiver) =
         //     crossbeam::channel::bounded(MAX_SEND_PACKET_QUEUE_SIZE as usize);
         Self {
@@ -88,21 +137,36 @@ impl PacketHeaderManager {
             // ack_notification_sender,
             // ack_notification_receiver,
             current_time: WrappedTime::default(),
+            nack_rtt_multiple,
         }
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager) {
+    /// Internal bookkeeping.
+    /// Returns a list of packets that are considered NACKed (i.e. acknowledged as losts)
+    pub(crate) fn update(
+        &mut self,
+        time_manager: &TimeManager,
+        ping_manager: &PingManager,
+    ) -> Vec<PacketId> {
         self.current_time = time_manager.current_time();
         self.stats_manager.update(time_manager);
+        let rtt = ping_manager.final_stats.rtt;
+        let nack_duration = chrono::Duration::from_std(rtt.mul_f32(self.nack_rtt_multiple))
+            .expect("duration should be valid")
+            .min(chrono::TimeDelta::seconds(MAX_NACK_SECONDS))
+            .max(chrono::TimeDelta::milliseconds(MIN_NACK_MILLIS));
         // clear sent packets that haven't received any ack for a while
+        let mut lost_packets = vec![];
         self.sent_packets_not_acked.retain(|packet_id, time_sent| {
-            if self.current_time - (*time_sent) > CLEAR_UNACKED_PACKETS_DELAY {
+            if self.current_time - (*time_sent) > nack_duration {
                 trace!("sent packet got lost");
+                lost_packets.push(*packet_id);
                 self.stats_manager.sent_packet_lost();
                 return false;
             }
             true
         });
+        lost_packets
     }
 
     // /// Get the receiver for the ack notification channel
@@ -198,6 +262,7 @@ impl PacketHeaderManager {
 }
 
 /// Data structure to keep track of the ids of the received packets
+#[derive(Debug)]
 pub struct ReceiveBuffer {
     /// The packet id of the most recent packet received
     last_recv_packet_id: Option<PacketId>,
@@ -284,12 +349,7 @@ impl ReceiveBuffer {
 // TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
-    use bitcode::encoding::Fixed;
-
-    use crate::serialize::bitcode::reader::BitcodeReader;
-    use crate::serialize::bitcode::writer::BitcodeWriter;
-    use crate::serialize::reader::ReadBuffer;
-    use crate::serialize::writer::WriteBuffer;
+    use crate::serialize::ToBytes;
 
     use super::*;
 
@@ -345,21 +405,20 @@ mod tests {
     }
 
     #[test]
-    fn test_serde_header() -> anyhow::Result<()> {
+    fn test_serde_header() -> Result<(), SerializationError> {
         let header = PacketHeader {
             packet_type: PacketType::Data,
             packet_id: PacketId(27),
             last_ack_packet_id: PacketId(13),
             ack_bitfield: 3,
-            tick: Tick(0),
+            tick: Tick(6),
         };
-        let mut writer = BitcodeWriter::with_capacity(50);
-        writer.encode(&header, Fixed)?;
-        let data = writer.finish_write();
+        let mut writer = Vec::new();
+        header.to_bytes(&mut writer)?;
+        assert_eq!(writer.len(), header.len());
 
-        let mut reader = BitcodeReader::start_read(data);
-        let read_header = reader.decode::<PacketHeader>(Fixed)?;
-
+        let mut reader = writer.into();
+        let read_header = PacketHeader::from_bytes(&mut reader)?;
         assert_eq!(header, read_header);
         Ok(())
     }

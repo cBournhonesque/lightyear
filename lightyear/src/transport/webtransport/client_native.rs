@@ -1,24 +1,25 @@
 #![cfg(not(target_family = "wasm"))]
 //! WebTransport client implementation.
-use async_channel::Receiver;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_compat::Compat;
-use bevy::tasks::{futures_lite, IoTaskPool, TaskPool};
+use bevy::tasks::IoTaskPool;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 use wtransport;
 use wtransport::datagram::Datagram;
-use wtransport::error::{ConnectingError, ConnectionError};
+use wtransport::error::ConnectingError;
 use wtransport::ClientConfig;
 
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
 use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::transport::error::{Error, Result};
 use crate::transport::io::IoState;
-use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
+use crate::transport::{
+    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MIN_MTU, MTU,
+};
 
 pub(crate) struct WebTransportClientSocketBuilder {
     pub(crate) client_addr: SocketAddr,
@@ -34,7 +35,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
         Option<ClientIoEventReceiver>,
         Option<ClientNetworkEventSender>,
     )> {
-        let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
+        let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel::<Box<[u8]>>();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
         // channels used to cancel the task
         let (close_tx, close_rx) = async_channel::bounded(1);
@@ -42,10 +43,17 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
         let (event_tx, event_rx) = async_channel::bounded(1);
 
         IoTaskPool::get().spawn(Compat::new(async move {
-            let config = ClientConfig::builder()
+            let mut config = ClientConfig::builder()
                 .with_bind_address(self.client_addr)
                 .with_no_cert_validation()
                 .build();
+            let mut quic_config = wtransport::quinn::TransportConfig::default();
+            quic_config
+                .initial_mtu(MIN_MTU as u16)
+                .min_mtu(MIN_MTU as u16);
+            config.quic_config_mut().transport_config(
+                Arc::new(quic_config)
+            );
             let server_url = format!("https://{}", self.server_addr);
             info!(
                 "Connecting to server via webtransport at server url: {}",
@@ -111,7 +119,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
                             if let Some(msg) = to_server_receiver.recv().await {
                                 trace!("send datagram to server: {:?}", &msg);
                                 connection_send.send_datagram(msg).unwrap_or_else(|e| {
-                                    error!("send_datagram error: {:?}", e);
+                                    error!("send_datagram via webtransport error: {:?}", e);
                                 });
                             }
                         }

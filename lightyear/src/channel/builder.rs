@@ -1,6 +1,4 @@
 //! This module contains the [`Channel`] trait
-use bevy::prelude::TypePath;
-use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 
 use lightyear_macros::ChannelInternal;
@@ -8,23 +6,28 @@ use lightyear_macros::ChannelInternal;
 use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
 use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
 use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
-use crate::channel::receivers::tick_unreliable::TickUnreliableReceiver;
 use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
 use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
 use crate::channel::receivers::ChannelReceiver;
 use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
-use crate::channel::senders::tick_unreliable::TickUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
 use crate::channel::senders::ChannelSender;
+#[cfg(feature = "trace")]
+use crate::channel::stats::send::ChannelSendStats;
 use crate::prelude::ChannelKind;
 
 /// A ChannelContainer is a struct that implements the [`Channel`] trait
+#[derive(Debug)]
 pub struct ChannelContainer {
     pub setting: ChannelSettings,
     pub(crate) receiver: ChannelReceiver,
     pub(crate) sender: ChannelSender,
+    // we will put this behind the trace feature for now, as this is pretty niche
+    // and might be performance heavy
+    #[cfg(feature = "trace")]
+    pub(crate) sender_stats: ChannelSendStats,
 }
 
 /// A `Channel` is an abstraction for a way to send messages over the network
@@ -80,37 +83,35 @@ impl ChannelContainer {
         match settings.mode {
             ChannelMode::UnorderedUnreliableWithAcks => {
                 receiver = UnorderedUnreliableReceiver::new().into();
-                sender = UnorderedUnreliableWithAcksSender::new().into();
+                sender = UnorderedUnreliableWithAcksSender::new(settings.send_frequency).into();
             }
             ChannelMode::UnorderedUnreliable => {
                 receiver = UnorderedUnreliableReceiver::new().into();
-                sender = UnorderedUnreliableSender::new().into();
+                sender = UnorderedUnreliableSender::new(settings.send_frequency).into();
             }
             ChannelMode::SequencedUnreliable => {
                 receiver = SequencedUnreliableReceiver::new().into();
-                sender = SequencedUnreliableSender::new().into();
+                sender = SequencedUnreliableSender::new(settings.send_frequency).into();
             }
             ChannelMode::UnorderedReliable(reliable_settings) => {
                 receiver = UnorderedReliableReceiver::new().into();
-                sender = ReliableSender::new(reliable_settings).into();
+                sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
             }
             ChannelMode::SequencedReliable(reliable_settings) => {
                 receiver = SequencedReliableReceiver::new().into();
-                sender = ReliableSender::new(reliable_settings).into();
+                sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
             }
             ChannelMode::OrderedReliable(reliable_settings) => {
                 receiver = OrderedReliableReceiver::new().into();
-                sender = ReliableSender::new(reliable_settings).into();
-            }
-            ChannelMode::TickBuffered => {
-                receiver = TickUnreliableReceiver::new().into();
-                sender = TickUnreliableSender::new().into();
+                sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
             }
         }
         Self {
             setting: settings_clone,
             receiver,
             sender,
+            #[cfg(feature = "trace")]
+            sender_stats: ChannelSendStats::default(),
         }
     }
 }
@@ -119,7 +120,9 @@ impl ChannelContainer {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelSettings {
     pub mode: ChannelMode,
-    pub direction: ChannelDirection,
+    /// How often should we try to send messages on this channel.
+    /// Set to `Duration::default()` to send messages every frame if possible.
+    pub send_frequency: Duration,
     /// Sets the priority of the channel. The final priority of a message will be `MessagePriority * ChannelPriority`
     pub priority: f32,
 }
@@ -128,7 +131,7 @@ impl Default for ChannelSettings {
     fn default() -> Self {
         Self {
             mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
+            send_frequency: Duration::default(),
             priority: 1.0,
         }
     }
@@ -153,9 +156,6 @@ pub enum ChannelMode {
     SequencedReliable(ReliableSettings),
     /// Messages will arrive in the correct order at the destination
     OrderedReliable(ReliableSettings),
-    /// Inputs from the client are associated with the current tick on the client.
-    /// The server will buffer them and only receive them on the same tick.
-    TickBuffered,
 }
 
 impl ChannelMode {
@@ -167,7 +167,6 @@ impl ChannelMode {
             ChannelMode::UnorderedReliable(_) => true,
             ChannelMode::SequencedReliable(_) => true,
             ChannelMode::OrderedReliable(_) => true,
-            ChannelMode::TickBuffered => false,
         }
     }
 
@@ -180,7 +179,6 @@ impl ChannelMode {
             ChannelMode::UnorderedReliable(_) => true,
             ChannelMode::SequencedReliable(_) => true,
             ChannelMode::OrderedReliable(_) => true,
-            ChannelMode::TickBuffered => false,
         }
     }
 }
@@ -233,15 +231,11 @@ pub struct EntityUpdatesChannel;
 #[derive(ChannelInternal)]
 pub struct PingChannel;
 
+/// Default channel to send pongs. This is a Sequenced Unreliable channel, because
+/// there is no point in getting older pongs.
+#[derive(ChannelInternal)]
+pub struct PongChannel;
+
 #[derive(ChannelInternal)]
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;
-
-/// Default Unordered Unreliable channel, to send messages as fast as possible without any ordering.
-#[derive(ChannelInternal)]
-pub struct DefaultUnorderedUnreliableChannel;
-
-/// Channel where the messages are buffered according to the tick they are associated with
-/// At each server tick, we can read the messages that were sent from the corresponding client tick
-#[derive(ChannelInternal)]
-pub struct TickBufferChannel;

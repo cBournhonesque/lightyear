@@ -4,9 +4,8 @@ use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::io::IoState;
-use crate::transport::udp::{UdpSocket, UdpSocketBuffer, UdpSocketBuilder};
 use crate::transport::{
-    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET, MTU,
+    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET,
 };
 use std::net::SocketAddr;
 

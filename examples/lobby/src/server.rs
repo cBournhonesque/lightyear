@@ -25,7 +25,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             Startup,
             // start the dedicated server immediately (but not host servers)
-            start_dedicated_server.run_if(SharedConfig::is_mode_separate),
+            start_dedicated_server.run_if(is_mode_separate),
         );
         app.add_systems(
             FixedUpdate,
@@ -41,7 +41,7 @@ impl Plugin for ExampleServerPlugin {
                 // in HostServer mode, we will spawn a player when a client connects
                 game::handle_connections
             )
-                .run_if(SharedConfig::is_host_server_condition),
+                .run_if(is_host_server),
         );
         app.add_systems(
             Update,
@@ -51,7 +51,7 @@ impl Plugin for ExampleServerPlugin {
                 lobby::handle_lobby_exit,
                 lobby::handle_start_game,
             )
-                .run_if(SharedConfig::is_mode_separate),
+                .run_if(is_mode_separate),
         );
     }
 }
@@ -74,18 +74,18 @@ fn spawn_player_entity(
     dedicated_server: bool,
 ) -> Entity {
     let replicate = Replicate {
-        target: ReplicationTarget {
+        sync: SyncTarget {
             prediction: NetworkTarget::Single(client_id),
             interpolation: NetworkTarget::AllExceptSingle(client_id),
-            ..default()
         },
         controlled_by: ControlledBy {
             target: NetworkTarget::Single(client_id),
+            ..default()
         },
-        visibility: if dedicated_server {
-            VisibilityMode::InterestManagement
+        relevance_mode: if dedicated_server {
+            NetworkRelevanceMode::InterestManagement
         } else {
-            VisibilityMode::All
+            NetworkRelevanceMode::All
         },
         ..default()
     };
@@ -154,7 +154,7 @@ mod game {
 
 mod lobby {
     use lightyear::server::connection::ConnectionManager;
-    use lightyear::server::visibility::room::RoomManager;
+    use lightyear::server::relevance::room::RoomManager;
 
     use super::*;
 
@@ -236,7 +236,7 @@ mod lobby {
                 // send the StartGame message to the client who is trying to join the game
                 let _ = connection_manager.send_message::<Channel1, _>(
                     *client_id,
-                    &StartGame {
+                    &mut StartGame {
                         lobby_id,
                         host: lobby.host,
                     },
@@ -252,7 +252,7 @@ mod lobby {
                 }
                 // redirect the StartGame message to all other clients in the lobby
                 let _ = connection_manager.send_message_to_target::<Channel1, _>(
-                    &StartGame {
+                    &mut StartGame {
                         lobby_id,
                         host: lobby.host,
                     },

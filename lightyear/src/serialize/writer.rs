@@ -1,36 +1,56 @@
-use bitcode::encoding::Encoding;
-use bitcode::Encode;
-use serde::Serialize;
+//! Writer that can reuse memory allocation
+//!
+//! See `<https://stackoverflow.com/questions/73725299/will-the-native-buffer-owned-by-bytesmut-keep-growing>`
+//! for more details.
+//!
+//! The idea is that we have one allocation under the [`BytesMut`], when we finish writing a message,
+//! we can split the message of as a separate [`Bytes`], but
+use bytes::{BufMut, Bytes, BytesMut};
+use std::io::Write;
 
-/// Buffer to facilitate writing bits
-pub trait WriteBuffer {
-    /// Serialize the given value into the buffer
-    /// There is no padding when we serialize a value (i.e. it's possible to add a single bit
-    /// to the buffer)
+#[derive(Debug)]
+pub struct Writer(bytes::buf::Writer<BytesMut>);
 
-    fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()>;
+impl Write for Writer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
 
-    fn encode<T: Encode + ?Sized>(&mut self, t: &T, encoding: impl Encoding) -> anyhow::Result<()>;
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
 
-    fn with_capacity(capacity: usize) -> Self;
+impl Default for Writer {
+    fn default() -> Self {
+        // TODO: we start with some capacity, benchmark how much we need
+        Self::with_capacity(10)
+    }
+}
+impl Writer {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self(BytesMut::with_capacity(capacity).writer())
+    }
 
-    /// Clears the buffer.
-    fn start_write(&mut self);
+    // TODO: how do reduce capacity over time?
+    /// Split the current bytes written as a separate [`Bytes`].
+    ///
+    /// Retains any additional capacity. O(1) operation.
+    pub(crate) fn split(&mut self) -> Bytes {
+        self.0.get_mut().split().freeze()
+    }
 
-    /// Returns the finalized bytes (with padding to make a full byte)
-    /// There is 0-7 bits of padding so that the serialized value is byte-aligned
-    fn finish_write(&mut self) -> &[u8];
+    // TODO: normally there is no need to reset, because once all the messages that have been split
+    //  are dropped, the writer will move the current data to the front of the buffer to reuse memory
+    //  All the split bytes messages are dropped at Send for unreliable senders, but NOT for reliable
+    //  senders, think about what to do for that! Maybe do a clone there to drop the message?
+    /// Reset the writer but keeps the underlying allocation
+    pub(crate) fn reset(&mut self) {
+        self.0.get_mut().clear();
+    }
 
-    fn num_bits_written(&self) -> usize;
-    fn overflowed(&self) -> bool;
-
-    /// Increase the maximum number of bits that can be written with this buffer
-    /// (we are tracking them separately from the buffers capacity)
-    fn reserve_bits(&mut self, num_bits: usize);
-
-    /// Decrease the maximum number of bits that can be written with this buffer
-    fn release_bits(&mut self, num_bits: usize);
-
-    /// Set the number of bits that can be written to this buffer
-    fn set_reserved_bits(&mut self, num_bits: usize);
+    /// Consume the writer to get the RawData
+    pub(crate) fn to_bytes(self) -> Bytes {
+        self.0.into_inner().into()
+    }
 }

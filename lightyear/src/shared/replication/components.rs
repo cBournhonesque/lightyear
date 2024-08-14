@@ -1,125 +1,66 @@
 //! Components used for replication
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::query::QueryFilter;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::{Bundle, Component, Entity, EntityMapper, Or, Query, Reflect, With};
-use bevy::utils::{HashMap, HashSet};
+use bevy::ecs::reflect::ReflectComponent;
+use bevy::prelude::{Component, Entity, Reflect};
+use bevy::time::{Timer, TimerMode};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
-use tracing::trace;
 
-use bitcode::{Decode, Encode};
-
-use crate::channel::builder::Channel;
-use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
-use crate::prelude::ParentSync;
-use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
-use crate::server::visibility::immediate::{ClientVisibility, VisibilityManager};
+use crate::serialize::reader::Reader;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 
 /// Marker component that indicates that the entity was spawned via replication
 /// (it is being replicated from a remote world)
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
-pub struct Replicated;
+#[reflect(Component)]
+pub struct Replicated {
+    /// The peer that spawned the entity
+    /// If None, it's the server.
+    pub from: Option<ClientId>,
+}
 
-/// Component inserted to each replicable entities, to detect when they are despawned
-#[derive(Component, Clone, Copy)]
-#[component(storage = "SparseSet")]
-pub(crate) struct DespawnTracker;
+impl Replicated {
+    /// For client->server replication, identify the client that replicated this entity to the server
+    pub fn client_id(&self) -> ClientId {
+        self.from.expect("expected a client id")
+    }
+}
 
 /// Marker component to indicate that the entity is under the control of the local peer
 #[derive(Component, Clone, Copy, PartialEq, Debug, Reflect, Serialize, Deserialize)]
-#[component(storage = "SparseSet")]
+#[reflect(Component)]
 pub struct Controlled;
 
-/// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
-/// it to remote peers.
+/// Marker component to indicate that updates for this entity are being replicated.
 ///
-/// ```rust
-/// use bevy::prelude::*;
-/// use lightyear::prelude::*;
-///
-/// let mut world = World::default();
-/// world.spawn(Replicate::default());
-/// ```
-///
-/// The bundle is composed of several components:
-/// - [`ReplicationTarget`] to specify which clients should receive the entity
-/// - [`ControlledBy`] to specify which client controls the entity
-/// - [`VisibilityMode`] to specify if we should replicate the entity to all clients in the
-/// replication target, or if we should apply interest management logic to determine which clients
-/// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
-/// will be sent together in the same message.
-/// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
-///
-/// Some of the components can be updated at runtime even after the entity has been replicated.
-/// For example you can update the [`ReplicationTarget`] to change which clients should receive the entity.
-#[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
-pub struct Replicate {
-    /// Which clients should this entity be replicated to
-    pub target: ReplicationTarget,
-    /// Which client(s) control this entity?
-    pub controlled_by: ControlledBy,
-    /// How do we control the visibility of the entity?
-    pub visibility: VisibilityMode,
-    /// The replication group defines how entities are grouped (sent as a single message) for replication.
-    ///
-    /// After the entity is first replicated, the replication group of the entity should not be modified.
-    /// (but more entities can be added to the replication group)
-    // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
-    //  it just keeps living but doesn't receive any updates. Should we make this configurable?
-    pub group: ReplicationGroup,
-    /// How should the hierarchy of the entity (parents/children) be replicated?
-    pub hierarchy: ReplicateHierarchy,
-}
+/// If this component gets removed, the replication will pause.
+#[derive(Component, Clone, Copy, Default, PartialEq, Debug, Reflect, Serialize, Deserialize)]
+#[reflect(Component)]
+pub struct Replicating;
 
 /// Component that indicates which clients the entity should be replicated to.
 #[derive(Component, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
 pub struct ReplicationTarget {
     /// Which clients should this entity be replicated to
-    pub replication: NetworkTarget,
-    /// Which clients should predict this entity (unused for client to server replication)
-    pub prediction: NetworkTarget,
-    /// Which clients should interpolate this entity (unused for client to server replication)
-    pub interpolation: NetworkTarget,
+    pub target: NetworkTarget,
+}
+
+/// Keeps track of the last known state of a component, so that we can compute
+/// the delta between the old and new state.
+#[derive(Component, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct Cached<C> {
+    pub value: C,
 }
 
 impl Default for ReplicationTarget {
     fn default() -> Self {
         Self {
-            replication: NetworkTarget::All,
-            prediction: NetworkTarget::None,
-            interpolation: NetworkTarget::None,
+            target: NetworkTarget::All,
         }
     }
-}
-
-/// Component storing metadata about which clients have control over the entity
-///
-/// This is only used for server to client replication.
-#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
-pub struct ControlledBy {
-    /// Which client(s) control this entity?
-    pub target: NetworkTarget,
-}
-
-impl ControlledBy {
-    /// Returns true if the entity is controlled by the specified client
-    pub fn targets(&self, client_id: &ClientId) -> bool {
-        self.target.targets(client_id)
-    }
-}
-
-/// Component to have more fine-grained control over the visibility of an entity
-/// (which clients do we replicate this entity to?)
-///
-/// This has no effect for client to server replication.
-#[derive(Component, Clone, Debug, PartialEq, Reflect)]
-pub struct Visibility {
-    /// Control if we do fine-grained or coarse-grained visibility
-    mode: VisibilityMode,
-    // TODO: should we store the visibility cache here if visibility_mode = InterestManagement?
 }
 
 /// Defines the target entity for the replication.
@@ -129,6 +70,7 @@ pub struct Visibility {
 ///
 /// This component is not part of the `Replicate` bundle as this is very infrequent.
 #[derive(Component, Default, Clone, Copy, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
 pub enum TargetEntity {
     /// Spawn a new entity on the remote peer
     #[default]
@@ -139,9 +81,13 @@ pub enum TargetEntity {
 }
 
 /// Component that defines how the hierarchy of an entity (parent/children) should be replicated
+///
+/// If the component is absent, the [`Parent`](bevy::prelude::Parent)/[`Children`](bevy::prelude::Children) components will not be replicated.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
 pub struct ReplicateHierarchy {
     /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
+    ///
     /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
     /// and `ParentSync` components to the children yourself
     pub recursive: bool,
@@ -153,12 +99,30 @@ impl Default for ReplicateHierarchy {
     }
 }
 
-// TODO: should these be sparse set or not?
+// TODO: do we need this? or do we just check if delta compression fn is present in the registry?
+/// If this component is present, the component will be replicated via delta-compression.
+///
+/// Instead of sending the full component every time, we will only send the diffs between the old
+/// and new state.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct DeltaCompression<C> {
+    _marker: std::marker::PhantomData<C>,
+}
+
+impl<C> Default for DeltaCompression<C> {
+    fn default() -> Self {
+        Self {
+            _marker: Default::default(),
+        }
+    }
+}
+
 /// If this component is present, we won't replicate the component
 ///
-/// (By default, all components that are present in the [`ComponentRegistry`] will be replicated.)
+/// (By default, all components that are present in the [`ComponentRegistry`](crate::prelude::ComponentRegistry) will be replicated.)
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
+#[reflect(Component)]
 pub struct DisabledComponent<C> {
     _marker: std::marker::PhantomData<C>,
 }
@@ -174,7 +138,7 @@ impl<C> Default for DisabledComponent<C> {
 /// If this component is present, we will replicate only the inserts/removals of the component,
 /// not the updates (i.e. the component will get only replicated once at entity spawn)
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
+#[reflect(Component)]
 pub struct ReplicateOnceComponent<C> {
     _marker: std::marker::PhantomData<C>,
 }
@@ -193,6 +157,7 @@ impl<C> Default for ReplicateOnceComponent<C> {
 //  - override visibility: bool (if true, we will completely override the visibility. If false, we do the intersection)
 /// This component lets you override the replication target for a specific component
 #[derive(Component, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
 pub struct OverrideTargetComponent<C> {
     pub target: NetworkTarget,
     _marker: std::marker::PhantomData<C>,
@@ -204,17 +169,6 @@ impl<C> OverrideTargetComponent<C> {
             target,
             _marker: Default::default(),
         }
-    }
-}
-
-impl Replicate {
-    pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
-        self.group.group_id(entity)
-    }
-
-    /// Returns true if the entity is controlled by the specified client
-    pub fn is_controlled_by(&self, client_id: &ClientId) -> bool {
-        self.controlled_by.targets(client_id)
     }
 }
 
@@ -234,12 +188,29 @@ pub enum ReplicationGroupIdBuilder {
 ///
 /// If multiple entities are part of the same replication group, they will be sent together in the same message.
 /// It is guaranteed that these entities will be updated at the same time on the remote world.
-#[derive(Component, Debug, Copy, Clone, PartialEq, Reflect)]
+#[derive(Component, Debug, Clone, PartialEq, Reflect)]
+#[reflect(Component)]
 pub struct ReplicationGroup {
     id_builder: ReplicationGroupIdBuilder,
     /// the priority of the accumulation group
     /// (priority will get reset to this value every time a message gets sent successfully)
     base_priority: f32,
+    /// Keep track of whether we should send replication updates for this group.
+    ///
+    /// See [`ReplicationGroup::set_send_frequency`] for more information.
+    pub(crate) send_frequency: Option<Timer>,
+    /// Is true if we should send replication updates for this group.
+    ///
+    /// The interaction with `send_frequency` is as follows:
+    /// Time:               0    10   20    30    40    50    60    70    80    90    100
+    /// GroupTimer(30ms):   X               X                 X                 X
+    /// SendInterval(20ms): X          X          X           X           X           X
+    ///
+    /// At 40ms, 60ms and 100ms, we will buffer the replication updates for the group.
+    /// (We do not buffer the updates exactly at 30ms, 60ms, 90ms; instead we wait for the next send_interval.
+    /// This is to avoid having to track the send_tick for each replication group separately)
+    // TODO: maybe buffer the updates exactly at 30ms, 60ms, 90ms and include the send_tick in the message?
+    pub(crate) should_send: bool,
 }
 
 impl Default for ReplicationGroup {
@@ -247,6 +218,8 @@ impl Default for ReplicationGroup {
         Self {
             id_builder: ReplicationGroupIdBuilder::FromEntity,
             base_priority: 1.0,
+            send_frequency: None,
+            should_send: true,
         }
     }
 }
@@ -256,6 +229,8 @@ impl ReplicationGroup {
         Self {
             id_builder: ReplicationGroupIdBuilder::FromEntity,
             base_priority: 1.0,
+            send_frequency: None,
+            should_send: true,
         }
     }
 
@@ -263,6 +238,8 @@ impl ReplicationGroup {
         Self {
             id_builder: ReplicationGroupIdBuilder::Group(id),
             base_priority: 1.0,
+            send_frequency: None,
+            should_send: true,
         }
     }
 
@@ -288,32 +265,52 @@ impl ReplicationGroup {
         self.id_builder = ReplicationGroupIdBuilder::Group(id);
         self
     }
+
+    /// Sets the send frequency for this [`ReplicationGroup`]
+    ///
+    /// Any replication updates related to this group will only be buffered at the specified frequency.
+    /// It is INCORRECT to set the send_frequency to be more frequent than the sender's send_interval.
+    ///
+    /// This can be useful to send updates for a group of entities less frequently than the default send_interval.
+    /// For example the send_interval could be 30Hz, but you could set the send_frequency to 10Hz for a group of entities
+    /// to buffer updates less frequently.
+    pub fn set_send_frequency(mut self, send_frequency: bevy::utils::Duration) -> Self {
+        self.send_frequency = Some(Timer::new(send_frequency, TimerMode::Repeating));
+        self
+    }
 }
 
-#[derive(
-    Default,
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    Reflect,
-    Encode,
-    Decode,
-)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub struct ReplicationGroupId(pub u64);
 
+impl ToBytes for ReplicationGroupId {
+    fn len(&self) -> usize {
+        8
+    }
+
+    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        buffer.write_u64::<NetworkEndian>(self.0)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Self(buffer.read_u64::<NetworkEndian>()?))
+    }
+}
+
 #[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
-pub enum VisibilityMode {
+#[reflect(Component)]
+pub enum NetworkRelevanceMode {
     /// We will replicate this entity to the clients specified in the `replication_target`.
     /// On top of that, we will apply interest management logic to determine which clients should receive the entity
     ///
-    /// You can use [`gain_visibility`](VisibilityManager::gain_visibility) and [`lose_visibility`](VisibilityManager::lose_visibility)
-    /// to control the visibility of entities.
-    /// You can also use the [`RoomManager`](crate::prelude::server::RoomManager)
+    /// You can use [`gain_relevance`](crate::prelude::server::RelevanceManager::gain_relevance) and [`lose_relevance`](crate::prelude::server::RelevanceManager::lose_relevance)
+    /// to control the network relevance of entities.
+    ///
+    /// You can also use the [`RoomManager`](crate::prelude::server::RoomManager) if you want to use rooms to control network relevance.
     ///
     /// (the client still needs to be included in the [`NetworkTarget`], the room is simply an additional constraint)
     InterestManagement,
@@ -325,14 +322,14 @@ pub enum VisibilityMode {
 
 /// Marker component that tells the client to spawn an Interpolated entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
+#[reflect(Component)]
 pub struct ShouldBeInterpolated;
 
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
 //  because we already do the mapping at other steps
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
+#[reflect(Component)]
 pub struct PrePredicted {
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
@@ -340,5 +337,5 @@ pub struct PrePredicted {
 
 /// Marker component that tells the client to spawn a Predicted entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
-#[component(storage = "SparseSet")]
+#[reflect(Component)]
 pub struct ShouldBePredicted;

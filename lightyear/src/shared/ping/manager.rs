@@ -4,14 +4,14 @@ use bevy::time::Stopwatch;
 use bevy::utils::Duration;
 use tracing::{error, trace};
 
-use crate::shared::ping::message::{Ping, Pong, SyncMessage};
+use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::ping::store::{PingId, PingStore};
 use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Config for the ping manager, which sends regular pings to the remote machine in order
 /// to compute network statistics (RTT, jitter)
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub struct PingConfig {
     /// The duration to wait before sending a ping message to the remote host,
     /// in order to estimate RTT time
@@ -32,6 +32,7 @@ impl Default for PingConfig {
 
 /// The [`PingManager`] is responsible for sending regular pings to the remote machine,
 /// and monitor pongs in order to estimate statistics (rtt, jitter) about the connection.
+#[derive(Debug)]
 pub struct PingManager {
     config: PingConfig,
     /// Timer to send regular pings to the remote
@@ -50,11 +51,14 @@ pub struct PingManager {
     pub(crate) sync_stats: SyncStatsBuffer,
     /// Current best estimates of various networking statistics
     pub final_stats: FinalStats,
-    /// Generation of the tick
-    remote_tick_generation: u16,
+    /// The number of pings we have sent
+    pub(crate) pings_sent: u32,
+    /// The number of pongs we have received
+    pub(crate) pongs_recv: u32,
 }
 
 /// Connection stats aggregated over several [`SyncStats`]
+#[derive(Debug)]
 pub struct FinalStats {
     pub rtt: Duration,
     pub jitter: Duration,
@@ -81,7 +85,7 @@ pub type SyncStatsBuffer = ReadyBuffer<WrappedTime, SyncStats>;
 impl PingManager {
     pub fn new(config: PingConfig) -> Self {
         Self {
-            config: config.clone(),
+            config,
             // pings
             ping_timer: Stopwatch::new(),
             ping_store: PingStore::new(),
@@ -90,7 +94,8 @@ impl PingManager {
             // sync
             sync_stats: SyncStatsBuffer::new(),
             final_stats: FinalStats::default(),
-            remote_tick_generation: 0,
+            pings_sent: 0,
+            pongs_recv: 0,
         }
     }
 
@@ -124,8 +129,7 @@ impl PingManager {
             }
         }
 
-        // NOTE: no need to clear anything in the ping_store because new pings will overwrite
-        // older pings
+        // NOTE: no need to clear anything in the ping_store because new pings will overwrite older pings
     }
 
     /// Check if we are ready to send a ping to the remote
@@ -135,7 +139,7 @@ impl PingManager {
             self.ping_timer.reset();
 
             let ping_id = self.ping_store.push_new(time_manager.current_time());
-
+            self.pings_sent += 1;
             return Some(Ping { id: ping_id });
         }
         None
@@ -218,6 +222,7 @@ impl PingManager {
     /// Returns true if we have enough pongs to finalize the handshake
     pub(crate) fn process_pong(&mut self, pong: &Pong, current_time: WrappedTime) {
         trace!("Received pong: {:?}", pong);
+        self.pongs_recv += 1;
         let received_time = current_time;
 
         let Some(ping_sent_time) = self.ping_store.remove(pong.ping_id) else {
@@ -240,7 +245,7 @@ impl PingManager {
 
             // update stats buffer
             self.sync_stats
-                .add_item(received_time, SyncStats { round_trip_delay });
+                .push(received_time, SyncStats { round_trip_delay });
 
             // recompute stats whenever we get a new pong
             self.compute_stats();

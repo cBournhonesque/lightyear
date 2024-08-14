@@ -83,29 +83,32 @@ impl ClientTransportBuilder for WebSocketClientSocketBuilder {
                 status_tx.send(ClientIoEvent::Connected).await.unwrap();
                 let (mut write, mut read) = ws_stream.split();
 
+                let status_tx_clone = status_tx.clone();
                 let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
                     while let Some(msg) = read.next().await {
-                        let msg = msg
-                            .map_err(|e| {
+                        match msg {
+                            Err(e) => {
                                 error!("Error while receiving websocket msg: {}", e);
-                            })
-                            .unwrap();
-
-                        clientbound_tx.send(msg).expect(
-                            "Unable to propagate the read websocket message to the receiver",
-                        );
+                                let _ = status_tx_clone.send(ClientIoEvent::Disconnected(e.into())).await;
+                                continue;
+                            },
+                            Ok(msg) => {
+                                clientbound_tx.send(msg).expect(
+                                    "Unable to propagate the read websocket message to the receiver",
+                                );
+                            }
+                        }
                     }
                     // when we reach this point, the stream is closed
                 }));
+                let status_tx_clone = status_tx.clone();
                 let recv_handle = IoTaskPool::get().spawn(Compat::new(async move {
                     while let Some(msg) = serverbound_rx.recv().await {
-                        write
-                            .send(msg)
-                            .await
-                            .map_err(|e| {
-                                error!("Encountered error while sending websocket msg: {}", e);
-                            })
-                            .unwrap();
+                        if let Err(e) = write.send(msg).await {
+                            error!("Encountered error while sending websocket msg: {}", e);
+                            let _ = status_tx_clone.send(ClientIoEvent::Disconnected(e.into())).await;
+                            continue;
+                        }
                     }
                 }));
                 // wait for a signal that the io should be closed

@@ -12,27 +12,26 @@ as well as information to handle the ack system.
 The payload is a list of messages that are included in the packet. Messages will be included in the packet
 in order of [`Channel`] priority.
 
-Packets that are over the maximum packet size will be fragmented into multiple [`FragmentedPacket`].
+Packets that are over the maximum packet size will be fragmented into multiple [`FragmentData`].
 
 [`Packet`]: packet::Packet
 [`Channel`]: crate::channel::builder::Channel
-[`FragmentedPacket`]: packet::FragmentedPacket
+[`FragmentData`]: message::FragmentData
 */
 
 /// Manages the [`PacketHeader`](header::PacketHeader) which includes important packet information
-pub mod header;
+pub(crate) mod header;
 
-/// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
-pub mod message;
+pub(crate) mod message;
 
 /// Manages sending and receiving [`Packets`](packet::Packet) over the network
 pub mod message_manager;
 
-/// Defines the [`Packet`](packet::Packet) struct
 pub mod packet;
 
+pub(crate) mod error;
 /// Manages building a single [`Packet`](packet::Packet) from multiple [`Messages`](message::Message)
-pub(crate) mod packet_manager;
+pub(crate) mod packet_builder;
 /// Defines the [`PacketType`](packet_type::PacketType) enum
 mod packet_type;
 pub(crate) mod priority_manager;

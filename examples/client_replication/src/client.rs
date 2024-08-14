@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
+use lightyear::client::input::native::InputSystemSet;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -246,7 +247,7 @@ pub(crate) fn send_message(
         info!("Send message: {:?}", message);
         // the message will be re-broadcasted by the server to all clients
         client
-            .send_message_to_target::<Channel1, Message1>(&Message1(5), NetworkTarget::All)
+            .send_message_to_target::<Channel1, Message1>(&mut Message1(5), NetworkTarget::All)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });
@@ -258,7 +259,11 @@ pub(crate) fn send_message(
 // - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
-        color.0.set_s(0.4);
+        let hsva = Hsva {
+            saturation: 0.4,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
     }
 }
 
@@ -269,6 +274,10 @@ pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
 ) {
     for mut color in interpolated.iter_mut() {
-        color.0.set_s(0.1);
+        let hsva = Hsva {
+            saturation: 0.1,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
     }
 }
