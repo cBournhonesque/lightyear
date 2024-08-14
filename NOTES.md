@@ -104,6 +104,19 @@
     - used from client to get authority over an entity. Client to Server msg
       - server can refused if it already got a previous request
       - from client to server: client adds the `HasAuthority` component. It does not accept receiving updates from the server anymore.
+
+TODO:
+- [x]: we receive updates only if (server) the sender has authority, or if (client) we don't have authority.
+- [x]: (on client) we only send updates if we have authority
+- [x]: add TransferAuthority command on the client
+- [ ]: update hierarchy
+- [ ]: receive edge cases:
+  - [x]: server adds AuthorityPeer when a client replicates to it
+  - [ ]: also refuse entity-actions if the sender does not have authority?
+- [ ]: send edge cases:
+  - [ ]: what happens on component removal?
+- [ ]: handle AuthorityChange messages on the clients
+- [ ]: think about what happens in PrePredicted
     
        
 

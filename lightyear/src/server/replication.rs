@@ -59,7 +59,10 @@ pub(crate) mod send {
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
-    use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
+    use crate::shared::replication::archetypes::{
+        get_erased_component, ServerReplicatedArchetypes,
+    };
+    use crate::shared::replication::authority::AuthorityPeer;
     use crate::shared::replication::components::{
         Cached, Controlled, Replicating, ReplicationGroupId, ReplicationTarget,
         ShouldBeInterpolated,
@@ -211,6 +214,9 @@ pub(crate) mod send {
     pub struct Replicate {
         /// Which clients should this entity be replicated to?
         pub target: ReplicationTarget,
+        // TODO: if AuthorityPeer::Server is added, need to add HasAuthority (via observer)
+        /// Who has authority over the entity? i.e. who is in charge of simulating the entity and sending replication updates?
+        pub authority: AuthorityPeer,
         /// Which clients should predict/interpolate the entity?
         pub sync: SyncTarget,
         /// How do we control the visibility of the entity?
@@ -345,7 +351,7 @@ pub(crate) mod send {
     pub(crate) fn replicate(
         tick_manager: Res<TickManager>,
         component_registry: Res<ComponentRegistry>,
-        mut replicated_archetypes: Local<ReplicatedArchetypes<ReplicationTarget>>,
+        mut replicated_archetypes: Local<ServerReplicatedArchetypes>,
         system_ticks: SystemChangeTick,
         mut set: ParamSet<(&World, ResMut<ConnectionManager>)>,
     ) {

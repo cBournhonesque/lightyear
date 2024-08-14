@@ -1,24 +1,24 @@
 //! General struct handling replication
 use std::collections::BTreeMap;
 
+use super::entity_map::RemoteEntityMap;
+use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::{ClientConnectionManager, ClientId, ServerConnectionManager, Tick};
 use crate::protocol::component::ComponentRegistry;
 use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
+use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
 use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 #[cfg(test)]
 use crate::utils::captures::Captures;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{DespawnRecursiveExt, Entity, World};
+use bevy::prelude::{DespawnRecursiveExt, Entity, EntityWorldMut, World};
 use bevy::utils::HashSet;
 use tracing::{debug, error, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
-
-use super::entity_map::RemoteEntityMap;
-use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -845,7 +845,12 @@ impl GroupChannel {
                     // });
 
                     // TODO: maybe use command-batching?
-                    let local_entity = world.spawn(Replicated { from: remote });
+                    let mut local_entity = world.spawn(Replicated { from: remote });
+                    // if the entity was replicated from a client to the server, update the AuthorityPeer
+                    if let Some(client) = remote {
+                        local_entity.insert(AuthorityPeer::Client(client));
+                    }
+
                     remote_entity_map.insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", remote_entity_map);
 
@@ -951,6 +956,21 @@ impl GroupChannel {
         self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
     }
 
+    /// Check if we can accept updates for this entity, based on the authority
+    /// - on the server: only accept updates from the client who has authority
+    /// - on the client: only accept updates if we don't have authority
+    ///
+    /// Returns true if we can accept updates for this entity
+    fn authority_check(entity_mut: &mut EntityWorldMut, remote: Option<ClientId>) -> bool {
+        match remote {
+            // we are the server receiving an update from a client
+            Some(c) => entity_mut
+                .get::<AuthorityPeer>()
+                .map_or(false, |authority| *authority == AuthorityPeer::Client(c)),
+            None => entity_mut.get::<HasAuthority>().is_none(),
+        }
+    }
+
     pub(crate) fn apply_updates_message(
         &mut self,
         world: &mut World,
@@ -977,6 +997,10 @@ impl GroupChannel {
                 debug!("update for entity that doesn't exist?");
                 continue;
             };
+            if !Self::authority_check(&mut local_entity_mut, remote) {
+                debug!("authority check failed for entity: {:?}", entity);
+                continue;
+            }
             for component in components {
                 let mut reader = Reader::from(component);
                 let _ = component_registry

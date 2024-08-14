@@ -1,9 +1,10 @@
 //! Keep track of the archetypes that should be replicated
 use std::mem;
 
-use crate::prelude::{ChannelDirection, ComponentRegistry, Replicating};
+use crate::client::replication::send::ReplicateToServer;
+use crate::prelude::{ComponentRegistry, Replicating, ReplicationTarget};
 use crate::protocol::component::ComponentKind;
-use crate::shared::plugin::Identity;
+use crate::shared::replication::authority::HasAuthority;
 use bevy::ecs::archetype::ArchetypeEntity;
 use bevy::ecs::component::{ComponentTicks, StorageType};
 use bevy::ecs::storage::{SparseSets, Table};
@@ -21,6 +22,9 @@ use bevy::{
 /// The generic component is the component that is used to identify if the archetype is used for Replication.
 /// This is the [`ReplicateToServer`](crate::client::replication::send::ReplicateToServer) or [`ReplicationTarget`](crate::prelude::ReplicationTarget) component.
 /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
+// NOTE: we keep the generic so that we can have both resources in the same world in
+// host-server mode
+#[derive(Resource)]
 pub(crate) struct ReplicatedArchetypes<C: Component> {
     /// ID of the component identifying if the archetype is used for Replication.
     /// This is the [`ReplicateToServer`](crate::client::replication::send::ReplicateToServer) or [`ReplicationTarget`](crate::prelude::ReplicationTarget) component.
@@ -29,6 +33,11 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     /// ID of the [`Replicating`] component, which indicates that the entity is being replicated.
     /// If this component is not present, we pause all replication (inserts/updates/spawns)
     replicating_component_id: ComponentId,
+    /// ID of the [`HasAuthority`] component, which indicates that the current peer has authority over the entity.
+    /// On the client, we only send replication updates if we have authority.
+    /// On the server, we still send replication updates even if we don't have authority, because
+    /// we need to relay the changes to other clients.
+    has_authority_component_id: Option<ComponentId>,
     /// Highest processed archetype ID.
     generation: ArchetypeGeneration,
 
@@ -37,23 +46,41 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     marker: std::marker::PhantomData<C>,
 }
 
-fn should_replicate(world: &World, direction: ChannelDirection) -> bool {
-    let identity = Identity::get_from_world(world);
-    match direction {
-        ChannelDirection::ClientToServer => identity.is_client(),
-        ChannelDirection::ServerToClient => identity.is_server(),
-        ChannelDirection::Bidirectional => true,
+pub(crate) type ClientReplicatedArchetypes = ReplicatedArchetypes<ReplicateToServer>;
+pub(crate) type ServerReplicatedArchetypes = ReplicatedArchetypes<ReplicationTarget>;
+
+impl FromWorld for ClientReplicatedArchetypes {
+    fn from_world(world: &mut World) -> Self {
+        Self::client(world)
     }
 }
 
-impl<C: Component> FromWorld for ReplicatedArchetypes<C> {
+impl FromWorld for ServerReplicatedArchetypes {
     fn from_world(world: &mut World) -> Self {
+        Self::server(world)
+    }
+}
+
+impl<C: Component> ReplicatedArchetypes<C> {
+    pub(crate) fn client(world: &mut World) -> Self {
         Self {
-            replication_component_id: world.init_component::<C>(),
+            replication_component_id: world.init_component::<ReplicateToServer>(),
             replicating_component_id: world.init_component::<Replicating>(),
+            has_authority_component_id: Some(world.init_component::<HasAuthority>()),
             generation: ArchetypeGeneration::initial(),
             archetypes: Vec::new(),
-            marker: std::marker::PhantomData,
+            marker: Default::default(),
+        }
+    }
+
+    pub(crate) fn server(world: &mut World) -> Self {
+        Self {
+            replication_component_id: world.init_component::<ReplicationTarget>(),
+            replicating_component_id: world.init_component::<Replicating>(),
+            has_authority_component_id: None,
+            generation: ArchetypeGeneration::initial(),
+            archetypes: Vec::new(),
+            marker: Default::default(),
         }
     }
 }
@@ -114,6 +141,10 @@ impl<C: Component> ReplicatedArchetypes<C> {
             .filter(|archetype| {
                 archetype.contains(self.replication_component_id)
                     && archetype.contains(self.replicating_component_id)
+                    // on the client, we only replicate if we have authority
+                    && self
+                        .has_authority_component_id
+                        .map_or(true, |id| archetype.contains(id))
             })
         {
             let mut replicated_archetype = ReplicatedArchetype {

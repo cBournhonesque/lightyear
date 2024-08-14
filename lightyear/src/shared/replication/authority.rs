@@ -16,12 +16,15 @@ use bevy::prelude::*;
 /// - a client with Authority won't accept replication updates from the server
 /// - a client without Authority won't be sending any replication updates
 /// - a server won't accept replication updates from clients without Authority
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq, Reflect)]
 pub struct HasAuthority;
 
-#[derive(Component, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Component, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect,
+)]
 pub enum AuthorityPeer {
     None,
+    #[default]
     Server,
     Client(ClientId),
 }

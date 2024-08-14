@@ -59,7 +59,10 @@ pub(crate) mod send {
 
     use crate::shared::replication::components::{Replicating, ReplicationGroupId};
 
-    use crate::shared::replication::archetypes::{get_erased_component, ReplicatedArchetypes};
+    use crate::shared::replication::archetypes::{
+        get_erased_component, ClientReplicatedArchetypes,
+    };
+    use crate::shared::replication::authority::HasAuthority;
     use crate::shared::replication::error::ReplicationError;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
@@ -149,6 +152,11 @@ pub(crate) mod send {
         /// Marker indicating that the entity should be replicated to the server.
         /// If this component is removed, the entity will be despawned on the server.
         pub target: ReplicateToServer,
+        /// Marker component that indicates that the client has authority over the entity.
+        /// This means that this client:
+        /// - is allowed to send replication updates for this entity
+        /// - will not accept any replication messages for this entity
+        pub authority: HasAuthority,
         /// The replication group defines how entities are grouped (sent as a single message) for replication.
         ///
         /// After the entity is first replicated, the replication group of the entity should not be modified.
@@ -209,7 +217,7 @@ pub(crate) mod send {
     pub(crate) fn replicate(
         tick_manager: Res<TickManager>,
         component_registry: Res<ComponentRegistry>,
-        mut replicated_archetypes: Local<ReplicatedArchetypes<ReplicateToServer>>,
+        mut replicated_archetypes: Local<ClientReplicatedArchetypes>,
         system_ticks: SystemChangeTick,
         mut set: ParamSet<(&World, ResMut<ConnectionManager>)>,
     ) {

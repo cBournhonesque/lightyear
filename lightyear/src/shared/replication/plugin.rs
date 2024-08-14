@@ -251,6 +251,7 @@ pub(crate) mod shared {
         NetworkRelevanceMode, PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated,
         ReplicationConfig, ReplicationGroup, ReplicationTarget, ShouldBePredicted, TargetEntity,
     };
+    use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
         Controlled, Replicating, ReplicationGroupId, ReplicationGroupIdBuilder,
         ShouldBeInterpolated,
@@ -282,6 +283,8 @@ pub(crate) mod shared {
                 .register_type::<ShouldBePredicted>()
                 .register_type::<RemoteEntityMap>()
                 .register_type::<PredictedEntityMap>()
+                .register_type::<HasAuthority>()
+                .register_type::<AuthorityPeer>()
                 .register_type::<InterpolatedEntityMap>();
         }
     }
