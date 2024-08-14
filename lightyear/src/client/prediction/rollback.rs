@@ -598,7 +598,7 @@ mod unit_tests {
     use super::*;
 
     use crate::tests::protocol::ComponentSyncModeFull;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
     use bevy::ecs::system::RunSystemOnce;
 
     // TODO: check that if A is updated but B is not, and A and B are in the same replication group,
@@ -757,7 +757,7 @@ mod integration_tests {
 
     use crate::prelude::client::*;
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
     use bevy::prelude::*;
 
     fn increment_component(

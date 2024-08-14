@@ -3,7 +3,6 @@ use crate::client::sync::SyncConfig;
 use crate::prelude::client::{InterpolationConfig, PredictionConfig};
 use crate::prelude::{SharedConfig, TickConfig};
 use crate::tests::multi_stepper::MultiBevyStepper;
-use crate::tests::stepper::Step;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 

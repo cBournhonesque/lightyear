@@ -261,7 +261,7 @@ mod tests {
     use crate::shared::replication::components::ReplicateHierarchy;
     use crate::shared::replication::hierarchy::ParentSync;
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     fn setup_hierarchy() -> (BevyStepper, Entity, Entity, Entity) {
         let mut stepper = BevyStepper::default();

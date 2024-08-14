@@ -495,7 +495,7 @@ mod tests {
     };
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
     use crate::shared::replication::components::NetworkRelevanceMode;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     use super::systems::buffer_room_relevance_events;
 

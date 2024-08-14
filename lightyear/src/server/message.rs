@@ -181,7 +181,7 @@ pub(crate) fn add_server_receive_message_from_client<M: Message>(app: &mut App) 
 #[cfg(test)]
 mod tests {
     use crate::prelude::NetworkTarget;
-    use crate::tests::host_server_stepper::{HostServerStepper, Step};
+    use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, StringMessage};
     use bevy::app::Update;
     use bevy::prelude::{EventReader, ResMut, Resource};

@@ -202,7 +202,7 @@ pub(crate) fn remove_despawn_marker(
 //     use crate::prelude::client::*;
 //     use crate::prelude::*;
 //     use crate::tests::protocol::*;
-//     use crate::tests::stepper::{BevyStepper, Step};
+//     use crate::tests::stepper::{BevyStepper};
 //     use bevy::prelude::*;
 //     use bevy::utils::Duration;
 //

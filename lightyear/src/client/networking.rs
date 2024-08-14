@@ -558,7 +558,7 @@ mod tests {
     use crate::{
         client::config::ClientConfig,
         prelude::{client::ClientCommands, server::*, SharedConfig, TickConfig},
-        tests::host_server_stepper::{HostServerStepper, Step},
+        tests::host_server_stepper::HostServerStepper,
     };
 
     #[derive(Resource, Default)]

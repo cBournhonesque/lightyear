@@ -22,15 +22,6 @@ use crate::transport::LOCAL_SOCKET;
 
 pub const TEST_CLIENT_ID: u64 = 111;
 
-/// Helpers to setup a bevy app where I can just step the world easily
-pub trait Step {
-    /// Advance both apps by one frame duration
-    fn frame_step(&mut self);
-
-    /// Advance both apps by on fixed timestep duration
-    fn tick_step(&mut self);
-}
-
 pub struct BevyStepper {
     pub client_app: App,
     pub server_app: App,
@@ -292,17 +283,15 @@ impl BevyStepper {
         self.client_app.world_mut().flush();
         self.server_app.world_mut().flush();
     }
-}
 
-impl Step for BevyStepper {
     /// Advance the world by one frame duration
-    fn frame_step(&mut self) {
+    pub(crate) fn frame_step(&mut self) {
         self.advance_time(self.frame_duration);
         self.client_app.update();
         self.server_app.update();
     }
 
-    fn tick_step(&mut self) {
+    pub(crate) fn tick_step(&mut self) {
         self.advance_time(self.tick_duration);
         self.client_app.update();
         self.server_app.update();

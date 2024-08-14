@@ -4,7 +4,7 @@ use crate::prelude::server::{InputEvent, Replicate};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
-use crate::tests::stepper::{BevyStepper, Step};
+use crate::tests::stepper::BevyStepper;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 

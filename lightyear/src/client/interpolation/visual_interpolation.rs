@@ -199,7 +199,7 @@ mod tests {
 
     use crate::prelude::{SharedConfig, TickConfig};
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     use super::*;
 

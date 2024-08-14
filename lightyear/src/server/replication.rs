@@ -1013,7 +1013,7 @@ pub(crate) mod send {
         use crate::shared::replication::systems;
         use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
         use crate::tests::protocol::*;
-        use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+        use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
         use bevy::ecs::system::RunSystemOnce;
         use bevy::prelude::{default, EventReader, Resource, Update};
         use bevy::utils::HashSet;
@@ -3189,7 +3189,7 @@ pub(crate) mod commands {
 
         use crate::prelude::server::Replicate;
         use crate::tests::protocol::*;
-        use crate::tests::stepper::{BevyStepper, Step};
+        use crate::tests::stepper::BevyStepper;
 
         use super::*;
 
