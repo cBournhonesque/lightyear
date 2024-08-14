@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::prelude::server::ControlledBy;
 use crate::prelude::{MainSet, NetworkRelevanceMode, PrePredicted, Replicating, ReplicationGroup};
 use crate::server::replication::send::SyncTarget;
+use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
 use crate::shared::replication::components::{ReplicateHierarchy, ReplicationTarget};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
@@ -56,6 +57,8 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                 Option<&SyncTarget>,
                 Option<&ControlledBy>,
                 Option<&NetworkRelevanceMode>,
+                Option<&HasAuthority>,
+                Option<&AuthorityPeer>,
             ),
             (
                 Without<Parent>,
@@ -75,6 +78,8 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             sync_target,
             controlled_by,
             visibility_mode,
+            has_authority,
+            authority_peer,
         ) in parent_query.iter()
         {
             if replicate_hierarchy.recursive {
@@ -119,6 +124,12 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                     }
                     if let Some(vis) = visibility_mode {
                         commands.entity(child).insert(*vis);
+                    }
+                    if let Some(has_authority) = has_authority {
+                        commands.entity(child).insert(*has_authority);
+                    }
+                    if let Some(authority_peer) = authority_peer {
+                        commands.entity(child).insert(*authority_peer);
                     }
                 }
             }

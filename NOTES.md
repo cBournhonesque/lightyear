@@ -114,6 +114,7 @@ TODO:
   - [x]: server adds AuthorityPeer when a client replicates to it
   - [ ]: also refuse entity-actions if the sender does not have authority?
 - [ ]: send edge cases:
+  - [ ]: server adds HasAuthority if entity is spawned with AuthorityPeer::Server
   - [ ]: what happens on component removal?
 - [ ]: handle AuthorityChange messages on the clients
 - [ ]: think about what happens in PrePredicted

@@ -287,6 +287,11 @@ impl BevyStepper {
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         mock_instant::global::MockClock::advance(duration);
     }
+
+    pub(crate) fn flush(&mut self) {
+        self.client_app.world_mut().flush();
+        self.server_app.world_mut().flush();
+    }
 }
 
 impl Step for BevyStepper {

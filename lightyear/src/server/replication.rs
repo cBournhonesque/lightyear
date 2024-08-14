@@ -62,7 +62,7 @@ pub(crate) mod send {
     use crate::shared::replication::archetypes::{
         get_erased_component, ServerReplicatedArchetypes,
     };
-    use crate::shared::replication::authority::AuthorityPeer;
+    use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
         Cached, Controlled, Replicating, ReplicationGroupId, ReplicationTarget,
         ShouldBeInterpolated,
@@ -136,6 +136,7 @@ pub(crate) mod send {
             );
 
             app.observe(replicate_entity_local_despawn);
+            app.observe(add_has_authority_component);
         }
     }
 
@@ -346,6 +347,27 @@ pub(crate) mod send {
                 });
             }
         }
+    }
+
+    /// Add HasAuthority component to a newly replicated entity if the server has
+    /// authority over it
+    fn add_has_authority_component(
+        // NOTE: we do not trigger on OnMutate, it's only when AuthorityPeer is first
+        // added that we check if the server has authority. After that, we should
+        // rely only on commands.transfer_authority
+        trigger: Trigger<OnAdd, AuthorityPeer>,
+        mut commands: Commands,
+    ) {
+        commands
+            .entity(trigger.entity())
+            .add(|mut entity_mut: EntityWorldMut| {
+                if entity_mut
+                    .get::<AuthorityPeer>()
+                    .is_some_and(|authority| *authority == AuthorityPeer::Server)
+                {
+                    entity_mut.insert(HasAuthority);
+                }
+            });
     }
 
     pub(crate) fn replicate(
@@ -894,7 +916,6 @@ pub(crate) mod send {
         }
     }
 
-    // TODO: do removals!
     /// This system sends updates for all components that were removed
     pub(crate) fn send_component_removed<C: Component>(
         registry: Res<ComponentRegistry>,

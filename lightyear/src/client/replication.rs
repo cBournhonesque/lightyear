@@ -9,10 +9,14 @@ use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 pub(crate) mod receive {
     use super::*;
+    use crate::prelude::client::MessageEvent;
     use crate::prelude::{
         client::{is_connected, is_synced},
         is_host_server,
     };
+    use crate::shared::replication::authority::{AuthorityChange, HasAuthority};
+    use crate::shared::sets::InternalMainSet;
+
     #[derive(Default)]
     pub struct ClientReplicationReceivePlugin {
         pub tick_interval: Duration,
@@ -38,6 +42,29 @@ pub(crate) mod receive {
                         .and_then(not(is_host_server)),
                 ),
             );
+
+            app.add_systems(
+                PreUpdate,
+                handle_authority_change.after(InternalMainSet::<ClientMarker>::EmitEvents),
+            );
+        }
+    }
+
+    /// Apply authority changes requested by the server
+    // TODO: use observer to handle these?
+    fn handle_authority_change(
+        mut commands: Commands,
+        mut messages: ResMut<Events<MessageEvent<AuthorityChange>>>,
+    ) {
+        for message in messages.drain() {
+            let entity = message.message.entity;
+            if let Some(mut entity_mut) = commands.get_entity(entity) {
+                if message.message.gain_authority {
+                    entity_mut.insert(HasAuthority);
+                } else {
+                    entity_mut.remove::<HasAuthority>();
+                }
+            }
         }
     }
 }
