@@ -771,7 +771,7 @@ mod tests {
     use crate::server::connection::ConnectionManager;
 
     use crate::tests::protocol::ComponentSyncModeFull;
-    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::*;
 
     use super::*;

@@ -193,7 +193,7 @@ mod tests {
     use crate::tests::protocol::{
         ComponentSyncModeFull, ComponentSyncModeOnce, ComponentSyncModeSimple,
     };
-    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
     /// Simple preprediction case
     #[test]

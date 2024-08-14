@@ -194,7 +194,7 @@ pub(crate) fn add_client_receive_message_from_server<M: Message>(app: &mut App) 
 mod tests {
     use super::*;
     use crate::serialize::writer::Writer;
-    use crate::tests::host_server_stepper::{HostServerStepper, Step};
+    use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, StringMessage};
     use bevy::prelude::{EventReader, Resource, Update};
 

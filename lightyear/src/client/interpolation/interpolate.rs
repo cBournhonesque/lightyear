@@ -295,7 +295,7 @@ pub(crate) fn interpolate<C: Component + Clone>(
 //     use crate::prelude::client::*;
 //     use crate::prelude::*;
 //     use crate::tests::protocol::*;
-//     use crate::tests::stepper::{BevyStepper, Step};
+//     use crate::tests::stepper::{BevyStepper};
 //
 //     fn setup() -> (BevyStepper, Entity, Entity) {
 //         let frame_duration = Duration::from_millis(10);

@@ -338,7 +338,7 @@ mod tests {
     use super::*;
     use crate::prelude::client::RollbackState;
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
     use crate::utils::ready_buffer::ItemWithReadyKey;
     use bevy::ecs::system::RunSystemOnce;
 

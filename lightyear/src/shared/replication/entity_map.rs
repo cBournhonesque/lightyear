@@ -123,7 +123,7 @@ mod tests {
     use crate::prelude::server::Replicate;
     use crate::prelude::*;
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     // An entity gets replicated from server to client,
     // then a component gets removed from that entity on server,

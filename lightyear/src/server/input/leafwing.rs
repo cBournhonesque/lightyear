@@ -237,7 +237,7 @@ mod tests {
     use crate::prelude::client;
     use crate::prelude::server::*;
     use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
+    use crate::tests::stepper::BevyStepper;
 
     #[test]
     fn test_leafwing_inputs() {
