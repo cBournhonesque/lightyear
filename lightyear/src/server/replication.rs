@@ -3011,9 +3011,131 @@ pub(crate) mod send {
 }
 
 pub(crate) mod commands {
-    use crate::prelude::Replicating;
+    use crate::channel::builder::AuthorityChannel;
+    use crate::prelude::{Replicating, ServerConnectionManager};
+    use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
+
+    pub trait AuthorityCommandExt {
+        /// This command is used to transfer the authority of an entity to a different peer.
+        fn transfer_authority(&mut self, new_owner: AuthorityPeer);
+    }
+
+    impl AuthorityCommandExt for EntityCommands<'_> {
+        fn transfer_authority(&mut self, new_owner: AuthorityPeer) {
+            self.add(move |entity: Entity, world: &mut World| {
+                // check who the current owner is
+                let current_owner =
+                    world
+                        .get_entity(entity)
+                        .map_or(AuthorityPeer::None, |entity| {
+                            entity
+                                .get::<AuthorityPeer>()
+                                .copied()
+                                .unwrap_or(AuthorityPeer::None)
+                        });
+
+                match (current_owner, new_owner) {
+                    (x, y) if x == y => return,
+                    (AuthorityPeer::None, AuthorityPeer::Server) => {
+                        world
+                            .entity_mut(entity)
+                            .insert((HasAuthority, AuthorityPeer::Server));
+                    }
+                    (AuthorityPeer::None, AuthorityPeer::Client(c)) => {
+                        world.entity_mut(entity).insert(AuthorityPeer::Client(c));
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: true,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    (AuthorityPeer::Server, AuthorityPeer::None) => {
+                        world
+                            .entity_mut(entity)
+                            .remove::<HasAuthority>()
+                            .insert(AuthorityPeer::None);
+                    }
+                    (AuthorityPeer::Client(c), AuthorityPeer::None) => {
+                        world.entity_mut(entity).insert(AuthorityPeer::None);
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: false,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    (AuthorityPeer::Client(c), AuthorityPeer::Server) => {
+                        // TODO: only gain the authority when we have received an ack
+                        //  that the client has received the message?
+                        world
+                            .entity_mut(entity)
+                            .insert((HasAuthority, AuthorityPeer::Server));
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: false,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    (AuthorityPeer::Server, AuthorityPeer::Client(c)) => {
+                        world
+                            .entity_mut(entity)
+                            .remove::<HasAuthority>()
+                            .insert(AuthorityPeer::Client(c));
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: true,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    (AuthorityPeer::Client(c1), AuthorityPeer::Client(c2)) => {
+                        world.entity_mut(entity).insert(AuthorityPeer::Client(c2));
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c1,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: false,
+                                },
+                            )
+                            .expect("could not send message");
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .send_message::<AuthorityChannel, _>(
+                                c2,
+                                &mut AuthorityChange {
+                                    entity,
+                                    gain_authority: true,
+                                },
+                            )
+                            .expect("could not send message");
+                    }
+                    _ => unreachable!(),
+                }
+            });
+        }
+    }
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {
         // remove replicating separately so that when we despawn the entity and trigger the observer

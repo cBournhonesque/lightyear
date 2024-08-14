@@ -10,7 +10,6 @@ use crate::server::clients::ControlledEntities;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::error::ServerError;
-use crate::server::events::{ConnectEvent, DisconnectEvent};
 use crate::server::io::ServerIoEvent;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use async_channel::TryRecvError;
@@ -52,7 +51,9 @@ impl Plugin for ServerNetworkingPlugin {
             // SYSTEMS //
             .add_systems(
                 PreUpdate,
-                receive.in_set(InternalMainSet::<ServerMarker>::Receive),
+                (receive_packets, receive)
+                    .chain()
+                    .in_set(InternalMainSet::<ServerMarker>::Receive),
             )
             .add_systems(
                 PostUpdate,
@@ -78,13 +79,11 @@ impl Plugin for ServerNetworkingPlugin {
     }
 }
 
-pub(crate) fn receive(
+pub(crate) fn receive_packets(
     mut commands: Commands,
     mut connection_manager: ResMut<ConnectionManager>,
     mut networking_state: ResMut<NextState<NetworkingState>>,
     mut netservers: ResMut<ServerConnections>,
-    mut connect_events: ResMut<Events<ConnectEvent>>,
-    mut disconnect_events: ResMut<Events<DisconnectEvent>>,
     mut time_manager: ResMut<TimeManager>,
     tick_manager: Res<TickManager>,
     virtual_time: Res<Time<Virtual>>,
@@ -93,7 +92,6 @@ pub(crate) fn receive(
     system_change_tick: SystemChangeTick,
 ) {
     trace!("Receive client packets");
-
     let delta = virtual_time.delta();
     // UPDATE: update server state, send keep-alives, receive packets from io
     // update time manager
@@ -203,47 +201,39 @@ pub(crate) fn receive(
             }
         }
     }
+}
 
+/// Read from internal buffers and apply the changes to the world
+pub(crate) fn receive(
+    world: &mut World,
+    // component_registry: Res<ComponentRegistry>,
+    // message_registry: Res<MessageRegistry>,
+    // time_manager: Res<TimeManager>,
+    // tick_manager: Res<TickManager>,
+) {
+    let unsafe_world = world.as_unsafe_world_cell();
+
+    // TODO: an alternative would be to use `Commands + EntityMut` which both don't conflict with resources
+    // SAFETY: we guarantee that the `world` is not used in `connection_manager.receive` to update
+    //  these resources
+    let mut connection_manager =
+        unsafe { unsafe_world.get_resource_mut::<ConnectionManager>() }.unwrap();
+    let component_registry = unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
+    let message_registry = unsafe { unsafe_world.get_resource::<MessageRegistry>() }.unwrap();
+    let time_manager = unsafe { unsafe_world.get_resource::<TimeManager>() }.unwrap();
+    let tick_manager = unsafe { unsafe_world.get_resource::<TickManager>() }.unwrap();
     // RECEIVE: read messages and parse them into events
     connection_manager
         .receive(
-            &mut commands,
-            component_registry.as_ref(),
-            message_registry.as_ref(),
-            time_manager.as_ref(),
-            tick_manager.as_ref(),
+            unsafe { unsafe_world.world_mut() },
+            component_registry,
+            message_registry,
+            time_manager,
+            tick_manager,
         )
         .unwrap_or_else(|e| {
             error!("Error during receive: {}", e);
         });
-
-    // EVENTS: Write the received events into bevy events
-    if !connection_manager.events.is_empty() {
-        // Connection / Disconnection events
-        if connection_manager.events.has_connections() {
-            for connect_event in connection_manager.events.iter_connections() {
-                debug!("Client connected event: {}", connect_event.client_id);
-                connect_events.send(connect_event);
-                // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
-                // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
-                //  so a bunch of Resources have been removed from the World
-                commands.trigger(connect_event);
-                // world.trigger(connect_event);
-            }
-        }
-
-        if connection_manager.events.has_disconnections() {
-            for disconnect_event in connection_manager.events.iter_disconnections() {
-                debug!("Client disconnected event: {}", disconnect_event.client_id);
-                disconnect_events.send(disconnect_event);
-                // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
-                // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
-                //  so a bunch of Resources have been removed from the World
-                commands.trigger(disconnect_event);
-                // world.trigger(disconnect_event);
-            }
-        }
-    }
 }
 
 // or do additional send stuff here

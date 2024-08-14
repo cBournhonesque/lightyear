@@ -1,7 +1,7 @@
 //! Specify how a Server sends/receives messages with a Client
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{Commands, Component, Entity, Resource};
+use bevy::prelude::{Component, Entity, Resource, World};
 use bevy::ptr::Ptr;
 use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
@@ -394,7 +394,7 @@ impl ConnectionManager {
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn receive(
         &mut self,
-        commands: &mut Commands,
+        world: &mut World,
         component_registry: &ComponentRegistry,
         message_registry: &MessageRegistry,
         time_manager: &TimeManager,
@@ -408,7 +408,7 @@ impl ConnectionManager {
                 let _span = trace_span!("receive", ?client_id).entered();
                 // receive events on the connection
                 let events = connection.receive(
-                    commands,
+                    world,
                     component_registry,
                     message_registry,
                     time_manager,
@@ -671,7 +671,7 @@ impl Connection {
 
     pub fn receive(
         &mut self,
-        commands: &mut Commands,
+        world: &mut World,
         component_registry: &ComponentRegistry,
         message_registry: &MessageRegistry,
         time_manager: &TimeManager,
@@ -758,7 +758,7 @@ impl Connection {
 
         // Check if we have any replication messages we can apply to the World (and emit events)
         self.replication_receiver.apply_world(
-            commands,
+            world,
             Some(self.client_id),
             component_registry,
             tick_manager.tick(),

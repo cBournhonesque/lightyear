@@ -69,13 +69,14 @@
 
   - Actually we could try this:
     - all components of Replication are shared between clients and server, they are also replicable.
-    - So when you transfer authority, you just replicate the Replicate components to the new owner.
+    - So when you transfer authority, you just replicate the Authority component to the new owner.
     - On the client if you add `ReplicationTarget`, `SyncTarget`, nothing happens, but those get replicated to the Server. The server then uses them for the replication behaviour. One big problem is ReplicationGroup? I guess we can just apply EntityMapping.
     - How do we avoid bidirectional replication? The component `Authority` specifies who is sending updates. You only send updates
       if you have authority. That means that the server and the client both have the `Replicate` bundle but only one of them is sending updates?
     - Case 1: server spawns an entity and has authority
       - the Replicate bundle is added, and is used to define how its replicated. 
       - no need to replicate the Replicate bundle
+      - the Authority component is added, so 
       - Case 3: it transfers authority to a client.
         - 
     - Case 2: client spawns an entity and has authority, it wants to replicate to all other players
@@ -85,6 +86,25 @@
       - the server has an Authority component which tracks which peer has authority (Self or Client). 
       - In particular, it WILL NOT ACCEPT REPLICATION UPDATES FROM A PEER THAT DOES NOT HAVE AUTHORITY!
       - the clients also have this Authority component?
+
+  - Having Authority means:
+    - I don't accept replication updates from another peer
+    - server tracks at all times who has authority over an entity
+    - server does not accept receiving updates from a peer with no authority
+  - TransferAuthority:
+    - used from the server to client to transfer authority on the client
+    - from server to client: (server gives authority to client)
+        - client gains `HasAuthority`
+        - server updates `AuthorityPeer`
+    - from client 1 to client 2: (server takes authority from C1 and gives it to C2)
+      - send a message to both
+      - they update accordingly
+    - from client to server: (server takes authority from client)
+  - GetAuthorityRequest:
+    - used from client to get authority over an entity. Client to Server msg
+      - server can refused if it already got a previous request
+      - from client to server: client adds the `HasAuthority` component. It does not accept receiving updates from the server anymore.
+    
        
 
 - What would P2P look like?

@@ -26,7 +26,7 @@ use crate::shared::replication::components::ReplicationGroupId;
 pub mod components;
 
 pub(crate) mod archetypes;
-mod authority;
+pub(crate) mod authority;
 pub mod delta;
 pub mod entity_map;
 pub mod error;
