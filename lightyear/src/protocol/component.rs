@@ -292,14 +292,14 @@ mod serialize {
     use crate::serialize::ToBytes;
 
     impl ComponentRegistry {
-        pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
+        pub(crate) fn try_add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
             let kind = ComponentKind::of::<C>();
             if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
                 erased_fns.add_map_entities::<C>();
             }
         }
 
-        pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
+        pub(crate) fn add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
             let kind = ComponentKind::of::<C>();
             let erased_fns = self.serialize_fns_map.get_mut(&kind).unwrap_or_else(|| {
                 panic!(
@@ -308,6 +308,25 @@ mod serialize {
                 )
             });
             erased_fns.add_map_entities::<C>();
+        }
+
+        /// Returns true if we have a registered `map_entities` function for this component type
+        pub(crate) fn is_map_entities<C: 'static>(&self) -> bool {
+            let kind = ComponentKind::of::<C>();
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .expect("the component is not part of the protocol");
+            erased_fns.map_entities.is_some()
+        }
+
+        /// Returns true if we have a registered `map_entities` function for this component type
+        pub(crate) fn erased_is_map_entities(&self, kind: ComponentKind) -> bool {
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .expect("the component is not part of the protocol");
+            erased_fns.map_entities.is_some()
         }
 
         pub(crate) fn serialize<C: 'static>(
@@ -337,6 +356,7 @@ mod serialize {
             component: Ptr,
             writer: &mut Writer,
             kind: ComponentKind,
+            entity_map: Option<&mut EntityMap>,
         ) -> Result<(), ComponentError> {
             let erased_fns = self
                 .serialize_fns_map
@@ -346,7 +366,7 @@ mod serialize {
             net_id.to_bytes(writer)?;
             // SAFETY: the ErasedSerializeFns corresponds to type C
             unsafe {
-                (erased_fns.erased_serialize)(erased_fns, component, writer)?;
+                (erased_fns.erased_serialize)(erased_fns, component, writer, entity_map)?;
             }
             Ok(())
         }
@@ -711,6 +731,7 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
+            entity_map: Option<&mut EntityMap>,
         ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
@@ -718,7 +739,7 @@ mod delta {
                 .ok_or(ComponentError::MissingDeltaFns)?;
 
             let delta = (delta_fns.diff)(start_tick, start, new);
-            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind, entity_map)?;
             // drop the delta message
             (delta_fns.drop_delta_message)(delta);
             Ok(())
@@ -731,13 +752,14 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
+            entity_map: Option<&mut EntityMap>,
         ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
                 .ok_or(ComponentError::MissingDeltaFns)?;
             let delta = (delta_fns.diff_from_base)(component_data);
-            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind, entity_map)?;
             // drop the delta message
             (delta_fns.drop_delta_message)(delta);
             Ok(())
@@ -929,7 +951,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// upon deserialization
     pub fn add_map_entities(self) -> Self
     where
-        C: MapEntities + 'static,
+        C: Clone + MapEntities + 'static,
     {
         let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
         registry.add_map_entities::<C>();

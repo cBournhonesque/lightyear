@@ -79,7 +79,11 @@ pub(crate) fn handle_connection(
 pub(crate) fn handle_ball(trigger: Trigger<OnAdd, BallMarker>, mut commands: Commands) {
     commands
         .entity(trigger.entity())
-        .insert((Replicate::default(), Name::new("Ball")))
+        .insert((
+            Replicate::default(),
+            Name::new("Ball"),
+            DisabledComponent::<PlayerColor>::default(),
+        ))
         // NOTE: we need to make sure that the ball doesn't have authority!
         //  or should let the client receive updates even if it has HasAuthority
         .remove::<HasAuthority>();
@@ -156,7 +160,9 @@ fn player_movement(
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
+pub(crate) fn handle_predicted_spawn(
+    mut predicted: Query<&mut PlayerColor, (Added<Predicted>, With<PlayerId>)>,
+) {
     for mut color in predicted.iter_mut() {
         let hsva = Hsva {
             saturation: 0.4,
@@ -170,7 +176,7 @@ pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Adde
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+    mut interpolated: Query<&mut PlayerColor, (Added<Interpolated>, With<PlayerId>)>,
 ) {
     for mut color in interpolated.iter_mut() {
         let hsva = Hsva {

@@ -996,7 +996,7 @@ impl GroupChannel {
             return;
         }
         for (entity, components) in message.updates.into_iter() {
-            info!(?components, remote_entity = ?entity, "Received UpdateComponent");
+            debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
             let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick

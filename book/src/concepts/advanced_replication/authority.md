@@ -59,9 +59,16 @@ Under the hood, authority transfers do two things:
       accept updates from C2, and will discard the updates from C1.
 
 BUG:
-- the server needs to stop replicating if it doesn't have authority over the entity and it doesn't need to rebroadcast. Maybe when the authority changes, we automatically change the replication-target to exclude the new owner?
-- fix entity mapping on the receiver side? the new owner needs to map from remote to local?
-- in the example, why do we send updates in bursts of 4?
+- [x] the server needs to stop replicating if it doesn't have authority over the entity and it doesn't need to rebroadcast. Maybe when the authority changes, we automatically change the replication-target to exclude the new owner? Currently it's broadcasting and we're ignoring the changes
+- fix entity mapping on the receiver side? the new owner needs to map from remote to local? Use a bit to indicate if the entity was mapped or not.
+- why is the color not matching the authority?
+- in the example, why do we send updates in bursts of 4? because the replication interval is 100ms but tick rate is 64Hz?
+
+TESTS TO ADD:
+- authority is transferred, and the new owner tries to send. This time the new owner (on the send side) must do entity mapping!
+  - also with components that contain entity maps
+
+
 
 TODO:
 - maybe let the client always accept updates from the server, even if the client has `HasAuthority`? What is the goal of disallowing the client to accept updates from the server if it has

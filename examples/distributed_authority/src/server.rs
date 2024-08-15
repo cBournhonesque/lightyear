@@ -6,6 +6,8 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::protocol::*;
+use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
@@ -13,9 +15,7 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationTarget;
 use std::sync::Arc;
-
-use crate::protocol::*;
-use crate::shared;
+use std::time::Duration;
 
 pub struct ExampleServerPlugin;
 
@@ -142,12 +142,17 @@ pub(crate) fn movement(
 
 /// Assign authority over the ball to any player that comes close to it
 pub(crate) fn transfer_authority(
-    // timer so that we don't transfer authority every frame
+    // timer so that we only transfer authority every X seconds
     mut timer: Local<Timer>,
+    time: Res<Time>,
     mut commands: Commands,
     ball_q: Query<(Entity, &Position), With<BallMarker>>,
     player_q: Query<(&PlayerId, &Position)>,
 ) {
+    if !timer.tick(time.delta()).finished() {
+        return;
+    }
+    *timer = Timer::new(Duration::from_secs_f32(0.3), TimerMode::Once);
     for (ball_entity, ball_pos) in ball_q.iter() {
         // TODO: sort by player_id?
         for (player_id, player_pos) in player_q.iter() {
@@ -176,6 +181,7 @@ pub(crate) fn update_ball_color(
     player_q: Query<(&PlayerId, &PlayerColor), Without<BallMarker>>,
 ) {
     for (mut ball_color, authority) in balls.iter_mut() {
+        info!("Ball authority changed to {:?}", authority);
         match authority {
             AuthorityPeer::Server => {
                 ball_color.0 = Color::WHITE;
@@ -183,6 +189,7 @@ pub(crate) fn update_ball_color(
             AuthorityPeer::Client(client_id) => {
                 for (player_id, player_color) in player_q.iter() {
                     if player_id.0 == *client_id {
+                        info!("Set color client");
                         ball_color.0 = player_color.0;
                     }
                 }

@@ -16,13 +16,14 @@ use tracing::{instrument, Level};
 use super::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::packet::message_manager::MessageManager;
-use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick, TimeManager};
+use crate::prelude::{
+    ChannelKind, ComponentRegistry, PacketError, RemoteEntityMap, Tick, TimeManager,
+};
 use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::entity_map::NetworkEntity;
 use crate::shared::replication::error::ReplicationError;
 use crate::shared::replication::plugin::{ReplicationConfig, SendUpdatesMode};
 #[cfg(test)]
@@ -415,6 +416,7 @@ impl ReplicationSender {
         writer: &mut Writer,
         delta_manager: &mut DeltaManager,
         tick: Tick,
+        remote_entity_map: &mut RemoteEntityMap,
     ) -> Result<(), ReplicationError> {
         let group_channel = self.group_channels.entry(group_id).or_default();
         // Get the latest acked tick for this entity/component
@@ -425,6 +427,7 @@ impl ReplicationSender {
                 // so we can compute a diff
                 let old_data = delta_manager
                     .data
+                    // NOTE: remember to use the local entity for local bookkeeping
                     .get_component_value(entity, ack_tick, kind, group_id)
                     .ok_or(ReplicationError::DeltaCompressionError(
                         "could not find old component value to compute delta".to_string(),
@@ -440,7 +443,14 @@ impl ReplicationSender {
                     })?;
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
-                    registry.serialize_diff(ack_tick, old_data, component_data, writer, kind)?;
+                    registry.serialize_diff(
+                        ack_tick,
+                        old_data,
+                        component_data,
+                        writer,
+                        kind,
+                        Some(&mut remote_entity_map.local_to_remote),
+                    )?;
                 }
                 Ok::<Bytes, ReplicationError>(writer.split())
             })
@@ -448,11 +458,18 @@ impl ReplicationSender {
                 // SAFETY: the component_data is a pointer to a component that corresponds to kind
                 unsafe {
                     // compute a diff from the base value, and serialize that
-                    registry.serialize_diff_from_base_value(component_data, writer, kind)?;
+                    registry.serialize_diff_from_base_value(
+                        component_data,
+                        writer,
+                        kind,
+                        Some(&mut remote_entity_map.local_to_remote),
+                    )?;
                 }
                 Ok::<Bytes, ReplicationError>(writer.split())
             })?;
         trace!(?kind, "Inserting pending update!");
+        // use the network entity when serializing
+        let entity = remote_entity_map.to_remote(entity);
         self.prepare_component_update(entity, group_id, raw_data);
         Ok(())
     }

@@ -192,7 +192,7 @@ impl<M> MessageRegistration<'_, M> {
     /// upon deserialization
     pub fn add_map_entities(self) -> Self
     where
-        M: MapEntities + 'static,
+        M: Clone + MapEntities + 'static,
     {
         let mut registry = self.app.world_mut().resource_mut::<MessageRegistry>();
         registry.add_map_entities::<M>();
@@ -365,14 +365,14 @@ impl MessageRegistry {
         self.typed_map.insert(message_kind, message_type);
     }
 
-    pub(crate) fn try_add_map_entities<M: MapEntities + 'static>(&mut self) {
+    pub(crate) fn try_add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
         let kind = MessageKind::of::<M>();
         if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
             erased_fns.add_map_entities::<M>();
         }
     }
 
-    pub(crate) fn add_map_entities<M: MapEntities + 'static>(&mut self) {
+    pub(crate) fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
             .serialize_fns_map

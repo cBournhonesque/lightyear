@@ -79,8 +79,8 @@ pub(crate) mod send {
 
     use crate::prelude::{
         client::{is_connected, is_synced},
-        is_host_server, ComponentRegistry, DisabledComponent, RemoteEntityMap, ReplicateHierarchy,
-        Replicated, ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
+        is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy, Replicated,
+        ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
 
@@ -483,7 +483,7 @@ pub(crate) mod send {
 
             let writer = &mut sender.writer;
             if insert {
-                info!(?entity, "send insert");
+                trace!(?entity, "send insert");
                 if delta_compression {
                     // SAFETY: the component_data corresponds to the kind
                     unsafe {
@@ -491,10 +491,26 @@ pub(crate) mod send {
                             component_data,
                             writer,
                             component_kind,
+                            Some(
+                                &mut sender
+                                    .replication_receiver
+                                    .remote_entity_map
+                                    .local_to_remote,
+                            ),
                         )?
                     }
                 } else {
-                    component_registry.erased_serialize(component_data, writer, component_kind)?;
+                    component_registry.erased_serialize(
+                        component_data,
+                        writer,
+                        component_kind,
+                        Some(
+                            &mut sender
+                                .replication_receiver
+                                .remote_entity_map
+                                .local_to_remote,
+                        ),
+                    )?;
                 };
                 let raw_data = writer.split();
                 sender.replication_sender.prepare_component_insert(
@@ -504,7 +520,7 @@ pub(crate) mod send {
                     system_ticks.this_run(),
                 );
             } else {
-                info!(?entity, "send update");
+                trace!(?entity, "send update");
                 let send_tick = sender
                     .replication_sender
                     .group_channels
@@ -540,12 +556,19 @@ pub(crate) mod send {
                             writer,
                             &mut sender.delta_manager,
                             current_tick,
+                            &mut sender.replication_receiver.remote_entity_map,
                         )?;
                     } else {
                         component_registry.erased_serialize(
                             component_data,
                             writer,
                             component_kind,
+                            Some(
+                                &mut sender
+                                    .replication_receiver
+                                    .remote_entity_map
+                                    .local_to_remote,
+                            ),
                         )?;
                         let raw_data = writer.split();
                         sender

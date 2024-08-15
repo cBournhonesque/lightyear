@@ -2,7 +2,6 @@
 use bevy::ecs::entity::{EntityHashMap, EntityMapper};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
-use bevy::utils::hashbrown::hash_map::Entry;
 
 const MARKED: u64 = 1 << 62;
 
@@ -10,6 +9,15 @@ const MARKED: u64 = 1 << 62;
 pub struct EntityMap(pub(crate) EntityHashMap<Entity>);
 
 impl EntityMapper for EntityMap {
+    /// Try to map the entity using the map, or return the initial entity if it doesn't work
+    fn map_entity(&mut self, entity: Entity) -> Entity {
+        self.0.get(&entity).copied().unwrap_or(entity)
+    }
+}
+
+pub struct SendEntityMap(pub(crate) EntityHashMap<Entity>);
+
+impl EntityMapper for SendEntityMap {
     /// Try to map the entity using the map, or return the initial entity if it doesn't work
     fn map_entity(&mut self, entity: Entity) -> Entity {
         self.0.get(&entity).copied().unwrap_or(entity)
@@ -36,16 +44,6 @@ pub struct InterpolatedEntityMap {
     // useful for despawning, as we won't have access to the Confirmed/Interpolated components anymore
     pub(crate) confirmed_to_interpolated: EntityMap,
 }
-
-pub(crate) enum NetworkEntity {
-    /// When we send an entity to the network, we always map it to Remote first
-    Remote(RemoteEntity),
-    /// When we receive an entity to the network, we always map it to Local first
-    Local(LocalEntity),
-}
-
-pub(crate) struct RemoteEntity(Entity);
-pub(crate) struct LocalEntity(Entity);
 
 impl RemoteEntityMap {
     #[inline]

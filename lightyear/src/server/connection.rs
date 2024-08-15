@@ -836,7 +836,7 @@ impl Connection {
 impl ConnectionManager {
     pub(crate) fn prepare_entity_despawn(
         &mut self,
-        entity: Entity,
+        mut entity: Entity,
         group_id: ReplicationGroupId,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
@@ -847,6 +847,14 @@ impl ConnectionManager {
             //     "Send entity despawn for tick {:?}",
             //     self.tick_manager.tick()
             // );
+
+            // convert the entity to a network entity (possibly mapped)
+            entity = self
+                .connection_mut(client_id)?
+                .replication_receiver
+                .remote_entity_map
+                .to_remote(entity);
+
             self.connection_mut(client_id)?
                 .replication_sender
                 .prepare_entity_despawn(entity, group_id);
@@ -856,7 +864,7 @@ impl ConnectionManager {
 
     pub(crate) fn prepare_component_remove(
         &mut self,
-        entity: Entity,
+        mut entity: Entity,
         kind: ComponentNetId,
         group: &ReplicationGroup,
         target: NetworkTarget,
@@ -864,6 +872,11 @@ impl ConnectionManager {
         let group_id = group.group_id(Some(entity));
         debug!(?entity, ?kind, "Sending RemoveComponent");
         self.connected_targets(target).try_for_each(|client_id| {
+            entity = self
+                .connection_mut(client_id)?
+                .replication_receiver
+                .remote_entity_map
+                .to_remote(entity);
             // TODO: I don't think it's actually correct to only correct the changes since that action.
             //  what if we do:
             //  - Frame 1: update is ACKED
@@ -921,6 +934,7 @@ impl ConnectionManager {
         // the diff can be shared for every client since we're inserting
         if delta_compression {
             // store the component value in a storage shared between all connections, so that we can compute diffs
+            // Be mindful that we use the local entity for this, so that it can be shared between all connections
             // NOTE: we don't update the ack data because we only receive acks for ReplicationUpdate messages
             self.delta_manager.data.store_component_value(
                 entity,
@@ -930,27 +944,89 @@ impl ConnectionManager {
                 group_id,
                 component_registry,
             );
-            // SAFETY: the component_data corresponds to the kind
-            unsafe {
-                component_registry.serialize_diff_from_base_value(
+        }
+
+        // there is no entity mapping, so we can serialize the component once for all clients
+        let mut raw_data: Option<Bytes> = None;
+        if !component_registry.erased_is_map_entities(kind) {
+            if delta_compression {
+                // SAFETY: the component_data corresponds to the kind
+                unsafe {
+                    component_registry.serialize_diff_from_base_value(
+                        component_data,
+                        &mut self.writer,
+                        kind,
+                        None,
+                    )?;
+                }
+            } else {
+                component_registry.erased_serialize(
                     component_data,
                     &mut self.writer,
                     kind,
+                    None,
                 )?;
-            }
-        } else {
-            component_registry.erased_serialize(component_data, &mut self.writer, kind)?;
-        };
-        let raw_data = self.writer.split();
+            };
+            raw_data = Some(self.writer.split());
+        }
         self.connected_targets(actual_target)
             .try_for_each(|client_id| {
+                let entity = self
+                    .connection_mut(client_id)?
+                    .replication_receiver
+                    .remote_entity_map
+                    .to_remote(entity);
+
+                // there is entity mapping, so we might need to serialize the component differently for each client
+                // (although most of the time there is not mapping done on the send side)
+                // It would be nice if we could check ahead of time if there is any mapping that needs to be done
+                if raw_data.is_none() {
+                    if delta_compression {
+                        // SAFETY: the component_data corresponds to the kind
+                        unsafe {
+                            component_registry.serialize_diff_from_base_value(
+                                component_data,
+                                &mut self.writer,
+                                kind,
+                                // we do this to avoid split-borrow errors...
+                                Some(
+                                    &mut self
+                                        .connections
+                                        .get_mut(&client_id)
+                                        .ok_or(ServerError::ClientIdNotFound(client_id))?
+                                        .replication_receiver
+                                        .remote_entity_map
+                                        .local_to_remote,
+                                ),
+                            )?;
+                        }
+                    } else {
+                        component_registry.erased_serialize(
+                            component_data,
+                            &mut self.writer,
+                            kind,
+                            // we do this to avoid split-borrow errors...
+                            Some(
+                                &mut self
+                                    .connections
+                                    .get_mut(&client_id)
+                                    .ok_or(ServerError::ClientIdNotFound(client_id))?
+                                    .replication_receiver
+                                    .remote_entity_map
+                                    .local_to_remote,
+                            ),
+                        )?;
+                    };
+                    // write a new message for each client, because we need to do entity mapping
+                    raw_data = Some(self.writer.split());
+                }
+
                 // trace!(
                 //     ?entity,
                 //     component = ?kind,
                 //     tick = ?self.tick_manager.tick(),
                 //     "Inserting single component"
                 // );
-                let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
 
                 // update the collect changes tick
                 // replication_sender
@@ -960,8 +1036,12 @@ impl ConnectionManager {
                 //     .update_collect_changes_since_this_tick(system_current_tick);
                 self.connection_mut(client_id)?
                     .replication_sender
-                    // TODO: avoid the clone by using Arc<u8>?
-                    .prepare_component_insert(entity, group_id, raw_data.clone(), bevy_tick);
+                    .prepare_component_insert(
+                        entity,
+                        group_id,
+                        raw_data.clone().unwrap(),
+                        bevy_tick,
+                    );
                 Ok(())
             })
     }
@@ -983,9 +1063,9 @@ impl ConnectionManager {
         let mut num_targets = 0;
         let mut existing_bytes: Option<Bytes> = None;
         self.connected_targets(target).try_for_each(|client_id| {
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            let replication_sender = &mut self.connections.get_mut(&client_id).ok_or(ServerError::ClientIdNotFound(client_id))?.replication_sender;
-            let send_tick = replication_sender
+            let connection = self.connections.get_mut(&client_id).ok_or(ServerError::ClientIdNotFound(client_id))?;
+            let send_tick = connection
+                .replication_sender
                 .group_channels
                 .entry(group_id)
                 .or_default()
@@ -1008,17 +1088,28 @@ impl ConnectionManager {
                     name = ?registry.name(kind),
                     "Updating single component"
                 );
+
+
+
                 if delta_compression {
-                    replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick)?;
+                    connection.replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick, &mut connection.replication_receiver.remote_entity_map)?;
                 } else {
                     // we serialize once and re-use the result for all clients
                     // serialize only if there is at least one client that needs the update
                     if existing_bytes.is_none() {
-                        registry.erased_serialize(component, &mut self.writer, kind)?;
-                        existing_bytes = Some(self.writer.split());
+                        registry.erased_serialize(component, &mut self.writer, kind, Some(&mut connection.replication_receiver.remote_entity_map.local_to_remote))?;
+                        // re-use the bytes only if there is no entity mapping required
+                        if !registry.erased_is_map_entities(kind) {
+                            existing_bytes = Some(self.writer.split());
+                        }
                     }
                     let raw_data = existing_bytes.clone().unwrap();
-                    replication_sender.prepare_component_update(entity, group_id, raw_data);
+                    // use the network entity
+                    let entity = connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .to_remote(entity);
+                    connection.replication_sender.prepare_component_update(entity, group_id, raw_data);
                 }
             }
             Ok::<(), ServerError>(())
