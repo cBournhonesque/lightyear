@@ -62,4 +62,11 @@ TODO:
 - maybe let the client always accept updates from the server, even if the client has `HasAuthority`? What is the goal of disallowing the client to accept updates from the server if it has
 `HasAuthority`?
 - maybe include a timestamp/tick to the `ChangeAuthority` messages so that any in-flight replication updates can be handled correctly? 
+  - authority changes from C1 to C2 on tick 7. All updates from C1 that are previous to tick 7 are accepted by the server. Updates after that are discarded. We receive updates from C2 as soon as 
+    it receives the `ChangeAuthority` message.
+  - authority changes from C1 to S on tick 7. All updates from C1 that are previous to tick 7 are accepted by the server.
+- how do we deal with Prediction?
+  - ideally, if an entity is client-authoritative, then it should interact with 0 delay with the client predicted entities. But currently only the Confirmed entity would get the Authority. Would 
+    we also want to sync the HasAuthority component so that it gets added to Predicted?
 - maybe have an API `request_authority` where the client requests the authority? and receives a response from the server telling it if the request is accepted or not?
+ Look at this page: https://docs-multiplayer.unity3d.com/netcode/current/basics/ownership/

@@ -460,6 +460,7 @@ pub(crate) mod send {
         if insert || update {
             let writer = &mut sender.writer;
             if insert {
+                info!("send insert");
                 if delta_compression {
                     // SAFETY: the component_data corresponds to the kind
                     unsafe {
@@ -480,6 +481,7 @@ pub(crate) mod send {
                     system_ticks.this_run(),
                 );
             } else {
+                info!("send update");
                 let send_tick = sender
                     .replication_sender
                     .group_channels

@@ -16,7 +16,7 @@ use crate::utils::captures::Captures;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{DespawnRecursiveExt, Entity, EntityWorldMut, World};
 use bevy::utils::HashSet;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
@@ -108,7 +108,7 @@ impl ReplicationReceiver {
     /// The remote_tick is the tick at which the message was buffered and sent by the remote client.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn recv_updates(&mut self, updates: EntityUpdatesMessage, remote_tick: Tick) {
-        trace!(?updates, ?remote_tick, "Received replication message");
+        info!(?updates, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(updates.group_id).or_default();
 
         // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
@@ -994,7 +994,7 @@ impl GroupChannel {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick
                 // later than the despawn action message
-                debug!("update for entity that doesn't exist?");
+                info!(remote_entity = ?entity, "update for entity that doesn't exist?");
                 continue;
             };
             if !Self::authority_check(&mut local_entity_mut, remote) {
