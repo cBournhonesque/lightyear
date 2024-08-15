@@ -1059,7 +1059,7 @@ pub(crate) mod send {
             stepper.frame_step();
 
             // check that the entity was spawned
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1144,7 +1144,7 @@ pub(crate) mod send {
             stepper.frame_step();
 
             // check that entity was spawned
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app_1
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1194,7 +1194,7 @@ pub(crate) mod send {
                     .remote_entity_map
                     .get_local(server_entity)
                     .unwrap(),
-                &client_entity
+                client_entity
             );
             assert!(stepper
                 .client_app
@@ -1228,7 +1228,7 @@ pub(crate) mod send {
             stepper.frame_step();
             stepper.frame_step();
 
-            let client_entity_1 = *stepper
+            let client_entity_1 = stepper
                 .client_app_1
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1274,7 +1274,7 @@ pub(crate) mod send {
             stepper.frame_step();
 
             // check that the entity was spawned
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1321,7 +1321,7 @@ pub(crate) mod send {
             stepper.frame_step();
 
             // check that the entity was spawned
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1384,7 +1384,7 @@ pub(crate) mod send {
             stepper.frame_step();
 
             // check that the entity was spawned on each client
-            let client_entity_1 = *stepper
+            let client_entity_1 = stepper
                 .client_app_1
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1392,7 +1392,7 @@ pub(crate) mod send {
                 .remote_entity_map
                 .get_local(server_entity_1)
                 .expect("entity was not replicated to client 1");
-            let client_entity_2 = *stepper
+            let client_entity_2 = stepper
                 .client_app_2
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1451,7 +1451,7 @@ pub(crate) mod send {
             stepper.frame_step();
             stepper.frame_step();
 
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1491,7 +1491,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1534,7 +1534,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1581,7 +1581,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let tick = stepper.server_tick();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1635,7 +1635,7 @@ pub(crate) mod send {
                 .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID), server_entity);
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1696,7 +1696,7 @@ pub(crate) mod send {
             stepper.frame_step();
             stepper.frame_step();
 
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1728,7 +1728,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1776,7 +1776,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity_1 = *stepper
+            let client_entity_1 = stepper
                 .client_app_1
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1784,7 +1784,7 @@ pub(crate) mod send {
                 .remote_entity_map
                 .get_local(server_entity)
                 .expect("entity was not replicated to client");
-            let client_entity_2 = *stepper
+            let client_entity_2 = stepper
                 .client_app_2
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1843,7 +1843,7 @@ pub(crate) mod send {
                 .gain_relevance(ClientId::Netcode(TEST_CLIENT_ID_2), server_entity);
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity_1 = *stepper
+            let client_entity_1 = stepper
                 .client_app_1
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1851,7 +1851,7 @@ pub(crate) mod send {
                 .remote_entity_map
                 .get_local(server_entity)
                 .expect("entity was not replicated to client");
-            let client_entity_2 = *stepper
+            let client_entity_2 = stepper
                 .client_app_2
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1890,7 +1890,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -1963,7 +1963,7 @@ pub(crate) mod send {
             stepper.frame_step();
             stepper.frame_step();
 
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -2002,7 +2002,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -2062,7 +2062,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let insert_tick = stepper.server_tick();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -2209,7 +2209,7 @@ pub(crate) mod send {
             let insert_tick = stepper.server_tick();
             dbg!(insert_tick);
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -2392,7 +2392,7 @@ pub(crate) mod send {
             stepper.frame_step();
             let insert_tick = stepper.server_tick();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -2578,7 +2578,7 @@ pub(crate) mod send {
             stepper.frame_step();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -2683,7 +2683,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -2745,7 +2745,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -2794,7 +2794,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()
@@ -2846,7 +2846,7 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
-            let client_entity = *stepper
+            let client_entity = stepper
                 .client_app
                 .world()
                 .resource::<client::ConnectionManager>()

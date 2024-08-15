@@ -84,7 +84,7 @@ mod tests {
         stepper.frame_step();
         stepper.frame_step();
         // check that the entity was replicated
-        let client_entity = *stepper
+        let client_entity = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()
@@ -160,7 +160,7 @@ mod tests {
             stepper.frame_step();
         }
         // check that the entity was replicated
-        let server_entity = *stepper
+        let server_entity = stepper
             .server_app
             .world()
             .resource::<server::ConnectionManager>()

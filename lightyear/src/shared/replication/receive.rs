@@ -108,12 +108,13 @@ impl ReplicationReceiver {
     /// The remote_tick is the tick at which the message was buffered and sent by the remote client.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn recv_updates(&mut self, updates: EntityUpdatesMessage, remote_tick: Tick) {
-        info!(?updates, ?remote_tick, "Received replication message");
+        trace!(?updates, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(updates.group_id).or_default();
 
         // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
         // if we have already applied a more recent update for this group, no need to keep this one (or should we keep it for history?)
         if channel.latest_tick.is_some_and(|t| remote_tick <= t) {
+            trace!("discard because the update is older than the latest tick");
             return;
         }
 
@@ -185,7 +186,7 @@ impl ReplicationReceiver {
     ) -> Option<ReplicationGroupId> {
         self.remote_entity_map
             .get_remote(confirmed_entity)
-            .and_then(|remote_entity| self.remote_entity_to_group.get(remote_entity))
+            .and_then(|remote_entity| self.remote_entity_to_group.get(&remote_entity))
             .copied()
     }
 
@@ -194,7 +195,7 @@ impl ReplicationReceiver {
     fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel> {
         self.remote_entity_map
             .get_remote(local_entity)
-            .and_then(|remote_entity| self.channel_by_remote(*remote_entity))
+            .and_then(|remote_entity| self.channel_by_remote(remote_entity))
     }
 
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
@@ -254,7 +255,7 @@ impl ReplicationReceiver {
                 SpawnAction::Spawn => {
                     self.remote_entity_to_group.insert(*remote_entity, group_id);
                     if let Some(local_entity) = self.remote_entity_map.get_local(*remote_entity) {
-                        if world.get_entity(*local_entity).is_some() {
+                        if world.get_entity(local_entity).is_some() {
                             warn!("Received spawn for an entity that already exists");
                             continue;
                         }
@@ -820,9 +821,12 @@ impl GroupChannel {
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
+                    // TODO: update this to local_entity_to_group??
                     remote_entity_to_group.insert(*remote_entity, group_id);
+                    // TODO ABOVE
+
                     if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
-                        if world.get_entity(*local_entity).is_some() {
+                        if world.get_entity(local_entity).is_some() {
                             warn!("Received spawn for an entity that already exists");
                             continue;
                         }
@@ -843,6 +847,9 @@ impl GroupChannel {
                     //     interpolated: None,
                     //     tick,
                     // });
+
+                    // TODO: add abstractions to protect against this, maybe create a MappedEntity type?
+                    // NOTE: at this point we know that the remote entity was not mapped!
 
                     // TODO: maybe use command-batching?
                     let mut local_entity = world.spawn(Replicated { from: remote });
@@ -989,7 +996,7 @@ impl GroupChannel {
             return;
         }
         for (entity, components) in message.updates.into_iter() {
-            debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
+            info!(?components, remote_entity = ?entity, "Received UpdateComponent");
             let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick
@@ -998,7 +1005,7 @@ impl GroupChannel {
                 continue;
             };
             if !Self::authority_check(&mut local_entity_mut, remote) {
-                debug!("authority check failed for entity: {:?}", entity);
+                info!("authority check failed for entity: {:?}", entity);
                 continue;
             }
             for component in components {
@@ -1394,7 +1401,7 @@ mod tests {
         // check that the entity mapping was updated
         assert_eq!(
             manager.remote_entity_map.get_local(remote_entity).unwrap(),
-            &local_entity
+            local_entity
         );
     }
 }

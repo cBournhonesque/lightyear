@@ -217,7 +217,7 @@ mod tests {
         }
 
         // check that the server has received the entity
-        let server_entity = *stepper
+        let server_entity = stepper
             .server_app
             .world()
             .resource::<server::ConnectionManager>()

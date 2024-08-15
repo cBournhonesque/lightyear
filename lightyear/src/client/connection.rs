@@ -617,7 +617,7 @@ mod tests {
         stepper.frame_step();
 
         // check that the entity was spawned
-        let client_entity = *stepper
+        let client_entity = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()

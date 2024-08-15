@@ -268,7 +268,7 @@ mod tests {
             .is_some());
 
         // check that the entity is replicated
-        let client_entity = *stepper
+        let client_entity = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()

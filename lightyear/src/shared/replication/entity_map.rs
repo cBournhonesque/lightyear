@@ -4,6 +4,8 @@ use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use bevy::utils::hashbrown::hash_map::Entry;
 
+const MARKED: u64 = 1 << 62;
+
 #[derive(Default, Debug, Reflect, Deref, DerefMut)]
 pub struct EntityMap(pub(crate) EntityHashMap<Entity>);
 
@@ -35,6 +37,16 @@ pub struct InterpolatedEntityMap {
     pub(crate) confirmed_to_interpolated: EntityMap,
 }
 
+pub(crate) enum NetworkEntity {
+    /// When we send an entity to the network, we always map it to Remote first
+    Remote(RemoteEntity),
+    /// When we receive an entity to the network, we always map it to Local first
+    Local(LocalEntity),
+}
+
+pub(crate) struct RemoteEntity(Entity);
+pub(crate) struct LocalEntity(Entity);
+
 impl RemoteEntityMap {
     #[inline]
     pub fn insert(&mut self, remote_entity: Entity, local_entity: Entity) {
@@ -51,14 +63,60 @@ impl RemoteEntityMap {
     //     Box::new(&self.remote_to_local)
     // }
 
+    /// Get the local entity corresponding to the remote entity
+    ///
+    /// It's possible that the remote_entity was already mapped by the sender,
+    /// in which case we don't want to map it again
     #[inline]
-    pub(crate) fn get_local(&self, remote_entity: Entity) -> Option<&Entity> {
-        self.remote_to_local.get(&remote_entity)
+    pub(crate) fn get_local(&self, remote_entity: Entity) -> Option<Entity> {
+        // the remote_entity is actually local, because it has already been mapped!
+        let unmapped = Self::mark_unmapped(remote_entity);
+        if Self::is_mapped(remote_entity) {
+            return Some(unmapped);
+        };
+        self.remote_to_local.get(&unmapped).copied()
     }
 
+    /// We want to map entities in two situations:
+    /// - an entity has been replicated to use so we've added it in our Remote->Local mapping. When we receive an entity
+    /// from the sender, we want to check if the entity has been mapped before.
+    /// - but in some situations the sender has already mapped the entity; maybe it's because the authority has changes,
+    /// or because the receiver is sending a message about an entity so it does the mapping locally. In which case we don't want
+    /// both the receiver and the sender to apply a mapping, because it wouldn't work.
+    ///
+    /// So we use a dead bit on the entity to mark it as mapped. If an entity is already marked as mapped, the receiver won't try
+    /// to map it again
+    pub(crate) const fn mark_mapped(entity: Entity) -> Entity {
+        let mut bits = entity.to_bits();
+        bits |= MARKED;
+        Entity::from_bits(bits)
+    }
+
+    pub(crate) const fn mark_unmapped(entity: Entity) -> Entity {
+        let mut bits = entity.to_bits();
+        bits &= !MARKED;
+        Entity::from_bits(bits)
+    }
+
+    /// Returns true if the entity already has been mapped
+    pub(crate) const fn is_mapped(entity: Entity) -> bool {
+        entity.to_bits() & MARKED != 0
+    }
+
+    /// Convert a local entity to a network entity that we can send
+    /// We will try to map it to a remote entity if we can
+    pub(crate) fn to_remote(&self, local_entity: Entity) -> Entity {
+        if let Some(remote_entity) = self.local_to_remote.get(&local_entity) {
+            Self::mark_mapped(*remote_entity)
+        } else {
+            local_entity
+        }
+    }
+
+    /// Get the remote entity corresponding to the local entity in the entity map
     #[inline]
-    pub(crate) fn get_remote(&self, local_entity: Entity) -> Option<&Entity> {
-        self.local_to_remote.get(&local_entity)
+    pub(crate) fn get_remote(&self, local_entity: Entity) -> Option<Entity> {
+        self.local_to_remote.get(&local_entity).copied()
     }
 
     /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
@@ -68,43 +126,25 @@ impl RemoteEntityMap {
         remote_entity: Entity,
     ) -> Option<EntityWorldMut<'a>> {
         self.get_local(remote_entity)
-            .and_then(|e| world.get_entity_mut(*e))
+            .and_then(|e| world.get_entity_mut(e))
     }
 
-    /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
-    pub(super) fn get_by_remote_or_spawn<'a>(
-        &mut self,
-        world: &'a mut World,
-        remote_entity: Entity,
-    ) -> EntityWorldMut<'a> {
-        match self.remote_to_local.entry(remote_entity) {
-            Entry::Occupied(entry) => world.entity_mut(*entry.get()),
-            Entry::Vacant(entry) => {
-                let local_entity = world.spawn_empty();
-                entry.insert(local_entity.id());
-                self.local_to_remote
-                    .insert(local_entity.id(), remote_entity);
-                local_entity
+    /// Remove the entity from our mapping and return the local entity
+    pub(super) fn remove_by_remote(&mut self, remote_entity: Entity) -> Option<Entity> {
+        // the entity is actually local, because it has already been mapped!
+        if Self::is_mapped(remote_entity) {
+            let local = Self::mark_unmapped(remote_entity);
+            if let Some(remote) = self.local_to_remote.remove(&local) {
+                self.remote_to_local.remove(&remote);
+                return Some(local);
+            }
+        } else {
+            if let Some(local) = self.remote_to_local.remove(&remote_entity) {
+                self.local_to_remote.remove(&local);
+                return Some(local);
             }
         }
-    }
-
-    pub(super) fn remove_by_remote(&mut self, remote_entity: Entity) -> Option<Entity> {
-        let local_entity = self.remote_to_local.remove(&remote_entity);
-        if let Some(local_entity) = local_entity {
-            self.local_to_remote.remove(&local_entity);
-        }
-        local_entity
-    }
-
-    #[inline]
-    pub fn to_local(&self) -> &EntityHashMap<Entity> {
-        &self.remote_to_local
-    }
-
-    #[inline]
-    pub fn to_remote(&self) -> &EntityHashMap<Entity> {
-        &self.local_to_remote
+        return None;
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -119,11 +159,20 @@ impl RemoteEntityMap {
 
 #[cfg(test)]
 mod tests {
-
     use crate::prelude::server::Replicate;
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
+    use bevy::prelude::Entity;
+
+    /// Test marking entities as mapped or not
+    #[test]
+    fn test_marking_entity() {
+        let entity = Entity::from_raw(1);
+        assert!(!RemoteEntityMap::is_mapped(entity));
+        let entity = RemoteEntityMap::mark_mapped(entity);
+        assert!(RemoteEntityMap::is_mapped(entity));
+    }
 
     // An entity gets replicated from server to client,
     // then a component gets removed from that entity on server,
@@ -143,7 +192,7 @@ mod tests {
         stepper.frame_step();
 
         // Check that the entity is replicated to client
-        let client_entity = *stepper
+        let client_entity = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()
@@ -171,7 +220,7 @@ mod tests {
         stepper.frame_step();
 
         // Check that this entity was replicated correctly, and that the component got mapped
-        let client_entity_2 = *stepper
+        let client_entity_2 = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()

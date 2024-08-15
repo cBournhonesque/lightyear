@@ -58,6 +58,11 @@ Under the hood, authority transfers do two things:
     - if C2 receives the message first, then for a short period of time both clients have authority. However the `AuthorityPeer` is immediately updated on the server, so the server will only 
       accept updates from C2, and will discard the updates from C1.
 
+BUG:
+- the server needs to stop replicating if it doesn't have authority over the entity and it doesn't need to rebroadcast. Maybe when the authority changes, we automatically change the replication-target to exclude the new owner?
+- fix entity mapping on the receiver side? the new owner needs to map from remote to local?
+- in the example, why do we send updates in bursts of 4?
+
 TODO:
 - maybe let the client always accept updates from the server, even if the client has `HasAuthority`? What is the goal of disallowing the client to accept updates from the server if it has
 `HasAuthority`?

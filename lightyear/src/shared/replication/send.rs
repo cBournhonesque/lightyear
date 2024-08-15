@@ -13,6 +13,7 @@ use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
+use super::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::packet::message_manager::MessageManager;
 use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick, TimeManager};
@@ -21,6 +22,7 @@ use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
+use crate::shared::replication::entity_map::NetworkEntity;
 use crate::shared::replication::error::ReplicationError;
 use crate::shared::replication::plugin::{ReplicationConfig, SendUpdatesMode};
 #[cfg(test)]
@@ -28,8 +30,6 @@ use {
     super::{EntityActionsMessage, EntityUpdatesMessage},
     crate::utils::captures::Captures,
 };
-
-use super::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 

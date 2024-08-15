@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use bevy::prelude::{Entity, Resource};
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 use hashbrown::HashMap;
 
@@ -49,8 +49,10 @@ impl ToBytes for Entity {
     }
 
     fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+        dbg!(&self);
         buffer.write_varint(self.index() as u64)?;
-        buffer.write_varint(self.generation() as u64)?;
+        buffer.write_u32::<NetworkEndian>(self.generation())?;
+        // buffer.write_varint(self.generation() as u64)?;
         Ok(())
     }
 
@@ -59,8 +61,14 @@ impl ToBytes for Entity {
         Self: Sized,
     {
         let index = buffer.read_varint()?;
-        let generation = buffer.read_varint()?;
+        dbg!(&index);
+        // TODO: investigate why it doesn't work with varint?
+        // NOTE: not that useful now that we use a high bit to symbolize 'is_masked'
+        // let generation = buffer.read_varint()?;
+        let generation = buffer.read_u32::<NetworkEndian>()? as u64;
+        dbg!(&generation);
         let bits = generation << 32 | index;
+        dbg!(&bits);
         Ok(Entity::from_bits(bits))
     }
 }
