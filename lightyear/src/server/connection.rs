@@ -439,7 +439,6 @@ impl ConnectionManager {
         client_id: ClientId,
         component_registry: &ComponentRegistry,
         data: &mut C,
-        bevy_tick: BevyTick,
     ) -> Result<(), ServerError> {
         let net_id = component_registry
             .get_net_id::<C>()
@@ -450,7 +449,7 @@ impl ConnectionManager {
         let raw_data = self.writer.split();
         self.connection_mut(client_id)?
             .replication_sender
-            .prepare_component_insert(entity, group_id, raw_data, bevy_tick);
+            .prepare_component_insert(entity, group_id, raw_data);
         Ok(())
     }
 }
@@ -899,7 +898,6 @@ impl ConnectionManager {
         target: NetworkTarget,
         delta_compression: bool,
         tick: Tick,
-        bevy_tick: BevyTick,
     ) -> Result<(), ServerError> {
         // TODO: first check that the target is not empty!
 
@@ -1031,12 +1029,7 @@ impl ConnectionManager {
                 //     .update_collect_changes_since_this_tick(system_current_tick);
                 self.connection_mut(client_id)?
                     .replication_sender
-                    .prepare_component_insert(
-                        entity,
-                        group_id,
-                        raw_data.clone().unwrap(),
-                        bevy_tick,
-                    );
+                    .prepare_component_insert(entity, group_id, raw_data.clone().unwrap());
                 Ok(())
             })
     }

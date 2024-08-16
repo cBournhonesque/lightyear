@@ -817,7 +817,7 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            info!(?remote_entity, "Received entity actions");
+            info!(?remote_entity, ?actions, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {

@@ -68,6 +68,14 @@ TESTS TO ADD:
 - authority is transferred, and the new owner tries to send. This time the new owner (on the send side) must do entity mapping!
   - also with components that contain entity maps
   - in both directions
+- what to do with prepredicted?
+  - client spawns an entity with PrePredicted
+  - server receives it, adds Replicate
+  - currently: server replicates a spawn, which will become the Confirmed entity on the client.
+    - if the Spawn has entity mapping, then we're screwed! (because it maps to the client entity)
+    - if the Spawn has no entity mapping, but the Components don't, we're screwed (it will be interpreted as 2 different actions)
+    - sol 1: use the local entity for bookkeeping and apply entity mapping at the end for the entire action. If the action has a spawn, no mapping. (because it's a new entity)
+    - sol 2: we change how PrePredicted works. It spawns a Confirmed AND a Predicted on client; and replicates the Confirmed. Then the server transfers authority to the client upon receipt.
 - test with conflict (both client and server spawn entity E and replicate it to the remote) 
 
 

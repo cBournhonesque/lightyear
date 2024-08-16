@@ -455,6 +455,7 @@ pub(crate) mod send {
         // or if we start replicating the entity
         // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
         //  ReplicateToServer components to `changed` when the client first connects so that we replicate existing entities to the server
+        //  That is why `force_insert = True` if ReplicateToServer is changed.
         if component_ticks.is_added(system_ticks.last_run(), system_ticks.this_run())
             || force_insert
         {
@@ -513,12 +514,9 @@ pub(crate) mod send {
                     )?;
                 };
                 let raw_data = writer.split();
-                sender.replication_sender.prepare_component_insert(
-                    entity,
-                    group_id,
-                    raw_data,
-                    system_ticks.this_run(),
-                );
+                sender
+                    .replication_sender
+                    .prepare_component_insert(entity, group_id, raw_data);
             } else {
                 trace!(?entity, "send update");
                 let send_tick = sender

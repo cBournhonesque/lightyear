@@ -355,7 +355,6 @@ impl ReplicationSender {
         entity: Entity,
         group_id: ReplicationGroupId,
         component: Bytes,
-        bevy_tick: BevyTick,
     ) {
         self.group_with_actions.insert(group_id);
         self.group_channels
@@ -563,6 +562,8 @@ impl ReplicationSender {
             // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
             let channel = self.group_channels.get_mut(&group_id).unwrap();
             let mut actions = std::mem::take(&mut channel.pending_actions);
+            // TODO: should we be careful about not mapping entities for actions if it's a Spawn action?
+            //  how could that happen?
             // add any updates for that group
             if self.group_with_updates.remove(&group_id) {
                 // drain so that we keep the allocated memory
@@ -1111,7 +1112,7 @@ mod tests {
 
         // updates should be grouped with actions
         manager.prepare_entity_spawn(entity_1, group_1);
-        manager.prepare_component_insert(entity_1, group_1, raw_1.clone(), BevyTick::new(0));
+        manager.prepare_component_insert(entity_1, group_1, raw_1.clone());
         manager.prepare_component_remove(entity_1, group_1, net_id_2);
         manager.prepare_component_update(entity_1, group_1, raw_2.clone());
 

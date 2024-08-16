@@ -441,6 +441,13 @@ pub(crate) mod send {
                     system_ticks.last_run(),
                     system_ticks.this_run(),
                 );
+                let authority_peer_ticks = unsafe {
+                    entity_ref
+                        .get_change_ticks::<AuthorityPeer>()
+                        .unwrap_unchecked()
+                };
+                let authority_peer_is_changed =
+                    authority_peer_ticks.is_added(system_ticks.last_run(), system_ticks.this_run());
 
                 // b. add entity despawns from visibility or target change
                 replicate_entity_despawn(
@@ -502,6 +509,7 @@ pub(crate) mod send {
                         data,
                         component_ticks,
                         &replication_target,
+                        replication_target.is_added() || authority_peer_is_changed,
                         sync_target,
                         group_id,
                         authority_peer,
@@ -636,7 +644,6 @@ pub(crate) mod send {
                         client_id,
                         component_registry,
                         &mut Controlled,
-                        system_ticks.this_run(),
                     )?;
                 }
                 // if we need to do prediction/interpolation, send a marker component to indicate that to the client
@@ -648,7 +655,6 @@ pub(crate) mod send {
                         client_id,
                         component_registry,
                         &mut ShouldBePredicted,
-                        system_ticks.this_run(),
                     )?;
                 }
                 if sync_target.is_some_and(|sync| sync.interpolation.targets(&client_id)) {
@@ -658,7 +664,6 @@ pub(crate) mod send {
                         client_id,
                         component_registry,
                         &mut ShouldBeInterpolated,
-                        system_ticks.this_run(),
                     )?;
                 }
 
@@ -802,6 +807,7 @@ pub(crate) mod send {
         component_data: Ptr,
         component_ticks: ComponentTicks,
         replication_target: &Ref<ReplicationTarget>,
+        force_insert: bool,
         sync_target: Option<&SyncTarget>,
         group_id: ReplicationGroupId,
         authority_peer: Option<&AuthorityPeer>,
@@ -837,7 +843,8 @@ pub(crate) mod send {
                                         if component_ticks.is_added(
                                             system_ticks.last_run(),
                                             system_ticks.this_run(),
-                                        ) {
+                                        ) || force_insert
+                                        {
                                             insert_clients.push(*client_id);
                                         } else {
                                             // for components that were not newly added, only send as updates
@@ -869,7 +876,7 @@ pub(crate) mod send {
                     //  Or should we just have ComponentInsert and ComponentUpdate be the same thing? Or we check
                     //  on the receiver's entity world mut to know if we emit a ComponentInsert or a ComponentUpdate?
                     if component_ticks.is_added(system_ticks.last_run(), system_ticks.this_run())
-                        || replication_target.is_added()
+                        || force_insert
                     {
                         trace!("component is added or replication_target is added");
                         insert_target.union(target);
@@ -922,7 +929,6 @@ pub(crate) mod send {
                         insert_target,
                         delta_compression,
                         current_tick,
-                        system_ticks.this_run(),
                     )
                     .inspect_err(|e| {
                         error!("error sending component insert: {:?}", e);
