@@ -441,13 +441,6 @@ pub(crate) mod send {
                     system_ticks.last_run(),
                     system_ticks.this_run(),
                 );
-                let authority_peer_ticks = unsafe {
-                    entity_ref
-                        .get_change_ticks::<AuthorityPeer>()
-                        .unwrap_unchecked()
-                };
-                let authority_peer_is_changed =
-                    authority_peer_ticks.is_added(system_ticks.last_run(), system_ticks.this_run());
 
                 // b. add entity despawns from visibility or target change
                 replicate_entity_despawn(
@@ -509,7 +502,6 @@ pub(crate) mod send {
                         data,
                         component_ticks,
                         &replication_target,
-                        replication_target.is_added() || authority_peer_is_changed,
                         sync_target,
                         group_id,
                         authority_peer,
@@ -807,7 +799,6 @@ pub(crate) mod send {
         component_data: Ptr,
         component_ticks: ComponentTicks,
         replication_target: &Ref<ReplicationTarget>,
-        force_insert: bool,
         sync_target: Option<&SyncTarget>,
         group_id: ReplicationGroupId,
         authority_peer: Option<&AuthorityPeer>,
@@ -823,6 +814,9 @@ pub(crate) mod send {
         let target = override_target.map_or(&replication_target.target, |override_target| {
             override_target
         });
+        // TODO: is this correct?
+        // to be safe, if the replication target is added, we force an insert
+        let force_insert = replication_target.is_changed();
         let (mut insert_target, mut update_target): (NetworkTarget, NetworkTarget) =
             match visibility {
                 Some(visibility) => {

@@ -199,9 +199,9 @@ mod tests {
     /// Simple preprediction case
     #[test]
     fn test_pre_prediction() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::INFO)
-            .init();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::INFO)
+        //     .init();
         let mut stepper = BevyStepper::default();
 
         // spawn a pre-predicted entity on the client

@@ -292,18 +292,11 @@ pub(crate) mod send {
                         .get_change_ticks::<ReplicateToServer>()
                         .unwrap_unchecked()
                 };
-                let has_authority_ticks = unsafe {
-                    entity_ref
-                        .get_change_ticks::<HasAuthority>()
-                        .unwrap_unchecked()
-                };
                 // the update will be 'insert' instead of update if the ReplicateToServer component is new
                 // or the HasAuthority component is new. That's because the remote cannot receive update
                 // without receiving an action first (to populate the latest_tick)
                 let replication_is_changed = replication_target_ticks
                     .is_changed(system_ticks.last_run(), system_ticks.this_run());
-                let has_authority_is_changed =
-                    has_authority_ticks.is_added(system_ticks.last_run(), system_ticks.this_run());
 
                 // TODO: do the entity mapping here!
 
@@ -350,7 +343,7 @@ pub(crate) mod send {
                         replicated_component.kind,
                         data,
                         component_ticks,
-                        replication_is_changed || has_authority_is_changed,
+                        replication_is_changed,
                         group_id,
                         replicated_component.delta_compression,
                         replicated_component.replicate_once,

@@ -710,14 +710,20 @@ impl UpdatesBuffer {
     ///
     /// or None if there are None
     fn max_index_to_apply(&self, latest_tick: Option<Tick>) -> Option<usize> {
-        // if we haven't applied any latest_tick, we can't apply any updates
-        let latest_tick = latest_tick?;
-
         // we can use partition point because we know that all the non-ready elements will be on the left
-        // and the ready elements will be on the right
+        // and the ready elements will be on the right.
+        // Returning false means that the element is ready to be applied
         let idx = self.0.partition_point(|(_, message)| {
             let Some(last_action_tick) = message.last_action_tick else {
+                // if the Updates message had no last_action_tick constraint (for example
+                // because the authority got swapped so the first message sent is an Update, not an Action),
+                // then we can apply it immediately!
                 return false;
+            };
+            let Some(latest_tick) = latest_tick else {
+                // if the Updates message requires a certain last_action_tick to be applied
+                // and locally we haven't applied any actions yet, we can't apply it!
+                return true;
             };
             last_action_tick > latest_tick
         });

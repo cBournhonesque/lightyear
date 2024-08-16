@@ -363,9 +363,9 @@ mod tests {
     /// (both for the Entity in Updates and for the content of the components in the Update)
     #[test]
     fn test_receive_updates_from_transferred_authority_client_to_client() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::ERROR)
-            .init();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
         let mut stepper = MultiBevyStepper::default();
 
         let client_entity_1a = stepper

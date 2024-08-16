@@ -674,9 +674,11 @@ impl ReplicationSender {
             let priority = channel.accumulated_priority;
             let message = SendEntityUpdatesMessage {
                 group_id,
-                // TODO: as an optimization, we can use `last_action_tick = tick` to signify
-                //  that there is no constraint!
-                // SAFETY: the last action tick is always set because we send Actions before Updates
+                // TODO: as an optimization (to avoid 1 byte for the Option), we can use `last_action_tick = tick`
+                //  to signify that there is no constraint!
+                // SAFETY: the last action tick is usually always set because we send Actions before Updates
+                //  but that might not be the case (for example if the authority got transferred to us, we start sending
+                //  updates without sending any action before that)
                 last_action_tick: channel.last_action_tick,
                 updates,
             };
