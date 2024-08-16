@@ -66,9 +66,9 @@ mod tests {
 
     #[test]
     fn test_transfer_authority_server_to_client() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::ERROR)
-            .init();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
         let mut stepper = BevyStepper::default();
 
         let server_entity = stepper

@@ -13,8 +13,8 @@ use crate::client::replication::send::ReplicateToServer;
 use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
 use crate::prelude::{
-    client::is_synced, ReplicateHierarchy, Replicating, ReplicationGroup, ReplicationTarget,
-    ShouldBePredicted,
+    client::is_synced, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
+    ReplicationTarget, ShouldBePredicted,
 };
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -84,7 +84,7 @@ impl PrePredictionPlugin {
     ) {
         for message in should_be_predicted_added.read() {
             let confirmed_entity = message.entity();
-            debug!("Received entity with PrePredicted from server: {confirmed_entity:?}");
+            info!("Received entity with PrePredicted from server: {confirmed_entity:?}");
             if let Ok(pre_predicted) = confirmed_entities.get_mut(confirmed_entity) {
                 let Some(predicted_entity) = pre_predicted.client_entity else {
                     error!("The PrePredicted component received from the server does not contain the pre-predicted entity!");
@@ -97,7 +97,7 @@ impl PrePredictionPlugin {
                 );
                     continue;
                 };
-                debug!(
+                info!(
                     "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
                     predicted_entity, confirmed_entity
                 );
@@ -177,6 +177,7 @@ impl PrePredictionPlugin {
                     ReplicateToServer,
                     ReplicationGroup,
                     ReplicateHierarchy,
+                    HasAuthority,
                 )>()
                 .insert((Predicted {
                     confirmed_entity: None,
@@ -198,6 +199,9 @@ mod tests {
     /// Simple preprediction case
     #[test]
     fn test_pre_prediction() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::INFO)
+            .init();
         let mut stepper = BevyStepper::default();
 
         // spawn a pre-predicted entity on the client
@@ -210,6 +214,7 @@ mod tests {
                 PrePredicted::default(),
             ))
             .id();
+        info!(?client_entity);
 
         // need to step multiple times because the server entity doesn't handle messages from future ticks
         for _ in 0..10 {
@@ -227,6 +232,7 @@ mod tests {
             .remote_entity_map
             .get_local(client_entity)
             .unwrap();
+        info!(?server_entity);
 
         // insert Replicate on the server entity
         stepper
@@ -236,6 +242,7 @@ mod tests {
             .insert(server::Replicate::default());
 
         stepper.frame_step();
+        info!("before client recv");
         stepper.frame_step();
 
         // check that the client entity has the Predicted component, and that a confirmed entity has been spawned

@@ -67,6 +67,8 @@ BUG:
 TESTS TO ADD:
 - authority is transferred, and the new owner tries to send. This time the new owner (on the send side) must do entity mapping!
   - also with components that contain entity maps
+  - in both directions
+- test with conflict (both client and server spawn entity E and replicate it to the remote) 
 
 
 

@@ -591,7 +591,7 @@ impl ReplicationSend for ConnectionManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{client, server, ClientConnectionManager};
+    use crate::prelude::{client, server, ClientConnectionManager, RemoteEntityMap};
     use crate::tests::protocol::EntityMessage;
     use crate::tests::stepper::BevyStepper;
 
@@ -641,6 +641,7 @@ mod tests {
             .world_mut()
             .resource_mut::<ClientConnectionManager>()
             .map_entities_to_remote(&mut message);
-        assert_eq!(message.0, server_entity);
+        assert!(RemoteEntityMap::is_mapped(message.0));
+        assert_eq!(RemoteEntityMap::mark_unmapped(message.0), server_entity);
     }
 }

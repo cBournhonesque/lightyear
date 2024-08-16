@@ -444,6 +444,7 @@ impl ConnectionManager {
         let net_id = component_registry
             .get_net_id::<C>()
             .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
+        // TODO: add SendEntityMap here!
         // We store the Bytes in a hashmap, maybe more efficient to write the replication message directly?
         component_registry.serialize(data, &mut self.writer, None)?;
         let raw_data = self.writer.split();
@@ -1090,12 +1091,10 @@ impl ConnectionManager {
                 } else {
                     // we serialize once and re-use the result for all clients
                     // serialize only if there is at least one client that needs the update
-                    if existing_bytes.is_none() {
+                    if existing_bytes.is_none() || registry.erased_is_map_entities(kind) {
                         registry.erased_serialize(component, &mut self.writer, kind, Some(&mut connection.replication_receiver.remote_entity_map.local_to_remote))?;
-                        // re-use the bytes only if there is no entity mapping required
-                        if !registry.erased_is_map_entities(kind) {
-                            existing_bytes = Some(self.writer.split());
-                        }
+                        // we re-serialize every time if there is entity mapping
+                        existing_bytes = Some(self.writer.split());
                     }
                     let raw_data = existing_bytes.clone().unwrap();
                     // use the network entity

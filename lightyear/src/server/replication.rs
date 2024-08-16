@@ -619,12 +619,14 @@ pub(crate) mod send {
         let _ = sender
             .connected_targets(target)
             .try_for_each(|client_id| {
-                // convert the entity to a network entity
-                let entity = sender
-                    .connection_mut(client_id)?
-                    .replication_receiver
-                    .remote_entity_map
-                    .to_remote(entity);
+                // TODO: we don't want to convert because this is a spawn! we need to provide the local entity
+                //  so that the receiver can do the mapping
+                // // convert the entity to a network entity
+                // let entity = sender
+                //     .connection_mut(client_id)?
+                //     .replication_receiver
+                //     .remote_entity_map
+                //     .to_remote(entity);
 
                 // let the client know that this entity is controlled by them
                 if controlled_by.is_some_and(|c| c.targets(&client_id)) {

@@ -817,7 +817,7 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            debug!(?remote_entity, "Received entity actions");
+            info!(?remote_entity, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
@@ -827,7 +827,11 @@ impl GroupChannel {
 
                     if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
                         if world.get_entity(local_entity).is_some() {
-                            warn!("Received spawn for an entity that already exists");
+                            warn!(
+                                ?remote_entity,
+                                ?local_entity,
+                                "Received spawn for an entity that already exists"
+                            );
                             continue;
                         }
                         warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
@@ -903,6 +907,10 @@ impl GroupChannel {
                 error!(?entity, "cannot find entity");
                 continue;
             };
+            if !Self::authority_check(&mut local_entity_mut, remote) {
+                info!("authority check failed for entity: {:?}", entity);
+                continue;
+            }
 
             // NOTE: 2 options
             //  - send the raw data to a separate typed system
@@ -991,6 +999,7 @@ impl GroupChannel {
     ) {
         let group_id = message.group_id;
         debug!(?remote_tick, ?message, "Received replication updates");
+
         // TODO: store this in ConfirmedHistory?
         if is_history {
             return;
