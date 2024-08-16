@@ -1,6 +1,6 @@
 use crate::prelude::{ComponentRegistry, Message, MessageRegistry};
 use crate::serialize::{reader::Reader, writer::Writer, SerializationError};
-use crate::shared::replication::entity_map::EntityMap;
+use crate::shared::replication::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
@@ -19,28 +19,21 @@ pub struct ErasedSerializeFns {
     pub deserialize: unsafe fn(),
     pub erased_clone: Option<unsafe fn()>,
     pub map_entities: Option<ErasedMapEntitiesFn>,
+    pub send_map_entities: Option<ErasedSendMapEntitiesFn>,
+    pub receive_map_entities: Option<ErasedReceiveMapEntitiesFn>,
 }
 
 pub struct SerializeFns<M> {
     pub serialize: SerializeFn<M>,
     pub deserialize: DeserializeFn<M>,
-    pub serialize_map_entities: Option<
-        fn(
-            &M,
-            &mut Writer,
-            &mut EntityMap,
-            CloneFn<M>,
-            ErasedMapEntitiesFn,
-            SerializeFn<M>,
-        ) -> Result<(), SerializationError>,
-    >,
+    pub serialize_map_entities: Option<SerializeMapEntitiesFn<M>>,
 }
 
 type ErasedSerializeFn = unsafe fn(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
     writer: &mut Writer,
-    entity_map: Option<&mut EntityMap>,
+    entity_map: Option<&mut SendEntityMap>,
 ) -> Result<(), SerializationError>;
 
 /// Type of the serialize function without entity mapping
@@ -50,18 +43,33 @@ type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>
 
 type CloneFn<M> = fn(&M) -> M;
 
-/// Type of the entity mapping function used for deserialiaztion
+type SerializeMapEntitiesFn<M> = fn(
+    &M,
+    &mut Writer,
+    &mut SendEntityMap,
+    CloneFn<M>,
+    ErasedSendMapEntitiesFn,
+    SerializeFn<M>,
+) -> Result<(), SerializationError>;
+
+/// Type of the entity mapping function
 pub(crate) type ErasedMapEntitiesFn =
     for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut EntityMap);
+/// Type of the entity mapping function used for serialiaztion
+pub(crate) type ErasedSendMapEntitiesFn =
+    for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut SendEntityMap);
+/// Type of the entity mapping function used for deserialiaztion
+pub(crate) type ErasedReceiveMapEntitiesFn =
+    for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut ReceiveEntityMap);
 
 unsafe fn erased_serialize_fn<M: Message>(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
     writer: &mut Writer,
-    entity_map: Option<&mut EntityMap>,
+    entity_map: Option<&mut SendEntityMap>,
 ) -> Result<(), SerializationError> {
     let typed_serialize_fns = erased_serialize_fn.typed::<M>();
-    if let Some(map_entities) = erased_serialize_fn.map_entities {
+    if let Some(map_entities) = erased_serialize_fn.send_map_entities {
         let serialize_map_entities = typed_serialize_fns.serialize_map_entities.unwrap();
         serialize_map_entities(
             message.deref::<M>(),
@@ -98,9 +106,9 @@ fn default_deserialize<M: Message + DeserializeOwned>(
 pub(crate) fn serialize_map_entities<M>(
     message: &M,
     writer: &mut Writer,
-    entity_map: &mut EntityMap,
+    entity_map: &mut SendEntityMap,
     clone_fn: CloneFn<M>,
-    erased_map_entities_fn: ErasedMapEntitiesFn,
+    erased_map_entities_fn: ErasedSendMapEntitiesFn,
     serialize_fn: SerializeFn<M>,
 ) -> Result<(), SerializationError> {
     let mut new_message = clone_fn(message);
@@ -123,6 +131,24 @@ unsafe fn erased_map_entities<M: MapEntities + 'static>(
     M::map_entities(message, entity_map);
 }
 
+/// SAFETY: the PtrMut must be a valid pointer to a value of type M
+unsafe fn erased_send_map_entities<M: MapEntities + 'static>(
+    message: PtrMut,
+    entity_map: &mut SendEntityMap,
+) {
+    let message = message.deref_mut::<M>();
+    M::map_entities(message, entity_map);
+}
+
+/// SAFETY: the PtrMut must be a valid pointer to a value of type M
+unsafe fn erased_receive_map_entities<M: MapEntities + 'static>(
+    message: PtrMut,
+    entity_map: &mut ReceiveEntityMap,
+) {
+    let message = message.deref_mut::<M>();
+    M::map_entities(message, entity_map);
+}
+
 impl ErasedSerializeFns {
     pub(crate) fn new<M: Message + Serialize + DeserializeOwned>() -> Self {
         let serialize_fns = SerializeFns {
@@ -138,6 +164,8 @@ impl ErasedSerializeFns {
             deserialize: unsafe { std::mem::transmute(serialize_fns.deserialize) },
             erased_clone: None,
             map_entities: None,
+            send_map_entities: None,
+            receive_map_entities: None,
         }
     }
 
@@ -150,6 +178,8 @@ impl ErasedSerializeFns {
             deserialize: unsafe { std::mem::transmute(serialize_fns.deserialize) },
             erased_clone: None,
             map_entities: None,
+            send_map_entities: None,
+            receive_map_entities: None,
         }
     }
 
@@ -164,9 +194,9 @@ impl ErasedSerializeFns {
         let serialize_map_entities: fn(
             &M,
             &mut Writer,
-            &mut EntityMap,
+            &mut SendEntityMap,
             CloneFn<M>,
-            ErasedMapEntitiesFn,
+            ErasedSendMapEntitiesFn,
             SerializeFn<M>,
         ) -> Result<(), SerializationError> = serialize_map_entities::<M>;
         SerializeFns {
@@ -185,6 +215,8 @@ impl ErasedSerializeFns {
     // However components that contain other entities should be small in general.
     pub(crate) fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
         self.map_entities = Some(erased_map_entities::<M>);
+        self.send_map_entities = Some(erased_send_map_entities::<M>);
+        self.receive_map_entities = Some(erased_receive_map_entities::<M>);
         let clone_fn: fn(&M) -> M = erased_clone::<M>;
         self.erased_clone = Some(unsafe { std::mem::transmute(clone_fn) });
     }
@@ -206,10 +238,10 @@ impl ErasedSerializeFns {
         &self,
         message: &M,
         writer: &mut Writer,
-        entity_map: Option<&mut EntityMap>,
+        entity_map: Option<&mut SendEntityMap>,
     ) -> Result<(), SerializationError> {
         let fns = unsafe { self.typed::<M>() };
-        if let Some(map_entities) = self.map_entities {
+        if let Some(map_entities) = self.send_map_entities {
             let serialize_map_entities = fns.serialize_map_entities.unwrap();
             serialize_map_entities(
                 message,
@@ -230,11 +262,11 @@ impl ErasedSerializeFns {
     pub(crate) unsafe fn deserialize<M: 'static>(
         &self,
         reader: &mut Reader,
-        entity_map: &mut EntityMap,
+        entity_map: &mut ReceiveEntityMap,
     ) -> Result<M, SerializationError> {
         let fns = unsafe { self.typed::<M>() };
         let mut message = (fns.deserialize)(reader)?;
-        if let Some(map_entities) = self.map_entities {
+        if let Some(map_entities) = self.receive_map_entities {
             map_entities(PtrMut::from(&mut message), entity_map);
         }
         Ok(message)
@@ -266,7 +298,7 @@ mod tests {
     use crate::serialize::reader::Reader;
     use crate::serialize::writer::Writer;
     use crate::shared::replication::authority::AuthorityChange;
-    use crate::shared::replication::entity_map::EntityMap;
+    use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
     use bevy::prelude::Entity;
     use bevy::ptr::Ptr;
 
@@ -285,14 +317,14 @@ mod tests {
                 &registry,
                 Ptr::from(&message),
                 &mut writer,
-                Some(&mut EntityMap::default()),
+                Some(&mut SendEntityMap::default()),
             )
         };
 
         let data = writer.to_bytes();
         let mut reader = Reader::from(data);
         let new_message = unsafe {
-            registry.deserialize::<AuthorityChange>(&mut reader, &mut EntityMap::default())
+            registry.deserialize::<AuthorityChange>(&mut reader, &mut ReceiveEntityMap::default())
         }
         .unwrap();
         assert_eq!(new_message, message);
@@ -308,7 +340,7 @@ mod tests {
             gain_authority: true,
         };
         let mut writer = Writer::default();
-        let mut entity_map = EntityMap::default();
+        let mut entity_map = SendEntityMap::default();
         entity_map.insert(Entity::from_raw(1), Entity::from_raw(2));
         let _ = unsafe {
             erased_serialize_fn::<AuthorityChange>(
@@ -322,7 +354,7 @@ mod tests {
         let data = writer.to_bytes();
         let mut reader = Reader::from(data);
         let new_message = unsafe {
-            registry.deserialize::<AuthorityChange>(&mut reader, &mut EntityMap::default())
+            registry.deserialize::<AuthorityChange>(&mut reader, &mut ReceiveEntityMap::default())
         }
         .unwrap();
         assert_eq!(

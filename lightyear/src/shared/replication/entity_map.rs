@@ -15,20 +15,41 @@ impl EntityMapper for EntityMap {
     }
 }
 
+#[derive(Default, Debug, Reflect, Deref, DerefMut)]
 pub struct SendEntityMap(pub(crate) EntityHashMap<Entity>);
 
 impl EntityMapper for SendEntityMap {
     /// Try to map the entity using the map, or return the initial entity if it doesn't work
     fn map_entity(&mut self, entity: Entity) -> Entity {
-        self.0.get(&entity).copied().unwrap_or(entity)
+        // if the entity was mapped, mark it as mapped so we don't map it again on the receive side
+        if let Some(mapped) = self.0.get(&entity) {
+            RemoteEntityMap::mark_mapped(*mapped)
+        } else {
+            entity
+        }
+    }
+}
+
+#[derive(Default, Debug, Reflect, Deref, DerefMut)]
+pub struct ReceiveEntityMap(pub(crate) EntityHashMap<Entity>);
+
+impl EntityMapper for ReceiveEntityMap {
+    /// Try to map the entity using the map, or return the initial entity if it doesn't work
+    fn map_entity(&mut self, entity: Entity) -> Entity {
+        // if the entity was already mapped on the send side, we don't need to map it again
+        if RemoteEntityMap::is_mapped(entity) {
+            RemoteEntityMap::mark_unmapped(entity)
+        } else {
+            self.0.get(&entity).copied().unwrap_or(entity)
+        }
     }
 }
 
 #[derive(Default, Debug, Reflect)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct RemoteEntityMap {
-    pub(crate) remote_to_local: EntityMap,
-    pub(crate) local_to_remote: EntityMap,
+    pub(crate) remote_to_local: ReceiveEntityMap,
+    pub(crate) local_to_remote: SendEntityMap,
 }
 
 #[derive(Default, Debug, Reflect)]

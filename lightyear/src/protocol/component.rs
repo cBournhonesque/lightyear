@@ -29,7 +29,7 @@ use crate::serialize::reader::Reader;
 use crate::serialize::SerializationError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::delta::{DeltaMessage, Diffable};
-use crate::shared::replication::entity_map::EntityMap;
+use crate::shared::replication::entity_map::{EntityMap, ReceiveEntityMap};
 
 pub type ComponentNetId = NetId;
 
@@ -195,7 +195,7 @@ type RawWriteFn = fn(
     ComponentNetId,
     Tick,
     &mut EntityWorldMut,
-    &mut EntityMap,
+    &mut ReceiveEntityMap,
     &mut ConnectionEvents,
 ) -> Result<(), ComponentError>;
 
@@ -290,6 +290,7 @@ mod serialize {
     use crate::serialize::reader::Reader;
     use crate::serialize::writer::Writer;
     use crate::serialize::ToBytes;
+    use crate::shared::replication::entity_map::SendEntityMap;
 
     impl ComponentRegistry {
         pub(crate) fn try_add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
@@ -333,7 +334,7 @@ mod serialize {
             &self,
             component: &mut C,
             writer: &mut Writer,
-            entity_map: Option<&mut EntityMap>,
+            entity_map: Option<&mut SendEntityMap>,
         ) -> Result<(), ComponentError> {
             let kind = ComponentKind::of::<C>();
             let erased_fns = self
@@ -356,7 +357,7 @@ mod serialize {
             component: Ptr,
             writer: &mut Writer,
             kind: ComponentKind,
-            entity_map: Option<&mut EntityMap>,
+            entity_map: Option<&mut SendEntityMap>,
         ) -> Result<(), ComponentError> {
             let erased_fns = self
                 .serialize_fns_map
@@ -376,7 +377,7 @@ mod serialize {
             &self,
             reader: &mut Reader,
             net_id: ComponentNetId,
-            entity_map: &mut EntityMap,
+            entity_map: &mut ReceiveEntityMap,
         ) -> Result<C, ComponentError> {
             let kind = self
                 .kind_map
@@ -393,7 +394,7 @@ mod serialize {
         pub(crate) fn deserialize<C: Component>(
             &self,
             reader: &mut Reader,
-            entity_map: &mut EntityMap,
+            entity_map: &mut ReceiveEntityMap,
         ) -> Result<C, ComponentError> {
             let net_id = NetId::from_bytes(reader).map_err(SerializationError::from)?;
             self.raw_deserialize(reader, net_id, entity_map)
@@ -559,6 +560,7 @@ mod replication {
     };
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
+    use crate::shared::replication::entity_map::ReceiveEntityMap;
 
     impl ComponentRegistry {
         pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self, world: &mut World) {
@@ -585,7 +587,7 @@ mod replication {
             reader: &mut Reader,
             entity_world_mut: &mut EntityWorldMut,
             tick: Tick,
-            entity_map: &mut EntityMap,
+            entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
             let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
@@ -614,7 +616,7 @@ mod replication {
             net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
-            entity_map: &mut EntityMap,
+            entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
             trace!("Writing component {} to entity", std::any::type_name::<C>());
@@ -662,6 +664,7 @@ mod delta {
     use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
 
     use crate::serialize::writer::Writer;
+    use crate::shared::replication::entity_map::SendEntityMap;
     use std::ptr::NonNull;
 
     impl ComponentRegistry {
@@ -731,7 +734,7 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
-            entity_map: Option<&mut EntityMap>,
+            entity_map: Option<&mut SendEntityMap>,
         ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
@@ -752,7 +755,7 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
-            entity_map: Option<&mut EntityMap>,
+            entity_map: Option<&mut SendEntityMap>,
         ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
@@ -772,7 +775,7 @@ mod delta {
             net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
-            entity_map: &mut EntityMap,
+            entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
             trace!(
@@ -1210,7 +1213,7 @@ mod tests {
 
         let mut reader = Reader::from(data);
         let read = registry
-            .deserialize(&mut reader, &mut EntityMap::default())
+            .deserialize(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
         assert_eq!(component, read);
     }

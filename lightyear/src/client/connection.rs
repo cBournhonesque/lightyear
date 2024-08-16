@@ -34,7 +34,6 @@ use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::entity_map::EntityMap;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -233,11 +232,6 @@ impl ConnectionManager {
     pub fn map_entities_to_remote<M: Message + MapEntities>(&mut self, message: &mut M) {
         let mapper = &mut self.replication_receiver.remote_entity_map.local_to_remote;
         message.map_entities(mapper);
-    }
-
-    /// Map from the local entities to the remote entities
-    pub fn local_to_remote_map(&mut self) -> &mut EntityMap {
-        &mut self.replication_receiver.remote_entity_map.local_to_remote
     }
 
     /// Send a [`Message`] to the server using a specific [`Channel`]
@@ -633,7 +627,9 @@ mod tests {
                 .client_app
                 .world_mut()
                 .resource_mut::<ClientConnectionManager>()
-                .local_to_remote_map()
+                .replication_receiver
+                .remote_entity_map
+                .local_to_remote
                 .get(&client_entity)
                 .unwrap(),
             server_entity

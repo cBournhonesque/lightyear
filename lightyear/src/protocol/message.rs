@@ -20,7 +20,7 @@ use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::ToBytes;
 use crate::server::message::add_server_receive_message_from_client;
-use crate::shared::replication::entity_map::EntityMap;
+use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use crate::shared::replication::resources::DespawnResource;
 
 #[derive(thiserror::Error, Debug)]
@@ -395,7 +395,7 @@ impl MessageRegistry {
         &self,
         message: &M,
         writer: &mut Writer,
-        entity_map: Option<&mut EntityMap>,
+        entity_map: Option<&mut SendEntityMap>,
     ) -> Result<(), MessageError> {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
@@ -414,7 +414,7 @@ impl MessageRegistry {
     pub(crate) fn deserialize<M: Message>(
         &self,
         reader: &mut Reader,
-        entity_map: &mut EntityMap,
+        entity_map: &mut ReceiveEntityMap,
     ) -> Result<M, MessageError> {
         let net_id = NetId::from_bytes(reader)?;
         let kind = self
@@ -468,7 +468,7 @@ mod tests {
 
         let mut reader = Reader::from(data);
         let read = registry
-            .deserialize(&mut reader, &mut EntityMap::default())
+            .deserialize(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
         assert_eq!(message, read);
     }
@@ -481,7 +481,7 @@ mod tests {
 
         let message = ComponentMapEntities(Entity::from_raw(0));
         let mut writer = Writer::default();
-        let mut map = EntityMap::default();
+        let mut map = SendEntityMap::default();
         map.insert(Entity::from_raw(0), Entity::from_raw(1));
         registry
             .serialize(&message, &mut writer, Some(&mut map))
@@ -490,7 +490,7 @@ mod tests {
 
         let mut reader = Reader::from(data);
         let read = registry
-            .deserialize::<ComponentMapEntities>(&mut reader, &mut EntityMap::default())
+            .deserialize::<ComponentMapEntities>(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
         assert_eq!(read, ComponentMapEntities(Entity::from_raw(1)));
     }
@@ -514,7 +514,7 @@ mod tests {
 
         let mut reader = Reader::from(data);
         let read = registry
-            .deserialize(&mut reader, &mut EntityMap::default())
+            .deserialize(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
         assert_eq!(message, read);
     }
