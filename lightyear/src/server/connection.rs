@@ -330,7 +330,7 @@ impl ConnectionManager {
     /// using the `EntityMap` of that connection.
     fn buffer_map_entities_message<M: Message>(
         &mut self,
-        message: &mut M,
+        message: &M,
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
@@ -362,7 +362,7 @@ impl ConnectionManager {
     /// - If it is `MapEntities`, we need to map it in each connection.
     pub(crate) fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &mut M,
+        message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {

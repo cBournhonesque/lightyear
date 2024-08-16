@@ -36,6 +36,7 @@ pub(crate) struct TransferAuthority {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub(crate) struct AuthorityChange {
     pub entity: Entity,
     pub gain_authority: bool,
@@ -65,6 +66,9 @@ mod tests {
 
     #[test]
     fn test_transfer_authority_server_to_client() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::ERROR)
+            .init();
         let mut stepper = BevyStepper::default();
 
         let server_entity = stepper
@@ -125,7 +129,7 @@ mod tests {
             .get::<HasAuthority>(client_entity)
             .is_some());
 
-        // transfer authority from client to none
+        // transfer authority from client to None
         stepper
             .server_app
             .world_mut()

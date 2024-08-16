@@ -81,7 +81,7 @@ pub(crate) enum MessageType {
 /// use serde::{Deserialize, Serialize};
 /// use lightyear::prelude::*;
 ///
-/// #[derive(Serialize, Deserialize)]
+/// #[derive(Serialize, Deserialize, Clone)]
 /// struct MyMessage(Entity);
 ///
 /// impl MapEntities for MyMessage {
@@ -393,7 +393,7 @@ impl MessageRegistry {
 
     pub(crate) fn serialize<M: Message>(
         &self,
-        message: &mut M,
+        message: &M,
         writer: &mut Writer,
         entity_map: Option<&mut EntityMap>,
     ) -> Result<(), MessageError> {
@@ -461,9 +461,9 @@ mod tests {
         let mut registry = MessageRegistry::default();
         registry.add_message::<Resource1>(MessageType::Normal);
 
-        let mut message = Resource1(1.0);
+        let message = Resource1(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&mut message, &mut writer, None).unwrap();
+        registry.serialize(&message, &mut writer, None).unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
@@ -479,12 +479,12 @@ mod tests {
         registry.add_message::<ComponentMapEntities>(MessageType::Normal);
         registry.add_map_entities::<ComponentMapEntities>();
 
-        let mut message = ComponentMapEntities(Entity::from_raw(0));
+        let message = ComponentMapEntities(Entity::from_raw(0));
         let mut writer = Writer::default();
         let mut map = EntityMap::default();
         map.insert(Entity::from_raw(0), Entity::from_raw(1));
         registry
-            .serialize(&mut message, &mut writer, Some(&mut map))
+            .serialize(&message, &mut writer, Some(&mut map))
             .unwrap();
         let data = writer.to_bytes();
 
@@ -503,12 +503,13 @@ mod tests {
             SerializeFns {
                 serialize: serialize_resource2,
                 deserialize: deserialize_resource2,
+                serialize_map_entities: None,
             },
         );
 
-        let mut message = Resource2(1.0);
+        let message = Resource2(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&mut message, &mut writer, None).unwrap();
+        registry.serialize(&message, &mut writer, None).unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);

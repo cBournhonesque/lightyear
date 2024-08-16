@@ -1199,6 +1199,7 @@ mod tests {
         registry.register_component_custom_serde::<ComponentSyncModeSimple>(SerializeFns {
             serialize: serialize_component2,
             deserialize: deserialize_component2,
+            serialize_map_entities: None,
         });
         let mut component = ComponentSyncModeSimple(1.0);
         let mut writer = Writer::default();

@@ -262,7 +262,7 @@ impl ConnectionManager {
     /// Serialize a message and buffer it internally so that it can be sent later
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &mut M,
+        message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
