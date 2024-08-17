@@ -8,6 +8,10 @@ When a client gets close the ball, the server transfers the authority over the b
 This means that the client is now simulating the ball and sending replication updates to the server.
 
 
+https://github.com/user-attachments/assets/ee987fce-7a0d-4e76-a010-bc35b71e24cf
+
+
+
 ## Running the example
 
 There are different 'modes' of operation:
