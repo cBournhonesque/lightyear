@@ -47,10 +47,26 @@ impl Plugin for SharedPlugin {
         // bundles
         app.add_systems(Startup, init);
 
-        // physics
-        app.add_plugins(PhysicsPlugins::new(FixedUpdate))
-            .insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)))
-            .insert_resource(Gravity(Vec2::ZERO));
+        // Physics
+        //
+        // we use Position and Rotation as primary source of truth, so no need to sync changes
+        // from Transform->Pos, just Pos->Transform.
+        app.insert_resource(avian2d::sync::SyncConfig {
+            transform_to_position: false,
+            position_to_transform: true,
+        });
+        // We change SyncPlugin to PostUpdate, because we want the visually interpreted values
+        // synced to transform every time, not just when Fixed schedule runs.
+        app.add_plugins(
+            PhysicsPlugins::new(FixedUpdate)
+                .build()
+                .disable::<SyncPlugin>(),
+        )
+        .add_plugins(SyncPlugin::new(PostUpdate));
+
+        app.insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)));
+        app.insert_resource(Gravity(Vec2::ZERO));
+
         app.configure_sets(
             FixedUpdate,
             (
@@ -70,10 +86,39 @@ impl Plugin for SharedPlugin {
             (process_collisions, lifetime_despawner).in_set(FixedSet::Main),
         );
 
+        app.add_systems(PostProcessCollisions, filter_own_bullet_collisions);
+
         app.add_event::<BulletHitEvent>();
         // registry types for reflection
         app.register_type::<Player>();
     }
+}
+
+// Players can't collide with their own bullets.
+// this is especially helpful if you are accelerating forwards while shooting, as otherwise you
+// might overtake / collide on spawn with your own bullets that spawn in front of you.
+fn filter_own_bullet_collisions(
+    mut collisions: ResMut<Collisions>,
+    q_bullets: Query<&BulletMarker>,
+    q_players: Query<&Player>,
+) {
+    collisions.retain(|contacts| {
+        if let Ok(bullet) = q_bullets.get(contacts.entity1) {
+            if let Ok(player) = q_players.get(contacts.entity2) {
+                if bullet.owner == player.client_id {
+                    return false;
+                }
+            }
+        }
+        if let Ok(bullet) = q_bullets.get(contacts.entity2) {
+            if let Ok(player) = q_players.get(contacts.entity1) {
+                if bullet.owner == player.client_id {
+                    return false;
+                }
+            }
+        }
+        true
+    });
 }
 
 // Generate pseudo-random color from id
