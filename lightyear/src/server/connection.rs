@@ -460,7 +460,7 @@ pub struct Connection {
     entity: Entity,
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender,
-    pub(crate) replication_receiver: ReplicationReceiver,
+    pub replication_receiver: ReplicationReceiver,
     pub(crate) events: ConnectionEvents,
     pub(crate) ping_manager: PingManager,
 

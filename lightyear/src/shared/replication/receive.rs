@@ -30,11 +30,11 @@ pub(crate) struct ReplicationReceiver {
     pub remote_entity_map: RemoteEntityMap,
 
     /// Map from remote entity to the replication group-id
-    pub remote_entity_to_group: EntityHashMap<Entity, ReplicationGroupId>,
+    pub(crate) remote_entity_to_group: EntityHashMap<Entity, ReplicationGroupId>,
 
     // BOTH
     /// Buffer to so that we have an ordered receiver per group
-    pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
+    pub(crate) group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 }
 
 /// Get `ConnectionEvents` depending on whether we receive from a client or a server

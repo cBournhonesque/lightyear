@@ -20,7 +20,7 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::packet::priority_manager::PriorityConfig;
 use crate::prelude::client::PredictionConfig;
-use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationConfig};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, RemoteEntityMap, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
 use crate::protocol::message::{MessageRegistry, MessageType};
@@ -71,7 +71,7 @@ pub struct ConnectionManager {
     pub(crate) message_manager: MessageManager,
     pub(crate) delta_manager: DeltaManager,
     pub(crate) replication_sender: ReplicationSender,
-    pub(crate) replication_receiver: ReplicationReceiver,
+    pub replication_receiver: ReplicationReceiver,
     pub(crate) events: ConnectionEvents,
     pub ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
