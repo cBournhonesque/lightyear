@@ -278,6 +278,7 @@ pub(crate) mod send {
             // 3. go through all entities of that archetype
             for entity in archetype.entities() {
                 let entity_ref = world.entity(entity.id());
+                let is_replicated = entity_ref.get::<Replicated>().is_some();
                 let group = entity_ref.get::<ReplicationGroup>();
 
                 let group_id = group.map_or(ReplicationGroupId::default(), |g| {
@@ -310,7 +311,8 @@ pub(crate) mod send {
                 // );
 
                 // c. add entity spawns
-                if replication_is_changed {
+                // we never want to send a spawn if the entity was replicated to us from the server
+                if replication_is_changed && !is_replicated {
                     replicate_entity_spawn(
                         entity.id(),
                         group_id,

@@ -617,7 +617,6 @@ fn prepare_input_message<A: LeafwingUserAction>(
                     .replication_receiver
                     .remote_entity_map
                     .get_remote(confirmed)
-                    .copied()
                 {
                     debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
                     // println!(

@@ -33,6 +33,7 @@ pub(crate) struct PlayerBundle {
     // when the server replicates this entity; we will get a Confirmed entity which will use this entity
     // as the Predicted version
     pre_predicted: PrePredicted,
+    name: Name,
 }
 
 impl PlayerBundle {
@@ -54,6 +55,7 @@ impl PlayerBundle {
                 input_map,
             },
             pre_predicted: PrePredicted::default(),
+            name: Name::from("Player"),
         }
     }
 }
@@ -66,6 +68,7 @@ pub(crate) struct BallBundle {
     replicate: Replicate,
     marker: BallMarker,
     physics: PhysicsBundle,
+    name: Name,
 }
 
 impl BallBundle {
@@ -89,6 +92,7 @@ impl BallBundle {
             replicate,
             physics: PhysicsBundle::ball(),
             marker: BallMarker,
+            name: Name::from("Ball"),
         }
     }
 }

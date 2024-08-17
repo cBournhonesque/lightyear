@@ -302,6 +302,7 @@ pub(crate) struct WallBundle {
     color: ColorComponent,
     physics: PhysicsBundle,
     wall: Wall,
+    name: Name,
 }
 
 #[derive(Component)]
@@ -320,6 +321,7 @@ impl WallBundle {
                 rigid_body: RigidBody::Static,
             },
             wall: Wall { start, end },
+            name: Name::from("wall"),
         }
     }
 }

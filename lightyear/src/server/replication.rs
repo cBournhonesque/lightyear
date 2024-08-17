@@ -53,11 +53,12 @@ pub(crate) mod send {
     use super::*;
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponent, NetworkRelevanceMode,
-        OverrideTargetComponent, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, Tick, TickManager, TimeManager,
+        OverrideTargetComponent, ReplicateHierarchy, Replicated, ReplicationGroup,
+        ShouldBePredicted, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
+    use crate::server::prediction::handle_pre_predicted;
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
     use crate::shared::replication::archetypes::{
         get_erased_component, ServerReplicatedArchetypes,
@@ -137,6 +138,7 @@ pub(crate) mod send {
 
             app.observe(replicate_entity_local_despawn);
             app.observe(add_has_authority_component);
+            app.observe(handle_pre_predicted);
         }
     }
 
@@ -285,17 +287,17 @@ pub(crate) mod send {
             }
             if (replication_target.is_changed()) && replication_target.target.targets(&local_client)
             {
-                if pre_predicted.is_some_and(|pre_predicted| pre_predicted.client_entity.is_none())
-                {
-                    // PrePredicted's client_entity is None if it's a pre-predicted entity that was spawned by the local client
-                    // in that case, just remove it and add Predicted instead
-                    commands
-                        .entity(entity)
-                        .insert(Predicted {
-                            confirmed_entity: Some(entity),
-                        })
-                        .remove::<PrePredicted>();
-                }
+                // if pre_predicted.is_some_and(|pre_predicted| pre_predicted.client_entity.is_none())
+                // {
+                //     // PrePredicted's client_entity is None if it's a pre-predicted entity that was spawned by the local client
+                //     // in that case, just remove it and add Predicted instead
+                //     commands
+                //         .entity(entity)
+                //         .insert(Predicted {
+                //             confirmed_entity: Some(entity),
+                //         })
+                //         .remove::<PrePredicted>();
+                // }
                 if sync_target.prediction.targets(&local_client) {
                     commands.entity(entity).insert(Predicted {
                         confirmed_entity: Some(entity),
@@ -419,6 +421,7 @@ pub(crate) mod send {
                 let target_entity = entity_ref.get::<TargetEntity>();
                 let controlled_by = entity_ref.get::<ControlledBy>();
                 let authority_peer = entity_ref.get::<AuthorityPeer>();
+                let replicated = entity_ref.get::<Replicated>();
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
                 let replication_target =
@@ -459,6 +462,7 @@ pub(crate) mod send {
                     entity.id(),
                     &replication_target,
                     cached_replication_target,
+                    replicated,
                     group_id,
                     priority,
                     controlled_by,
@@ -531,6 +535,7 @@ pub(crate) mod send {
         entity: Entity,
         replication_target: &Ref<ReplicationTarget>,
         cached_replication_target: Option<&Cached<ReplicationTarget>>,
+        replicated: Option<&Replicated>,
         group_id: ReplicationGroupId,
         priority: f32,
         controlled_by: Option<&ControlledBy>,
@@ -610,6 +615,10 @@ pub(crate) mod send {
         if let Some(AuthorityPeer::Client(c)) = authority_peer {
             target.exclude(&NetworkTarget::Single(*c));
         }
+        // we don't send entity-spawn to the client who originally spawned the entity
+        if let Some(client_id) = replicated.and_then(|r| r.from) {
+            target.exclude(&NetworkTarget::Single(client_id));
+        };
         if target.is_empty() {
             return;
         }
@@ -3106,6 +3115,8 @@ pub(crate) mod commands {
                                 .unwrap_or(AuthorityPeer::None)
                         });
 
+                // TODO: handle authority transfers in host-server mode!
+                //  when transferring to local-client, we want to transfer to the server instead?
                 match (current_owner, new_owner) {
                     (x, y) if x == y => (),
                     (AuthorityPeer::None, AuthorityPeer::Server) => {

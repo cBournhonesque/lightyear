@@ -122,13 +122,14 @@ pub(crate) fn replicate_inputs(
     }
 }
 
-// Replicate the pre-spawned entities back to the client
+// Replicate the pre-predicted entities back to the client
 pub(crate) fn replicate_players(
     global: Res<Global>,
     mut commands: Commands,
     query: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
 ) {
     for (entity, replicated) in query.iter() {
+        dbg!("replicating player");
         let client_id = replicated.client_id();
         info!("received player spawn event from client {client_id:?}");
 
