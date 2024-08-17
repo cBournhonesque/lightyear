@@ -87,10 +87,9 @@ app.add_channel::<Channel1>(ChannelSettings {
       client, so that your inputs can feel responsive
     - **Snapshot interpolation**: with just a one-line change, you can enable Snapshot interpolation so that entities
       are smoothly interpolated even if replicated infrequently.
-    - **Client-authoritative replication**: you can also replicate entities from the client to the server.
+    - **Client-authoritative replication**: you can also replicate entities from the client to the server. The authority over the entity is transferable between the client and the server.
     - **Pre-spawning predicted entities**: you can spawn Predicted entities on the client first, and then transfer the
-      authority to
-      the server. This ensures that the entity is spawned immediately, but will still be controlled by the server.
+      authority to the server. This ensures that the entity is spawned immediately, but will still be controlled by the server.
     - **Entity mapping**: *lightyear* also supports replicating components/messages that contain references to other
       entities. The entities will be mapped from the local World to the remote World.
     - **Interest management**: *lightyear* supports replicating only a subset of the World to clients. Interest
@@ -112,8 +111,8 @@ app.add_channel::<Channel1>(ChannelSettings {
 
 ## Supported bevy version
 
-| Lightyear  | Bevy |
-|------------|------|
-| 0.16       | 0.14 |
-| 0.10-0.15  | 0.13 |
-| 0.1-0.9    | 0.12 |
+| Lightyear | Bevy |
+|-----------|------|
+| 0.16-0.17 | 0.14 |
+| 0.10-0.15 | 0.13 |
+| 0.1-0.9   | 0.12 |
