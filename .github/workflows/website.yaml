@@ -79,13 +79,22 @@ jobs:
       - name: Tar artifact
         shell: sh
         run: |
-          tar \
-          --dereference --hard-dereference \
-          --exclude=.git \
-          --exclude=.github \
-          -cvf "$RUNNER_TEMP/artifact.tar" \
-          ./examples/**/dist \
-          -C book ./book
+          if [ ${BUILD_EXAMPLES} == "true" ]; then
+            tar \
+            --dereference --hard-dereference \
+            --exclude=.git \
+            --exclude=.github \
+            -cvf "$RUNNER_TEMP/artifact.tar" \
+            ./examples/**/dist \
+            -C book ./book
+          else
+            tar \
+            --dereference --hard-dereference \
+            --exclude=.git \
+            --exclude=.github \
+            -cvf "$RUNNER_TEMP/artifact.tar" \
+            -C book ./book
+          fi
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
