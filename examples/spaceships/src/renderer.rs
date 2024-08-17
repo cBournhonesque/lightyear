@@ -45,8 +45,8 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.add_systems(
             Last,
             (
-                add_player_visual_components,
-                update_player_visual_components,
+                add_player_label,
+                update_player_label,
                 draw_walls,
                 draw_confirmed_shadows.run_if(move || draw_shadows),
                 draw_predicted_entities,
@@ -63,10 +63,48 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.add_plugins(ScreenEntityDiagnosticsPlugin);
         // app.add_plugins(ScreenFrameDiagnosticsPlugin);
         app.add_plugins(EntityLabelPlugin);
-        // probably want to avoid using this on server, if server gui enabled
+
+        // set up visual interp plugins for Position and Rotation.
+        // this doesn't do anything until you add VisualInterpolationStatus components to entities.
         app.add_plugins(VisualInterpolationPlugin::<Position>::default());
         app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
+
+        // observers that add VisualInterpolationStatus components to entities which receive
+        // a Position or Rotation component.
+        app.observe(add_visual_interpolation_components::<Position>);
+        app.observe(add_visual_interpolation_components::<Rotation>);
     }
+}
+
+// Non-wall entities get some visual interpolation by adding the lightyear
+// VisualInterpolateStatus component
+//
+// We query Without<Confirmed> instead of With<Predicted> so that the server's gui will
+// also get some visual interpolation. But we're usually just concerned that the client's
+// Predicted entities get the interpolation treatment.
+//
+// We must trigger change detection so that the SyncPlugin will detect and sync changes
+// from Position/Rotation to Transform.
+//
+// Without syncing interpolated pos/rot to transform, things like sprites, meshes, and text which
+// render based on the *Transform* component (not avian's Position) will be stuttery.
+//
+// (Note also that we've configured avian's SyncPlugin to run in PostUpdate)
+fn add_visual_interpolation_components<T: Component>(
+    trigger: Trigger<OnAdd, T>,
+    q: Query<Entity, (With<T>, Without<Wall>, Without<Confirmed>)>,
+    mut commands: Commands,
+) {
+    if !q.contains(trigger.entity()) {
+        return;
+    }
+    debug!("Adding visual interp component to {:?}", trigger.entity());
+    commands
+        .entity(trigger.entity())
+        .insert(VisualInterpolateStatus::<T> {
+            trigger_change_detection: true,
+            ..default()
+        });
 }
 
 fn init_camera(mut commands: Commands, mut windows: Query<&mut Window>) {
@@ -88,18 +126,9 @@ fn init_camera(mut commands: Commands, mut windows: Query<&mut Window>) {
     ));
 }
 
-// add visual interp components on client predicted entities
-fn add_player_visual_components(
+fn add_player_label(
     mut commands: Commands,
-    q: Query<
-        (Entity, &Player, &Score),
-        (
-            With<Predicted>,
-            Added<Collider>,
-            Without<VisualInterpolateStatus<Position>>,
-            Without<VisualInterpolateStatus<Rotation>>,
-        ),
-    >,
+    q: Query<(Entity, &Player, &Score), (With<Predicted>, Added<Collider>)>,
 ) {
     for (e, player, score) in q.iter() {
         // info!("Adding visual bits to {e:?}");
@@ -112,14 +141,12 @@ fn add_player_visual_components(
                 offset: Vec2::Y * -45.0,
                 ..Default::default()
             },
-            VisualInterpolateStatus::<Position>::default(),
-            VisualInterpolateStatus::<Rotation>::default(),
         ));
     }
 }
 
 // update the labels when the player rtt/jitter is updated by the server
-fn update_player_visual_components(
+fn update_player_label(
     mut q: Query<
         (
             Entity,
