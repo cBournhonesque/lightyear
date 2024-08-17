@@ -9,6 +9,9 @@ on:
     branches:
       - website
 
+env:
+  BUILD_EXAMPLES: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -43,6 +46,7 @@ jobs:
         run: |
           cargo install --git https://github.com/trunk-rs/trunk trunk
       - name: Build Examples
+        if: env.BUILD_EXAMPLES == 'true'
         run: |
           rustup target add wasm32-unknown-unknown
           cd examples/bullet_prespawn
