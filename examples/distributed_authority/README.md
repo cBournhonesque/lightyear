@@ -3,10 +3,10 @@
 This example showcases how to transfer authority over an entity to the server or to a client.
 This can be useful if you're going for a 'thin server' approach where clients are simulating most of the world.
 
-TODO:
-- the client doesn't replicate correctly to the server, maybe because of entity mapping?
+In this example, the ball is initially simulated on the server.
+When a client gets close the ball, the server transfers the authority over the ball to the client.
+This means that the client is now simulating the ball and sending replication updates to the server.
 
-https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a16f-f991a394c852
 
 ## Running the example
 
@@ -26,6 +26,7 @@ Then you can launch clients with the commands:
 - `cargo run -- client -c 2`
 
 You can modify the file `assets/settings.ron` to modify some networking settings.
+
 
 ### Testing in wasm with webtransport
 

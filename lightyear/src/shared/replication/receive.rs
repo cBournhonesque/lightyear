@@ -823,7 +823,7 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            info!(?remote_entity, ?actions, "Received entity actions");
+            debug!(?remote_entity, ?actions, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
@@ -914,7 +914,7 @@ impl GroupChannel {
                 continue;
             };
             if !Self::authority_check(&mut local_entity_mut, remote) {
-                info!("authority check failed for entity: {:?}", entity);
+                trace!("Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
                 continue;
             }
 
@@ -977,6 +977,8 @@ impl GroupChannel {
         self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
     }
 
+    // TODO: should we accept updates from the client that lost authority if they are from a
+    //  tick before the moment where we changed authority? seems like we should?
     /// Check if we can accept updates for this entity, based on the authority
     /// - on the server: only accept updates from the client who has authority
     /// - on the client: only accept updates if we don't have authority
@@ -1020,7 +1022,7 @@ impl GroupChannel {
                 continue;
             };
             if !Self::authority_check(&mut local_entity_mut, remote) {
-                info!("authority check failed for entity: {:?}", entity);
+                trace!("Ignored a replication update received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
                 continue;
             }
             for component in components {

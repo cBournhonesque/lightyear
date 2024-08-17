@@ -58,10 +58,15 @@ fn init(mut commands: Commands) {
         Position(Vec2::new(300.0, 0.0)),
         Speed(Vec2::new(0.0, 1.0)),
         PlayerColor(Color::WHITE),
-        Replicate::default(),
+        Replicate {
+            sync: SyncTarget {
+                interpolation: NetworkTarget::All,
+                ..default()
+            },
+            ..default()
+        },
     ));
 }
-
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
@@ -83,34 +88,6 @@ pub(crate) fn handle_connections(
         };
         let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
         info!("Create entity {:?} for client {:?}", entity.id(), client_id);
-    }
-}
-
-/// Handle client disconnections: we want to despawn every entity that was controlled by that client.
-///
-/// Lightyear creates one entity per client, which contains metadata associated with that client.
-/// You can find that entity by calling `ConnectionManager::client_entity(client_id)`.
-///
-/// That client entity contains the `ControlledEntities` component, which is a set of entities that are controlled by that client.
-///
-/// By default, lightyear automatically despawns all the `ControlledEntities` when the client disconnects;
-/// but in this example we will also do it manually to showcase how it can be done.
-/// (however we don't actually run the system)
-pub(crate) fn handle_disconnections(
-    mut commands: Commands,
-    mut disconnections: EventReader<DisconnectEvent>,
-    manager: Res<ConnectionManager>,
-    client_query: Query<&ControlledEntities>,
-) {
-    for disconnection in disconnections.read() {
-        debug!("Client {:?} disconnected", disconnection.client_id);
-        if let Ok(client_entity) = manager.client_entity(disconnection.client_id) {
-            if let Ok(controlled_entities) = client_query.get(client_entity) {
-                for entity in controlled_entities.entities() {
-                    commands.entity(entity).despawn();
-                }
-            }
-        }
     }
 }
 
@@ -145,6 +122,7 @@ pub(crate) fn transfer_authority(
     // timer so that we only transfer authority every X seconds
     mut timer: Local<Timer>,
     time: Res<Time>,
+    mut connection: ResMut<ConnectionManager>,
     mut commands: Commands,
     ball_q: Query<(Entity, &Position), With<BallMarker>>,
     player_q: Query<(&PlayerId, &Position)>,
@@ -161,6 +139,15 @@ pub(crate) fn transfer_authority(
                 commands
                     .entity(ball_entity)
                     .transfer_authority(AuthorityPeer::Client(player_id.0));
+
+                // we send a message only because we want the clients to show the color
+                // of the authority peer for the demo, it's not needed in practice
+                connection
+                    .send_message_to_target::<Channel1, _>(
+                        &mut AuthorityPeer::Client(player_id.0),
+                        NetworkTarget::All,
+                    )
+                    .unwrap();
                 return;
             }
         }
@@ -169,6 +156,12 @@ pub(crate) fn transfer_authority(
         commands
             .entity(ball_entity)
             .transfer_authority(AuthorityPeer::Server);
+
+        // we send a message only because we want the clients to show the color
+        // of the authority peer for the demo, it's not needed in practice
+        connection
+            .send_message_to_target::<Channel1, _>(&mut AuthorityPeer::Server, NetworkTarget::All)
+            .unwrap();
     }
 }
 
@@ -189,7 +182,6 @@ pub(crate) fn update_ball_color(
             AuthorityPeer::Client(client_id) => {
                 for (player_id, player_color) in player_q.iter() {
                     if player_id.0 == *client_id {
-                        info!("Set color client");
                         ball_color.0 = player_color.0;
                     }
                 }

@@ -7,6 +7,9 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
+use crate::protocol::Direction;
+use crate::protocol::*;
+use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
@@ -15,36 +18,25 @@ use bevy_mod_picking::picking_core::Pickable;
 use bevy_mod_picking::prelude::{Click, On, Pointer};
 use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;
+use lightyear::prelude::server::AuthorityPeer;
 use lightyear::prelude::*;
-
-use crate::protocol::Direction;
-use crate::protocol::*;
-use crate::shared;
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_connect_button);
-        app.add_systems(
-            PreUpdate,
-            (handle_connection, handle_disconnection).after(MainSet::Receive),
-        );
+        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(
-            Update,
-            (
-                handle_predicted_spawn,
-                handle_interpolated_spawn,
-                button_system,
-            ),
-        );
+        app.add_systems(Update, (button_system, change_ball_color_on_authority));
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+
+        app.add_systems(PostUpdate, interpolation_debug_log);
 
         app.observe(handle_ball);
     }
@@ -76,6 +68,9 @@ pub(crate) fn handle_connection(
     }
 }
 
+/// When a Ball entity gets replicated to use from the server, add the Replicate component
+/// on the client so that we can replicate updates to the server if we get authority
+/// over the ball
 pub(crate) fn handle_ball(trigger: Trigger<OnAdd, BallMarker>, mut commands: Commands) {
     commands
         .entity(trigger.entity())
@@ -87,15 +82,6 @@ pub(crate) fn handle_ball(trigger: Trigger<OnAdd, BallMarker>, mut commands: Com
         // NOTE: we need to make sure that the ball doesn't have authority!
         //  or should let the client receive updates even if it has HasAuthority
         .remove::<HasAuthority>();
-}
-
-/// Listen for events to know when the client is disconnected, and print out the reason
-/// of the disconnection
-pub(crate) fn handle_disconnection(mut events: EventReader<DisconnectEvent>) {
-    for event in events.read() {
-        let reason = &event.reason;
-        error!("Disconnected from server: {:?}", reason);
-    }
 }
 
 /// System that reads from peripherals and adds inputs to the buffer
@@ -154,36 +140,6 @@ fn player_movement(
                 shared::shared_movement_behaviour(position, input);
             }
         }
-    }
-}
-
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
-pub(crate) fn handle_predicted_spawn(
-    mut predicted: Query<&mut PlayerColor, (Added<Predicted>, With<PlayerId>)>,
-) {
-    for mut color in predicted.iter_mut() {
-        let hsva = Hsva {
-            saturation: 0.4,
-            ..Hsva::from(color.0)
-        };
-        color.0 = Color::from(hsva);
-    }
-}
-
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
-pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, (Added<Interpolated>, With<PlayerId>)>,
-) {
-    for mut color in interpolated.iter_mut() {
-        let hsva = Hsva {
-            saturation: 0.1,
-            ..Hsva::from(color.0)
-        };
-        color.0 = Color::from(hsva);
     }
 }
 
@@ -282,5 +238,49 @@ fn button_system(
                 }
             };
         }
+    }
+}
+
+/// Set the color of the ball to the color of the peer that has authority
+pub(crate) fn change_ball_color_on_authority(
+    mut messages: ResMut<Events<MessageEvent<AuthorityPeer>>>,
+    players: Query<(&PlayerColor, &PlayerId), With<Confirmed>>,
+    mut balls: Query<&mut PlayerColor, (With<BallMarker>, Without<PlayerId>, With<Interpolated>)>,
+) {
+    for event in messages.drain() {
+        if let Ok(mut ball_color) = balls.get_single_mut() {
+            match event.message {
+                AuthorityPeer::Server => {
+                    ball_color.0 = Color::WHITE;
+                }
+                AuthorityPeer::Client(client_id) => {
+                    for (player_color, player_id) in players.iter() {
+                        if player_id.0 == client_id {
+                            ball_color.0 = player_color.0;
+                        }
+                    }
+                }
+                AuthorityPeer::None => {
+                    ball_color.0 = Color::BLACK;
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn interpolation_debug_log(
+    tick_manager: Res<TickManager>,
+    ball: Query<
+        (
+            &Position,
+            &InterpolateStatus<Position>,
+            &ConfirmedHistory<Position>,
+        ),
+        (With<BallMarker>, Without<Confirmed>),
+    >,
+) {
+    let tick = tick_manager.tick();
+    for (position, status, history) in ball.iter() {
+        trace!(?tick, ?position, ?status, ?history, "Interpolation");
     }
 }

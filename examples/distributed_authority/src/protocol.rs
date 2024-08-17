@@ -4,16 +4,17 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
-use std::ops::{Add, Mul};
-
+use bevy::color::palettes;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
+    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Reflect, Vec2,
 };
 use bevy::prelude::{App, Plugin};
 use serde::{Deserialize, Serialize};
+use std::ops::{Add, Mul};
 
 use lightyear::client::components::ComponentSyncMode;
+use lightyear::prelude::server::AuthorityPeer;
 use lightyear::prelude::*;
 
 // Player
@@ -26,25 +27,32 @@ pub(crate) struct PlayerBundle {
 
 impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
-        // Generate pseudo random color from client id.
-        let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
-        let s = 0.8;
-        let l = 0.5;
-        let color = Color::hsl(h, s, l);
         Self {
             id: PlayerId(id),
             position: Position(position),
-            color: PlayerColor(color),
+            color: PlayerColor(Self::color_from_id(id)),
         }
+    }
+
+    pub(crate) fn color_from_id(id: ClientId) -> Color {
+        let colors = [
+            palettes::css::RED,
+            palettes::css::GREEN,
+            palettes::css::BLUE,
+            palettes::css::YELLOW,
+            palettes::css::CADET_BLUE,
+            palettes::css::MAGENTA,
+        ];
+        colors[id.to_bits() as usize % colors.len()].into()
     }
 }
 
 // Components
 
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Reflect)]
 pub struct Position(pub Vec2);
 
 impl Add for Position {
@@ -63,7 +71,7 @@ impl Mul<f32> for &Position {
     }
 }
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Reflect)]
 pub struct Speed(pub Vec2);
 
 impl Add for Speed {
@@ -82,7 +90,7 @@ impl Mul<f32> for &Speed {
     }
 }
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerColor(pub(crate) Color);
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
@@ -129,6 +137,10 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
         app.register_message::<Message1>(ChannelDirection::Bidirectional);
+        // we replicate the AuthorityPeer so that the client can know who has authority over the player
+        // (so that we can change the color)
+        app.register_message::<AuthorityPeer>(ChannelDirection::ServerToClient);
+
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
@@ -153,6 +165,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
+
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

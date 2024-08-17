@@ -306,7 +306,6 @@ impl ConnectionManager {
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        dbg!(&target);
         self.connections
             .iter_mut()
             .filter(|(id, _)| target.targets(id))
@@ -316,7 +315,6 @@ impl ConnectionManager {
                 if c.is_local_client() {
                     c.local_messages_to_send.push(message.clone())
                 } else {
-                    dbg!("sending resource message2");
                     // NOTE: this clone is O(1), it just increments the reference count
                     c.buffer_message(message.clone(), channel)?;
                 }

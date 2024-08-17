@@ -10,7 +10,7 @@ use bevy::utils::Duration;
 use bevy_mod_picking::DefaultPickingPlugins;
 use std::ops::{Deref, DerefMut};
 
-use lightyear::prelude::client::Interpolated;
+use lightyear::prelude::client::{Confirmed, Interpolated};
 use lightyear::prelude::*;
 use lightyear::shared::config::Mode;
 
@@ -21,6 +21,11 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<PlayerId>();
+        app.register_type::<PlayerColor>();
+        app.register_type::<Position>();
+        app.register_type::<Speed>();
+
         // the protocol needs to be shared between the client and server
         app.add_plugins(ProtocolPlugin);
         if app.is_plugin_added::<RenderPlugin>() {
@@ -79,9 +84,15 @@ pub(crate) fn ball_movement(
     }
 }
 
+/// We draw:
+/// - on the server: we always draw the ball
+/// - on the client: we draw the interpolated ball (when the client has authority,
+///   the confirmed updates are added to the component history, instead of the server updates)
+// TODO: it can be a bit tedious to have the check if we want to draw the interpolated or the confirmed ball.
+//  if we have authority, should the interpolated ball become the same as Confirmed?
 pub(crate) fn draw_ball(
     mut gizmos: Gizmos,
-    balls: Query<(&Position, &PlayerColor), With<BallMarker>>,
+    balls: Query<(&Position, &PlayerColor), (With<BallMarker>, Without<Confirmed>)>,
 ) {
     for (position, color) in balls.iter() {
         gizmos.circle_2d(position.0, 25.0, color.0);
@@ -92,7 +103,7 @@ pub(crate) fn draw_ball(
 /// The components should be replicated from the server to the client
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    players: Query<(&Position, &PlayerColor), Without<BallMarker>>,
+    players: Query<(&Position, &PlayerColor), (Without<BallMarker>, Without<Confirmed>)>,
 ) {
     for (position, color) in &players {
         gizmos.rect(
