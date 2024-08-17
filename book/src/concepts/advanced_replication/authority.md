@@ -44,7 +44,8 @@ Under the hood, authority transfers do two things:
 - on the server, the transfer is applied immediately (i.e. the `HasAuthority` and `AuthorityPeer` components are updated instantly)
 - than the server sends messages to clients to notify them of an authority change. Upon receiving the message, the client will add or remove the `HasAuthority` component as needed.
 
-### Caveats
+
+### Implementation details
 
 - There could be a time where both the client and server have authority at the same time
   - server is transferring authority from itself to a client: there is a period of time where
@@ -52,22 +53,24 @@ Under the hood, authority transfers do two things:
   - server is transferring authority from a client to itself: there is a period of time where
     both the client and server have authority. The client's updates won't be accepted by the server because it has authority, and the server's updates won't be accepted by the client because it 
     has authority, so no updates will be applied.
-    
   - server is transferring authority from client C1 to client C2:
     - if C1 receives the message first, then for a short period of time no client has authority, which is ok
     - if C2 receives the message first, then for a short period of time both clients have authority. However the `AuthorityPeer` is immediately updated on the server, so the server will only 
       accept updates from C2, and will discard the updates from C1.
 
-BUG:
-- [x] the server needs to stop replicating if it doesn't have authority over the entity and it doesn't need to rebroadcast. Maybe when the authority changes, we automatically change the replication-target to exclude the new owner? Currently it's broadcasting and we're ignoring the changes
-- fix entity mapping on the receiver side? the new owner needs to map from remote to local? Use a bit to indicate if the entity was mapped or not.
-- why is the color not matching the authority?
-- in the example, why do we send updates in bursts of 4? because the replication interval is 100ms but tick rate is 64Hz?
+- We have to be careful on the server about how updates are re-broadcasted to other clients.
+If a client 1 has authority and the server broadcasts the updates to all entities, we keep the `ReplicationTarget` as `NetworkTarget::All` (it would be tedious to keep track of how the replication target needs to be updated as we change authority again), but instead **the server never sends updates to the client that has authority.**
+ 
+- One thing that we have to be careful about is that lightyear used to only apply entity mapping on the receiver side. The reason is that the receiver receives a 'Spawn' message with the remote entity id so it knows how to map from the local to the remote id. In this case, the authority can now be transferred to the receiver. The receiver will now send replication updates, but the peer who was originally the spawner of the entity doesn't have an entity mapping. This means that the new sender (who was originally the receiver) must do the entity mapping on the send side.
+  - the Entity in EntityUpdates or EntityActions can now be mapped by the sender, if there is a mapping detected in `local_to_remote` entity map
+  - the entity mappers used on the send side and the receiver side are not the same anymore. To avoid possible conflicts, on the send side we flip a bit to indicate that we did a local->remote mapping so that the receiver doesn't potentially reapply a remote->local mapping. The send entity_map flips the bit, and the remote entity_map checks the bit.
+  - since we are now potentially doing entity mapping on the send side, we cannot just replicate a component `&C` because we might have to update the component to do entity mapping. Therefore if the component implements `MapEntities`, we clone it first and then apply entity mapping.
+    - TODO: this is potentially inefficient because it should be quite rare that the sender needs to do entity mapping (it's only if the authority over an entity was transferred). However components that contain other entities should change pretty infrequently so this clone should be ok. Still, it would be nice if we could avoid it
 
-TESTS TO ADD:
-- authority is transferred, and the new owner tries to send. This time the new owner (on the send side) must do entity mapping!
-  - also with components that contain entity maps
-  - in both directions
+- We want the `Interpolated` entity to still get updated even if the client has authority over the `Confirmed` entity. To do this, we populate the `ConfirmedHistory` with the server's updates when we don't have authority, and with the client's `Confirmed` updates if we have authority. This makes sense because `Interpolated` should just interpolate between ground truth states. 
+
+
+TODO:
 - what to do with prepredicted?
   - client spawns an entity with PrePredicted
   - server receives it, adds Replicate
@@ -84,10 +87,10 @@ TODO:
 - maybe let the client always accept updates from the server, even if the client has `HasAuthority`? What is the goal of disallowing the client to accept updates from the server if it has
 `HasAuthority`?
 - maybe include a timestamp/tick to the `ChangeAuthority` messages so that any in-flight replication updates can be handled correctly? 
-  - authority changes from C1 to C2 on tick 7. All updates from C1 that are previous to tick 7 are accepted by the server. Updates after that are discarded. We receive updates from C2 as soon as 
-    it receives the `ChangeAuthority` message.
+  - authority changes from C1 to C2 on tick 7. All updates from C1 that are previous to tick 7 are accepted by the server. Updates after that are discarded. We receive updates from C2 as soon as it receives the `ChangeAuthority` message.
   - authority changes from C1 to S on tick 7. All updates from C1 that are previous to tick 7 are accepted by the server.
-- how do we deal with Prediction?
+- how do we deal with `Predicted`?
+  - if Confirmed has authority, we probably want to disable rollback and set the predicted state to be equal to the confirmed state?
   - ideally, if an entity is client-authoritative, then it should interact with 0 delay with the client predicted entities. But currently only the Confirmed entity would get the Authority. Would 
     we also want to sync the HasAuthority component so that it gets added to Predicted?
 - maybe have an API `request_authority` where the client requests the authority? and receives a response from the server telling it if the request is accepted or not?

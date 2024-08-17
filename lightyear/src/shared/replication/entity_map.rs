@@ -98,10 +98,10 @@ impl RemoteEntityMap {
 
     /// We want to map entities in two situations:
     /// - an entity has been replicated to use so we've added it in our Remote->Local mapping. When we receive an entity
-    /// from the sender, we want to check if the entity has been mapped before.
+    ///   from the sender, we want to check if the entity has been mapped before.
     /// - but in some situations the sender has already mapped the entity; maybe it's because the authority has changes,
-    /// or because the receiver is sending a message about an entity so it does the mapping locally. In which case we don't want
-    /// both the receiver and the sender to apply a mapping, because it wouldn't work.
+    ///   or because the receiver is sending a message about an entity so it does the mapping locally. In which case we don't want
+    ///   both the receiver and the sender to apply a mapping, because it wouldn't work.
     ///
     /// So we use a dead bit on the entity to mark it as mapped. If an entity is already marked as mapped, the receiver won't try
     /// to map it again
@@ -157,13 +157,11 @@ impl RemoteEntityMap {
                 self.remote_to_local.remove(&remote);
                 return Some(local);
             }
-        } else {
-            if let Some(local) = self.remote_to_local.remove(&remote_entity) {
-                self.local_to_remote.remove(&local);
-                return Some(local);
-            }
+        } else if let Some(local) = self.remote_to_local.remove(&remote_entity) {
+            self.local_to_remote.remove(&local);
+            return Some(local);
         }
-        return None;
+        None
     }
 
     pub(crate) fn is_empty(&self) -> bool {

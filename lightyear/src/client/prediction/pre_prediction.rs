@@ -84,7 +84,7 @@ impl PrePredictionPlugin {
     ) {
         for message in should_be_predicted_added.read() {
             let confirmed_entity = message.entity();
-            info!("Received entity with PrePredicted from server: {confirmed_entity:?}");
+            debug!("Received entity with PrePredicted from server: {confirmed_entity:?}");
             if let Ok(pre_predicted) = confirmed_entities.get_mut(confirmed_entity) {
                 let Some(predicted_entity) = pre_predicted.client_entity else {
                     error!("The PrePredicted component received from the server does not contain the pre-predicted entity!");
@@ -97,7 +97,7 @@ impl PrePredictionPlugin {
                 );
                     continue;
                 };
-                info!(
+                debug!(
                     "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
                     predicted_entity, confirmed_entity
                 );
