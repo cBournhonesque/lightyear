@@ -7,7 +7,7 @@ use bevy::prelude::{Component, Entity, Event};
 use crate::packet::message::Message;
 
 /// This event is emitted whenever we receive a message from the remote
-#[derive(Event)]
+#[derive(Event, Debug)]
 pub struct MessageEvent<M: Message, Ctx = ()> {
     pub message: M,
     pub context: Ctx,

@@ -292,8 +292,13 @@ pub(crate) mod send {
                         .get_change_ticks::<ReplicateToServer>()
                         .unwrap_unchecked()
                 };
+                // the update will be 'insert' instead of update if the ReplicateToServer component is new
+                // or the HasAuthority component is new. That's because the remote cannot receive update
+                // without receiving an action first (to populate the latest_tick)
                 let replication_is_changed = replication_target_ticks
                     .is_changed(system_ticks.last_run(), system_ticks.this_run());
+
+                // TODO: do the entity mapping here!
 
                 // b. add entity despawns from ReplicateToServer component being removed
                 // replicate_entity_despawn(
@@ -372,7 +377,7 @@ pub(crate) mod send {
         target_entity: Option<&TargetEntity>,
         sender: &mut ConnectionManager,
     ) {
-        trace!(?entity, "Prepare entity spawn to server");
+        info!(?entity, "Prepare entity spawn to server");
         if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
             sender
                 .replication_sender
@@ -402,7 +407,12 @@ pub(crate) mod send {
         query: Query<&ReplicationGroup, With<Replicating>>,
         mut sender: ResMut<ConnectionManager>,
     ) {
-        let entity = trigger.entity();
+        let mut entity = trigger.entity();
+        // convert the entity to a network entity (possibly mapped)
+        entity = sender
+            .replication_receiver
+            .remote_entity_map
+            .to_remote(entity);
         if let Ok(group) = query.get(entity) {
             trace!(?entity, "send entity despawn");
             sender
@@ -421,11 +431,11 @@ pub(crate) mod send {
     fn replicate_component_update(
         current_tick: Tick,
         component_registry: &ComponentRegistry,
-        entity: Entity,
+        mut entity: Entity,
         component_kind: ComponentKind,
         component_data: Ptr,
         component_ticks: ComponentTicks,
-        replication_target_is_changed: bool,
+        force_insert: bool,
         group_id: ReplicationGroupId,
         delta_compression: bool,
         replicate_once: bool,
@@ -438,8 +448,9 @@ pub(crate) mod send {
         // or if we start replicating the entity
         // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
         //  ReplicateToServer components to `changed` when the client first connects so that we replicate existing entities to the server
+        //  That is why `force_insert = True` if ReplicateToServer is changed.
         if component_ticks.is_added(system_ticks.last_run(), system_ticks.this_run())
-            || replication_target_is_changed
+            || force_insert
         {
             trace!("component is added or replication_target is added");
             insert = true;
@@ -458,8 +469,15 @@ pub(crate) mod send {
             update = true;
         }
         if insert || update {
+            // convert the entity to a network entity (possibly mapped)
+            entity = sender
+                .replication_receiver
+                .remote_entity_map
+                .to_remote(entity);
+
             let writer = &mut sender.writer;
             if insert {
+                trace!(?entity, "send insert");
                 if delta_compression {
                     // SAFETY: the component_data corresponds to the kind
                     unsafe {
@@ -467,19 +485,33 @@ pub(crate) mod send {
                             component_data,
                             writer,
                             component_kind,
+                            Some(
+                                &mut sender
+                                    .replication_receiver
+                                    .remote_entity_map
+                                    .local_to_remote,
+                            ),
                         )?
                     }
                 } else {
-                    component_registry.erased_serialize(component_data, writer, component_kind)?;
+                    component_registry.erased_serialize(
+                        component_data,
+                        writer,
+                        component_kind,
+                        Some(
+                            &mut sender
+                                .replication_receiver
+                                .remote_entity_map
+                                .local_to_remote,
+                        ),
+                    )?;
                 };
                 let raw_data = writer.split();
-                sender.replication_sender.prepare_component_insert(
-                    entity,
-                    group_id,
-                    raw_data,
-                    system_ticks.this_run(),
-                );
+                sender
+                    .replication_sender
+                    .prepare_component_insert(entity, group_id, raw_data);
             } else {
+                trace!(?entity, "send update");
                 let send_tick = sender
                     .replication_sender
                     .group_channels
@@ -515,12 +547,19 @@ pub(crate) mod send {
                             writer,
                             &mut sender.delta_manager,
                             current_tick,
+                            &mut sender.replication_receiver.remote_entity_map,
                         )?;
                     } else {
                         component_registry.erased_serialize(
                             component_data,
                             writer,
                             component_kind,
+                            Some(
+                                &mut sender
+                                    .replication_receiver
+                                    .remote_entity_map
+                                    .local_to_remote,
+                            ),
                         )?;
                         let raw_data = writer.split();
                         sender
@@ -544,7 +583,12 @@ pub(crate) mod send {
             (With<Replicating>, With<ReplicateToServer>),
         >,
     ) {
-        let entity = trigger.entity();
+        let mut entity = trigger.entity();
+        // convert the entity to a network entity (possibly mapped)
+        entity = sender
+            .replication_receiver
+            .remote_entity_map
+            .to_remote(entity);
         if let Ok((group, disabled)) = query.get(entity) {
             // do not replicate components that are disabled
             if disabled {
@@ -659,7 +703,7 @@ pub(crate) mod send {
                     .remote_entity_map
                     .get_local(client_entity)
                     .unwrap(),
-                &server_entity
+                server_entity
             );
             assert!(stepper
                 .server_app
@@ -691,7 +735,7 @@ pub(crate) mod send {
             }
 
             // check that the entity was spawned
-            let server_entity = *stepper
+            let server_entity = stepper
                 .server_app
                 .world()
                 .resource::<server::ConnectionManager>()
@@ -733,7 +777,7 @@ pub(crate) mod send {
             }
 
             // check that the entity was spawned
-            let server_entity = *stepper
+            let server_entity = stepper
                 .server_app
                 .world()
                 .resource::<server::ConnectionManager>()
@@ -773,7 +817,7 @@ pub(crate) mod send {
             }
 
             // check that the entity was spawned
-            let server_entity = *stepper
+            let server_entity = stepper
                 .server_app
                 .world()
                 .resource::<server::ConnectionManager>()
@@ -821,7 +865,7 @@ pub(crate) mod send {
             }
 
             // check that the entity was spawned
-            let server_entity = *stepper
+            let server_entity = stepper
                 .server_app
                 .world()
                 .resource::<server::ConnectionManager>()
@@ -871,7 +915,7 @@ pub(crate) mod send {
             }
 
             // check that the entity was spawned
-            let server_entity = *stepper
+            let server_entity = stepper
                 .server_app
                 .world()
                 .resource::<server::ConnectionManager>()
@@ -985,7 +1029,7 @@ pub(crate) mod send {
             }
 
             // check that the entity was spawned
-            let server_entity = *stepper
+            let server_entity = stepper
                 .server_app
                 .world()
                 .resource::<server::ConnectionManager>()
@@ -1043,7 +1087,7 @@ pub(crate) mod send {
             }
 
             // check that the entity was spawned
-            let server_entity = *stepper
+            let server_entity = stepper
                 .server_app
                 .world()
                 .resource::<server::ConnectionManager>()
@@ -1091,7 +1135,7 @@ pub(crate) mod send {
             }
 
             // check that the entity was spawned
-            let server_entity = *stepper
+            let server_entity = stepper
                 .server_app
                 .world()
                 .resource::<server::ConnectionManager>()

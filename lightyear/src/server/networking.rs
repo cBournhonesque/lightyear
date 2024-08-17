@@ -348,6 +348,7 @@ fn on_start(world: &mut World) {
         .resource_mut::<ServerConnections>()
         .start()
         .inspect_err(|e| error!("Error starting server connections: {:?}", e));
+    info!("Server is started.");
 }
 
 /// System that runs when we enter the Stopped state

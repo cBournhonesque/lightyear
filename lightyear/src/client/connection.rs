@@ -34,7 +34,6 @@ use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::entity_map::EntityMap;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -235,11 +234,6 @@ impl ConnectionManager {
         message.map_entities(mapper);
     }
 
-    /// Map from the local entities to the remote entities
-    pub fn local_to_remote_map(&mut self) -> &mut EntityMap {
-        &mut self.replication_receiver.remote_entity_map.local_to_remote
-    }
-
     /// Send a [`Message`] to the server using a specific [`Channel`]
     pub fn send_message<C: Channel, M: Message>(
         &mut self,
@@ -262,7 +256,7 @@ impl ConnectionManager {
     /// Serialize a message and buffer it internally so that it can be sent later
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &mut M,
+        message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ClientError> {
@@ -597,7 +591,7 @@ impl ReplicationSend for ConnectionManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{client, server, ClientConnectionManager};
+    use crate::prelude::{client, server, ClientConnectionManager, RemoteEntityMap};
     use crate::tests::protocol::EntityMessage;
     use crate::tests::stepper::BevyStepper;
 
@@ -617,7 +611,7 @@ mod tests {
         stepper.frame_step();
 
         // check that the entity was spawned
-        let client_entity = *stepper
+        let client_entity = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()
@@ -633,7 +627,9 @@ mod tests {
                 .client_app
                 .world_mut()
                 .resource_mut::<ClientConnectionManager>()
-                .local_to_remote_map()
+                .replication_receiver
+                .remote_entity_map
+                .local_to_remote
                 .get(&client_entity)
                 .unwrap(),
             server_entity
@@ -645,6 +641,7 @@ mod tests {
             .world_mut()
             .resource_mut::<ClientConnectionManager>()
             .map_entities_to_remote(&mut message);
-        assert_eq!(message.0, server_entity);
+        assert!(RemoteEntityMap::is_mapped(message.0));
+        assert_eq!(RemoteEntityMap::mark_unmapped(message.0), server_entity);
     }
 }

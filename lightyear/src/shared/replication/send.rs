@@ -13,9 +13,12 @@ use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
+use super::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::packet::message_manager::MessageManager;
-use crate::prelude::{ChannelKind, ComponentRegistry, PacketError, Tick, TimeManager};
+use crate::prelude::{
+    ChannelKind, ComponentRegistry, PacketError, RemoteEntityMap, Tick, TimeManager,
+};
 use crate::protocol::component::{ComponentKind, ComponentNetId};
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
@@ -28,8 +31,6 @@ use {
     super::{EntityActionsMessage, EntityUpdatesMessage},
     crate::utils::captures::Captures,
 };
-
-use super::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -354,7 +355,6 @@ impl ReplicationSender {
         entity: Entity,
         group_id: ReplicationGroupId,
         component: Bytes,
-        bevy_tick: BevyTick,
     ) {
         self.group_with_actions.insert(group_id);
         self.group_channels
@@ -415,6 +415,7 @@ impl ReplicationSender {
         writer: &mut Writer,
         delta_manager: &mut DeltaManager,
         tick: Tick,
+        remote_entity_map: &mut RemoteEntityMap,
     ) -> Result<(), ReplicationError> {
         let group_channel = self.group_channels.entry(group_id).or_default();
         // Get the latest acked tick for this entity/component
@@ -425,6 +426,7 @@ impl ReplicationSender {
                 // so we can compute a diff
                 let old_data = delta_manager
                     .data
+                    // NOTE: remember to use the local entity for local bookkeeping
                     .get_component_value(entity, ack_tick, kind, group_id)
                     .ok_or(ReplicationError::DeltaCompressionError(
                         "could not find old component value to compute delta".to_string(),
@@ -440,7 +442,14 @@ impl ReplicationSender {
                     })?;
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
-                    registry.serialize_diff(ack_tick, old_data, component_data, writer, kind)?;
+                    registry.serialize_diff(
+                        ack_tick,
+                        old_data,
+                        component_data,
+                        writer,
+                        kind,
+                        Some(&mut remote_entity_map.local_to_remote),
+                    )?;
                 }
                 Ok::<Bytes, ReplicationError>(writer.split())
             })
@@ -448,11 +457,18 @@ impl ReplicationSender {
                 // SAFETY: the component_data is a pointer to a component that corresponds to kind
                 unsafe {
                     // compute a diff from the base value, and serialize that
-                    registry.serialize_diff_from_base_value(component_data, writer, kind)?;
+                    registry.serialize_diff_from_base_value(
+                        component_data,
+                        writer,
+                        kind,
+                        Some(&mut remote_entity_map.local_to_remote),
+                    )?;
                 }
                 Ok::<Bytes, ReplicationError>(writer.split())
             })?;
         trace!(?kind, "Inserting pending update!");
+        // use the network entity when serializing
+        let entity = remote_entity_map.to_remote(entity);
         self.prepare_component_update(entity, group_id, raw_data);
         Ok(())
     }
@@ -546,6 +562,8 @@ impl ReplicationSender {
             // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
             let channel = self.group_channels.get_mut(&group_id).unwrap();
             let mut actions = std::mem::take(&mut channel.pending_actions);
+            // TODO: should we be careful about not mapping entities for actions if it's a Spawn action?
+            //  how could that happen?
             // add any updates for that group
             if self.group_with_updates.remove(&group_id) {
                 // drain so that we keep the allocated memory
@@ -656,9 +674,11 @@ impl ReplicationSender {
             let priority = channel.accumulated_priority;
             let message = SendEntityUpdatesMessage {
                 group_id,
-                // TODO: as an optimization, we can use `last_action_tick = tick` to signify
-                //  that there is no constraint!
-                // SAFETY: the last action tick is always set because we send Actions before Updates
+                // TODO: as an optimization (to avoid 1 byte for the Option), we can use `last_action_tick = tick`
+                //  to signify that there is no constraint!
+                // SAFETY: the last action tick is usually always set because we send Actions before Updates
+                //  but that might not be the case (for example if the authority got transferred to us, we start sending
+                //  updates without sending any action before that)
                 last_action_tick: channel.last_action_tick,
                 updates,
             };
@@ -1094,7 +1114,7 @@ mod tests {
 
         // updates should be grouped with actions
         manager.prepare_entity_spawn(entity_1, group_1);
-        manager.prepare_component_insert(entity_1, group_1, raw_1.clone(), BevyTick::new(0));
+        manager.prepare_component_insert(entity_1, group_1, raw_1.clone());
         manager.prepare_component_remove(entity_1, group_1, net_id_2);
         manager.prepare_component_update(entity_1, group_1, raw_2.clone());
 

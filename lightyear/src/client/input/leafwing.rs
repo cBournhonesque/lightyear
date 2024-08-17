@@ -748,7 +748,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                     .remote_entity_map
                                     .get_local(*entity)
                             }
-                            InputTarget::PrePredictedEntity(entity) => Some(entity),
+                            InputTarget::PrePredictedEntity(entity) => Some(*entity),
                             InputTarget::Global => continue,
                         };
                         if let Some(entity) = entity {
@@ -756,7 +756,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                 "received input message for entity: {:?}. Applying to diff buffer.",
                                 entity
                             );
-                            if let Ok(confirmed) = confirmed_query.get(*entity) {
+                            if let Ok(confirmed) = confirmed_query.get(entity) {
                                 if let Some(predicted) = confirmed.predicted {
                                     if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
                                         debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
@@ -856,7 +856,7 @@ mod tests {
             .is_some());
 
         // check that the entity is replicated, including the ActionState component
-        let client_entity = *stepper
+        let client_entity = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()

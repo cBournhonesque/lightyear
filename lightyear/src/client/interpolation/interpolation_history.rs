@@ -1,6 +1,8 @@
 use std::ops::Deref;
 
-use bevy::prelude::{Commands, Component, DetectChanges, Entity, Query, Ref, Res, With, Without};
+use bevy::prelude::{
+    Commands, Component, DetectChanges, Entity, Has, Query, Ref, Res, With, Without,
+};
 use tracing::{debug, trace};
 
 use crate::client::components::Confirmed;
@@ -9,7 +11,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
-use crate::prelude::{ComponentRegistry, TickManager};
+use crate::prelude::{ComponentRegistry, HasAuthority, TickManager};
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
 
@@ -134,19 +136,31 @@ pub(crate) fn add_component_history<C: SyncComponent>(
 /// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
 pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
+    tick_manager: Res<TickManager>,
     manager: Res<InterpolationManager>,
     mut interpolated_entities: Query<
         &mut ConfirmedHistory<C>,
         (With<Interpolated>, Without<Confirmed>),
     >,
-    confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
+    confirmed_entities: Query<(Entity, &Confirmed, Ref<C>, Has<HasAuthority>)>,
 ) {
     let kind = std::any::type_name::<C>();
-    for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
+    for (confirmed_entity, confirmed, confirmed_component, has_authority) in
+        confirmed_entities.iter()
+    {
         if let Some(p) = confirmed.interpolated {
             if confirmed_component.is_changed() && !confirmed_component.is_added() {
                 if let Ok(mut history) = interpolated_entities.get_mut(p) {
-                    let tick = confirmed.tick;
+                    // if has_authority is true, we will consider the Confirmed value as the source of truth
+                    // else it will be the server updates
+                    // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
+                    //  if we have authority! Then it would also work for prediction?
+                    let tick = if has_authority {
+                        tick_manager.tick()
+                    } else {
+                        confirmed.tick
+                    };
+
                     // let Some(tick) = client
                     //     .replication_receiver()
                     //     .get_confirmed_tick(confirmed_entity)

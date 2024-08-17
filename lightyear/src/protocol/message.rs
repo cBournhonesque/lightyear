@@ -20,7 +20,7 @@ use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::ToBytes;
 use crate::server::message::add_server_receive_message_from_client;
-use crate::shared::replication::entity_map::EntityMap;
+use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use crate::shared::replication::resources::DespawnResource;
 
 #[derive(thiserror::Error, Debug)]
@@ -81,7 +81,7 @@ pub(crate) enum MessageType {
 /// use serde::{Deserialize, Serialize};
 /// use lightyear::prelude::*;
 ///
-/// #[derive(Serialize, Deserialize)]
+/// #[derive(Serialize, Deserialize, Clone)]
 /// struct MyMessage(Entity);
 ///
 /// impl MapEntities for MyMessage {
@@ -192,7 +192,7 @@ impl<M> MessageRegistration<'_, M> {
     /// upon deserialization
     pub fn add_map_entities(self) -> Self
     where
-        M: MapEntities + 'static,
+        M: Clone + MapEntities + 'static,
     {
         let mut registry = self.app.world_mut().resource_mut::<MessageRegistry>();
         registry.add_map_entities::<M>();
@@ -365,14 +365,14 @@ impl MessageRegistry {
         self.typed_map.insert(message_kind, message_type);
     }
 
-    pub(crate) fn try_add_map_entities<M: MapEntities + 'static>(&mut self) {
+    pub(crate) fn try_add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
         let kind = MessageKind::of::<M>();
         if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
             erased_fns.add_map_entities::<M>();
         }
     }
 
-    pub(crate) fn add_map_entities<M: MapEntities + 'static>(&mut self) {
+    pub(crate) fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
             .serialize_fns_map
@@ -393,9 +393,9 @@ impl MessageRegistry {
 
     pub(crate) fn serialize<M: Message>(
         &self,
-        message: &mut M,
+        message: &M,
         writer: &mut Writer,
-        entity_map: Option<&mut EntityMap>,
+        entity_map: Option<&mut SendEntityMap>,
     ) -> Result<(), MessageError> {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
@@ -414,7 +414,7 @@ impl MessageRegistry {
     pub(crate) fn deserialize<M: Message>(
         &self,
         reader: &mut Reader,
-        entity_map: &mut EntityMap,
+        entity_map: &mut ReceiveEntityMap,
     ) -> Result<M, MessageError> {
         let net_id = NetId::from_bytes(reader)?;
         let kind = self
@@ -461,14 +461,14 @@ mod tests {
         let mut registry = MessageRegistry::default();
         registry.add_message::<Resource1>(MessageType::Normal);
 
-        let mut message = Resource1(1.0);
+        let message = Resource1(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&mut message, &mut writer, None).unwrap();
+        registry.serialize(&message, &mut writer, None).unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
         let read = registry
-            .deserialize(&mut reader, &mut EntityMap::default())
+            .deserialize(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
         assert_eq!(message, read);
     }
@@ -479,18 +479,18 @@ mod tests {
         registry.add_message::<ComponentMapEntities>(MessageType::Normal);
         registry.add_map_entities::<ComponentMapEntities>();
 
-        let mut message = ComponentMapEntities(Entity::from_raw(0));
+        let message = ComponentMapEntities(Entity::from_raw(0));
         let mut writer = Writer::default();
-        let mut map = EntityMap::default();
+        let mut map = SendEntityMap::default();
         map.insert(Entity::from_raw(0), Entity::from_raw(1));
         registry
-            .serialize(&mut message, &mut writer, Some(&mut map))
+            .serialize(&message, &mut writer, Some(&mut map))
             .unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
         let read = registry
-            .deserialize::<ComponentMapEntities>(&mut reader, &mut EntityMap::default())
+            .deserialize::<ComponentMapEntities>(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
         assert_eq!(read, ComponentMapEntities(Entity::from_raw(1)));
     }
@@ -503,17 +503,18 @@ mod tests {
             SerializeFns {
                 serialize: serialize_resource2,
                 deserialize: deserialize_resource2,
+                serialize_map_entities: None,
             },
         );
 
-        let mut message = Resource2(1.0);
+        let message = Resource2(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&mut message, &mut writer, None).unwrap();
+        registry.serialize(&message, &mut writer, None).unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
         let read = registry
-            .deserialize(&mut reader, &mut EntityMap::default())
+            .deserialize(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
         assert_eq!(message, read);
     }

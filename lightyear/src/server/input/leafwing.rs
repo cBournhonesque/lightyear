@@ -120,7 +120,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                         .remote_entity_map
                         .remote_to_local,
                 ) {
-                    Ok(mut message) => {
+                    Ok(message) => {
                         debug!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
                         // TODO: UPDATE THIS
                         for (target, start, diffs) in &message.diffs {
@@ -177,7 +177,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                         // rebroadcast
                         if target != NetworkTarget::None {
                             if let Ok(()) = message_registry.serialize(
-                                &mut message,
+                                &message,
                                 &mut connection_manager.writer,
                                 Some(
                                     &mut connection
@@ -268,7 +268,7 @@ mod tests {
             .is_some());
 
         // check that the entity is replicated
-        let client_entity = *stepper
+        let client_entity = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()

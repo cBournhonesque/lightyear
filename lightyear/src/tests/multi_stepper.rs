@@ -237,6 +237,12 @@ impl MultiBevyStepper {
         mock_instant::global::MockClock::advance(duration);
     }
 
+    pub(crate) fn flush(&mut self) {
+        self.client_app_1.world_mut().flush();
+        self.client_app_2.world_mut().flush();
+        self.server_app.world_mut().flush();
+    }
+
     /// Advance the world by one frame duration
     pub(crate) fn frame_step(&mut self) {
         self.advance_time(self.frame_duration);

@@ -16,6 +16,7 @@ pub const fn varint_len(v: u64) -> usize {
     } else if v <= 4_611_686_018_427_387_903 {
         8
     } else {
+        // NOTE: cannot use a value that is close to u64::MAX
         unreachable!()
     }
 }

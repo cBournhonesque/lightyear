@@ -72,7 +72,7 @@ fn test_sync_after_tick_wrap() {
         stepper.frame_step();
     }
 
-    let client_entity = *stepper
+    let client_entity = stepper
         .client_app
         .world()
         .resource::<client::ConnectionManager>()
@@ -143,7 +143,7 @@ fn test_sync_after_tick_half_wrap() {
         stepper.frame_step();
     }
 
-    let client_entity = *stepper
+    let client_entity = stepper
         .client_app
         .world()
         .resource::<client::ConnectionManager>()
