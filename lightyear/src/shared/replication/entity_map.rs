@@ -67,6 +67,7 @@ pub struct InterpolatedEntityMap {
 }
 
 impl RemoteEntityMap {
+    /// Insert a new mapping between a remote entity and a local entity
     #[inline]
     pub fn insert(&mut self, remote_entity: Entity, local_entity: Entity) {
         self.remote_to_local.insert(remote_entity, local_entity);
