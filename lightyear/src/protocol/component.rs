@@ -1,14 +1,15 @@
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{App, Commands, Component, Entity, Mut, Resource, TypePath, World};
-use bevy::ptr::Ptr;
-use bevy::utils::HashMap;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use std::any::TypeId;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::{Add, Mul};
+
+use bevy::prelude::{App, Component, EntityWorldMut, Mut, Resource, TypePath, World};
+use bevy::ptr::Ptr;
+use bevy::utils::HashMap;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use tracing::{debug, error, trace};
 
@@ -20,14 +21,15 @@ use crate::client::prediction::plugin::{
 };
 use crate::prelude::client::SyncComponent;
 use crate::prelude::server::ServerConfig;
-use crate::prelude::{ChannelDirection, ClientId, Message, Tick};
+use crate::prelude::{ChannelDirection, Message, Tick};
 use crate::protocol::delta::ErasedDeltaFns;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::serialize::reader::Reader;
 use crate::serialize::SerializationError;
+use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::delta::{DeltaMessage, Diffable};
-use crate::shared::replication::entity_map::EntityMap;
+use crate::shared::replication::entity_map::{EntityMap, ReceiveEntityMap};
 
 pub type ComponentNetId = NetId;
 
@@ -186,16 +188,15 @@ pub struct InterpolationMetadata {
     pub interpolation: Option<unsafe fn()>,
 }
 
-type RawRemoveFn = fn(&ComponentRegistry, &mut Commands, Entity);
+type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
 type RawWriteFn = fn(
     &ComponentRegistry,
     &mut Reader,
     ComponentNetId,
     Tick,
-    &mut Commands,
-    Entity,
-    &mut EntityMap,
-    Option<ClientId>,
+    &mut EntityWorldMut,
+    &mut ReceiveEntityMap,
+    &mut ConnectionEvents,
 ) -> Result<(), ComponentError>;
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
@@ -289,16 +290,17 @@ mod serialize {
     use crate::serialize::reader::Reader;
     use crate::serialize::writer::Writer;
     use crate::serialize::ToBytes;
+    use crate::shared::replication::entity_map::SendEntityMap;
 
     impl ComponentRegistry {
-        pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
+        pub(crate) fn try_add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
             let kind = ComponentKind::of::<C>();
             if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
                 erased_fns.add_map_entities::<C>();
             }
         }
 
-        pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
+        pub(crate) fn add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
             let kind = ComponentKind::of::<C>();
             let erased_fns = self.serialize_fns_map.get_mut(&kind).unwrap_or_else(|| {
                 panic!(
@@ -309,11 +311,30 @@ mod serialize {
             erased_fns.add_map_entities::<C>();
         }
 
+        /// Returns true if we have a registered `map_entities` function for this component type
+        pub(crate) fn is_map_entities<C: 'static>(&self) -> bool {
+            let kind = ComponentKind::of::<C>();
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .expect("the component is not part of the protocol");
+            erased_fns.map_entities.is_some()
+        }
+
+        /// Returns true if we have a registered `map_entities` function for this component type
+        pub(crate) fn erased_is_map_entities(&self, kind: ComponentKind) -> bool {
+            let erased_fns = self
+                .serialize_fns_map
+                .get(&kind)
+                .expect("the component is not part of the protocol");
+            erased_fns.map_entities.is_some()
+        }
+
         pub(crate) fn serialize<C: 'static>(
             &self,
             component: &mut C,
             writer: &mut Writer,
-            entity_map: Option<&mut EntityMap>,
+            entity_map: Option<&mut SendEntityMap>,
         ) -> Result<(), ComponentError> {
             let kind = ComponentKind::of::<C>();
             let erased_fns = self
@@ -336,6 +357,7 @@ mod serialize {
             component: Ptr,
             writer: &mut Writer,
             kind: ComponentKind,
+            entity_map: Option<&mut SendEntityMap>,
         ) -> Result<(), ComponentError> {
             let erased_fns = self
                 .serialize_fns_map
@@ -345,7 +367,7 @@ mod serialize {
             net_id.to_bytes(writer)?;
             // SAFETY: the ErasedSerializeFns corresponds to type C
             unsafe {
-                (erased_fns.erased_serialize)(erased_fns, component, writer)?;
+                (erased_fns.erased_serialize)(erased_fns, component, writer, entity_map)?;
             }
             Ok(())
         }
@@ -355,7 +377,7 @@ mod serialize {
             &self,
             reader: &mut Reader,
             net_id: ComponentNetId,
-            entity_map: &mut EntityMap,
+            entity_map: &mut ReceiveEntityMap,
         ) -> Result<C, ComponentError> {
             let kind = self
                 .kind_map
@@ -372,7 +394,7 @@ mod serialize {
         pub(crate) fn deserialize<C: Component>(
             &self,
             reader: &mut Reader,
-            entity_map: &mut EntityMap,
+            entity_map: &mut ReceiveEntityMap,
         ) -> Result<C, ComponentError> {
             let net_id = NetId::from_bytes(reader).map_err(SerializationError::from)?;
             self.raw_deserialize(reader, net_id, entity_map)
@@ -534,13 +556,11 @@ mod interpolation {
 mod replication {
     use super::*;
     use crate::prelude::{
-        ClientId, DeltaCompression, DisabledComponent, OverrideTargetComponent,
-        ReplicateOnceComponent,
+        DeltaCompression, DisabledComponent, OverrideTargetComponent, ReplicateOnceComponent,
     };
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
-    use crate::shared::replication::receive::get_connection_events;
-    use bevy::prelude::{Commands, Entity};
+    use crate::shared::replication::entity_map::ReceiveEntityMap;
 
     impl ComponentRegistry {
         pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self, world: &mut World) {
@@ -565,11 +585,10 @@ mod replication {
         pub(crate) fn raw_write(
             &self,
             reader: &mut Reader,
-            commands: &mut Commands,
-            entity: Entity,
+            entity_world_mut: &mut EntityWorldMut,
             tick: Tick,
-            entity_map: &mut EntityMap,
-            remote_id: Option<ClientId>,
+            entity_map: &mut ReceiveEntityMap,
+            events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
             let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
             let kind = self
@@ -581,7 +600,13 @@ mod replication {
                 .get(kind)
                 .ok_or(ComponentError::MissingReplicationFns)?;
             (replication_metadata.write)(
-                self, reader, net_id, tick, commands, entity, entity_map, remote_id,
+                self,
+                reader,
+                net_id,
+                tick,
+                entity_world_mut,
+                entity_map,
+                events,
             )
         }
 
@@ -590,40 +615,31 @@ mod replication {
             reader: &mut Reader,
             net_id: ComponentNetId,
             tick: Tick,
-            commands: &mut Commands,
-            entity: Entity,
-            entity_map: &mut EntityMap,
-            remote_id: Option<ClientId>,
+            entity_world_mut: &mut EntityWorldMut,
+            entity_map: &mut ReceiveEntityMap,
+            events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
             trace!("Writing component {} to entity", std::any::type_name::<C>());
             let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
-
-            commands.add(move |world: &mut World| {
-                let Some(mut entity_world_mut) = world.get_entity_mut(entity) else {
-                    return;
-                };
-                // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
-                if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                    // only apply the update if the component is different, to not trigger change detection
-                    if c.as_ref() != &component {
-                        *c = component;
-                        get_connection_events(world, remote_id)
-                            .push_update_component(entity, net_id, tick);
-                    }
-                } else {
-                    entity_world_mut.insert(component);
-                    get_connection_events(world, remote_id)
-                        .push_insert_component(entity, net_id, tick);
+            let entity = entity_world_mut.id();
+            // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
+            if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                // only apply the update if the component is different, to not trigger change detection
+                if c.as_ref() != &component {
+                    events.push_update_component(entity, net_id, tick);
+                    *c = component;
                 }
-            });
+            } else {
+                events.push_insert_component(entity, net_id, tick);
+                entity_world_mut.insert(component);
+            }
             Ok(())
         }
 
         pub(crate) fn raw_remove(
             &self,
             net_id: ComponentNetId,
-            commands: &mut Commands,
-            entity: Entity,
+            entity_world_mut: &mut EntityWorldMut,
         ) {
             let kind = self.kind_map.kind(net_id).expect("unknown component kind");
             let replication_metadata = self
@@ -633,11 +649,11 @@ mod replication {
             let f = replication_metadata
                 .remove
                 .expect("the component does not have a remove function");
-            f(self, commands, entity);
+            f(self, entity_world_mut);
         }
 
-        pub(crate) fn remove<C: Component>(&self, commands: &mut Commands, entity: Entity) {
-            commands.entity(entity).remove::<C>();
+        pub(crate) fn remove<C: Component>(&self, entity_world_mut: &mut EntityWorldMut) {
+            entity_world_mut.remove::<C>();
         }
     }
 }
@@ -648,7 +664,7 @@ mod delta {
     use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
 
     use crate::serialize::writer::Writer;
-    use crate::shared::replication::receive::get_connection_events;
+    use crate::shared::replication::entity_map::SendEntityMap;
     use std::ptr::NonNull;
 
     impl ComponentRegistry {
@@ -718,6 +734,7 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
+            entity_map: Option<&mut SendEntityMap>,
         ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
@@ -725,7 +742,7 @@ mod delta {
                 .ok_or(ComponentError::MissingDeltaFns)?;
 
             let delta = (delta_fns.diff)(start_tick, start, new);
-            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind, entity_map)?;
             // drop the delta message
             (delta_fns.drop_delta_message)(delta);
             Ok(())
@@ -738,13 +755,14 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
+            entity_map: Option<&mut SendEntityMap>,
         ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
                 .get(&kind)
                 .ok_or(ComponentError::MissingDeltaFns)?;
             let delta = (delta_fns.diff_from_base)(component_data);
-            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind)?;
+            self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind, entity_map)?;
             // drop the delta message
             (delta_fns.drop_delta_message)(delta);
             Ok(())
@@ -756,10 +774,9 @@ mod delta {
             reader: &mut Reader,
             net_id: ComponentNetId,
             tick: Tick,
-            commands: &mut Commands,
-            entity: Entity,
-            entity_map: &mut EntityMap,
-            remote_id: Option<ClientId>,
+            entity_world_mut: &mut EntityWorldMut,
+            entity_map: &mut ReceiveEntityMap,
+            events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
             trace!(
                 "Writing component delta {} to entity",
@@ -768,92 +785,68 @@ mod delta {
             let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
+            let entity = entity_world_mut.id();
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
-            commands.add(move |world: &mut World| {
-                let Some(mut entity_world_mut) = world.get_entity_mut(entity) else {
-                    return
-                };
-                let mut is_update = false;
-                let mut is_insert = false;
-                match delta.delta_type {
-                    DeltaType::Normal { previous_tick } => {
-                        let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
-                        else {
-                            // TODO: maybe a command that pipes errors somewhere?
-                            error!("Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
-                                        std::any::type_name::<C>());
-                            return;
-                            // return Err(ComponentError::DeltaCompressionError(
-                            //     format!("Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
-                            //             std::any::type_name::<C>())
-                            // ));
-                        };
-                        let Some(past_value) = history.buffer.get(&previous_tick) else {
-                            error!("Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
-                                        std::any::type_name::<C>());
-                            return;
-                            // return Err(ComponentError::DeltaCompressionError(
-                            //     format!("Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
-                            //             std::any::type_name::<C>())
-                            // ));
-                        };
-                        // TODO: is it possible to have one clone instead of 2?
-                        let mut new_value = past_value.clone();
-                        new_value.apply_diff(&delta.delta);
-                        // we can remove all the values strictly older than previous_tick in the component history
-                        // (since we now that server has receive an ack for previous_tick)
-                        history.buffer = history.buffer.split_off(&previous_tick);
-                        // store the new value in the history
-                        history.buffer.insert(tick, new_value.clone());
-                        let Some(mut c) = entity_world_mut.get_mut::<C>() else {
-                            error!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
-                                        std::any::type_name::<C>());
-                            return;
-                            // return Err(ComponentError::DeltaCompressionError(
-                            //     format!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
-                            //             std::any::type_name::<C>())
-                            // ));
-                        };
-                        *c = new_value;
-                        is_update = true;
-                        let events = get_connection_events(world, remote_id);
-                        events.push_update_component(entity, net_id, tick);
-                    }
-                    DeltaType::FromBase => {
-                        let mut new_value = C::base_value();
-                        new_value.apply_diff(&delta.delta);
-                        let value = new_value.clone();
-                        if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                            // only apply the update if the component is different, to not trigger change detection
-                            if c.as_ref() != &new_value {
-                                *c = new_value;
-                                is_update = true;
-                            }
-                        } else {
-                            entity_world_mut.insert(new_value);
-                            is_insert = true;
-                        }
-                        // store the component value in the delta component history, so that we can compute
-                        // diffs from it
-                        if let Some(mut history) =
-                            entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
-                        {
-                            history.buffer.insert(tick, value);
-                        } else {
-                            // create a DeltaComponentHistory and insert the value
-                            let mut history = DeltaComponentHistory::default();
-                            history.buffer.insert(tick, value);
-                            entity_world_mut.insert(history);
-                        }
-                    }
-                }
-                let events = get_connection_events(world, remote_id);
-                if is_update {
+            match delta.delta_type {
+                DeltaType::Normal { previous_tick } => {
+                    let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
+                    else {
+                        return Err(ComponentError::DeltaCompressionError(
+                            format!("Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
+                                    std::any::type_name::<C>())
+                        ));
+                    };
+                    let Some(past_value) = history.buffer.get(&previous_tick) else {
+                        return Err(ComponentError::DeltaCompressionError(
+                            format!("Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
+                                    std::any::type_name::<C>())
+                        ));
+                    };
+                    // TODO: is it possible to have one clone instead of 2?
+                    let mut new_value = past_value.clone();
+                    new_value.apply_diff(&delta.delta);
+                    // we can remove all the values strictly older than previous_tick in the component history
+                    // (since we now that server has receive an ack for previous_tick)
+                    history.buffer = history.buffer.split_off(&previous_tick);
+                    // store the new value in the history
+                    history.buffer.insert(tick, new_value.clone());
+                    let Some(mut c) = entity_world_mut.get_mut::<C>() else {
+                        return Err(ComponentError::DeltaCompressionError(
+                            format!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
+                            std::any::type_name::<C>())
+                        ));
+                    };
+                    *c = new_value;
                     events.push_update_component(entity, net_id, tick);
-                } else if is_insert {
-                    events.push_insert_component(entity, net_id, tick);
                 }
-            });
+                DeltaType::FromBase => {
+                    let mut new_value = C::base_value();
+                    new_value.apply_diff(&delta.delta);
+                    let value = new_value.clone();
+                    if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                        // only apply the update if the component is different, to not trigger change detection
+                        if c.as_ref() != &new_value {
+                            *c = new_value;
+                            events.push_update_component(entity, net_id, tick);
+                        }
+                    } else {
+                        entity_world_mut.insert(new_value);
+                        events.push_insert_component(entity, net_id, tick);
+                    }
+                    // store the component value in the delta component history, so that we can compute
+                    // diffs from it
+                    if let Some(mut history) =
+                        entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
+                    {
+                        history.buffer.insert(tick, value);
+                    } else {
+                        // create a DeltaComponentHistory and insert the value
+                        let mut history = DeltaComponentHistory::default();
+                        history.buffer.insert(tick, value);
+                        entity_world_mut.insert(history);
+                    }
+                }
+            }
             Ok(())
         }
     }
@@ -961,7 +954,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// upon deserialization
     pub fn add_map_entities(self) -> Self
     where
-        C: MapEntities + 'static,
+        C: Clone + MapEntities + 'static,
     {
         let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
         registry.add_map_entities::<C>();
@@ -1209,6 +1202,7 @@ mod tests {
         registry.register_component_custom_serde::<ComponentSyncModeSimple>(SerializeFns {
             serialize: serialize_component2,
             deserialize: deserialize_component2,
+            serialize_map_entities: None,
         });
         let mut component = ComponentSyncModeSimple(1.0);
         let mut writer = Writer::default();
@@ -1219,7 +1213,7 @@ mod tests {
 
         let mut reader = Reader::from(data);
         let read = registry
-            .deserialize(&mut reader, &mut EntityMap::default())
+            .deserialize(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
         assert_eq!(component, read);
     }

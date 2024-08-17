@@ -607,7 +607,7 @@ mod tests {
                 .len(),
             1
         );
-        let client_entity = *stepper
+        let client_entity = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()
@@ -776,7 +776,7 @@ mod tests {
                 .len(),
             1
         );
-        let client_entity = *stepper
+        let client_entity = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()

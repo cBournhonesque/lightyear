@@ -278,6 +278,12 @@ impl BevyStepper {
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         mock_instant::global::MockClock::advance(duration);
     }
+
+    pub(crate) fn flush(&mut self) {
+        self.client_app.world_mut().flush();
+        self.server_app.world_mut().flush();
+    }
+
     /// Advance the world by one frame duration
     pub(crate) fn frame_step(&mut self) {
         self.advance_time(self.frame_duration);

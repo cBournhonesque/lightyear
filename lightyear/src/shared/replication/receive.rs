@@ -1,24 +1,24 @@
 //! General struct handling replication
 use std::collections::BTreeMap;
 
+use super::entity_map::RemoteEntityMap;
+use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::{ClientConnectionManager, ClientId, ServerConnectionManager, Tick};
 use crate::protocol::component::ComponentRegistry;
 use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
+use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
 use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 #[cfg(test)]
 use crate::utils::captures::Captures;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, EntityWorldMut, World};
+use bevy::prelude::{DespawnRecursiveExt, Entity, EntityWorldMut, World};
 use bevy::utils::HashSet;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
-
-use super::entity_map::RemoteEntityMap;
-use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -114,6 +114,7 @@ impl ReplicationReceiver {
         // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
         // if we have already applied a more recent update for this group, no need to keep this one (or should we keep it for history?)
         if channel.latest_tick.is_some_and(|t| remote_tick <= t) {
+            trace!("discard because the update is older than the latest tick");
             return;
         }
 
@@ -185,7 +186,7 @@ impl ReplicationReceiver {
     ) -> Option<ReplicationGroupId> {
         self.remote_entity_map
             .get_remote(confirmed_entity)
-            .and_then(|remote_entity| self.remote_entity_to_group.get(remote_entity))
+            .and_then(|remote_entity| self.remote_entity_to_group.get(&remote_entity))
             .copied()
     }
 
@@ -194,7 +195,7 @@ impl ReplicationReceiver {
     fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel> {
         self.remote_entity_map
             .get_remote(local_entity)
-            .and_then(|remote_entity| self.channel_by_remote(*remote_entity))
+            .and_then(|remote_entity| self.channel_by_remote(remote_entity))
     }
 
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
@@ -235,7 +236,7 @@ impl ReplicationReceiver {
     #[cfg(test)]
     pub(crate) fn apply_actions_message(
         &mut self,
-        commands: &mut Commands,
+        world: &mut World,
         remote: Option<ClientId>,
         component_registry: &ComponentRegistry,
         remote_tick: Tick,
@@ -254,7 +255,7 @@ impl ReplicationReceiver {
                 SpawnAction::Spawn => {
                     self.remote_entity_to_group.insert(*remote_entity, group_id);
                     if let Some(local_entity) = self.remote_entity_map.get_local(*remote_entity) {
-                        if commands.get_entity(*local_entity).is_some() {
+                        if world.get_entity(local_entity).is_some() {
                             warn!("Received spawn for an entity that already exists");
                             continue;
                         }
@@ -275,7 +276,7 @@ impl ReplicationReceiver {
                     //     interpolated: None,
                     //     tick,
                     // });
-                    let local_entity = commands.spawn(Replicated { from: remote });
+                    let local_entity = world.spawn(Replicated { from: remote });
                     self.remote_entity_map
                         .insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", self.remote_entity_map);
@@ -284,7 +285,7 @@ impl ReplicationReceiver {
                     events.push_spawn(local_entity.id());
                 }
                 SpawnAction::Reuse(local_entity) => {
-                    let Some(mut entity_mut) = commands.get_entity(local_entity) else {
+                    let Some(mut entity_mut) = world.get_entity_mut(local_entity) else {
                         // TODO: ignore the entity in the next steps because it does not exist!
                         error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
                         continue;
@@ -307,15 +308,11 @@ impl ReplicationReceiver {
                     if let Some(group) = self.group_channels.get_mut(&group_id) {
                         group.remote_entities.remove(&entity);
                     }
-                    commands.add(move |world: &mut World| {
-                        if let Some(entity_mut) = world.get_entity_mut(local_entity) {
-                            // TODO: we despawn all children as well right now, but that might not be what we want?
-                            entity_mut.despawn_recursive();
-                        }
-                        // TODO: only send the despawn event if the entity actually existed?
-                        get_connection_events(world, remote).push_despawn(local_entity);
-                    });
-                    // TODO: should we update this in the Command or here?
+                    // TODO: we despawn all children as well right now, but that might not be what we want?
+                    if let Some(entity_mut) = world.get_entity_mut(local_entity) {
+                        entity_mut.despawn_recursive();
+                    }
+                    events.push_despawn(local_entity);
                     self.remote_entity_to_group.remove(&entity);
                 } else {
                     error!("Received despawn for an entity that does not exist")
@@ -324,12 +321,11 @@ impl ReplicationReceiver {
             }
 
             // safety: we know by this point that the entity exists
-            let local_entity = self.remote_entity_map.get_local(entity);
-            if local_entity.and_then(|e| commands.get_entity(*e)).is_none() {
-                error!("Cannot find remote entity: {:?}", entity);
+            let Some(mut local_entity_mut) = self.remote_entity_map.get_by_remote(world, entity)
+            else {
+                error!("cannot find entity");
                 continue;
-            }
-            let local_entity = *local_entity.unwrap();
+            };
 
             // NOTE: 2 options
             //  - send the raw data to a separate typed system
@@ -345,11 +341,10 @@ impl ReplicationReceiver {
                 let _ = component_registry
                     .raw_write(
                         &mut reader,
-                        commands,
-                        local_entity,
+                        &mut local_entity_mut,
                         remote_tick,
                         &mut self.remote_entity_map.remote_to_local,
-                        remote,
+                        events,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
@@ -368,8 +363,8 @@ impl ReplicationReceiver {
             // removals
             trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
             for kind in actions.remove {
-                events.push_remove_component(local_entity, kind, Tick(0));
-                component_registry.raw_remove(kind, commands, local_entity);
+                events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
+                component_registry.raw_remove(kind, &mut local_entity_mut);
             }
 
             // updates
@@ -380,24 +375,23 @@ impl ReplicationReceiver {
                 let _ = component_registry
                     .raw_write(
                         &mut reader,
-                        commands,
-                        local_entity,
+                        &mut local_entity_mut,
                         remote_tick,
                         &mut self.remote_entity_map.remote_to_local,
-                        remote,
+                        events,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
                     });
             }
         }
-        self.update_confirmed_tick(commands, group_id, remote_tick);
+        self.update_confirmed_tick(world, group_id, remote_tick);
     }
 
     #[cfg(test)]
     pub(crate) fn apply_updates_message(
         &mut self,
-        commands: &mut Commands,
+        world: &mut World,
         remote: Option<ClientId>,
         component_registry: &ComponentRegistry,
         remote_tick: Tick,
@@ -415,32 +409,30 @@ impl ReplicationReceiver {
             debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
 
             // update the entity only if it exists
-            let local_entity = self.remote_entity_map.get_local(entity);
-            if local_entity.and_then(|e| commands.get_entity(*e)).is_none() {
+            let Some(mut local_entity_mut) = self.remote_entity_map.get_by_remote(world, entity)
+            else {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick
                 // later than the despawn action message
                 debug!("update for entity that doesn't exist: {:?}", entity);
                 continue;
-            }
-            let local_entity = *local_entity.unwrap();
+            };
             for component in components {
                 let mut reader = Reader::from(component);
                 let _ = component_registry
                     .raw_write(
                         &mut reader,
-                        commands,
-                        local_entity,
+                        &mut local_entity_mut,
                         remote_tick,
                         &mut self.remote_entity_map.remote_to_local,
-                        remote,
+                        events,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
                     });
             }
         }
-        self.update_confirmed_tick(commands, group_id, remote_tick);
+        self.update_confirmed_tick(world, group_id, remote_tick);
     }
 
     /// Update the Confirmed tick for all entities in the replication group
@@ -451,7 +443,7 @@ impl ReplicationReceiver {
     /// same group)
     pub(crate) fn update_confirmed_tick(
         &mut self,
-        commands: &mut Commands,
+        world: &mut World,
         group_id: ReplicationGroupId,
         remote_tick: Tick,
     ) {
@@ -465,20 +457,14 @@ impl ReplicationReceiver {
 
         if let Some(g) = self.group_channels.get(&group_id) {
             g.remote_entities.iter().for_each(|remote_entity| {
-                let local_entity = self.remote_entity_map.get_local(*remote_entity);
-                if local_entity.and_then(|e| commands.get_entity(*e)).is_none() {
-                    debug!("update for entity that doesn't exist?");
-                    return;
+                if let Some(mut local_entity_mut) =
+                    self.remote_entity_map.get_by_remote(world, *remote_entity)
+                {
+                    trace!(?remote_tick, "updating confirmed tick for entity");
+                    if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                        confirmed.tick = remote_tick;
+                    }
                 }
-                let local_entity = *local_entity.unwrap();
-                commands
-                    .entity(local_entity)
-                    .add(move |mut entity_world_mut: EntityWorldMut| {
-                        trace!(?remote_tick, "updating confirmed tick for entity");
-                        if let Some(mut confirmed) = entity_world_mut.get_mut::<Confirmed>() {
-                            confirmed.tick = remote_tick;
-                        }
-                    });
             });
         }
     }
@@ -493,7 +479,8 @@ impl ReplicationReceiver {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_world(
         &mut self,
-        commands: &mut Commands,
+        // TODO: should we use commands for command batching?
+        world: &mut World,
         remote: Option<ClientId>,
         component_registry: &ComponentRegistry,
         current_tick: Tick,
@@ -558,7 +545,7 @@ impl ReplicationReceiver {
                 channel.latest_tick = Some(remote_tick);
 
                 channel.apply_actions_message(
-                    commands,
+                    world,
                     remote,
                     component_registry,
                     remote_tick,
@@ -592,12 +579,13 @@ impl ReplicationReceiver {
                     let (remote_tick, message) = channel.buffered_updates.pop_oldest().unwrap();
                     let is_history = channel.buffered_updates.len() != max_applicable_idx;
                     channel.apply_updates_message(
-                        commands,
+                        world,
                         remote,
                         component_registry,
                         remote_tick,
                         is_history,
                         message,
+                        events,
                         &mut self.remote_entity_map,
                     );
                 }
@@ -722,14 +710,20 @@ impl UpdatesBuffer {
     ///
     /// or None if there are None
     fn max_index_to_apply(&self, latest_tick: Option<Tick>) -> Option<usize> {
-        // if we haven't applied any latest_tick, we can't apply any updates
-        let latest_tick = latest_tick?;
-
         // we can use partition point because we know that all the non-ready elements will be on the left
-        // and the ready elements will be on the right
+        // and the ready elements will be on the right.
+        // Returning false means that the element is ready to be applied
         let idx = self.0.partition_point(|(_, message)| {
             let Some(last_action_tick) = message.last_action_tick else {
+                // if the Updates message had no last_action_tick constraint (for example
+                // because the authority got swapped so the first message sent is an Update, not an Action),
+                // then we can apply it immediately!
                 return false;
+            };
+            let Some(latest_tick) = latest_tick else {
+                // if the Updates message requires a certain last_action_tick to be applied
+                // and locally we haven't applied any actions yet, we can't apply it!
+                return true;
             };
             last_action_tick > latest_tick
         });
@@ -814,7 +808,7 @@ impl GroupChannel {
     /// Apply actions for channel
     pub(crate) fn apply_actions_message(
         &mut self,
-        commands: &mut Commands,
+        world: &mut World,
         remote: Option<ClientId>,
         component_registry: &ComponentRegistry,
         remote_tick: Tick,
@@ -829,14 +823,21 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            debug!(?remote_entity, "Received entity actions");
+            debug!(?remote_entity, ?actions, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
+                    // TODO: update this to local_entity_to_group??
                     remote_entity_to_group.insert(*remote_entity, group_id);
+                    // TODO ABOVE
+
                     if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
-                        if commands.get_entity(*local_entity).is_some() {
-                            warn!("Received spawn for an entity that already exists");
+                        if world.get_entity(local_entity).is_some() {
+                            warn!(
+                                ?remote_entity,
+                                ?local_entity,
+                                "Received spawn for an entity that already exists"
+                            );
                             continue;
                         }
                         warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
@@ -856,7 +857,17 @@ impl GroupChannel {
                     //     interpolated: None,
                     //     tick,
                     // });
-                    let local_entity = commands.spawn(Replicated { from: remote });
+
+                    // TODO: add abstractions to protect against this, maybe create a MappedEntity type?
+                    // NOTE: at this point we know that the remote entity was not mapped!
+
+                    // TODO: maybe use command-batching?
+                    let mut local_entity = world.spawn(Replicated { from: remote });
+                    // if the entity was replicated from a client to the server, update the AuthorityPeer
+                    if let Some(client) = remote {
+                        local_entity.insert(AuthorityPeer::Client(client));
+                    }
+
                     remote_entity_map.insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", remote_entity_map);
 
@@ -864,7 +875,7 @@ impl GroupChannel {
                     events.push_spawn(local_entity.id());
                 }
                 SpawnAction::Reuse(local_entity) => {
-                    let Some(mut entity_mut) = commands.get_entity(local_entity) else {
+                    let Some(mut entity_mut) = world.get_entity_mut(local_entity) else {
                         // TODO: ignore the entity in the next steps because it does not exist!
                         error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
                         continue;
@@ -886,7 +897,7 @@ impl GroupChannel {
                 if let Some(local_entity) = remote_entity_map.remove_by_remote(entity) {
                     self.remote_entities.remove(&entity);
                     // TODO: we despawn all children as well right now, but that might not be what we want?
-                    if let Some(entity_mut) = commands.get_entity(local_entity) {
+                    if let Some(entity_mut) = world.get_entity_mut(local_entity) {
                         entity_mut.despawn_recursive();
                     }
                     events.push_despawn(local_entity);
@@ -898,12 +909,14 @@ impl GroupChannel {
             }
 
             // safety: we know by this point that the entity exists
-            let local_entity = remote_entity_map.get_local(entity);
-            if local_entity.and_then(|e| commands.get_entity(*e)).is_none() {
-                error!("Cannot find remote entity: {:?}", entity);
+            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
+                error!(?entity, "cannot find entity");
+                continue;
+            };
+            if !Self::authority_check(&mut local_entity_mut, remote) {
+                trace!("Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
                 continue;
             }
-            let local_entity = *local_entity.unwrap();
 
             // NOTE: 2 options
             //  - send the raw data to a separate typed system
@@ -918,11 +931,10 @@ impl GroupChannel {
                 let _ = component_registry
                     .raw_write(
                         &mut reader,
-                        commands,
-                        local_entity,
+                        &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
-                        remote,
+                        events,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
@@ -941,8 +953,8 @@ impl GroupChannel {
             // removals
             trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
             for kind in actions.remove {
-                events.push_remove_component(local_entity, kind, Tick(0));
-                component_registry.raw_remove(kind, commands, local_entity);
+                events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
+                component_registry.raw_remove(kind, &mut local_entity_mut);
             }
 
             // updates
@@ -952,69 +964,87 @@ impl GroupChannel {
                 let _ = component_registry
                     .raw_write(
                         &mut reader,
-                        commands,
-                        local_entity,
+                        &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
-                        remote,
+                        events,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
                     });
             }
         }
-        self.update_confirmed_tick(commands, group_id, remote_tick, remote_entity_map);
+        self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
+    }
+
+    // TODO: should we accept updates from the client that lost authority if they are from a
+    //  tick before the moment where we changed authority? seems like we should?
+    /// Check if we can accept updates for this entity, based on the authority
+    /// - on the server: only accept updates from the client who has authority
+    /// - on the client: only accept updates if we don't have authority
+    ///
+    /// Returns true if we can accept updates for this entity
+    fn authority_check(entity_mut: &mut EntityWorldMut, remote: Option<ClientId>) -> bool {
+        match remote {
+            // we are the server receiving an update from a client
+            Some(c) => entity_mut
+                .get::<AuthorityPeer>()
+                .map_or(false, |authority| *authority == AuthorityPeer::Client(c)),
+            None => entity_mut.get::<HasAuthority>().is_none(),
+        }
     }
 
     pub(crate) fn apply_updates_message(
         &mut self,
-        commands: &mut Commands,
+        world: &mut World,
         remote: Option<ClientId>,
         component_registry: &ComponentRegistry,
         remote_tick: Tick,
         is_history: bool,
         message: EntityUpdatesMessage,
+        events: &mut ConnectionEvents,
         remote_entity_map: &mut RemoteEntityMap,
     ) {
         let group_id = message.group_id;
         debug!(?remote_tick, ?message, "Received replication updates");
+
         // TODO: store this in ConfirmedHistory?
         if is_history {
             return;
         }
         for (entity, components) in message.updates.into_iter() {
             debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
-            // update the entity only if it exists
-            let local_entity = remote_entity_map.get_local(entity);
-            if local_entity
-                .and_then(|local_entity| commands.get_entity(*local_entity))
-                .is_none()
-            {
+            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick
                 // later than the despawn action message
-                debug!("update for entity that doesn't exist?");
+                info!(remote_entity = ?entity, "update for entity that doesn't exist?");
+                continue;
+            };
+            if !Self::authority_check(&mut local_entity_mut, remote) {
+                trace!("Ignored a replication update received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
+                continue;
+            };
+            if !Self::authority_check(&mut local_entity_mut, remote) {
+                debug!("authority check failed for entity: {:?}", entity);
                 continue;
             }
-            let local_entity = *local_entity.unwrap();
-
             for component in components {
                 let mut reader = Reader::from(component);
                 let _ = component_registry
                     .raw_write(
                         &mut reader,
-                        commands,
-                        local_entity,
+                        &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
-                        remote,
+                        events,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
                     });
             }
         }
-        self.update_confirmed_tick(commands, group_id, remote_tick, remote_entity_map);
+        self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
     }
 
     /// Update the Confirmed tick for all entities in the replication group
@@ -1025,7 +1055,7 @@ impl GroupChannel {
     /// same group)
     pub(crate) fn update_confirmed_tick(
         &mut self,
-        commands: &mut Commands,
+        world: &mut World,
         group_id: ReplicationGroupId,
         remote_tick: Tick,
         remote_entity_map: &mut RemoteEntityMap,
@@ -1039,20 +1069,14 @@ impl GroupChannel {
         // }
 
         self.remote_entities.iter().for_each(|remote_entity| {
-            let local_entity = remote_entity_map.get_local(*remote_entity);
-            if local_entity.and_then(|e| commands.get_entity(*e)).is_none() {
-                debug!("update for entity that doesn't exist?");
-                return;
+            if let Some(mut local_entity_mut) =
+                remote_entity_map.get_by_remote(world, *remote_entity)
+            {
+                trace!(?remote_tick, "updating confirmed tick for entity");
+                if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                    confirmed.tick = remote_tick;
+                }
             }
-            let local_entity = *local_entity.unwrap();
-            commands
-                .entity(local_entity)
-                .add(move |mut entity_world_mut: EntityWorldMut| {
-                    trace!(?remote_tick, "updating confirmed tick for entity");
-                    if let Some(mut confirmed) = entity_world_mut.get_mut::<Confirmed>() {
-                        confirmed.tick = remote_tick;
-                    }
-                });
         });
     }
 }
@@ -1385,7 +1409,7 @@ mod tests {
             )],
         };
         manager.apply_actions_message(
-            &mut world.commands(),
+            &mut world,
             None,
             &component_registry,
             Tick(0),
@@ -1398,7 +1422,7 @@ mod tests {
         // check that the entity mapping was updated
         assert_eq!(
             manager.remote_entity_map.get_local(remote_entity).unwrap(),
-            &local_entity
+            local_entity
         );
     }
 }
