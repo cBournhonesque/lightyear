@@ -105,6 +105,12 @@ impl Plugin for SharedPlugin {
             .register_type::<LinkConditionerConfig>()
             .register_type::<CompressionConfig>();
 
+        // PLUGINS
+        #[cfg(feature = "avian2d")]
+        app.add_plugins(crate::utils::avian2d::Avian2dPlugin);
+        #[cfg(feature = "avian3d")]
+        app.add_plugins(crate::utils::avian3d::Avian3dPlugin);
+
         // RESOURCES
         // the SharedPlugin is called after the ClientConfig is inserted
         let input_send_interval =

@@ -1,8 +1,37 @@
 //! Implement lightyear traits for some common bevy types
+use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::shared::replication::delta::Diffable;
+use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian2d::math::Scalar;
 use avian2d::prelude::*;
+use bevy::prelude::{App, FixedPostUpdate, IntoSystemSetConfigs, Plugin};
 use tracing::trace;
+
+pub(crate) struct Avian2dPlugin;
+
+impl Plugin for Avian2dPlugin {
+    fn build(&self, app: &mut App) {
+        app.configure_sets(
+            FixedPostUpdate,
+            (
+                PhysicsSet::Prepare,
+                PhysicsSet::StepSimulation,
+                PhysicsSet::Sync,
+            )
+                .before((
+                    PredictionSet::UpdateHistory,
+                    PredictionSet::IncrementRollbackTick,
+                    InterpolationSet::UpdateVisualInterpolationState,
+                ))
+                // run physics after setting the PreSpawned hash to avoid any physics interaction affecting the hash
+                // TODO: maybe use observers so that we don't have any ordering requirements?
+                .after((
+                    InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
+                    InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
+                )),
+        );
+    }
+}
 
 pub mod position {
     use super::*;
