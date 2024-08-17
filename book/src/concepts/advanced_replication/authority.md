@@ -44,7 +44,6 @@ Under the hood, authority transfers do two things:
 - on the server, the transfer is applied immediately (i.e. the `HasAuthority` and `AuthorityPeer` components are updated instantly)
 - than the server sends messages to clients to notify them of an authority change. Upon receiving the message, the client will add or remove the `HasAuthority` component as needed.
 
-
 ### Implementation details
 
 - There could be a time where both the client and server have authority at the same time
@@ -53,6 +52,7 @@ Under the hood, authority transfers do two things:
   - server is transferring authority from a client to itself: there is a period of time where
     both the client and server have authority. The client's updates won't be accepted by the server because it has authority, and the server's updates won't be accepted by the client because it 
     has authority, so no updates will be applied.
+    
   - server is transferring authority from client C1 to client C2:
     - if C1 receives the message first, then for a short period of time no client has authority, which is ok
     - if C2 receives the message first, then for a short period of time both clients have authority. However the `AuthorityPeer` is immediately updated on the server, so the server will only 
@@ -80,7 +80,6 @@ TODO:
     - sol 1: use the local entity for bookkeeping and apply entity mapping at the end for the entire action. If the action has a spawn, no mapping. (because it's a new entity)
     - sol 2: we change how PrePredicted works. It spawns a Confirmed AND a Predicted on client; and replicates the Confirmed. Then the server transfers authority to the client upon receipt.
 - test with conflict (both client and server spawn entity E and replicate it to the remote) 
-
 
 
 TODO:

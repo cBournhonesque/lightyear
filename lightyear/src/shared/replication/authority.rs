@@ -36,7 +36,6 @@ pub(crate) struct TransferAuthority {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(C)]
 pub(crate) struct AuthorityChange {
     pub entity: Entity,
     pub gain_authority: bool,

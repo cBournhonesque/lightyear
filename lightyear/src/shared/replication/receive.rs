@@ -1024,6 +1024,10 @@ impl GroupChannel {
             if !Self::authority_check(&mut local_entity_mut, remote) {
                 trace!("Ignored a replication update received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
                 continue;
+            };
+            if !Self::authority_check(&mut local_entity_mut, remote) {
+                debug!("authority check failed for entity: {:?}", entity);
+                continue;
             }
             for component in components {
                 let mut reader = Reader::from(component);
