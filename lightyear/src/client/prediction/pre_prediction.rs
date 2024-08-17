@@ -1,18 +1,17 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
 
-use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 
 use crate::client::components::Confirmed;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::client::{is_synced, Replicate};
+use crate::prelude::client::is_synced;
 use crate::prelude::server::{ServerConfig, ServerConnections};
 use crate::prelude::{
-    client, is_host_server, HasAuthority, ReplicateHierarchy, Replicated, Replicating,
-    ReplicationGroup, ReplicationTarget, ShouldBePredicted, Tick, TickManager,
+    is_host_server, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
+    ReplicationTarget, ShouldBePredicted, TickManager,
 };
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -32,8 +31,9 @@ impl Plugin for PrePredictionPlugin {
         app.configure_sets(
             PostUpdate,
             (
-                InternalReplicationSet::<ClientMarker>::All,
-                PrePredictionSet::Clean,
+                InternalReplicationSet::<ClientMarker>::Buffer,
+                PrePredictionSet::Clean
+                    .in_set(InternalReplicationSet::<ClientMarker>::SendMessages),
             )
                 .chain()
                 .run_if(is_synced),
@@ -63,14 +63,14 @@ impl PrePredictionPlugin {
         for entity in pre_predicted_entities.iter() {
             debug!(?entity, "removing replicate from pre-predicted entity");
             // remove Replicating first so that we don't replicate a despawn
-            // commands.entity(entity).remove::<Replicating>();
-            // commands.entity(entity).remove::<(
-            //     ReplicationTarget,
-            //     ReplicateToServer,
-            //     ReplicationGroup,
-            //     ReplicateHierarchy,
-            //     HasAuthority,
-            // )>();
+            commands.entity(entity).remove::<Replicating>();
+            commands.entity(entity).remove::<(
+                ReplicationTarget,
+                ReplicateToServer,
+                ReplicationGroup,
+                ReplicateHierarchy,
+                HasAuthority,
+            )>();
         }
     }
 
@@ -96,7 +96,6 @@ impl PrePredictionPlugin {
         if let Some(&predicted) = predicted_map.confirmed_to_predicted.get(&trigger.entity()) {
             let confirmed = trigger.entity();
             commands.add(move |world: &mut World| {
-                dbg!("inserting Predicted");
                 world
                     .entity_mut(predicted)
                     .insert(Predicted {
@@ -109,6 +108,7 @@ impl PrePredictionPlugin {
             // PrePredicted was added by the client:
             // Spawn a Confirmed entity and update the mapping
             commands.add(move |world: &mut World| {
+                // TODO: check host_server via sub state
                 // for host-server, we don't want to spawn a separate entity because
                 //  the confirmed/predicted/server entity are the same! Instead we just want
                 //  to remove PrePredicted and add Predicted
@@ -123,7 +123,6 @@ impl PrePredictionPlugin {
                     return;
                 }
 
-                dbg!("spawning confirmed entity for prepredicted");
                 let tick = world.resource::<TickManager>().tick();
                 let confirmed_entity = world
                     .spawn(Confirmed {
@@ -152,10 +151,12 @@ impl PrePredictionPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::server;
     use crate::prelude::server::AuthorityPeer;
     use crate::prelude::{client, ClientId};
-    use crate::prelude::{server, Replicated};
-    use crate::tests::protocol::ComponentSyncModeFull;
+    use crate::tests::protocol::{
+        ComponentSyncModeFull, ComponentSyncModeOnce, ComponentSyncModeSimple,
+    };
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
     /// Simple preprediction case
@@ -262,89 +263,91 @@ mod tests {
         );
     }
 
-    // /// Test that PrePredicted works if ReplicateHierarchy is present.
-    // /// In that case, both the parent but also the children should be pre-predicted.
-    // #[test]
-    // fn test_pre_prediction_hierarchy() {
-    //     // tracing_subscriber::FmtSubscriber::builder()
-    //     //     .with_max_level(tracing::Level::DEBUG)
-    //     //     .init();
-    //     let mut stepper = BevyStepper::default();
-    //     let child = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .spawn(ComponentSyncModeOnce(0.0))
-    //         .id();
-    //     let parent = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .spawn((
-    //             ComponentSyncModeSimple(0.0),
-    //             client::Replicate::default(),
-    //             PrePredicted::default(),
-    //         ))
-    //         .add_child(child)
-    //         .id();
-    //
-    //     for _ in 0..10 {
-    //         stepper.frame_step();
-    //     }
-    //
-    //     // check that PrePredicted was also added on the child
-    //     assert!(stepper
-    //         .client_app
-    //         .world()
-    //         .get::<PrePredicted>(child)
-    //         .is_some());
-    //
-    //     // check that both the parent and the child were replicated
-    //     let server_parent = stepper
-    //         .server_app
-    //         .world_mut()
-    //         .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
-    //         .get_single(stepper.server_app.world())
-    //         .expect("parent entity was not replicated");
-    //     let server_child = stepper
-    //         .server_app
-    //         .world_mut()
-    //         .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
-    //         .get_single(stepper.server_app.world())
-    //         .expect("child entity was not replicated");
-    //     assert_eq!(
-    //         stepper
-    //             .server_app
-    //             .world()
-    //             .get::<Parent>(server_child)
-    //             .unwrap()
-    //             .get(),
-    //         server_parent
-    //     );
-    //
-    //     // add Replicate on the server side
-    //     stepper
-    //         .server_app
-    //         .world_mut()
-    //         .entity_mut(server_parent)
-    //         .insert(server::Replicate::default());
-    //
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // check that the client parent and child entity both have the Predicted component, and that a confirmed entity has been spawned
-    //     let parent_predicted = stepper.client_app.world().get::<Predicted>(parent).unwrap();
-    //     let confirmed_entity = parent_predicted.confirmed_entity.unwrap();
-    //     assert!(stepper
-    //         .client_app
-    //         .world()
-    //         .get::<Confirmed>(confirmed_entity)
-    //         .is_some());
-    //
-    //     let child_predicted = stepper.client_app.world().get::<Predicted>(child).unwrap();
-    //     let confirmed_entity = child_predicted.confirmed_entity.unwrap();
-    //     assert!(stepper
-    //         .client_app
-    //         .world()
-    //         .get::<Confirmed>(confirmed_entity)
-    //         .is_some());
-    // }
+    // TODO: test that pre-predicted works in host-server mode
+
+    /// Test that PrePredicted works if ReplicateHierarchy is present.
+    /// In that case, both the parent but also the children should be pre-predicted.
+    #[test]
+    fn test_pre_prediction_hierarchy() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::DEBUG)
+        //     .init();
+        let mut stepper = BevyStepper::default();
+        let child = stepper
+            .client_app
+            .world_mut()
+            .spawn(ComponentSyncModeOnce(0.0))
+            .id();
+        let parent = stepper
+            .client_app
+            .world_mut()
+            .spawn((
+                ComponentSyncModeSimple(0.0),
+                client::Replicate::default(),
+                PrePredicted::default(),
+            ))
+            .add_child(child)
+            .id();
+
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // check that PrePredicted was also added on the child
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<PrePredicted>(child)
+            .is_some());
+
+        // check that both the parent and the child were replicated
+        let server_parent = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
+            .get_single(stepper.server_app.world())
+            .expect("parent entity was not replicated");
+        let server_child = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
+            .get_single(stepper.server_app.world())
+            .expect("child entity was not replicated");
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<Parent>(server_child)
+                .unwrap()
+                .get(),
+            server_parent
+        );
+
+        // add Replicate on the server side
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_parent)
+            .insert(server::Replicate::default());
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the client parent and child entity both have the Predicted component, and that a confirmed entity has been spawned
+        let parent_predicted = stepper.client_app.world().get::<Predicted>(parent).unwrap();
+        let confirmed_entity = parent_predicted.confirmed_entity.unwrap();
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<Confirmed>(confirmed_entity)
+            .is_some());
+
+        let child_predicted = stepper.client_app.world().get::<Predicted>(child).unwrap();
+        let confirmed_entity = child_predicted.confirmed_entity.unwrap();
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<Confirmed>(confirmed_entity)
+            .is_some());
+    }
 }

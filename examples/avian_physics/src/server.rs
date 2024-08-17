@@ -129,7 +129,6 @@ pub(crate) fn replicate_players(
     query: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
 ) {
     for (entity, replicated) in query.iter() {
-        dbg!("replicating player");
         let client_id = replicated.client_id();
         info!("received player spawn event from client {client_id:?}");
 
