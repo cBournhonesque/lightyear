@@ -140,7 +140,7 @@ fn player_movement(
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             //No need to iterate the position when the input is None
-            if(input == &Inputs::None) {
+            if (input == &Inputs::None) {
                 continue;
             }
             for position in position_query.iter_mut() {

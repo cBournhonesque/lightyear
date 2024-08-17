@@ -186,6 +186,7 @@ impl PredictionMetadata {
 pub struct InterpolationMetadata {
     pub interpolation_mode: ComponentSyncMode,
     pub interpolation: Option<unsafe fn()>,
+    pub custom_interpolation: bool,
 }
 
 type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
@@ -256,6 +257,7 @@ impl ComponentRegistry {
                 panic!("A component has interpolation metadata but wasn't registered for serialization");
             } else if interpolation_data.interpolation_mode == ComponentSyncMode::Full
                 && interpolation_data.interpolation.is_none()
+                && !interpolation_data.custom_interpolation
             {
                 let name = self
                     .serialize_fns_map
@@ -511,7 +513,9 @@ mod interpolation {
                 .or_insert_with(|| InterpolationMetadata {
                     interpolation_mode: mode,
                     interpolation: None,
-                });
+                    custom_interpolation: false,
+                })
+                .interpolation_mode = mode;
         }
 
         pub(crate) fn set_linear_interpolation<C: Component + Linear>(&mut self) {
@@ -525,6 +529,7 @@ mod interpolation {
                 .or_insert_with(|| InterpolationMetadata {
                     interpolation_mode: ComponentSyncMode::Full,
                     interpolation: None,
+                    custom_interpolation: false,
                 })
                 .interpolation = Some(unsafe {
                 std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
@@ -1132,6 +1137,13 @@ impl AppComponentExt for App {
     ) {
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
+        let kind = ComponentKind::of::<C>();
+        registry
+            .interpolation_map
+            .get_mut(&kind)
+            .expect("the component is not part of the protocol")
+            .custom_interpolation = true;
+
         // TODO: make prediction/interpolation possible on server?
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {

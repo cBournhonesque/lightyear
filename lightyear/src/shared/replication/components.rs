@@ -15,7 +15,7 @@ use crate::shared::replication::network_target::NetworkTarget;
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct Replicated {
-    /// The peer that spawned the entity
+    /// The peer that originally spawned the entity
     /// If None, it's the server.
     pub from: Option<ClientId>,
 }
@@ -328,11 +328,10 @@ pub struct ShouldBeInterpolated;
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
 //  because we already do the mapping at other steps
-#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct PrePredicted {
-    // if this is set, the predicted entity has been pre-spawned on the client
-    pub(crate) client_entity: Option<Entity>,
+    pub(crate) confirmed_entity: Option<Entity>,
 }
 
 /// Marker component that tells the client to spawn a Predicted entity

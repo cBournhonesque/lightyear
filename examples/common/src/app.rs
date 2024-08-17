@@ -423,9 +423,9 @@ fn combined_app(
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         ..default()
     }));
-    // if settings.client.inspector {
-    //     app.add_plugins(WorldInspectorPlugin::new());
-    // }
+    if settings.client.inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
 
     // server config
     let mut net_configs = get_server_net_configs(&settings);

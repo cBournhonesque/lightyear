@@ -1,52 +1,19 @@
-# Entity mapping
+# PrePrediction
 
-- SOLUTION 0: the entity receiver always keeps the mapping.
-  - we always try to apply the mapping from remote->local on receive side
-  - we always try to apply the mapping from local->remote on send side.
-  - C1 spawns E1, sends to S, S spawns E0. S replicated to C2 who spawns E2
-    C1 sends a message about E1, entity gets mapped to E0.
-    S rebroadcasts to C1, mapping from E0 to E1.
-    S rebroadcasts to C2, no mapping. The receiver maps E0 to E2.
-  - We know there are no conflicts because only the receiver has the mapping!
-    - i.e. we cannot be in a situation where C maps to the remote and sends it to S, and S receives it,
-      tries to map it from remote to local, but fails because it was already mapped!
-      
+- Current situation:
+  - client spawns E1 with PrePredicted containing E1
+  - E1 gets replicated to Server, who spawns E2 with Replicate
+  - E2 gets replicated to the client, with PrePredicted containing E1
+  - client spawns E3 with Confirmed, figures out that E1 is the Predicted associated with E3
 
-- SOLUTION 1: the client always keeps the mapping
-  - if S spawns and sends the client, client has the mapping. When client sends a message about the entity, it 
-    converts it using the mapping. If client receives a message about the entity, it convers it using the mapping.
-  - if C spawns the entity, it sends it to S. S spawns an entity, sends a message back to C containing the mapping.
-    From this point on C has the mapping.
-  - CONS:
-    - additional bandwidth
-    - there's a period of time where no mapping is available
-    - is it compatible with simulator vs replication-server
+- The problem:
+  - server receives E1 and maintains a E2<>E1 mapping.
+  - when server replicates back E2, it will map it back to E1
 
-- SOLUTION 2: the receiver always keeps the mapping
-  - C1 spawns E1, sends it to S which spawns E2. 
-    - S adds E2<>E1 to its mapping
-    - when S sends a component or message to C1; if the entity contains Replicated that means we are the receiver,
-      so we apply entity mapping? i.e. the message contains E2, but is converted to E1 at sending time.
-      Or if the entity is in the local-map we apply the mapping? i.e. we always try to refer to entities in the local World,
-    - when C1 sends a message related to E1, we know we are the sender (because Replicated is missing, so we don't apply entity mapping. The receiver will apply mapping)
-  - S spawns E0, sends it to C1 which spawns E1, sends it to C2 which spawns E2
-    - C1 adds E1<>E0 in its mapping, etc.
-    - when S sends a message, it knows it is not Replicated so its not the sender so it doesn't apply any mapping.
-    - when C sends a message about E1, it knows it is the receiver, etc.
-  - On Authority Transfer we need to remove `Replicated` also, and maybe update the entity mappings.
-  - CONS:
-    - the mappers are more complicated
-    - what happens on authority transfer where the receiver becomes the sender?
-
-- SOLUTION 3: replication-server
-  - when we spawn an entity to replicate. We ask the replication-server to spawn it, it spawns it (whether we are client 
-    or server), we receive it and can update our mapping. Each client/simulator is the receiver and can always do mapping
-  - we could also do this approach right now. Spawning an entity means that the 
-  - CONS:
-    - need a way to handle pre-spawned entities.
-    - need to implement replication-server
-  
-
+The solution:
+  - client spawns E1 with confirmed, E2 with predicted, and add E1<>E2 predicted mapping
+  - it replicates E1 to server which spawns E3 and has E1<>E3.
+  - server transfers authority for E1 to itself.
 
 # Replication Server
 

@@ -120,6 +120,8 @@ pub(crate) fn replicate_players(
                     // we want to replicate back to the original client, since they are using a pre-spawned entity
                     target: NetworkTarget::All,
                 },
+                // keep the authority on the client
+                authority: AuthorityPeer::Client(client_id),
                 sync: SyncTarget {
                     // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
                     prediction: NetworkTarget::Single(client_id),
@@ -157,6 +159,7 @@ pub(crate) fn replicate_cursors(
                     // do not replicate back to the client that owns the cursor!
                     target: NetworkTarget::AllExceptSingle(client_id),
                 },
+                authority: AuthorityPeer::Client(client_id),
                 sync: SyncTarget {
                     // we want the other clients to apply interpolation for the cursor
                     interpolation: NetworkTarget::AllExceptSingle(client_id),

@@ -27,7 +27,7 @@ use crate::client::prediction::Predicted;
 use crate::prelude::{client::is_synced, is_host_server, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
-use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
+use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
@@ -324,7 +324,6 @@ impl Plugin for PredictionPlugin {
                 // - then we check if we should spawn a new predicted entity
                 spawn_predicted_entity
                     .after(PreSpawnedPlayerObjectSet::Spawn)
-                    .after(PrePredictionSet::Spawn)
                     .in_set(PredictionSet::SpawnPrediction),
                 run_rollback.in_set(PredictionSet::Rollback),
             ),

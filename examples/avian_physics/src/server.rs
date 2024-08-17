@@ -122,7 +122,7 @@ pub(crate) fn replicate_inputs(
     }
 }
 
-// Replicate the pre-spawned entities back to the client
+// Replicate the pre-predicted entities back to the client
 pub(crate) fn replicate_players(
     global: Res<Global>,
     mut commands: Commands,

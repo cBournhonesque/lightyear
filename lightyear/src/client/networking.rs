@@ -101,14 +101,17 @@ impl Plugin for ClientNetworkingPlugin {
         // CONNECTED
         app.add_systems(
             OnEnter(NetworkingState::Connected),
-            (on_connect, on_connect_host_server.run_if(is_host_server)),
+            (
+                on_connect.run_if(not(is_host_server)),
+                on_connect_host_server.run_if(is_host_server),
+            ),
         );
 
         // DISCONNECTED
         app.add_systems(
             OnEnter(NetworkingState::Disconnected),
             (
-                on_disconnect,
+                on_disconnect.run_if(not(is_host_server)),
                 on_disconnect_host_server.run_if(is_host_server),
             ),
         );

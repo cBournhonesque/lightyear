@@ -30,12 +30,6 @@ pub enum AuthorityPeer {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TransferAuthority {
-    pub entity: Entity,
-    pub peer: AuthorityPeer,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AuthorityChange {
     pub entity: Entity,
     pub gain_authority: bool,
@@ -45,14 +39,6 @@ impl MapEntities for AuthorityChange {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.entity = entity_mapper.map_entity(self.entity);
     }
-}
-
-pub(crate) struct GetAuthorityRequest {
-    pub entity: Entity,
-}
-
-pub(crate) struct GetAuthorityResponse {
-    success: bool,
 }
 
 #[cfg(test)]
