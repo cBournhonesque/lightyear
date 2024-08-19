@@ -48,7 +48,6 @@ use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 use tracing::{debug, error, trace};
 
-use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
@@ -56,13 +55,14 @@ use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::run_conditions::is_synced;
 use crate::client::sync::SyncSet;
+use crate::connection::client::NetClient;
+use crate::connection::client::NetClientDispatch;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
 use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, Tick, TickManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
-use crate::connection::client::NetClientDispatch;
-use crate::connection::client::NetClient;
+use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
 
 #[derive(Debug, Clone, Copy, Reflect)]
 pub struct InputConfig {
@@ -337,16 +337,10 @@ fn send_input_directly_to_client_events<A: UserAction>(
     mut input_manager: ResMut<InputManager<A>>,
     mut server_input_events: EventWriter<crate::server::events::InputEvent<A>>,
 ) {
-    match &client.client {
-        NetClientDispatch::Local(client)  => {
-            let tick = tick_manager.tick();
-            let input = input_manager.input_buffer.pop(tick);
-            let event = crate::server::events::InputEvent::new(
-                input,
-                client.id()
-            );
-            server_input_events.send(event);
-        }
-        _ => {}
+    if let NetClientDispatch::Local(client) = &client.client {
+        let tick = tick_manager.tick();
+        let input = input_manager.input_buffer.pop(tick);
+        let event = crate::server::events::InputEvent::new(input, client.id());
+        server_input_events.send(event);
     }
 }
