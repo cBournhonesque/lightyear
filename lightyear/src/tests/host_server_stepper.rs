@@ -36,6 +36,15 @@ pub struct HostServerStepper {
 
 impl Default for HostServerStepper {
     fn default() -> Self {
+        let mut stepper = Self::default_no_init();
+        stepper.init();
+        stepper
+    }
+}
+
+// Do not forget to use --features mock_time when using the LinkConditioner
+impl HostServerStepper {
+    pub fn default_no_init() -> Self {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
@@ -44,14 +53,9 @@ impl Default for HostServerStepper {
         };
         let client_config = ClientConfig::default();
 
-        let mut stepper = Self::new(shared_config, client_config, frame_duration);
-        stepper.init();
-        stepper
+        Self::new(shared_config, client_config, frame_duration)
     }
-}
 
-// Do not forget to use --features mock_time when using the LinkConditioner
-impl HostServerStepper {
     pub fn new(
         shared_config: SharedConfig,
         mut client_config: ClientConfig,

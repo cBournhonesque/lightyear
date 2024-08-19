@@ -344,3 +344,50 @@ fn send_input_directly_to_client_events<A: UserAction>(
         server_input_events.send(event);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::client::input::native::InputSystemSet;
+    use crate::prelude::client::InputManager;
+    use crate::prelude::{server, TickManager};
+    use crate::tests::host_server_stepper::HostServerStepper;
+    use crate::tests::protocol::MyInput;
+    use bevy::prelude::*;
+
+    fn press_input(
+        mut input_manager: ResMut<InputManager<MyInput>>,
+        tick_manager: Res<TickManager>,
+    ) {
+        input_manager.add_input(MyInput(2), tick_manager.tick());
+    }
+
+    #[derive(Resource)]
+    pub struct Counter(pub u32);
+
+    fn receive_input(
+        mut counter: ResMut<Counter>,
+        mut input: EventReader<server::InputEvent<MyInput>>,
+    ) {
+        for input in input.read() {
+            assert_eq!(input.input().unwrap(), MyInput(2));
+            counter.0 += 1;
+        }
+    }
+
+    /// Check that in host-server mode the native client inputs from the buffer
+    /// are forwarded directly to the server's InputEvents
+    #[test]
+    fn test_host_server_input() {
+        let mut stepper = HostServerStepper::default_no_init();
+        stepper.server_app.world_mut().insert_resource(Counter(0));
+        stepper.server_app.add_systems(
+            FixedPreUpdate,
+            press_input.in_set(InputSystemSet::BufferInputs),
+        );
+        stepper.server_app.add_systems(FixedUpdate, receive_input);
+        stepper.init();
+
+        stepper.frame_step();
+        assert!(stepper.server_app.world().resource::<Counter>().0 > 0);
+    }
+}

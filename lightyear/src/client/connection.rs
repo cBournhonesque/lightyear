@@ -20,7 +20,7 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::packet::priority_manager::PriorityConfig;
 use crate::prelude::client::PredictionConfig;
-use crate::prelude::{Channel, ChannelKind, ClientId, Message, RemoteEntityMap, ReplicationConfig};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
 use crate::protocol::message::{MessageRegistry, MessageType};
