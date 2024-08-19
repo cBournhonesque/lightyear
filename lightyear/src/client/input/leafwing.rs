@@ -975,7 +975,7 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .entity(client_entity)
+            .entity(server_entity)
             .get::<ActionState<LeafwingInput1>>()
             .unwrap()
             .pressed(&LeafwingInput1::Jump));
