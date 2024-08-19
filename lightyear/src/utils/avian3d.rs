@@ -31,7 +31,8 @@ impl Plugin for Avian3dPlugin {
                     PredictionSet::IncrementRollbackTick,
                     InterpolationSet::UpdateVisualInterpolationState,
                 ),
-            ),
+            )
+                .chain(),
         );
     }
 }
