@@ -14,21 +14,24 @@ impl Plugin for Avian3dPlugin {
         app.configure_sets(
             FixedPostUpdate,
             (
-                avian2d::prelude::PhysicsSet::Prepare,
-                avian2d::prelude::PhysicsSet::StepSimulation,
-                avian2d::prelude::PhysicsSet::Sync,
-            )
-                .before((
+                // run physics after setting the PreSpawned hash to avoid any physics interaction affecting the hash
+                // TODO: maybe use observers so that we don't have any ordering requirements?
+                (
+                    InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
+                    InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
+                ),
+                (
+                    PhysicsSet::Prepare,
+                    PhysicsSet::StepSimulation,
+                    PhysicsSet::Sync,
+                ),
+                // run physics before updating the prediction history
+                (
                     PredictionSet::UpdateHistory,
                     PredictionSet::IncrementRollbackTick,
                     InterpolationSet::UpdateVisualInterpolationState,
-                ))
-                // run physics after setting the PreSpawned hash to avoid any physics interaction affecting the hash
-                // TODO: maybe use observers so that we don't have any ordering requirements?
-                .after((
-                    InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
-                    InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
-                )),
+                ),
+            ),
         );
     }
 }
