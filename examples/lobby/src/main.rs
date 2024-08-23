@@ -1,7 +1,7 @@
 //! This example showcases how to use Lightyear with Bevy, to easily get replication along with prediction/interpolation working.
 //!
 //! There is a lot of setup code, but it's mostly to have the examples work in all possible configurations of transport.
-//! (all transports are supported, as well as running the example in listen-server or host-server mode)
+//! (all transports are supported, as well as running the example in client-and-server or host-server mode)
 //!
 //!
 //! Run with

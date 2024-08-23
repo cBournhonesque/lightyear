@@ -32,11 +32,11 @@ enabled.*
 There are different 'modes' of operation:
 
 - as a dedicated server with `cargo run -- server`
-- as a listen server with `cargo run -- listen-server`. This will launch 2 independent bevy apps (client and server) in
-  separate threads.
+- as a listen server with `cargo run -- client-and-server`. This will launch 2 independent bevy apps (client and server)
+  in separate threads.
   They will communicate via channels (so with almost 0 latency)
 - as a listen server with `cargo run -- host-server`. This will launch a single bevy app, where the server will also act
-  as a client. Functionally, it is similar to the "listen-server" mode, but you have a single bevy `World` instead of
+  as a client. Functionally, it is similar to the "client-and-server" mode, but you have a single bevy `World` instead of
   separate client and server `Worlds`s.
 
 Then you can launch clients with the commands:
