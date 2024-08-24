@@ -48,7 +48,8 @@ To test the example in wasm, you can run the following commands: `trunk serve`
 You will need a valid SSL certificate to test the example in wasm using webtransport. You will need to run the following
 commands:
 
-- `sh examples/generate.sh` (to generate the temporary SSL certificates, they are only valid for 2 weeks)
+- `cd "$(git rev-parse --show-toplevel)" && sh examples/certificates/generate.sh` (to generate the temporary SSL
+  certificates, they are only valid for 2 weeks)
 - `cargo run -- server` to start the server. The server will print out the certificate digest (something
   like `1fd28860bd2010067cee636a64bcbb492142295b297fd8c480e604b70ce4d644`)
 - You then have to replace the certificate digest in the `assets/settings.ron` file with the one that the server printed
