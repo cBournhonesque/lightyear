@@ -51,6 +51,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
         parent_query: Query<
             (
                 Entity,
+                &ReplicationGroup,
                 Ref<ReplicateHierarchy>,
                 Option<&PrePredicted>,
                 Option<&ReplicationTarget>,
@@ -65,7 +66,17 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             (
                 Without<Parent>,
                 With<Children>,
-                Or<(Changed<Children>, Changed<ReplicateHierarchy>)>,
+                // TODO also handle when a component is removed, it should be removed for children
+                //   maybe do all this via observers?
+                Or<(
+                    Changed<Children>,
+                    Changed<ReplicateHierarchy>,
+                    Changed<ReplicationTarget>,
+                    Changed<SyncTarget>,
+                    Changed<ControlledBy>,
+                    Changed<NetworkRelevanceMode>,
+                    Changed<AuthorityPeer>,
+                )>,
             ),
         >,
         children_query: Query<&Children>,
@@ -73,6 +84,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
     ) {
         for (
             parent_entity,
+            parent_group,
             replicate_hierarchy,
             pre_predicted,
             replication_target,
@@ -98,8 +110,10 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                     commands.entity(child).insert((
                         // TODO: should we add replicating?
                         Replicating,
-                        // the entire hierarchy is replicated as a single group, that uses the parent's entity as the group id
-                        ReplicationGroup::new_id(parent_entity.to_bits()),
+                        // the entire hierarchy is replicated as a single group so we re-use the parent's replication group id
+                        parent_group
+                            .clone()
+                            .set_id(parent_group.group_id(Some(parent_entity)).0),
                         ReplicateHierarchy { recursive: true },
                         ParentSync(None),
                     ));
@@ -130,6 +144,9 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                         commands.entity(child).insert(*vis);
                     }
                     if let Some(has_authority) = has_authority {
+                        debug!(
+                            "Adding HasAuthority on child: {child:?} (parent: {parent_entity:?})"
+                        );
                         commands.entity(child).insert(*has_authority);
                     }
                     if let Some(authority_peer) = authority_peer {

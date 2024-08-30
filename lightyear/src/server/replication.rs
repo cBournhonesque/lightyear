@@ -367,6 +367,7 @@ pub(crate) mod send {
                     .get::<AuthorityPeer>()
                     .is_some_and(|authority| *authority == AuthorityPeer::Server)
                 {
+                    debug!("Adding HasAuthority to {:?}", entity_mut.id());
                     entity_mut.insert(HasAuthority);
                 }
             });
