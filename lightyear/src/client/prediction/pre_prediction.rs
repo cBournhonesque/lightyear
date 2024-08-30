@@ -95,6 +95,7 @@ impl PrePredictionPlugin {
         // we will add the Predicted component
         if let Some(&predicted) = predicted_map.confirmed_to_predicted.get(&trigger.entity()) {
             let confirmed = trigger.entity();
+            info!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
             commands.add(move |world: &mut World| {
                 world
                     .entity_mut(predicted)
@@ -132,6 +133,7 @@ impl PrePredictionPlugin {
                         // tick: Tick(0),
                     })
                     .id();
+                info!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-rredicted: {predicted_entity:?}");
                 world
                     .entity_mut(predicted_entity)
                     .get_mut::<PrePredicted>()
