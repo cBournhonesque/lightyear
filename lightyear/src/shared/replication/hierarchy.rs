@@ -142,7 +142,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                         commands.entity(child).insert(*vis);
                     }
                     if let Some(has_authority) = has_authority {
-                        info!(
+                        debug!(
                             "Adding HasAuthority on child: {child:?} (parent: {parent_entity:?})"
                         );
                         commands.entity(child).insert(*has_authority);
