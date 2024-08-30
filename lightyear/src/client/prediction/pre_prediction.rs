@@ -133,7 +133,7 @@ impl PrePredictionPlugin {
                         // tick: Tick(0),
                     })
                     .id();
-                info!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-rredicted: {predicted_entity:?}");
+                info!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-predicted: {predicted_entity:?}");
                 world
                     .entity_mut(predicted_entity)
                     .get_mut::<PrePredicted>()
