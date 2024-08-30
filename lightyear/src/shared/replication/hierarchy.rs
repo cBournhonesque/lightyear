@@ -110,8 +110,10 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                     commands.entity(child).insert((
                         // TODO: should we add replicating?
                         Replicating,
-                        // the entire hierarchy is replicated as a single group (re-use the parent's replication group id)
-                        parent_group.clone(),
+                        // the entire hierarchy is replicated as a single group so we re-use the parent's replication group id
+                        parent_group
+                            .clone()
+                            .set_id(parent_group.group_id(Some(parent_entity)).0),
                         ReplicateHierarchy { recursive: true },
                         ParentSync(None),
                     ));
