@@ -1,7 +1,7 @@
-use std::collections::{HashMap, VecDeque};
-
+use byteorder::ReadBytesExt;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
+use std::collections::{HashMap, VecDeque};
 use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
@@ -23,8 +23,7 @@ use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
-use crate::serialize::varint::VarIntReadExt;
-use crate::serialize::ToBytes;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
@@ -219,6 +218,9 @@ impl MessageManager {
         let packets =
             self.packet_manager
                 .build_packets(current_tick, single_data, fragment_data)?;
+        // for packet in packets.iter() {
+        //     trace!(?packet, "packet to send");
+        // }
 
         let mut bytes = Vec::new();
         for mut packet in packets {
@@ -276,12 +278,13 @@ impl MessageManager {
     /// Returns the tick of the packet
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn recv_packet(&mut self, packet: RecvPayload) -> Result<Tick, PacketError> {
-        trace!(?packet, "Received packet");
+        trace!(packet = ?packet.as_ref(), "Received packet");
         let mut cursor = Reader::from(packet);
 
         // Step 1. Parse the packet
         let header = PacketHeader::from_bytes(&mut cursor)?;
         let tick = header.tick;
+        trace!(?header);
 
         // TODO: if it's fragmented, put it in a buffer? while we wait for all the parts to be ready?
         //  maybe the channel can handle the fragmentation?
@@ -336,7 +339,8 @@ impl MessageManager {
         // read single message data
         while cursor.has_remaining() {
             let channel_id = ChannelId::from_bytes(&mut cursor)?;
-            let num_messages = cursor.read_varint()?;
+            let num_messages = cursor.read_u8().map_err(SerializationError::from)?;
+            trace!(?channel_id, ?num_messages);
             for i in 0..num_messages {
                 let single_data = SingleData::from_bytes(&mut cursor)?;
                 self.get_channel_mut(channel_id)?

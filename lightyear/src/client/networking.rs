@@ -270,6 +270,7 @@ pub(crate) fn sync_update(
         // TODO: how to adjust this for replication groups that have a custom send_interval?
         config.shared.server_replication_send_interval,
     ) {
+        debug!("Triggering TickSync event: {tick_event:?}");
         commands.trigger(tick_event);
     }
 
@@ -279,6 +280,7 @@ pub(crate) fn sync_update(
             tick_manager.deref_mut(),
             &connection.ping_manager,
         ) {
+            debug!("Triggering TickSync event: {tick_event:?}");
             commands.trigger(tick_event);
         }
         let relative_speed = time_manager.get_relative_speed();
