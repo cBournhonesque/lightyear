@@ -255,7 +255,10 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
                         .and_then(should_run.clone())
                         .and_then(not(is_in_rollback)),
                 ),
-                prepare_input_message::<A>.in_set(InputSystemSet::PrepareInputMessage),
+                prepare_input_message::<A>
+                    .in_set(InputSystemSet::PrepareInputMessage)
+                    // no need to prepare messages to send if in rollback
+                    .run_if(not(is_in_rollback)),
             ),
         );
 
@@ -649,6 +652,10 @@ fn send_input_messages<A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
 ) {
+    trace!(
+        "Number of input messages to send: {:?}",
+        message_buffer.0.len()
+    );
     for mut message in message_buffer.0.drain(..) {
         connection
             .send_message::<InputChannel, InputMessage<A>>(&mut message)

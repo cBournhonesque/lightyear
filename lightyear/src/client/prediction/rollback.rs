@@ -10,7 +10,7 @@ use bevy::prelude::{
 };
 use bevy::reflect::Reflect;
 use parking_lot::RwLock;
-use tracing::{debug, error, info, trace, trace_span};
+use tracing::{debug, error, trace, trace_span};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;

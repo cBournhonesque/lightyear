@@ -1,11 +1,5 @@
 //! Module to take a buffer of messages to send and build packets
 use crate::connection::netcode::MAX_PACKET_SIZE;
-use byteorder::WriteBytesExt;
-use bytes::Bytes;
-use std::collections::VecDeque;
-#[cfg(feature = "trace")]
-use tracing::{instrument, Level};
-
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageAck, SingleData};
 use crate::packet::packet::{Packet, FRAGMENT_SIZE};
@@ -15,6 +9,12 @@ use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::serialize::varint::varint_len;
 use crate::serialize::{SerializationError, ToBytes};
+use byteorder::WriteBytesExt;
+use bytes::Bytes;
+use std::collections::VecDeque;
+use tracing::trace;
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 pub type Payload = Vec<u8>;
 
@@ -303,6 +303,7 @@ impl PacketBuilder {
             .checked_sub(varint_len(channel_id as u64) + 1)
             .ok_or(SerializationError::SubstractionOverflow)?;
         if *num_messages > 0 {
+            trace!("Writing packet with {} messages", *num_messages);
             channel_id.to_bytes(&mut packet.payload)?;
             // write the number of messages for the current channel
             packet.payload.write_u8(*num_messages as u8).unwrap();
