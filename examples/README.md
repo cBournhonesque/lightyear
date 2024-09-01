@@ -21,9 +21,10 @@ This folder contains various examples that showcase various `lightyear` features
 
 ## Advanced
 
-- `xpbd_physics`: example that shows how to replicate a physics simulation using xpbd.
+- `avian_physics`: example that shows how to replicate a physics simulation using xpbd.
   We also use the `leafwing` feature for a better way to manage inputs.
-- `spaceships`: more advanced version of `xpbd_physics` with player movement based on forces, fully server authoritative, predicted bullet spawning. 
+- `avian_3d_character`: example that shows clients controlling server-authoritative 3D objects simulated using avian.
+- `spaceships`: more advanced version of `avian_physics` with player movement based on forces, fully server authoritative, predicted bullet spawning. 
 - `bullet_prespawn`: example that shows how to spawn player-objects on the Predicted timeline. This is useful
   to avoid having to wait a full round-trip before the object is spawned.
 - `auth`: an example that shows how a client can get a `ConnectToken` to connect to a server
