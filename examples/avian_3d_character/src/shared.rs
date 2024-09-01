@@ -141,6 +141,7 @@ impl Plugin for SharedPlugin {
                 (FixedSet::Main, FixedSet::Physics).chain(),
             ),
         );
+        app.add_systems(FixedPostUpdate, debug_pos);
     }
 }
 
@@ -161,6 +162,27 @@ pub struct CharacterQuery {
     pub mass: &'static Mass,
     pub position: &'static Position,
     pub entity: Entity,
+}
+
+pub fn debug_pos(
+    tick_manager: Res<TickManager>,
+    rollback: Option<Res<Rollback>>,
+    query: Query<
+        (Entity, &Position),
+        (
+            With<CharacterMarker>,
+            Or<(With<Predicted>, With<Replicating>)>,
+        ),
+    >,
+) {
+    let tick = if let Some(rollback) = rollback {
+        tick_manager.tick_or_rollback_tick(rollback.as_ref())
+    } else {
+        tick_manager.tick()
+    };
+    for (entity, pos) in query.iter() {
+        info!(?entity, ?tick, ?pos)
+    }
 }
 
 /// Apply the character actions `action_state` to the character entity `character`.
