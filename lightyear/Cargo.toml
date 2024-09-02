@@ -132,7 +132,7 @@ async-channel = "2.2.0"
 # steamworks-sys doesn't build on wasm
 steamworks = { version = "0.11", optional = true }
 # webtransport
-wtransport = { version = "=0.1.14", optional = true, features = [
+wtransport = { version = "=0.2.0", optional = true, features = [
   "quinn",
   "self-signed",
   "dangerous-configuration",
