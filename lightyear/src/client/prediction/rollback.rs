@@ -9,6 +9,7 @@ use bevy::prelude::{
     Resource, With, Without, World,
 };
 use bevy::reflect::Reflect;
+use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
 use tracing::{debug, error, trace, trace_span};
 
@@ -538,12 +539,42 @@ pub(crate) fn run_rollback(world: &mut World) {
         current_rollback_tick, current_tick
     );
 
-    // run the physics fixed update schedule (which should contain ALL predicted/rollback components)
-    for i in 0..num_rollback_ticks {
-        debug!("Rollback tick: {:?}", current_rollback_tick + i);
-        // TODO: if we are in rollback, there are some FixedUpdate systems that we don't want to re-run ??
-        //  for example we only want to run the physics on non-confirmed entities
-        world.run_schedule(FixedMain)
+    if num_rollback_ticks > 0 {
+        // rollback the fixed time resource in preparation for the rollback
+        // fixed time resource has to be re-created because the time resource cannot be advanced backwards
+        // not sure if it is ok to rewind the time resource
+        let current_time = world.resource::<Time<Fixed>>();
+        let fixed_timestep = current_time.timestep();
+        let mut rollback_time = Time::<Fixed>::from_duration(fixed_timestep);
+        let current_elapsed_time = current_time.elapsed();
+        // difference between the current time and the time of the first tick of the rollback
+        let rollback_first_tick_time_offset = (num_rollback_ticks - 1) as u32 * fixed_timestep;
+        // rollback must not start before time began
+        assert!(current_elapsed_time >= rollback_first_tick_time_offset);
+        let rollback_first_tick_time = current_elapsed_time - rollback_first_tick_time_offset;
+        if rollback_first_tick_time > fixed_timestep {
+            rollback_time.advance_to(rollback_first_tick_time - fixed_timestep);
+            // this call ensures that the time's `delta` is correct
+            rollback_time.advance_by(fixed_timestep);
+        }
+        // replace the current time resource with the fixed time resource
+        // TODO: only replace the Time<Fixed> resource and not the generic Time resource once https://github.com/bevyengine/bevy/issues/15011 is fixed
+        let time_resource = *world.resource::<Time>();
+        *world.resource_mut::<Time>() = rollback_time.as_generic();
+
+        // run the physics fixed update schedule (which should contain ALL predicted/rollback components)
+        for i in 0..num_rollback_ticks {
+            debug!("Rollback tick: {:?}", current_rollback_tick + i);
+            // TODO: if we are in rollback, there are some FixedUpdate systems that we don't want to re-run ??
+            //  for example we only want to run the physics on non-confirmed entities
+            world.run_schedule(FixedMain);
+
+            // manually advanced time because `run_schedule()` does not
+            // TODO: only advance the Time<Fixed> resource and not the generic Time resource once https://github.com/bevyengine/bevy/issues/15011 is fixed
+            world.resource_mut::<Time>().advance_by(fixed_timestep);
+        }
+        // restore the generic time resource
+        *world.resource_mut::<Time>() = time_resource;
     }
     debug!("Finished rollback. Current tick: {:?}", current_tick);
 
@@ -613,10 +644,14 @@ mod unit_tests {
         let mut stepper = BevyStepper::default();
 
         // add predicted/confirmed entities
+        let tick = stepper.client_tick();
         let confirmed = stepper
             .client_app
             .world_mut()
-            .spawn(Confirmed::default())
+            .spawn(Confirmed {
+                tick,
+                ..Default::default()
+            })
             .id();
         let predicted = stepper
             .client_app
@@ -778,10 +813,14 @@ mod integration_tests {
             .client_app
             .add_systems(FixedUpdate, increment_component);
         // add predicted/confirmed entities
+        let tick = stepper.client_tick();
         let confirmed = stepper
             .client_app
             .world_mut()
-            .spawn(Confirmed::default())
+            .spawn(Confirmed {
+                tick,
+                ..Default::default()
+            })
             .id();
         let predicted = stepper
             .client_app
