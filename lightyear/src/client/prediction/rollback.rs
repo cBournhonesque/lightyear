@@ -22,6 +22,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, Tick, TickManager};
 
 use super::predicted_history::PredictionHistory;
+use super::resource_history::{ResourceHistory, ResourceState};
 use super::Predicted;
 
 /// Resource that indicates whether we are in a rollback state or not
@@ -490,7 +491,7 @@ pub(crate) fn prepare_rollback_non_networked<C: Component + PartialEq + Clone>(
         match history.pop_until_tick(rollback_tick) {
             None | Some(ComponentState::Removed) => {
                 if component.is_some() {
-                    debug!(?entity, ?kind, "Non-netorked component for predicted entity didn't exist at time of rollback, removing it");
+                    debug!(?entity, ?kind, "Non-networked component for predicted entity didn't exist at time of rollback, removing it");
                     // the component didn't exist at the time, remove it!
                     commands.entity(entity).remove::<C>();
                 }
@@ -514,6 +515,57 @@ pub(crate) fn prepare_rollback_non_networked<C: Component + PartialEq + Clone>(
         // 2. we need to clear the history so we can write a new one
         history.clear();
     }
+}
+
+// Revert `resource` to its value at the tick that the incoming rollback will rollback to.
+pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
+    mut commands: Commands,
+    tick_manager: Res<TickManager>,
+    rollback: Res<Rollback>,
+    resource: Option<ResMut<R>>,
+    mut history: ResMut<ResourceHistory<R>>,
+) {
+    let kind = std::any::type_name::<R>();
+    let _span = trace_span!("client prepare rollback for resource", ?kind);
+
+    let current_tick = tick_manager.tick();
+    let Some(rollback_tick_plus_one) = rollback.get_rollback_tick() else {
+        error!("prepare_rollback_resource should only be called when we are in rollback");
+        return;
+    };
+
+    // careful, the current_tick is already incremented by 1 in the check_rollback stage...
+    let rollback_tick = rollback_tick_plus_one - 1;
+
+    // 1. restore the resource to the historical value
+    match history.pop_until_tick(rollback_tick) {
+        None | Some(ResourceState::Removed) => {
+            if resource.is_some() {
+                debug!(
+                    ?kind,
+                    "Resource didn't exist at time of rollback, removing it"
+                );
+                // the resource didn't exist at the time, remove it!
+                commands.remove_resource::<R>();
+            }
+        }
+        Some(ResourceState::Updated(r)) => {
+            // the resource existed at the time, restore it!
+            if let Some(mut resource) = resource {
+                // update the resource to the corrected value
+                *resource = r.clone();
+            } else {
+                debug!(
+                    ?kind,
+                    "Resource for predicted entity existed at time of rollback, inserting it"
+                );
+                commands.insert_resource(r);
+            }
+        }
+    }
+
+    // 2. we need to clear the history so we can write a new one
+    history.clear();
 }
 
 pub(crate) fn run_rollback(world: &mut World) {

@@ -1,6 +1,6 @@
 use bevy::prelude::{
     not, App, Component, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin, PostUpdate, PreUpdate, Res, SystemSet,
+    Plugin, PostUpdate, PreUpdate, Res, Resource, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
@@ -29,9 +29,10 @@ use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::{add_component_history, apply_confirmed_update};
+use super::resource_history::update_resource_history;
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, run_rollback, Rollback, RollbackState,
+    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
 };
 use super::spawn::spawn_predicted_entity;
 
@@ -196,6 +197,17 @@ pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app:
     app.add_systems(
         FixedPostUpdate,
         update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
+    );
+}
+
+pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
+    app.add_systems(
+        PreUpdate,
+        prepare_rollback_resource::<R>.in_set(PredictionSet::PrepareRollback),
+    );
+    app.add_systems(
+        FixedPostUpdate,
+        update_resource_history::<R>.in_set(PredictionSet::UpdateHistory),
     );
 }
 

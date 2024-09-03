@@ -10,6 +10,7 @@ pub mod pre_prediction;
 pub mod predicted_history;
 pub mod prespawn;
 pub(crate) mod resource;
+pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
 

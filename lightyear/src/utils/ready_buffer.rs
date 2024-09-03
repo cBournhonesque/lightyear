@@ -37,6 +37,12 @@ impl<K: Ord + Clone, T> ReadyBuffer<K, T> {
         self.heap.push(ItemWithReadyKey { key, item });
     }
 
+    /// Returns a reference to the item with the highest `K` value or None if the queue is empty.
+    /// Does not remove the item from the queue.
+    pub fn peek_max_item(&self) -> Option<(K, &T)> {
+        self.heap.peek().map(|item| (item.key.clone(), &item.item))
+    }
+
     /// Returns whether or not there is an item with a key more recent or equal to `current_key`
     /// that is ready to be returned (i.e. we are beyond the instant associated with the item)
     pub fn has_item(&self, current_key: &K) -> bool {
@@ -191,6 +197,30 @@ mod tests {
     use crate::shared::tick_manager::Tick;
 
     use super::*;
+
+    #[test]
+    fn test_peek_max_item() {
+        let mut heap = ReadyBuffer::<Tick, u64>::new();
+
+        // no item in the heap means no max item
+        assert_eq!(heap.peek_max_item(), None);
+
+        // heap with one item should return that item
+        heap.push(Tick(1), 38);
+        matches!(heap.peek_max_item(), Some((Tick(1), 38)));
+
+        // heap's max item should change to new item since it is greater than the current items
+        heap.push(Tick(3), 24);
+        matches!(heap.peek_max_item(), Some((Tick(3), 24)));
+
+        // the heap's max item is still Tick(3) after inserting a smaller item
+        heap.push(Tick(2), 64);
+        matches!(heap.peek_max_item(), Some((Tick(3), 24)));
+
+        // remove the old max item and confirm the second max item is now the max item
+        heap.pop_item(&Tick(3));
+        matches!(heap.peek_max_item(), Some((Tick(2), 64)));
+    }
 
     #[test]
     fn test_time_heap() {
