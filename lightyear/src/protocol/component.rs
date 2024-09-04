@@ -17,8 +17,9 @@ use crate::client::components::ComponentSyncMode;
 use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::prediction::plugin::{
-    add_non_networked_rollback_systems, add_prediction_systems,
+    add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
 };
+use crate::client::prediction::resource_history::ResourceHistory;
 use crate::prelude::client::SyncComponent;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, Message, Tick};
@@ -913,6 +914,9 @@ pub trait AppComponentExt {
     /// Enable rollbacks for a component even if the component is not networked
     fn add_rollback<C: Component + PartialEq + Clone>(&mut self);
 
+    /// Enable rollbacks for a resource.
+    fn add_resource_rollback<R: Resource + Clone + Debug>(&mut self);
+
     /// Enable prediction systems for this component.
     /// You can specify the prediction [`ComponentSyncMode`]
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode);
@@ -1101,6 +1105,14 @@ impl AppComponentExt for App {
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_non_networked_rollback_systems::<C>(self);
+        }
+    }
+
+    fn add_resource_rollback<R: Resource + Clone + Debug>(&mut self) {
+        let is_client = self.world().get_resource::<ClientConfig>().is_some();
+        if is_client {
+            self.insert_resource(ResourceHistory::<R>::default());
+            add_resource_rollback_systems::<R>(self);
         }
     }
 
