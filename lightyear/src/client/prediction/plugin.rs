@@ -29,7 +29,7 @@ use crate::shared::sets::{ClientMarker, InternalMainSet};
 
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::{add_component_history, apply_confirmed_update};
-use super::resource_history::update_resource_history;
+use super::resource_history::{update_resource_history, ResourceHistory};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
     prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
@@ -200,7 +200,18 @@ pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app:
     );
 }
 
+/// Enables rollbacking a resource. As a rule of thumb, only use on resources
+/// that are only modified by systems in the `FixedMain` schedule. This is
+/// because rollbacks only run the `FixedMain` schedule. For example, the
+/// `Time<Fixed>` resource is modified by
+/// `bevy_time::fixed::run_fixed_main_schedule()` which is run outside of the
+/// `FixedMain` schedule and so it should not be used in this function.
+///
+/// As a side note, the `Time<Fixed>` resource is already rollbacked internally
+/// by lightyear so that it can be used accurately within systems within the
+/// `FixedMain` schedule during a rollback.
 pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
+    app.insert_resource(ResourceHistory::<R>::default());
     app.add_systems(
         PreUpdate,
         prepare_rollback_resource::<R>.in_set(PredictionSet::PrepareRollback),

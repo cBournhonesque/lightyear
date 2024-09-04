@@ -404,7 +404,10 @@ mod tests {
         let confirmed = stepper
             .client_app
             .world_mut()
-            .spawn(Confirmed::default())
+            .spawn(Confirmed {
+                tick,
+                ..Default::default()
+            })
             .id();
         let predicted = stepper
             .client_app
@@ -548,10 +551,14 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         // add predicted, component
+        let tick = stepper.client_tick();
         let confirmed = stepper
             .client_app
             .world_mut()
-            .spawn(Confirmed::default())
+            .spawn(Confirmed {
+                tick,
+                ..Default::default()
+            })
             .id();
         let predicted = stepper
             .client_app

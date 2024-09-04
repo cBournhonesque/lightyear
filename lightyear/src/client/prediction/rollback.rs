@@ -9,6 +9,7 @@ use bevy::prelude::{
     Resource, With, Without, World,
 };
 use bevy::reflect::Reflect;
+use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
 use tracing::{debug, error, trace, trace_span};
 
@@ -568,6 +569,41 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
     history.clear();
 }
 
+/// Return a fixed time that represents rollbacking `current_fixed_time` by
+/// `num_rollback_ticks` ticks. The returned fixed time's overstep is zero.
+///
+/// This function assumes that `current_fixed_time`'s timestep remained the
+/// same for the past `num_rollback_ticks` ticks.
+fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i16) -> Time<Fixed> {
+    let mut rollback_fixed_time = Time::<Fixed>::from_duration(current_fixed_time.timestep());
+    if num_rollback_ticks <= 0 {
+        debug!("Cannot rollback fixed time by {} ticks", num_rollback_ticks);
+        return rollback_fixed_time;
+    }
+    // Fixed time's elapsed time's is set to the fixed time's delta before any
+    // fixed system has run in an app, see
+    // `bevy_time::fixed::run_fixed_main_schedule()`. If elapsed time is zero
+    // that means no tick has run.
+    if current_fixed_time.elapsed() < current_fixed_time.timestep() {
+        error!("Current elapsed fixed time is less than the fixed timestep");
+        return rollback_fixed_time;
+    }
+
+    // Difference between the current time and the time of the first tick of
+    // the rollback.
+    let rollback_time_offset = (num_rollback_ticks - 1) as u32 * rollback_fixed_time.timestep();
+
+    let rollback_elapsed_time = current_fixed_time.elapsed() - rollback_time_offset;
+    rollback_fixed_time.advance_to(rollback_elapsed_time - rollback_fixed_time.timestep());
+    // Time<Fixed>::delta is set to the value provided in `advance_by` (or
+    // `advance_to`), so we want to call
+    // `advance_by(rollback_fixed_time.timestep())` at the end to set the delta
+    // value that is expected.
+    rollback_fixed_time.advance_by(rollback_fixed_time.timestep());
+
+    rollback_fixed_time
+}
+
 pub(crate) fn run_rollback(world: &mut World) {
     let tick_manager = world.get_resource::<TickManager>().unwrap();
     let rollback = world.get_resource::<Rollback>().unwrap();
@@ -590,13 +626,44 @@ pub(crate) fn run_rollback(world: &mut World) {
         current_rollback_tick, current_tick
     );
 
-    // run the physics fixed update schedule (which should contain ALL predicted/rollback components)
+    // Keep track of the generic time resource so it can be restored after the
+    // rollback.
+    let time_resource = *world.resource::<Time>();
+
+    // Rollback the fixed time resource in preparation for the rollback.
+    let current_fixed_time = *world.resource::<Time<Fixed>>();
+    *world.resource_mut::<Time<Fixed>>() =
+        rollback_fixed_time(&current_fixed_time, num_rollback_ticks);
+
+    // Run the fixed update schedule (which should contain ALL
+    // predicted/rollback components and resources). This is similar to what
+    // `bevy_time::fixed::run_fixed_main_schedule()` does
     for i in 0..num_rollback_ticks {
         debug!("Rollback tick: {:?}", current_rollback_tick + i);
+
+        // Set the rollback tick's generic time resource to the fixed time
+        // resource that was just advanced.
+        *world.resource_mut::<Time>() = world.resource::<Time<Fixed>>().as_generic();
+
         // TODO: if we are in rollback, there are some FixedUpdate systems that we don't want to re-run ??
         //  for example we only want to run the physics on non-confirmed entities
-        world.run_schedule(FixedMain)
+        world.run_schedule(FixedMain);
+
+        // Manually advanced fixed time because `run_schedule(FixedMain)` does
+        // not.
+        let timestep = world.resource::<Time<Fixed>>().timestep();
+        world.resource_mut::<Time<Fixed>>().advance_by(timestep);
     }
+
+    // Restore the fixed time resource.
+    // `current_fixed_time` and the fixed time resource in use (e.g. the
+    // rollback fixed time) should be the same after the rollback except that
+    // `current_fixed_time` may have an overstep. Use `current_fixed_time` so
+    // its overstep isn't lost.
+    *world.resource_mut::<Time<Fixed>>() = current_fixed_time;
+
+    // Restore the generic time resource.
+    *world.resource_mut::<Time>() = time_resource;
     debug!("Finished rollback. Current tick: {:?}", current_tick);
 
     let mut metrics = world.get_resource_mut::<PredictionMetrics>().unwrap();
@@ -665,10 +732,14 @@ mod unit_tests {
         let mut stepper = BevyStepper::default();
 
         // add predicted/confirmed entities
+        let tick = stepper.client_tick();
         let confirmed = stepper
             .client_app
             .world_mut()
-            .spawn(Confirmed::default())
+            .spawn(Confirmed {
+                tick,
+                ..Default::default()
+            })
             .id();
         let predicted = stepper
             .client_app
@@ -830,10 +901,14 @@ mod integration_tests {
             .client_app
             .add_systems(FixedUpdate, increment_component);
         // add predicted/confirmed entities
+        let tick = stepper.client_tick();
         let confirmed = stepper
             .client_app
             .world_mut()
-            .spawn(Confirmed::default())
+            .spawn(Confirmed {
+                tick,
+                ..Default::default()
+            })
             .id();
         let predicted = stepper
             .client_app
