@@ -15,7 +15,7 @@ pub struct ReadyBuffer<K, T> {
     pub heap: BinaryHeap<ItemWithReadyKey<K, T>>,
 }
 
-impl<K: Ord, T: PartialEq> Default for ReadyBuffer<K, T> {
+impl<K: Ord, T> Default for ReadyBuffer<K, T> {
     fn default() -> Self {
         Self {
             heap: BinaryHeap::default(),
@@ -23,7 +23,7 @@ impl<K: Ord, T: PartialEq> Default for ReadyBuffer<K, T> {
     }
 }
 
-impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
+impl<K: Ord, T> ReadyBuffer<K, T> {
     pub fn new() -> Self {
         Self {
             heap: BinaryHeap::default(),
@@ -31,7 +31,7 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
     }
 }
 
-impl<K: Ord + Clone, T: PartialEq> ReadyBuffer<K, T> {
+impl<K: Ord + Clone, T> ReadyBuffer<K, T> {
     /// Adds an item to the heap marked by time
     pub fn push(&mut self, key: K, item: T) {
         self.heap.push(ItemWithReadyKey { key, item });
@@ -160,15 +160,15 @@ pub struct ItemWithReadyKey<K, T> {
     pub item: T,
 }
 
-impl<K: Ord, T: PartialEq> Eq for ItemWithReadyKey<K, T> {}
+impl<K: Ord, T> Eq for ItemWithReadyKey<K, T> {}
 
-impl<K: Ord, T: PartialEq> PartialEq<Self> for ItemWithReadyKey<K, T> {
+impl<K: Ord, T> PartialEq<Self> for ItemWithReadyKey<K, T> {
     fn eq(&self, other: &Self) -> bool {
-        self.item == other.item && self.key == other.key
+        self.key == other.key
     }
 }
 
-impl<K: Ord, T: PartialEq> PartialOrd<Self> for ItemWithReadyKey<K, T> {
+impl<K: Ord, T> PartialOrd<Self> for ItemWithReadyKey<K, T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -176,7 +176,7 @@ impl<K: Ord, T: PartialEq> PartialOrd<Self> for ItemWithReadyKey<K, T> {
 
 /// BinaryHeap is a max-heap, so we must reverse the ordering of the Instants
 /// to get a min-heap
-impl<K: Ord, T: PartialEq> Ord for ItemWithReadyKey<K, T> {
+impl<K: Ord, T> Ord for ItemWithReadyKey<K, T> {
     fn cmp(&self, other: &ItemWithReadyKey<K, T>) -> Ordering {
         other.key.cmp(&self.key)
     }
