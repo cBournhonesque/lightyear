@@ -876,6 +876,8 @@ mod unit_tests {
 /// More general integration tests for rollback
 #[cfg(test)]
 mod integration_tests {
+    use std::time::Duration;
+
     use super::test_utils::*;
 
     use crate::prelude::client::*;
@@ -883,23 +885,25 @@ mod integration_tests {
     use crate::tests::stepper::BevyStepper;
     use bevy::prelude::*;
 
-    fn increment_component(
-        mut commands: Commands,
-        mut query_networked: Query<(Entity, &mut ComponentSyncModeFull), With<Predicted>>,
-    ) {
-        for (entity, mut component) in query_networked.iter_mut() {
-            component.0 += 1.0;
-            if component.0 == 5.0 {
-                commands.entity(entity).remove::<ComponentSyncModeFull>();
+    fn setup(increment_component: bool) -> (BevyStepper, Entity, Entity) {
+        fn increment_component_system(
+            mut commands: Commands,
+            mut query_networked: Query<(Entity, &mut ComponentSyncModeFull), With<Predicted>>,
+        ) {
+            for (entity, mut component) in query_networked.iter_mut() {
+                component.0 += 1.0;
+                if component.0 == 5.0 {
+                    commands.entity(entity).remove::<ComponentSyncModeFull>();
+                }
             }
         }
-    }
 
-    fn setup() -> (BevyStepper, Entity, Entity) {
         let mut stepper = BevyStepper::default();
-        stepper
-            .client_app
-            .add_systems(FixedUpdate, increment_component);
+        if increment_component {
+            stepper
+                .client_app
+                .add_systems(FixedUpdate, increment_component_system);
+        }
         // add predicted/confirmed entities
         let tick = stepper.client_tick();
         let confirmed = stepper
@@ -929,6 +933,102 @@ mod integration_tests {
     }
 
     /// Test that:
+    /// - the `Time` resource's elapsed is rollbacked to the first tick of the rollback
+    /// - the `Time` resource's elapsed time is advanced correctly during the rollback
+    /// - the `Time` resource's delta during a rollback is the `Time<Fixed>`'s delta
+    #[test]
+    fn test_rollback_time_resource() {
+        #[derive(Debug, PartialEq)]
+        struct TimeSnapshot {
+            is_rollback: bool,
+            delta: Duration,
+            elapsed: Duration,
+        }
+
+        #[derive(Resource, Default, Debug)]
+        struct TimeTracker {
+            snapshots: Vec<TimeSnapshot>,
+        }
+
+        // Record the time resource's values for each tick.
+        fn track_time(
+            time: Res<Time>,
+            mut time_tracker: ResMut<TimeTracker>,
+            rollback: Res<Rollback>,
+        ) {
+            time_tracker.snapshots.push(TimeSnapshot {
+                is_rollback: rollback.is_rollback(),
+                delta: time.delta(),
+                elapsed: time.elapsed(),
+            });
+        }
+
+        let (mut stepper, confirmed, predicted) = setup(false);
+
+        // Insert arbitrary predicted component into confirmed. Needed to
+        // trigger a rollback.
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .insert(ComponentSyncModeFull(0.0));
+        stepper.frame_step();
+
+        // Check that the component got synced.
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentSyncModeFull>(predicted)
+                .unwrap(),
+            &ComponentSyncModeFull(0.0)
+        );
+
+        // Trigger 2 rollback ticks by changing the confirmed's predicted
+        // component's value and setting the confirmed's tick to two ticks ago.
+        let tick = stepper.client_tick();
+        stepper
+            .client_app
+            .world_mut()
+            .get_mut::<ComponentSyncModeFull>(confirmed)
+            .unwrap()
+            .0 = 1.0;
+        received_confirmed_update(&mut stepper, confirmed, tick - 2);
+        stepper.client_app.insert_resource(TimeTracker::default());
+        stepper.client_app.add_systems(FixedUpdate, track_time);
+
+        let time_before_next_tick = *stepper.client_app.world().resource::<Time<Fixed>>();
+
+        stepper.frame_step();
+
+        // Verify that the 2 rollback ticks and regular tick occurred with the
+        // correct delta times and elapsed times.
+        let time_tracker = stepper.client_app.world().resource::<TimeTracker>();
+        assert_eq!(
+            time_tracker.snapshots,
+            vec![
+                TimeSnapshot {
+                    is_rollback: true,
+                    delta: stepper.tick_duration,
+                    elapsed: time_before_next_tick.elapsed() - stepper.tick_duration
+                },
+                TimeSnapshot {
+                    is_rollback: true,
+                    delta: stepper.tick_duration,
+                    elapsed: time_before_next_tick.elapsed()
+                },
+                TimeSnapshot {
+                    is_rollback: false,
+                    delta: stepper.tick_duration,
+                    elapsed: time_before_next_tick.elapsed() + stepper.tick_duration
+                }
+            ]
+        );
+
+        println!("{:?}", stepper.client_app.world().resource::<TimeTracker>());
+    }
+
+    /// Test that:
     /// - we remove a component from the predicted entity
     /// - rolling back before the remove should re-add it
     ///   We are still able to rollback properly (the rollback adds the component to the predicted entity)
@@ -937,7 +1037,7 @@ mod integration_tests {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_max_level(tracing::Level::INFO)
         //     .init();
-        let (mut stepper, confirmed, predicted) = setup();
+        let (mut stepper, confirmed, predicted) = setup(true);
         // insert component on confirmed
         stepper
             .client_app
@@ -1020,7 +1120,7 @@ mod integration_tests {
     /// - the rollback removes the component from the predicted entity
     #[test]
     fn test_added_predicted_component_rollback() {
-        let (mut stepper, confirmed, predicted) = setup();
+        let (mut stepper, confirmed, predicted) = setup(true);
 
         // add a new component to Predicted
         stepper
@@ -1060,7 +1160,7 @@ mod integration_tests {
     /// - during the rollback, the component gets removed from the Predicted entity
     #[test]
     fn test_removed_confirmed_component_rollback() {
-        let (mut stepper, confirmed, predicted) = setup();
+        let (mut stepper, confirmed, predicted) = setup(true);
 
         // insert component on confirmed
         stepper
@@ -1109,7 +1209,7 @@ mod integration_tests {
     /// - the predicted entity did not have the component, so the rollback adds it
     #[test]
     fn test_added_confirmed_component_rollback() {
-        let (mut stepper, confirmed, predicted) = setup();
+        let (mut stepper, confirmed, predicted) = setup(true);
 
         // check that predicted does not have the component
         assert!(stepper
