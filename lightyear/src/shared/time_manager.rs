@@ -56,7 +56,7 @@ pub struct TimeManager {
     /// The relative speed set by the client.
     pub base_relative_speed: f32,
     /// Should we speedup or slowdown the simulation to sync the ticks?
-    /// >1.0 = speedup, <1.0 = slowdown
+    /// \>1.0 = speedup, <1.0 = slowdown
     /// We speed up the virtual time so that our ticks go faster/slower
     /// Things that depend on real time (ping/pong times), channel/packet managers, send_interval should be unaffected
     pub(crate) sync_relative_speed: f32,
