@@ -79,9 +79,12 @@ impl Plugin for SpaceshipsRendererPlugin {
 // Non-wall entities get some visual interpolation by adding the lightyear
 // VisualInterpolateStatus component
 //
-// We query Without<Confirmed> instead of With<Predicted> so that the server's gui will
-// also get some visual interpolation. But we're usually just concerned that the client's
-// Predicted entities get the interpolation treatment.
+// We query filter With<Predicted> so that the correct client entities get visual-interpolation.
+// We don't want to visually interpolate the client's Confirmed entities, since they are not rendered.
+//
+// If your game uses Interpolated entities as well as Predicted, change the filter to:
+//
+//   Or<(With<Predicted>, With<Interpolated>)>
 //
 // We must trigger change detection so that the SyncPlugin will detect and sync changes
 // from Position/Rotation to Transform.
@@ -92,7 +95,7 @@ impl Plugin for SpaceshipsRendererPlugin {
 // (Note also that we've configured avian's SyncPlugin to run in PostUpdate)
 fn add_visual_interpolation_components<T: Component>(
     trigger: Trigger<OnAdd, T>,
-    q: Query<Entity, (With<T>, Without<Wall>, Without<Confirmed>)>,
+    q: Query<Entity, (With<T>, Without<Wall>, With<Predicted>)>,
     mut commands: Commands,
 ) {
     if !q.contains(trigger.entity()) {
