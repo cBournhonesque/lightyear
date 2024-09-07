@@ -19,6 +19,7 @@ use crate::client::interpolation::{add_interpolation_systems, add_prepare_interp
 use crate::client::prediction::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
 };
+use crate::client::prediction::rollback::RollbackEvent;
 use crate::prelude::client::SyncComponent;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, Message, Tick};
@@ -872,6 +873,7 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
                 );
                 crate::server::events::emit_replication_events::<C>(app);
             }
+            app.add_event::<RollbackEvent<C>>();
         }
         ChannelDirection::ServerToClient => {
             if is_server {
@@ -884,6 +886,7 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
                 );
                 crate::client::events::emit_replication_events::<C>(app);
             }
+            app.add_event::<RollbackEvent<C>>();
         }
         ChannelDirection::Bidirectional => {
             register_component_send::<C>(app, ChannelDirection::ServerToClient);

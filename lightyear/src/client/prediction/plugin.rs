@@ -32,8 +32,7 @@ use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::resource_history::{update_resource_history, ResourceHistory};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackEvent,
-    RollbackState,
+    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
 };
 use super::spawn::spawn_predicted_entity;
 
@@ -309,8 +308,6 @@ impl Plugin for PredictionPlugin {
             .register_type::<RollbackState>()
             .register_type::<PredictionDespawnMarker>()
             .register_type::<PredictionConfig>();
-
-        app.add_event::<RollbackEvent>();
 
         // RESOURCES
         app.init_resource::<PredictionManager>();

@@ -1,5 +1,5 @@
-use std::any::TypeId;
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use bevy::app::FixedMain;
@@ -22,7 +22,6 @@ use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, Tick, TickManager};
-use crate::protocol::component::ComponentKind;
 
 use super::predicted_history::PredictionHistory;
 use super::resource_history::{ResourceHistory, ResourceState};
@@ -43,11 +42,10 @@ pub struct Rollback {
 /// Event that is emitted on the client whenever there's a rollback triggered.
 /// Useful for keeping track of which entities are triggering the rollbacks
 #[derive(Event, Reflect, Debug)]
-pub struct RollbackEvent {
+pub struct RollbackEvent<C> {
     /// Entity that triggered the rollback
     pub entity: Entity,
-    /// Name of the component that triggered the rollback
-    pub component_name: String,
+    phantom_data: PhantomData<C>,
 }
 
 /// Resource that will track whether we should do rollback or not
@@ -125,7 +123,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     rollback: Res<Rollback>,
-    mut evw_rollback: EventWriter<RollbackEvent>,
+    mut evw_rollback: EventWriter<RollbackEvent<C>>,
 ) {
     // TODO: can just enable bevy spans?
     let _span = trace_span!("client rollback check");
@@ -218,9 +216,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
 
                 evw_rollback.send(RollbackEvent {
                     entity: confirmed_entity,
-                    component_name: component_registry
-                        .name(ComponentKind(TypeId::of::<C>()))
-                        .to_string(),
+                    phantom_data: PhantomData,
                 });
             }
         } else {
