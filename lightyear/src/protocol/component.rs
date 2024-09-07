@@ -19,7 +19,6 @@ use crate::client::interpolation::{add_interpolation_systems, add_prepare_interp
 use crate::client::prediction::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
 };
-use crate::client::prediction::resource_history::ResourceHistory;
 use crate::prelude::client::SyncComponent;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, Message, Tick};
@@ -1108,10 +1107,10 @@ impl AppComponentExt for App {
         }
     }
 
+    /// Do not use `Time<Fixed>` for `R`. `Time<Fixed>` is already rollbacked.
     fn add_resource_rollback<R: Resource + Clone + Debug>(&mut self) {
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
-            self.insert_resource(ResourceHistory::<R>::default());
             add_resource_rollback_systems::<R>(self);
         }
     }
