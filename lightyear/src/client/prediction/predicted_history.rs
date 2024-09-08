@@ -395,7 +395,7 @@ mod tests {
     /// 2. Add the history for ComponentSyncMode::Full that was added to the predicted entity
     /// 3. Don't add the history for ComponentSyncMode::Simple
     /// 4. Don't add the history for ComponentSyncMode::Once
-    // TODO: check map entities
+    /// 5. For components that have MapEntities, the component gets mapped from Confirmed to Predicted
     #[test]
     fn test_add_component_history() {
         let mut stepper = BevyStepper::default();
@@ -416,6 +416,7 @@ mod tests {
                 confirmed_entity: Some(confirmed),
             })
             .id();
+
         stepper
             .client_app
             .world_mut()
@@ -536,6 +537,42 @@ mod tests {
                 .expect("Expected component to be added to predicted entity"),
             &ComponentSyncModeOnce(1.0),
             "Expected component to be added to predicted entity"
+        );
+
+        // 5. Component with MapEntities get mapped from Confirmed to Predicted
+        let tick = stepper.client_tick();
+        stepper
+            .client_app
+            .world_mut()
+            .resource_mut::<PredictionManager>()
+            .predicted_entity_map
+            .get_mut()
+            .confirmed_to_predicted
+            .insert(confirmed, predicted);
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .insert(ComponentMapEntities(confirmed));
+        stepper.frame_step();
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .entity(predicted)
+                .get::<PredictionHistory<ComponentMapEntities>>()
+                .is_none(),
+            "Expected component value to not be added to prediction history for ComponentSyncMode::Simple"
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .entity(predicted)
+                .get::<ComponentMapEntities>()
+                .expect("Expected component to be added to predicted entity"),
+            &ComponentMapEntities(predicted),
+            "Expected component to be added to predicted entity with entity mapping"
         );
     }
 

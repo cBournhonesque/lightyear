@@ -449,7 +449,10 @@ impl PreSpawnedPlayerObject {
 mod tests {
     use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
     use crate::client::prediction::resource::PredictionManager;
+    use bevy::prelude::{default, Entity, Resource, With};
 
+    use crate::prelude::client::Confirmed;
+    use crate::prelude::server::{Replicate, SyncTarget};
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
@@ -512,6 +515,98 @@ mod tests {
                 key: current_tick,
                 item: ComponentState::Updated(ComponentSyncModeFull(1.0)),
             })
+        );
+    }
+
+    #[derive(Resource)]
+    struct ShouldPrespawn(bool);
+
+    /// Client and server run the same system to prespawn an entity
+    /// The pre-spawn somehow fails on the client.
+    /// The server should spawn the entity, it gets spawned to the client.
+    /// The client spawns a Predicted version of the entity.
+    #[test]
+    fn test_prespawn_client_missing() {
+        let mut stepper = BevyStepper::default();
+
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate {
+                sync: SyncTarget {
+                    prediction: NetworkTarget::All,
+                    ..default()
+                },
+                ..default()
+            })
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let (client_confirmed, confirmed) = stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<(Entity, &Confirmed), With<Replicated>>()
+            .single(stepper.client_app.world());
+        let client_predicted = confirmed.predicted.unwrap();
+
+        // run prespawned entity on server.
+        // for some reason the entity is not spawned on the client
+        let server_entity_2 = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        ..default()
+                    },
+                    ..default()
+                },
+                PreSpawnedPlayerObject::default(),
+                ComponentMapEntities(server_entity),
+            ))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // We couldn't match the entity based on hash
+        // So we should have just spawned a predicted entity
+        let client_confirmed_2 = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity_2)
+            .expect("entity was not replicated to client");
+        // it should have a predicted entity
+        let client_predicted_2 = stepper
+            .client_app
+            .world()
+            .get::<Confirmed>(client_confirmed_2)
+            .unwrap()
+            .predicted
+            .unwrap();
+
+        // the MapEntities component should have been mapped to confirmed
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentMapEntities>(client_confirmed_2)
+                .unwrap()
+                .0,
+            client_confirmed
+        );
+        // the MapEntities component on the predicted entity should have been mapped to predicted
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentMapEntities>(client_predicted_2)
+                .unwrap()
+                .0,
+            client_predicted
         );
     }
 }
