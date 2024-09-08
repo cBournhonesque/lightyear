@@ -518,9 +518,6 @@ mod tests {
         );
     }
 
-    #[derive(Resource)]
-    struct ShouldPrespawn(bool);
-
     /// Client and server run the same system to prespawn an entity
     /// The pre-spawn somehow fails on the client.
     /// The server should spawn the entity, it gets spawned to the client.
