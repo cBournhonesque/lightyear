@@ -449,7 +449,7 @@ impl PreSpawnedPlayerObject {
 mod tests {
     use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
     use crate::client::prediction::resource::PredictionManager;
-    use bevy::prelude::{default, Entity, Resource, With};
+    use bevy::prelude::{default, Entity, With};
 
     use crate::prelude::client::Confirmed;
     use crate::prelude::server::{Replicate, SyncTarget};
