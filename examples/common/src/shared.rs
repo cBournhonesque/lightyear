@@ -3,7 +3,7 @@ use std::time::Duration;
 
 pub const FIXED_TIMESTEP_HZ: f64 = 64.0;
 
-pub const REPLICATION_INTERVAL: Duration = Duration::from_millis(1000);
+pub const REPLICATION_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The [`SharedConfig`] must be shared between the `ClientConfig` and `ServerConfig`
 pub fn shared_config(mode: Mode) -> SharedConfig {
