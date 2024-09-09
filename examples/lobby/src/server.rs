@@ -56,10 +56,6 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-#[derive(Resource)]
-pub(crate) struct Global {
-    pub client_id_to_entity_id: HashMap<ClientId, Entity>,
-}
 
 /// System to start the dedicated server at Startup
 fn start_dedicated_server(mut commands: Commands) {
