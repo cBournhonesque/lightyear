@@ -237,11 +237,12 @@ mod lobby {
                         host: lobby.host,
                     },
                 );
-            } else {
+            } // Common scenario player just started and everyone is in lobby
+            else {
                 if host.is_none() {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
-                        error!("Spawning player {player:?} entity for game");
+                        info!("Spawning player in server hosted  game {player:?}");
                         let entity = spawn_player_entity(&mut commands, *player, true);
                         room_manager.add_entity(entity, room_id);
                     }
