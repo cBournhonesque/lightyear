@@ -21,6 +21,7 @@ use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 /// Updates entity's `Parent` component on change.
 /// Removes the parent if `None`.
 #[derive(Component, Default, Reflect, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+#[reflect(Component)]
 pub struct ParentSync(Option<Entity>);
 
 impl MapEntities for ParentSync {

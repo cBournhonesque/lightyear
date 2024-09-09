@@ -1,7 +1,7 @@
 //! Handles interpolation of entities between server updates
 use std::ops::{Add, Mul};
 
-use bevy::prelude::{Component, Entity, Reflect};
+use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
@@ -32,6 +32,7 @@ where
 
 /// Marker component for an entity that is being interpolated by the client
 #[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub struct Interpolated {
     // TODO: maybe here add an interpolation function?
     pub confirmed_entity: Entity,

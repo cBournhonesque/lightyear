@@ -1,8 +1,8 @@
 use bevy::ecs::system::EntityCommands;
 use bevy::ecs::world::Command;
 use bevy::prelude::{
-    Commands, Component, DespawnRecursiveExt, Entity, OnRemove, Query, Reflect, Res, ResMut,
-    Trigger, With, Without, World,
+    Commands, Component, DespawnRecursiveExt, Entity, OnRemove, Query, Reflect, ReflectComponent,
+    Res, ResMut, Trigger, With, Without, World,
 };
 use tracing::{debug, error, trace};
 
@@ -24,6 +24,7 @@ pub struct PredictionDespawnCommand {
 }
 
 #[derive(Component, PartialEq, Debug, Reflect)]
+#[reflect(Component)]
 pub(crate) struct PredictionDespawnMarker {
     // TODO: do we need this?
     // TODO: it's pub just for integration tests right now

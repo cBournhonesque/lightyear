@@ -42,6 +42,7 @@ pub(crate) enum ClientRelevance {
 }
 
 #[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
+#[reflect(Component)]
 pub(crate) struct CachedNetworkRelevance {
     /// List of clients that the entity is currently replicated to.
     /// Will be updated before the other replication systems
