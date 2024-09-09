@@ -213,6 +213,7 @@ mod lobby {
             let host = event.message().host;
             let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
 
+            // Setting lobby ingame
             if !lobby.in_game {
                 lobby.in_game = true;
                 if let Some(host) = host {
@@ -237,12 +238,12 @@ mod lobby {
                         host: lobby.host,
                     },
                 );
-            } // Common scenario player just started and everyone is in lobby
+            }
             else {
                 if host.is_none() {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
-                        info!("Spawning player in server hosted  game {player:?}");
+                        info!("Spawning player  {player:?} in server hosted  game");
                         let entity = spawn_player_entity(&mut commands, *player, true);
                         room_manager.add_entity(entity, room_id);
                     }
