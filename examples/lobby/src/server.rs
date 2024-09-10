@@ -56,10 +56,6 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-#[derive(Resource)]
-pub(crate) struct Global {
-    pub client_id_to_entity_id: HashMap<ClientId, Entity>,
-}
 
 /// System to start the dedicated server at Startup
 fn start_dedicated_server(mut commands: Commands) {
@@ -217,6 +213,7 @@ mod lobby {
             let host = event.message().host;
             let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
 
+            // Setting lobby ingame
             if !lobby.in_game {
                 lobby.in_game = true;
                 if let Some(host) = host {
@@ -241,11 +238,12 @@ mod lobby {
                         host: lobby.host,
                     },
                 );
-            } else {
+            }
+            else {
                 if host.is_none() {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
-                        error!("Spawning player {player:?} entity for game");
+                        info!("Spawning player  {player:?} in server hosted  game");
                         let entity = spawn_player_entity(&mut commands, *player, true);
                         room_manager.add_entity(entity, room_id);
                     }
