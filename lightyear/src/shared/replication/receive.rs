@@ -10,7 +10,7 @@ use crate::protocol::component::ComponentRegistry;
 use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
-use crate::shared::replication::components::{Replicated, ReplicationGroupId};
+use crate::shared::replication::components::{InitialReplicated, Replicated, ReplicationGroupId};
 #[cfg(test)]
 use crate::utils::captures::Captures;
 use bevy::ecs::entity::EntityHash;
@@ -276,7 +276,10 @@ impl ReplicationReceiver {
                     //     interpolated: None,
                     //     tick,
                     // });
-                    let local_entity = world.spawn(Replicated { from: remote });
+                    let local_entity = world.spawn((
+                        Replicated { from: remote },
+                        InitialReplicated { from: remote },
+                    ));
                     self.remote_entity_map
                         .insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", self.remote_entity_map);
@@ -862,7 +865,10 @@ impl GroupChannel {
                     // NOTE: at this point we know that the remote entity was not mapped!
 
                     // TODO: maybe use command-batching?
-                    let mut local_entity = world.spawn(Replicated { from: remote });
+                    let mut local_entity = world.spawn((
+                        Replicated { from: remote },
+                        InitialReplicated { from: remote },
+                    ));
                     // if the entity was replicated from a client to the server, update the AuthorityPeer
                     if let Some(client) = remote {
                         local_entity.insert(AuthorityPeer::Client(client));

@@ -54,7 +54,7 @@ pub(crate) fn compute_hash(
 }
 
 /// When we receive an entity that a clients wants PrePredicted,
-/// we immediately transfer authority back to the client
+/// we immediately transfer authority back to the server
 pub(crate) fn handle_pre_predicted(
     trigger: Trigger<OnAdd, PrePredicted>,
     mut commands: Commands,

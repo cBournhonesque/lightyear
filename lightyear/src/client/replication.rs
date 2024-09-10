@@ -12,7 +12,7 @@ pub(crate) mod receive {
     use crate::prelude::client::MessageEvent;
     use crate::prelude::{
         client::{is_connected, is_synced},
-        is_host_server,
+        is_host_server, Replicated,
     };
     use crate::shared::replication::authority::{AuthorityChange, HasAuthority};
     use crate::shared::sets::InternalMainSet;
@@ -60,9 +60,15 @@ pub(crate) mod receive {
             let entity = message.message.entity;
             if let Some(mut entity_mut) = commands.get_entity(entity) {
                 if message.message.gain_authority {
-                    entity_mut.insert(HasAuthority);
+                    entity_mut.remove::<Replicated>().insert(HasAuthority);
                 } else {
-                    entity_mut.remove::<HasAuthority>();
+                    // TODO: how do we know if the remote is still actively replicating to us?
+                    //  for example is the new authority is None, then we don't want to add Replicated, no?
+                    //  Not sure how to handle this. We could include in the message if the authority is None,
+                    //  but that's not very elegant
+                    entity_mut
+                        .remove::<HasAuthority>()
+                        .insert(Replicated { from: None });
                 }
             }
         }
@@ -84,7 +90,9 @@ pub(crate) mod send {
     };
     use crate::protocol::component::ComponentKind;
 
-    use crate::shared::replication::components::{Replicating, ReplicationGroupId};
+    use crate::shared::replication::components::{
+        InitialReplicated, Replicating, ReplicationGroupId,
+    };
 
     use crate::shared::replication::archetypes::{
         get_erased_component, ClientReplicatedArchetypes,
@@ -235,9 +243,14 @@ pub(crate) mod send {
     ) {
         let local_client = connection.id();
         for entity in query.iter() {
-            commands.entity(entity).insert(Replicated {
-                from: Some(local_client),
-            });
+            commands.entity(entity).insert((
+                Replicated {
+                    from: Some(local_client),
+                },
+                InitialReplicated {
+                    from: Some(local_client),
+                },
+            ));
         }
     }
 
@@ -295,7 +308,7 @@ pub(crate) mod send {
                 };
                 // the update will be 'insert' instead of update if the ReplicateToServer component is new
                 // or the HasAuthority component is new. That's because the remote cannot receive update
-                // without receiving an action first (to populate the latest_tick)
+                // without receiving an action first (to populate the latest_tick on the replication-receiver)
                 let replication_is_changed = replication_target_ticks
                     .is_changed(system_ticks.last_run(), system_ticks.this_run());
 
@@ -312,6 +325,7 @@ pub(crate) mod send {
 
                 // c. add entity spawns
                 // we never want to send a spawn if the entity was replicated to us from the server
+                // (because the server already has the entity)
                 if replication_is_changed && !is_replicated {
                     replicate_entity_spawn(
                         entity.id(),
