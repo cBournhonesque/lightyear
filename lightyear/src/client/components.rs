@@ -3,7 +3,7 @@ Defines components that are used for the client-side prediction and interpolatio
 */
 use std::fmt::Debug;
 
-use bevy::prelude::{Component, Entity};
+use bevy::prelude::{Component, Entity, ReflectComponent};
 use bevy::reflect::Reflect;
 
 use crate::prelude::{Message, Tick};
@@ -15,6 +15,7 @@ use crate::prelude::{Message, Tick};
 /// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](crate::client::prediction::Predicted)
 /// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](crate::client::interpolation::Interpolated)
 #[derive(Component, Reflect, Default)]
+#[reflect(Component)]
 pub struct Confirmed {
     /// The corresponding Predicted entity
     pub predicted: Option<Entity>,

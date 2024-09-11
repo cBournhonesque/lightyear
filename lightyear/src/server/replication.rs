@@ -154,6 +154,7 @@ pub(crate) mod send {
 
     /// Component that indicates which clients should predict and interpolate the entity
     #[derive(Component, Default, Clone, Debug, PartialEq, Reflect)]
+    #[reflect(Component)]
     pub struct SyncTarget {
         /// Which clients should predict this entity (unused for client to server replication)
         pub prediction: NetworkTarget,
