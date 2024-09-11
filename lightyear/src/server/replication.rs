@@ -51,6 +51,7 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
+    use crate::prelude::server::AuthorityCommandExt;
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponent, NetworkRelevanceMode,
         OverrideTargetComponent, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
@@ -359,19 +360,26 @@ pub(crate) mod send {
         // added that we check if the server has authority. After that, we should
         // rely only on commands.transfer_authority
         trigger: Trigger<OnAdd, AuthorityPeer>,
+        q: Query<&AuthorityPeer>,
         mut commands: Commands,
     ) {
-        commands
-            .entity(trigger.entity())
-            .add(|mut entity_mut: EntityWorldMut| {
-                if entity_mut
-                    .get::<AuthorityPeer>()
-                    .is_some_and(|authority| *authority == AuthorityPeer::Server)
-                {
-                    debug!("Adding HasAuthority to {:?}", entity_mut.id());
-                    entity_mut.insert(HasAuthority);
+        let entity = trigger.entity();
+        if let Ok(authority_peer) = q.get(entity) {
+            match authority_peer {
+                AuthorityPeer::Client(c) => {
+                    // immediately transfer authority to the client to make
+                    // sure they know that they own it
+                    commands
+                        .entity(entity)
+                        .transfer_authority(authority_peer.clone());
                 }
-            });
+                AuthorityPeer::Server => {
+                    debug!("Adding HasAuthority to {:?}", entity);
+                    commands.entity(entity).insert(HasAuthority);
+                }
+                _ => {}
+            }
+        }
     }
 
     pub(crate) fn replicate(
