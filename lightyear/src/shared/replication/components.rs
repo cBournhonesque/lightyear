@@ -10,12 +10,27 @@ use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 
-/// Marker component that indicates that the entity was spawned via replication
-/// (it is being replicated from a remote world)
+/// Marker component that indicates that the entity was initially spawned via replication
+/// (it was being replicated from a remote world)
+///
+/// The component is added once and is then never modified anymore
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct InitialReplicated {
+    /// The peer that originally spawned the entity
+    /// If None, it's the server.
+    pub from: Option<ClientId>,
+}
+
+/// Marker component that indicates that the entity is being replicated
+/// from a remote world.
+///
+/// The component only exists while the peer does not have authority over
+/// the entity.
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct Replicated {
-    /// The peer that originally spawned the entity
+    /// The peer that is actively replicating the entity
     /// If None, it's the server.
     pub from: Option<ClientId>,
 }

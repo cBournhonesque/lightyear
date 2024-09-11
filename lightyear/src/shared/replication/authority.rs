@@ -45,7 +45,7 @@ impl MapEntities for AuthorityChange {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{client, server, ClientId};
+    use crate::prelude::{client, server, ClientId, Replicated};
     use crate::server::replication::commands::AuthorityCommandExt;
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
@@ -85,6 +85,14 @@ mod tests {
             .remote_entity_map
             .get_local(server_entity)
             .expect("entity was not replicated to client");
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Replicated>(client_entity)
+                .unwrap(),
+            &Replicated { from: None }
+        );
 
         // transfer authority from server to client
         stepper
@@ -105,6 +113,16 @@ mod tests {
             stepper
                 .server_app
                 .world()
+                .get::<Replicated>(server_entity)
+                .unwrap(),
+            &Replicated {
+                from: Some(ClientId::Netcode(TEST_CLIENT_ID))
+            }
+        );
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
                 .get::<AuthorityPeer>(server_entity)
                 .unwrap(),
             &AuthorityPeer::Client(ClientId::Netcode(TEST_CLIENT_ID))
@@ -117,6 +135,11 @@ mod tests {
             .world()
             .get::<HasAuthority>(client_entity)
             .is_some());
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<Replicated>(client_entity)
+            .is_none());
 
         // transfer authority from client to None
         stepper
@@ -130,10 +153,24 @@ mod tests {
         stepper.frame_step();
         stepper.flush();
         assert!(stepper
+            .server_app
+            .world()
+            .get::<Replicated>(server_entity)
+            .is_none());
+        assert!(stepper
             .client_app
             .world()
             .get::<HasAuthority>(client_entity)
             .is_none());
+        // TODO: currently, if the client loses authority, we re-add Replicated with from: None
+        //  to symbolize that it is receiving replication update. Maybe we need to handle the edge-case
+        //  where there is no authority, and we just remove Replicated entirely!
+        //  Fix this only if this comes up
+        // assert!(stepper
+        //     .client_app
+        //     .world()
+        //     .get::<Replicated>(client_entity)
+        //     .is_none());
     }
 
     #[test]
@@ -163,8 +200,18 @@ mod tests {
             .remote_entity_map
             .get_local(client_entity)
             .expect("entity was not replicated to server");
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<Replicated>(server_entity)
+                .unwrap(),
+            &Replicated {
+                from: Some(ClientId::Netcode(TEST_CLIENT_ID))
+            }
+        );
 
-        // transfer authority from server to client
+        // transfer authority from client to server
         stepper
             .server_app
             .world_mut()
@@ -179,6 +226,11 @@ mod tests {
             .world()
             .get::<HasAuthority>(server_entity)
             .is_some());
+        assert!(stepper
+            .server_app
+            .world()
+            .get::<Replicated>(server_entity)
+            .is_none());
         assert_eq!(
             stepper
                 .server_app
@@ -195,6 +247,14 @@ mod tests {
             .world()
             .get::<HasAuthority>(client_entity)
             .is_none());
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Replicated>(client_entity)
+                .unwrap(),
+            &Replicated { from: None }
+        );
 
         // create a conflict situation where the client also gets added `HasAuthority` at the same time as the server (which is what happens when the AuthorityChange message is in flight)
         // TODO: it does mean that server changes while the client is in the process of getting authority are ignored. Is this what we want? Maybe we make the client always accept remote changes?
@@ -345,7 +405,7 @@ mod tests {
         );
     }
 
-    /// Spawn on client, transfer authority to server
+    /// Spawn on client, transfer authority from client 1 to client 2
     /// Update on server, the updates from the server use entity mapping on the send side.
     /// (both for the Entity in Updates and for the content of the components in the Update)
     #[test]
@@ -401,7 +461,10 @@ mod tests {
         // add Replicate to the entity to mark it for replication
         // TODO: resolve this footgun
         // IMPORTANT: we need to do this BEFORE transferring authority
-        //  or we will be replicating a Spawn message
+        //  or we will be replicating a Spawn message. Right now we don't
+        //  because
+        //  - we don't send spawn to the original client that spawned the entity
+        //  - we don't send spawn to the client that has authority
         stepper
             .server_app
             .world_mut()
@@ -441,7 +504,8 @@ mod tests {
             .get_local(server_entity_b)
             .expect("entity was not replicated to server");
 
-        // add authority BEFORE we transfer authority
+        // TODO: resolve this footgun
+        // add replicate BEFORE we transfer authority (otherwise when we add client::Replicate, it would add HasAuthority with it...)
         stepper
             .client_app_2
             .world_mut()
@@ -449,7 +513,7 @@ mod tests {
             .insert(client::Replicate::default())
             .remove::<HasAuthority>();
 
-        // transfer authority from server to client
+        // transfer authority from client1 to client2
         stepper
             .server_app
             .world_mut()
@@ -468,6 +532,16 @@ mod tests {
             stepper
                 .server_app
                 .world()
+                .get::<Replicated>(server_entity_b)
+                .unwrap(),
+            &Replicated {
+                from: Some(ClientId::Netcode(TEST_CLIENT_ID_2))
+            }
+        );
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
                 .get::<AuthorityPeer>(server_entity_b)
                 .unwrap(),
             &AuthorityPeer::Client(ClientId::Netcode(TEST_CLIENT_ID_2))
@@ -479,6 +553,19 @@ mod tests {
             .client_app_1
             .world()
             .get::<HasAuthority>(client_entity_1b)
+            .is_none());
+        assert_eq!(
+            stepper
+                .client_app_1
+                .world()
+                .get::<Replicated>(client_entity_1b)
+                .unwrap(),
+            &Replicated { from: None }
+        );
+        assert!(stepper
+            .client_app_2
+            .world()
+            .get::<Replicated>(client_entity_2b)
             .is_none());
 
         // update the component on the client.
