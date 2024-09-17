@@ -238,6 +238,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     rollback: Res<Rollback>,
+    manager: Res<PredictionManager>,
 ) {
     let kind = std::any::type_name::<C>();
 
@@ -290,14 +291,20 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 entity_mut.remove::<C>();
             }
             // confirm exist, update or insert on predicted
-            Some(c) => {
-                predicted_history
-                    .buffer
-                    .push(rollback_tick, ComponentState::Updated(c.clone()));
+            Some(confirmed_component) => {
+                let mut rollbacked_predicted_component = confirmed_component.clone();
+                let _ = manager.map_entities(
+                    &mut rollbacked_predicted_component,
+                    component_registry.as_ref(),
+                );
+                predicted_history.buffer.push(
+                    rollback_tick,
+                    ComponentState::Updated(rollbacked_predicted_component.clone()),
+                );
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted Full component to predicted");
-                        entity_mut.insert(c.clone());
+                        entity_mut.insert(rollbacked_predicted_component.clone());
                     }
                     Some(mut predicted_component) => {
                         // // no need to do a correction if the values are the same
@@ -323,7 +330,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                 correction.original_tick = current_tick;
                                 correction.final_correction_tick = final_correction_tick;
                                 // TODO: can set this to None, shouldnt make any diff
-                                correction.current_correction = Some(c.clone());
+                                correction.current_correction =
+                                    Some(rollbacked_predicted_component.clone());
                             } else {
                                 debug!("inserting new correction");
                                 entity_mut.insert(Correction {
@@ -337,7 +345,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                         }
 
                         // update the component to the corrected value
-                        *predicted_component = c.clone();
+                        *predicted_component = rollbacked_predicted_component.clone();
                     }
                 };
             }
