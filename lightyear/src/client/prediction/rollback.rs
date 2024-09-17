@@ -226,7 +226,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
         (
-            Entity,
             Option<&mut C>,
             &mut PredictionHistory<C>,
             Option<&mut Correction<C>>,
@@ -258,13 +257,13 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         // // careful, we added 1 to the tick in the check_rollback stage...
         // let tick = Tick(*current_tick - 1);
 
-        let Some(p) = confirmed.predicted else {
+        let Some(predicted_entity) = confirmed.predicted else {
             continue;
         };
 
         // 1. Get the predicted entity, and it's history
-        let Ok((predicted_entity, predicted_component, mut predicted_history, mut correction)) =
-            predicted_query.get_mut(p)
+        let Ok((predicted_component, mut predicted_history, mut correction)) =
+            predicted_query.get_mut(predicted_entity)
         else {
             debug!(
                 "Predicted entity {:?} was not found when preparing rollback for {:?}",

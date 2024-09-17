@@ -122,8 +122,8 @@ pub(crate) fn add_component_history<C: SyncComponent>(
     manager: Res<PredictionManager>,
     mut commands: Commands,
     tick_manager: Res<TickManager>,
-    predicted_entities: Query<
-        (Entity, Option<Ref<C>>),
+    predicted_components: Query<
+        Option<Ref<C>>,
         (
             Without<PredictionHistory<C>>,
             // for all types of predicted entities, we want to add the component history to enable them to be rolled-back
@@ -135,8 +135,8 @@ pub(crate) fn add_component_history<C: SyncComponent>(
     let kind = std::any::type_name::<C>();
     let tick = tick_manager.tick();
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed.predicted {
-            if let Ok((predicted_entity, predicted_component)) = predicted_entities.get(p) {
+        if let Some(predicted_entity) = confirmed.predicted {
+            if let Ok(predicted_component) = predicted_components.get(predicted_entity) {
                 // if component got added on predicted side, add history
                 add_history::<C>(
                     component_registry.as_ref(),
