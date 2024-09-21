@@ -880,10 +880,13 @@ mod integration_tests {
 
     use super::test_utils::*;
 
-    use crate::prelude::client::*;
+    use crate::client::prediction::resource::PredictionManager;
+    use crate::prelude::{client::*, AppComponentExt, ChannelDirection};
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
+    use bevy::ecs::entity::MapEntities;
     use bevy::prelude::*;
+    use serde::{Deserialize, Serialize};
 
     fn setup(increment_component: bool) -> (BevyStepper, Entity, Entity) {
         fn increment_component_system(
@@ -930,6 +933,109 @@ mod integration_tests {
             .predicted = Some(predicted);
         stepper.frame_step();
         (stepper, confirmed, predicted)
+    }
+
+    /// Test that the entities of a predicted component marked as to be
+    /// entity-mapped are mapped when rollbacked.
+    #[test]
+    fn test_rollback_entity_mapping() {
+        #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq)]
+        struct ComponentWithEntity(Entity);
+
+        impl MapEntities for ComponentWithEntity {
+            fn map_entities<M: bevy::prelude::EntityMapper>(&mut self, entity_mapper: &mut M) {
+                self.0 = entity_mapper.map_entity(self.0);
+            }
+        }
+
+        let mut stepper = BevyStepper::default();
+        stepper
+            .client_app
+            .register_component::<ComponentWithEntity>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_map_entities();
+        stepper
+            .server_app
+            .register_component::<ComponentWithEntity>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_map_entities();
+        let tick = stepper.client_tick();
+        let confirmed = stepper
+            .client_app
+            .world_mut()
+            .spawn(Confirmed {
+                tick,
+                ..Default::default()
+            })
+            .id();
+        let predicted = stepper
+            .client_app
+            .world_mut()
+            .spawn(Predicted {
+                confirmed_entity: Some(confirmed),
+            })
+            .id();
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .get_mut::<Confirmed>()
+            .unwrap()
+            .predicted = Some(predicted);
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .get_mut::<Confirmed>()
+            .unwrap()
+            .predicted = Some(predicted);
+        stepper
+            .client_app
+            .world_mut()
+            .resource_mut::<PredictionManager>()
+            .predicted_entity_map
+            .get_mut()
+            .confirmed_to_predicted
+            .insert(confirmed, predicted);
+
+        // 1. Add `ComponentWithEntity` component to `confirmed` whose value
+        // will point to `confirmed` and verify that the component's predicted
+        // counterpart points to `predicted`.
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .insert(ComponentWithEntity(confirmed));
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world_mut()
+                .entity_mut(predicted)
+                .get_mut::<ComponentWithEntity>()
+                .unwrap()
+                .0,
+            predicted,
+            "Expected predicted component to point to predicted entity"
+        );
+
+        // 2. Trigger a rollback that causes `predicted`'s
+        // `ComponentWithEntity` component to rollback and verify that its
+        // value still points to `predicted`.
+        let tick = stepper.client_tick();
+        received_confirmed_update(&mut stepper, confirmed, tick - 2);
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world_mut()
+                .entity_mut(predicted)
+                .get_mut::<ComponentWithEntity>()
+                .unwrap()
+                .0,
+            predicted,
+            "Expected predicted component to point to predicted entity"
+        );
     }
 
     /// Test that:
