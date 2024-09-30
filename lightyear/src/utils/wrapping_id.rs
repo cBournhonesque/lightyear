@@ -51,37 +51,6 @@ macro_rules! wrapping_id {
                 }
             }
 
-
-            // impl $struct_name {
-            //     pub fn wrapping_diff(a: u16, b: u16) -> i16 {
-            //         const MAX: i32 = i16::MAX as i32;
-            //         const MIN: i32 = i16::MIN as i32;
-            //         const ADJUST: i32 = (u16::MAX as i32) + 1;
-            //
-            //         let a: i32 = i32::from(a);
-            //         let b: i32 = i32::from(b);
-            //
-            //         let mut result = b - a;
-            //         if (MIN..=MAX).contains(&result) {
-            //             result as i16
-            //         } else if b > a {
-            //             result = b - (a + ADJUST);
-            //             if (MIN..=MAX).contains(&result) {
-            //                 result as i16
-            //             } else {
-            //                 panic!("integer overflow, this shouldn't happen")
-            //             }
-            //         } else {
-            //             result = (b + ADJUST) - a;
-            //             if (MIN..=MAX).contains(&result) {
-            //                 result as i16
-            //             } else {
-            //                 panic!("integer overflow, this shouldn't happen")
-            //             }
-            //         }
-            //     }
-            // }
-
             impl WrappedId for $struct_name {
                  fn rem(&self, total: usize) -> usize {
                      (self.0 as usize) % total
@@ -95,6 +64,7 @@ macro_rules! wrapping_id {
                     &self.0
                 }
             }
+
             impl Ord for $struct_name {
                 fn cmp(&self, other: &Self) -> Ordering {
                     match wrapping_diff(self.0, other.0) {
@@ -182,6 +152,11 @@ pub(crate) use wrapping_id;
 /// assert_eq!(wrapping_diff(0, 32768), -32768);
 /// ```
 pub fn wrapping_diff(a: u16, b: u16) -> i16 {
+    b.wrapping_sub(a) as i16
+}
+
+// TODO: Remove
+fn wrapping_diff_old(a: u16, b: u16) -> i16 {
     const MAX: i32 = i16::MAX as i32;
     const MIN: i32 = i16::MIN as i32;
     const ADJUST: i32 = (u16::MAX as i32) + 1;
@@ -214,6 +189,20 @@ mod sequence_compare_tests {
     use super::wrapping_id;
 
     wrapping_id!(Id);
+
+    #[ignore]
+    #[test]
+    fn test_wrapping_diff_equivalence() {
+        for a in 0..=u16::MAX {
+            for b in 0..=u16::MAX {
+                assert_eq!(
+                    super::wrapping_diff_old(a, b),
+                    super::wrapping_diff(a, b),
+                    "Mismatch for a={a} and b={b}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_ordering() {
