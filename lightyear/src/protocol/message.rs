@@ -267,7 +267,7 @@ pub trait AppMessageExt {
     /// Registers the message in the Registry
     ///
     /// This message can now be sent over the network.
-    /// You need to provide your own SerializationFns for this message
+    /// You need to provide your own [`SerializeFns`] for this message
     fn register_message_custom_serde<M: Message>(
         &mut self,
         direction: ChannelDirection,
@@ -284,7 +284,7 @@ pub trait AppMessageExt {
     /// Registers the resource in the Registry
     ///
     /// This resource can now be sent over the network.
-    /// You need to provide your own SerializationFns for this message
+    /// You need to provide your own [`SerializeFns`] for this message
     fn register_resource_custom_serde<R: Resource + Message>(
         &mut self,
         direction: ChannelDirection,
