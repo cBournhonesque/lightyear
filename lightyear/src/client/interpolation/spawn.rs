@@ -1,5 +1,5 @@
 use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
-use tracing::trace;
+use tracing::{error, trace};
 
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
@@ -34,6 +34,10 @@ pub(crate) fn spawn_interpolated_entity(
         } else {
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
+            error!(
+                "Confirmed entity missing Confirmed component: {:?}",
+                confirmed_entity
+            );
             let confirmed_tick = connection
                 .replication_receiver
                 .get_confirmed_tick(confirmed_entity)

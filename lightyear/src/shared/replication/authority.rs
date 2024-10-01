@@ -616,6 +616,9 @@ mod tests {
     // - Transfer authority from C2 to C2
     #[test]
     fn test_transfer_authority_with_interpolation() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::ERROR)
+            .init();
         let mut stepper = MultiBevyStepper::default();
         let client_entity_1 = stepper
             .client_app_1
