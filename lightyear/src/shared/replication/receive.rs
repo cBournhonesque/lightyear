@@ -806,7 +806,6 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            error!(?remote_entity, ?actions, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
@@ -846,6 +845,8 @@ impl GroupChannel {
                         Replicated { from: remote },
                         InitialReplicated { from: remote },
                     ));
+
+                    error!(?remote, ?remote_entity, local_entity=?local_entity.id(), ?actions, "Received entity actions");
                     self.local_entities.insert(local_entity.id());
                     local_entity_to_group.insert(local_entity.id(), group_id);
                     // if the entity was replicated from a client to the server, update the AuthorityPeer
