@@ -56,7 +56,6 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-
 /// System to start the dedicated server at Startup
 fn start_dedicated_server(mut commands: Commands) {
     commands.replicate_resource::<Lobbies, Channel1>(NetworkTarget::All);
@@ -238,8 +237,7 @@ mod lobby {
                         host: lobby.host,
                     },
                 );
-            }
-            else {
+            } else {
                 if host.is_none() {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
