@@ -806,7 +806,7 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            error!(?remote_entity, ?remote, ?actions, "Received entity actions");
+            debug!(?remote_entity, ?remote, ?actions, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
@@ -1056,7 +1056,7 @@ impl GroupChannel {
 
         self.local_entities.iter().for_each(|local_entity| {
             if let Some(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
-                error!(
+                trace!(
                     ?remote_tick,
                     ?local_entity,
                     "updating confirmed tick for entity"
