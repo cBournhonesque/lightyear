@@ -23,6 +23,7 @@ pub(crate) mod delta;
 /// Provides a mapping from a type to a unique identifier that can be serialized
 pub(crate) mod registry;
 pub(crate) mod serialize;
+pub use serialize::SerializeFns;
 
 /// Data that can be used in an Event
 /// Same as `Event`, but we implement it automatically for all compatible types

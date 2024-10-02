@@ -23,9 +23,16 @@ pub struct ErasedSerializeFns {
     pub receive_map_entities: Option<ErasedReceiveMapEntitiesFn>,
 }
 
+/// Controls how a type (resources/components/messages) is serialized and deserialized
 pub struct SerializeFns<M> {
+    /// Called to serialize the type into the writer
     pub serialize: SerializeFn<M>,
+    /// Called to deserialize the type from the reader
     pub deserialize: DeserializeFn<M>,
+    /// Called to serialize the type into the writer with entity mapping.
+    ///
+    /// Can be set to [`None`] if entity mapping is not required, but *will*
+    /// be assumed to exist and be called if mapping is enabled.
     pub serialize_map_entities: Option<SerializeMapEntitiesFn<M>>,
 }
 
