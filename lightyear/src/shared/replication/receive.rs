@@ -29,8 +29,11 @@ pub struct ReplicationReceiver {
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
 
-    /// Map from remote entity to the replication group-id
-    pub(crate) remote_entity_to_group: EntityHashMap<Entity, ReplicationGroupId>,
+    /// Map from local entity to the replication group-id
+    /// We use the local entity because in some cases we don't have access to the remote entity at all, since the remote
+    /// has pre-done the mapping! (for example C1 spawns 1 and sends to S who spawns 2. Then S transfers authority to C2,
+    /// S will start sending updates to C1, but will pre-map from 2 to 1, so C1 will never see the remote entity!)
+    pub(crate) local_entity_to_group: EntityHashMap<Entity, ReplicationGroupId>,
 
     // BOTH
     /// Buffer to so that we have an ordered receiver per group
@@ -63,7 +66,7 @@ impl ReplicationReceiver {
         Self {
             // RECEIVE
             remote_entity_map: RemoteEntityMap::default(),
-            remote_entity_to_group: Default::default(),
+            local_entity_to_group: Default::default(),
             // BOTH
             group_channels: Default::default(),
         }
@@ -86,14 +89,6 @@ impl ReplicationReceiver {
             trace!(message_id= ?actions.sequence_id, pending_message_id = ?channel.actions_pending_recv_message_id, "message is too old, ignored");
             return;
         }
-        // update the list of entities in the group
-        actions
-            .actions
-            .iter()
-            .map(|(entity, _)| entity)
-            .for_each(|entity| {
-                channel.remote_entities.insert(*entity);
-            });
 
         // add the message to the buffer
         // TODO: I guess this handles potential duplicates?
@@ -179,30 +174,10 @@ impl ReplicationReceiver {
             .and_then(|channel| channel.latest_tick)
     }
 
-    /// Get the replication group id associated with a given local entity
-    pub(crate) fn get_replication_group_id(
-        &self,
-        confirmed_entity: Entity,
-    ) -> Option<ReplicationGroupId> {
-        self.remote_entity_map
-            .get_remote(confirmed_entity)
-            .and_then(|remote_entity| self.remote_entity_to_group.get(&remote_entity))
-            .copied()
-    }
-
-    // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
-    /// Get the group channel associated with a given entity
+    /// Get the group channel associated with a given local entity
     fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel> {
-        self.remote_entity_map
-            .get_remote(local_entity)
-            .and_then(|remote_entity| self.channel_by_remote(remote_entity))
-    }
-
-    // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
-    /// Get the group channel associated with a given entity
-    fn channel_by_remote(&self, remote_entity: Entity) -> Option<&GroupChannel> {
-        self.remote_entity_to_group
-            .get(&remote_entity)
+        self.local_entity_to_group
+            .get(&local_entity)
             .and_then(|group_id| self.group_channels.get(group_id))
     }
 
@@ -253,13 +228,13 @@ impl ReplicationReceiver {
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
-                    self.remote_entity_to_group.insert(*remote_entity, group_id);
                     if let Some(local_entity) = self.remote_entity_map.get_local(*remote_entity) {
                         if world.get_entity(local_entity).is_some() {
                             warn!("Received spawn for an entity that already exists");
                             continue;
                         }
                         warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
+                        self.local_entity_to_group.insert(local_entity, group_id);
                         continue;
                     }
                     // TODO: optimization: spawn the bundle of insert components
@@ -280,6 +255,11 @@ impl ReplicationReceiver {
                         Replicated { from: remote },
                         InitialReplicated { from: remote },
                     ));
+                    if let Some(group) = self.group_channels.get_mut(&group_id) {
+                        group.local_entities.insert(local_entity.id());
+                    }
+                    self.local_entity_to_group
+                        .insert(local_entity.id(), group_id);
                     self.remote_entity_map
                         .insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", self.remote_entity_map);
@@ -309,14 +289,14 @@ impl ReplicationReceiver {
                 debug!(remote_entity = ?entity, "Received entity despawn");
                 if let Some(local_entity) = self.remote_entity_map.remove_by_remote(entity) {
                     if let Some(group) = self.group_channels.get_mut(&group_id) {
-                        group.remote_entities.remove(&entity);
+                        group.local_entities.remove(&local_entity);
                     }
                     // TODO: we despawn all children as well right now, but that might not be what we want?
                     if let Some(entity_mut) = world.get_entity_mut(local_entity) {
                         entity_mut.despawn_recursive();
                     }
                     events.push_despawn(local_entity);
-                    self.remote_entity_to_group.remove(&entity);
+                    self.local_entity_to_group.remove(&local_entity);
                 } else {
                     error!("Received despawn for an entity that does not exist")
                 }
@@ -459,10 +439,8 @@ impl ReplicationReceiver {
         // }
 
         if let Some(g) = self.group_channels.get(&group_id) {
-            g.remote_entities.iter().for_each(|remote_entity| {
-                if let Some(mut local_entity_mut) =
-                    self.remote_entity_map.get_by_remote(world, *remote_entity)
-                {
+            g.local_entities.iter().for_each(|local_entity| {
+                if let Some(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
                     trace!(?remote_tick, "updating confirmed tick for entity");
                     if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
                         confirmed.tick = remote_tick;
@@ -554,7 +532,7 @@ impl ReplicationReceiver {
                     remote_tick,
                     message,
                     &mut self.remote_entity_map,
-                    &mut self.remote_entity_to_group,
+                    &mut self.local_entity_to_group,
                     events,
                 );
             });
@@ -600,8 +578,10 @@ impl ReplicationReceiver {
 #[derive(Debug)]
 pub struct GroupChannel {
     // entities
-    // set of remote entities that are part of the same Replication Group
-    remote_entities: HashSet<Entity>,
+    // set of local entities that are part of the same Replication Group
+    // (we use local entities because we might not be aware of the remote entities,
+    //  if the remote is doing pre-mapping)
+    local_entities: HashSet<Entity>,
     // actions
     pub(crate) actions_pending_recv_message_id: MessageId,
     pub(crate) actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionsMessage)>,
@@ -614,7 +594,7 @@ pub struct GroupChannel {
 impl Default for GroupChannel {
     fn default() -> Self {
         Self {
-            remote_entities: HashSet::default(),
+            local_entities: HashSet::default(),
             actions_pending_recv_message_id: MessageId(0),
             actions_recv_message_buffer: BTreeMap::new(),
             buffered_updates: UpdatesBuffer::default(),
@@ -817,7 +797,7 @@ impl GroupChannel {
         remote_tick: Tick,
         message: EntityActionsMessage,
         remote_entity_map: &mut RemoteEntityMap,
-        remote_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
+        local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
         events: &mut ConnectionEvents,
     ) {
         let group_id = message.group_id;
@@ -826,14 +806,10 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            debug!(?remote_entity, ?actions, "Received entity actions");
+            error!(?remote_entity, ?remote, ?actions, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
-                    // TODO: update this to local_entity_to_group??
-                    remote_entity_to_group.insert(*remote_entity, group_id);
-                    // TODO ABOVE
-
                     if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
                         if world.get_entity(local_entity).is_some() {
                             warn!(
@@ -843,6 +819,7 @@ impl GroupChannel {
                             );
                             continue;
                         }
+                        local_entity_to_group.insert(local_entity, group_id);
                         warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
                         continue;
                     }
@@ -869,6 +846,8 @@ impl GroupChannel {
                         Replicated { from: remote },
                         InitialReplicated { from: remote },
                     ));
+                    self.local_entities.insert(local_entity.id());
+                    local_entity_to_group.insert(local_entity.id(), group_id);
                     // if the entity was replicated from a client to the server, update the AuthorityPeer
                     if let Some(client) = remote {
                         local_entity.insert(AuthorityPeer::Client(client));
@@ -901,13 +880,13 @@ impl GroupChannel {
             if actions.spawn == SpawnAction::Despawn {
                 debug!(remote_entity = ?entity, "Received entity despawn");
                 if let Some(local_entity) = remote_entity_map.remove_by_remote(entity) {
-                    self.remote_entities.remove(&entity);
+                    self.local_entities.remove(&local_entity);
                     // TODO: we despawn all children as well right now, but that might not be what we want?
                     if let Some(entity_mut) = world.get_entity_mut(local_entity) {
                         entity_mut.despawn_recursive();
                     }
                     events.push_despawn(local_entity);
-                    remote_entity_to_group.remove(&entity);
+                    local_entity_to_group.remove(&local_entity);
                 } else {
                     error!("Received despawn for an entity that does not exist")
                 }
@@ -980,6 +959,7 @@ impl GroupChannel {
                     });
             }
         }
+
         self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
     }
 
@@ -1074,11 +1054,13 @@ impl GroupChannel {
         //
         // }
 
-        self.remote_entities.iter().for_each(|remote_entity| {
-            if let Some(mut local_entity_mut) =
-                remote_entity_map.get_by_remote(world, *remote_entity)
-            {
-                trace!(?remote_tick, "updating confirmed tick for entity");
+        self.local_entities.iter().for_each(|local_entity| {
+            if let Some(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
+                error!(
+                    ?remote_tick,
+                    ?local_entity,
+                    "updating confirmed tick for entity"
+                );
                 if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
                     confirmed.tick = remote_tick;
                 }

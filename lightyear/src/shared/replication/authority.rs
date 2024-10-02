@@ -45,7 +45,9 @@ impl MapEntities for AuthorityChange {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{client, server, ClientId, Replicated};
+    use crate::prelude::client::Confirmed;
+    use crate::prelude::server::{Replicate, SyncTarget};
+    use crate::prelude::{client, server, ClientId, NetworkTarget, Replicated};
     use crate::server::replication::commands::AuthorityCommandExt;
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
@@ -606,5 +608,106 @@ mod tests {
                 .0,
             client_entity_1a
         );
+    }
+
+    // Check for https://github.com/cBournhonesque/lightyear/issues/639
+    // - Spawn an entity on C1 and replicate to server
+    // - Server replicated to all with Interpolation enabled
+    // - Transfer authority from C2 to C2
+    #[test]
+    fn test_transfer_authority_with_interpolation() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::WARN)
+        //     .init();
+        let mut stepper = MultiBevyStepper::default();
+        let client_entity_1 = stepper
+            .client_app_1
+            .world_mut()
+            .spawn(client::Replicate::default())
+            .id();
+        // TODO: we need to run a couple frames because the server doesn't read the client's updates
+        //  because they are from the future
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+        let server_entity = stepper
+            .server_app
+            .world()
+            .resource::<server::ConnectionManager>()
+            .connection(ClientId::Netcode(TEST_CLIENT_ID_1))
+            .expect("client connection missing")
+            .replication_receiver
+            .remote_entity_map
+            .get_local(client_entity_1)
+            .expect("entity was not replicated to server");
+        // Add replicate on the server, with interpolation
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .insert(Replicate {
+                authority: AuthorityPeer::Client(ClientId::Netcode(TEST_CLIENT_ID_1)),
+                sync: SyncTarget {
+                    prediction: NetworkTarget::None,
+                    interpolation: NetworkTarget::All,
+                },
+                ..default()
+            });
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // entity was replicated to client 2
+        let client_entity_2 = stepper
+            .client_app_2
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to server");
+        // check that it has confirmed and interpolated
+        let confirmed_2 = stepper
+            .client_app_2
+            .world()
+            .get::<Confirmed>(client_entity_2)
+            .expect("confirmed missing on client 2");
+        let interpolated_2 = confirmed_2
+            .interpolated
+            .expect("interpolated entity missing on client 2");
+
+        // transfer authority from client 1 to client 2
+        stepper
+            .server_app
+            .world_mut()
+            .commands()
+            .entity(server_entity)
+            .transfer_authority(AuthorityPeer::Client(ClientId::Netcode(TEST_CLIENT_ID_2)));
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // add Replicate on it as well
+        stepper
+            .client_app_2
+            .world_mut()
+            .entity_mut(client_entity_2)
+            .insert(client::Replicate::default());
+
+        // TODO: THIS IS NOT FIXED YET! See https://github.com/cBournhonesque/lightyear/pull/642!
+        // // advance frames.
+        // for _ in 0..10 {
+        //     stepper.frame_step();
+        // }
+        // // Nothing happens, even though we maybe would have expected
+        // // an Interpolated entity to be spawned on client 1?
+        // // Is it because no
+        // let confirmed_1 = stepper
+        //     .client_app_1
+        //     .world()
+        //     .get::<Confirmed>(client_entity_1)
+        //     .expect("confirmed missing on client 1");
+        // let interpolated_1 = confirmed_1
+        //     .interpolated
+        //     .expect("interpolated entity missing on client 1");
     }
 }
