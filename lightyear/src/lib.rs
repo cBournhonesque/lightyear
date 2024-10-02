@@ -285,7 +285,7 @@ pub mod prelude {
         pub use crate::client::prediction::rollback::{Rollback, RollbackState};
         pub use crate::client::prediction::Predicted;
         pub use crate::client::replication::commands::DespawnReplicationCommandExt;
-        pub use crate::client::replication::send::Replicate;
+        pub use crate::client::replication::send::{Replicate, ReplicateToServer};
         pub use crate::client::run_conditions::{is_connected, is_disconnected, is_synced};
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
