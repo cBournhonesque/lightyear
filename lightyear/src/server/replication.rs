@@ -3120,10 +3120,12 @@ pub(crate) mod send {
 
 pub(crate) mod commands {
     use crate::channel::builder::AuthorityChannel;
-    use crate::prelude::{Replicated, Replicating, ServerConnectionManager};
+    use crate::prelude::{ClientId, Replicated, Replicating, ServerConnectionManager};
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
+    use crate::prelude::server::SyncTarget;
+    use crate::shared::replication::components::InitialReplicated;
 
     pub trait AuthorityCommandExt {
         /// This command is used to transfer the authority of an entity to a different peer.
@@ -3207,6 +3209,20 @@ pub(crate) mod commands {
                                 },
                             )
                             .expect("could not send message");
+                        // TODO: this is very flimsy, find a better solution? https://github.com/cBournhonesque/lightyear/issues/639
+                        // if the client that had authority was the original owner, then we might want
+                        // to send a message to it to add ShouldBePredicted or ShouldBeInterpolated
+                        if let Some(rep) = world.entity(entity).get::<InitialReplicated>() {
+                            if let Some(from_client) = rep.from {
+                                if from_client == c {
+                                    if let Some(sync_target) = world.entity(entity).get::<SyncTarget>() {
+                                        if sync_target.prediction.targets(c) {
+
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     (AuthorityPeer::Server, AuthorityPeer::Client(c)) => {
                         world
@@ -3253,6 +3269,30 @@ pub(crate) mod commands {
                 }
             });
         }
+    }
+
+    // TODO: this is very flimsy, find a better solution? https://github.com/cBournhonesque/lightyear/issues/639
+    // If the client that had authority was the original owner, then we might want
+    // to send a message to it to add ShouldBePredicted or ShouldBeInterpolated
+    //
+    // This can happen if:
+    // - client 1 spawns entity 1 and sends it to server
+    // - server adds Replicate with SyncTarget{ interpolation: All} (for example) to replicate to other clients
+    // - if the authority gets removed from client 1, then the server should spawn a Interpolated or Predicted entity on client 1
+    fn send_sync_components(world: &mut World, entity: Entity, client: ClientId) {
+        if let Some(rep) = world.entity(entity).get::<InitialReplicated>() {
+            if let Some(from_client) = rep.from {
+                if from_client == client {
+                    if let Some(sync_target) = world.entity(entity).get::<SyncTarget>() {
+                        if sync_target.prediction.targets(&client) {
+                            world.
+
+                        }
+                    }
+                }
+            }
+        }
+
     }
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {
