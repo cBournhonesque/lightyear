@@ -34,7 +34,10 @@ pub(crate) fn spawn_interpolated_entity(
         } else {
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
-            error!("Confirmed entity: {confirmed_entity:?}, interpolated_entity: {interpolated:?}");
+            error!(
+                "Confirmed entity missing Confirmed component: {:?}",
+                confirmed_entity
+            );
             let confirmed_tick = connection
                 .replication_receiver
                 .get_confirmed_tick(confirmed_entity)

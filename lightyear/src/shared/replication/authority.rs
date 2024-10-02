@@ -54,7 +54,6 @@ mod tests {
     use crate::tests::protocol::{ComponentMapEntities, ComponentSyncModeSimple};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::{default, Entity, With};
-    use tracing::error;
 
     #[test]
     fn test_transfer_authority_server_to_client() {
@@ -414,7 +413,7 @@ mod tests {
     #[test]
     fn test_receive_updates_from_transferred_authority_client_to_client() {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::WARN)
+        //     .with_max_level(tracing::Level::ERROR)
         //     .init();
         let mut stepper = MultiBevyStepper::default();
 
@@ -509,7 +508,6 @@ mod tests {
 
         // TODO: resolve this footgun
         // add replicate BEFORE we transfer authority (otherwise when we add client::Replicate, it would add HasAuthority with it...)
-        // also when we add Replicate after the authority transfer, we would send a redundant Spawn
         stepper
             .client_app_2
             .world_mut()
@@ -619,7 +617,7 @@ mod tests {
     #[test]
     fn test_transfer_authority_with_interpolation() {
         tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::WARN)
+            .with_max_level(tracing::Level::ERROR)
             .init();
         let mut stepper = MultiBevyStepper::default();
         let client_entity_1 = stepper
@@ -655,8 +653,6 @@ mod tests {
                 },
                 ..default()
             });
-
-        error!("Server received entity: {:?}", server_entity);
         stepper.frame_step();
         stepper.frame_step();
 
@@ -678,7 +674,6 @@ mod tests {
         let interpolated_2 = confirmed_2
             .interpolated
             .expect("interpolated entity missing on client 2");
-        error!("Client 2 received entity: {:?}", client_entity_2);
 
         // transfer authority from client 1 to client 2
         stepper
@@ -687,11 +682,9 @@ mod tests {
             .commands()
             .entity(server_entity)
             .transfer_authority(AuthorityPeer::Client(ClientId::Netcode(TEST_CLIENT_ID_2)));
-        error!("Authority transferred to client 2: {:?}", client_entity_2);
         stepper.frame_step();
         stepper.frame_step();
         stepper.frame_step();
-        error!("Before adding Replicate on client 2");
 
         // add Replicate on it as well
         stepper

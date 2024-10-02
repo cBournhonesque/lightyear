@@ -388,18 +388,12 @@ pub(crate) mod send {
     /// - handles TargetEntity if it's a Preexisting entity
     /// - setting the priority
     pub(crate) fn replicate_entity_spawn(
-        mut entity: Entity,
+        entity: Entity,
         group_id: ReplicationGroupId,
         priority: f32,
         target_entity: Option<&TargetEntity>,
         sender: &mut ConnectionManager,
     ) {
-        // convert the entity to a network entity (possibly mapped)
-        // entity = sender
-        //     .replication_receiver
-        //     .remote_entity_map
-        //     .to_remote(entity);
-
         info!(?entity, "Prepare entity spawn to server");
         if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
             sender

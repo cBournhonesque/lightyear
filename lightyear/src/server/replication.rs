@@ -430,8 +430,7 @@ pub(crate) mod send {
                 let sync_target = entity_ref.get::<SyncTarget>();
                 let target_entity = entity_ref.get::<TargetEntity>();
                 let controlled_by = entity_ref.get::<ControlledBy>();
-                let authority_peer =
-                    unsafe { entity_ref.get::<AuthorityPeer>().unwrap_unchecked() };
+                let authority_peer = entity_ref.get::<AuthorityPeer>();
                 let initial_replicated = entity_ref.get::<InitialReplicated>();
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
@@ -455,22 +454,6 @@ pub(crate) mod send {
                     system_ticks.last_run(),
                     system_ticks.this_run(),
                 );
-                let authority_peer_ticks = unsafe {
-                    entity_ref
-                        .get_change_ticks::<AuthorityPeer>()
-                        .unwrap_unchecked()
-                };
-                let (added_tick, changed_tick) = (
-                    authority_peer_ticks.added_tick(),
-                    authority_peer_ticks.last_changed_tick(),
-                );
-                let authority_peer = Ref::new(
-                    authority_peer,
-                    &added_tick,
-                    &changed_tick,
-                    system_ticks.last_run(),
-                    system_ticks.this_run(),
-                );
 
                 // b. add entity despawns from visibility or target change
                 replicate_entity_despawn(
@@ -478,7 +461,7 @@ pub(crate) mod send {
                     group_id,
                     &replication_target,
                     cached_replication_target,
-                    &authority_peer,
+                    authority_peer,
                     visibility,
                     &mut sender,
                 );
@@ -495,7 +478,7 @@ pub(crate) mod send {
                     controlled_by,
                     sync_target,
                     target_entity,
-                    &authority_peer,
+                    authority_peer,
                     visibility,
                     &mut sender,
                     &system_ticks,
@@ -568,7 +551,7 @@ pub(crate) mod send {
         controlled_by: Option<&ControlledBy>,
         sync_target: Option<&SyncTarget>,
         target_entity: Option<&TargetEntity>,
-        authority_peer: &Ref<AuthorityPeer>,
+        authority_peer: Option<&AuthorityPeer>,
         visibility: Option<&CachedNetworkRelevance>,
         sender: &mut ConnectionManager,
         system_ticks: &SystemChangeTick,
@@ -612,9 +595,7 @@ pub(crate) mod send {
             None => {
                 let mut target = NetworkTarget::None;
                 // only try to replicate if the replicate component was just added
-                // if the authority is changed, we also send a new spawn message, just in case we need
-                // to
-                if replication_target.is_added() || authority_peer.is_changed() {
+                if replication_target.is_added() {
                     trace!(?entity, "send entity spawn");
                     // TODO: avoid this clone!
                     target = replication_target.target.clone();
@@ -644,10 +625,10 @@ pub(crate) mod send {
         if let Some(AuthorityPeer::Client(c)) = authority_peer {
             target.exclude(&NetworkTarget::Single(*c));
         }
-        // // we don't send entity-spawn to the client who originally spawned the entity
-        // if let Some(client_id) = initial_replicated.and_then(|r| r.from) {
-        //     target.exclude(&NetworkTarget::Single(client_id));
-        // };
+        // we don't send entity-spawn to the client who originally spawned the entity
+        if let Some(client_id) = initial_replicated.and_then(|r| r.from) {
+            target.exclude(&NetworkTarget::Single(client_id));
+        };
         if target.is_empty() {
             return;
         }
@@ -768,7 +749,7 @@ pub(crate) mod send {
         group_id: ReplicationGroupId,
         replication_target: &Ref<ReplicationTarget>,
         cached_replication_target: Option<&Cached<ReplicationTarget>>,
-        authority_peer: &Ref<AuthorityPeer>,
+        authority_peer: Option<&AuthorityPeer>,
         visibility: Option<&CachedNetworkRelevance>,
         sender: &mut ConnectionManager,
     ) {
@@ -804,7 +785,7 @@ pub(crate) mod send {
             }
         }
         // 3. we don't send messages to the client that has authority
-        if let AuthorityPeer::Client(c) = authority_peer {
+        if let Some(AuthorityPeer::Client(c)) = authority_peer {
             target.exclude(&NetworkTarget::Single(*c));
         }
 
