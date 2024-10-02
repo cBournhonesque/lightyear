@@ -369,9 +369,7 @@ pub(crate) mod send {
                 AuthorityPeer::Client(c) => {
                     // immediately transfer authority to the client to make
                     // sure they know that they own it
-                    commands
-                        .entity(entity)
-                        .transfer_authority(authority_peer.clone());
+                    commands.entity(entity).transfer_authority(*authority_peer);
                 }
                 AuthorityPeer::Server => {
                     debug!("Adding HasAuthority to {:?}", entity);
