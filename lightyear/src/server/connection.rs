@@ -962,6 +962,7 @@ impl ConnectionManager {
         }
         self.connected_targets(actual_target)
             .try_for_each(|client_id| {
+                // convert the entity to a network entity (in case we need to map it)
                 let entity = self
                     .connection_mut(client_id)?
                     .replication_receiver

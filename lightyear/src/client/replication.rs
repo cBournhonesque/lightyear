@@ -394,7 +394,16 @@ pub(crate) mod send {
         target_entity: Option<&TargetEntity>,
         sender: &mut ConnectionManager,
     ) {
-        info!(?entity, "Prepare entity spawn to server");
+        // if we had this entity mapped, that means it already exists on the server
+        if let Some(remote_entity) = sender
+            .replication_receiver
+            .remote_entity_map
+            .local_to_remote
+            .get(&entity)
+        {
+            return;
+        }
+        debug!(?entity, "Prepare entity spawn to server");
         if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
             sender
                 .replication_sender

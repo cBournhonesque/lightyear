@@ -3101,12 +3101,16 @@ pub(crate) mod send {
 
 pub(crate) mod commands {
     use crate::channel::builder::AuthorityChannel;
-    use crate::prelude::{ClientId, Replicated, Replicating, ServerConnectionManager};
+    use crate::prelude::server::{ConnectionManager, SyncTarget};
+    use crate::prelude::{
+        ClientId, ComponentRegistry, Replicated, Replicating, ReplicationGroup,
+        ServerConnectionManager, ShouldBePredicted,
+    };
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
+    use crate::shared::replication::components::{InitialReplicated, ShouldBeInterpolated};
     use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{Entity, World};
-    use crate::prelude::server::SyncTarget;
-    use crate::shared::replication::components::InitialReplicated;
+    use bevy::prelude::{Entity, Mut, World};
+    use tracing::{error, warn};
 
     pub trait AuthorityCommandExt {
         /// This command is used to transfer the authority of an entity to a different peer.
@@ -3191,19 +3195,7 @@ pub(crate) mod commands {
                             )
                             .expect("could not send message");
                         // TODO: this is very flimsy, find a better solution? https://github.com/cBournhonesque/lightyear/issues/639
-                        // if the client that had authority was the original owner, then we might want
-                        // to send a message to it to add ShouldBePredicted or ShouldBeInterpolated
-                        if let Some(rep) = world.entity(entity).get::<InitialReplicated>() {
-                            if let Some(from_client) = rep.from {
-                                if from_client == c {
-                                    if let Some(sync_target) = world.entity(entity).get::<SyncTarget>() {
-                                        if sync_target.prediction.targets(c) {
-
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        send_sync_components(world, entity, c);
                     }
                     (AuthorityPeer::Server, AuthorityPeer::Client(c)) => {
                         world
@@ -3245,6 +3237,8 @@ pub(crate) mod commands {
                                 },
                             )
                             .expect("could not send message");
+                        // TODO: this is very flimsy, find a better solution? https://github.com/cBournhonesque/lightyear/issues/639
+                        send_sync_components(world, entity, c1);
                     }
                     _ => unreachable!(),
                 }
@@ -3261,19 +3255,68 @@ pub(crate) mod commands {
     // - server adds Replicate with SyncTarget{ interpolation: All} (for example) to replicate to other clients
     // - if the authority gets removed from client 1, then the server should spawn a Interpolated or Predicted entity on client 1
     fn send_sync_components(world: &mut World, entity: Entity, client: ClientId) {
-        if let Some(rep) = world.entity(entity).get::<InitialReplicated>() {
-            if let Some(from_client) = rep.from {
-                if from_client == client {
-                    if let Some(sync_target) = world.entity(entity).get::<SyncTarget>() {
-                        if sync_target.prediction.targets(&client) {
-                            world.
-
+        world.resource_scope(|world: &mut World, mut sender: Mut<ConnectionManager>| {
+            if let Some(rep) = world.entity(entity).get::<InitialReplicated>() {
+                if let Some(from_client) = rep.from {
+                    if from_client == client {
+                        if let Some(sync_target) = world.entity(entity).get::<SyncTarget>() {
+                            if sync_target.prediction.targets(&client) {
+                                warn!("Sending ShouldBePredicted to client {client:?} that lost authority");
+                                let group_id = world
+                                    .entity(entity)
+                                    .get::<ReplicationGroup>()
+                                    .unwrap()
+                                    .group_id(Some(entity));
+                                let component_registry = world.resource::<ComponentRegistry>();
+                                if let Ok(connection_mut) = sender.connection_mut(client) {
+                                    // convert the entity to a network entity
+                                    let network_entity = connection_mut
+                                        .replication_receiver
+                                        .remote_entity_map
+                                        .to_remote(entity);
+                                    let res = sender.prepare_typed_component_insert(
+                                        network_entity,
+                                        group_id,
+                                        client,
+                                        component_registry,
+                                        &mut ShouldBePredicted,
+                                    );
+                                    if let Err(e) = res {
+                                        error!("Error sending ShouldBePredicted: {e:?} to client {client:?} that lost authority");
+                                    }
+                                }
+                            }
+                            if sync_target.interpolation.targets(&client) {
+                                warn!("Sending ShouldBeInterpolated to client {client:?} that lost authority");
+                                let group_id = world
+                                    .entity(entity)
+                                    .get::<ReplicationGroup>()
+                                    .unwrap()
+                                    .group_id(Some(entity));
+                                let component_registry = world.resource::<ComponentRegistry>();
+                                if let Ok(connection_mut) = sender.connection_mut(client) {
+                                    // convert the entity to a network entity
+                                    let network_entity = connection_mut
+                                        .replication_receiver
+                                        .remote_entity_map
+                                        .to_remote(entity);
+                                    let res = sender.prepare_typed_component_insert(
+                                        network_entity,
+                                        group_id,
+                                        client,
+                                        component_registry,
+                                        &mut ShouldBeInterpolated,
+                                    );
+                                    if let Err(e) = res {
+                                        error!("Error sending ShouldBePredicted: {e:?} to client {client:?} that lost authority");
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
-
+        });
     }
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {
