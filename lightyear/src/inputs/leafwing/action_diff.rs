@@ -179,27 +179,64 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{Deserialize, Serialize};
-    use bevy::prelude::Reflect;
-    use leafwing_input_manager::Actionlike;
+    use crate::{
+        inputs::leafwing::action_diff::ActionDiff,
+        prelude::{Deserialize, Serialize},
+    };
+    use bevy::{
+        math::{Vec2, Vec3},
+        prelude::Reflect,
+    };
+    use leafwing_input_manager::{action_state::ActionState, Actionlike};
 
     #[derive(
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,
     )]
     enum Action {
-        Jump,
+        #[actionlike(Axis)]
+        Axis,
+        #[actionlike(DualAxis)]
+        DualAxis,
+        #[actionlike(TripleAxis)]
+        TripleAxis,
     }
 
-    // fn test_diff() {
-    //     let mut action_state = ActionState::new();
-    //     action_state.press(&Action::Jump);
-    //     action_state.action_data_mut(&Action::Jump).unwrap().value = 0.5;
-    //     let mut action_state2 = action_state.clone();
-    //     action_state2.action_data_mut(&Action::Jump).unwrap().value = 0.75;
-    //     let diff = ActionDiff::create(&action_state, &action_state2);
-    //     assert_eq!(diff.len(), 1);
-    //     let mut action_state3 = action_state.clone();
-    //     diff[0].apply(&mut action_state3);
-    //     assert_eq!(action_state2, action_state3);
-    // }
+    #[test]
+    fn test_axis_diff() {
+        let mut action_state = ActionState::default();
+        action_state.set_value(&Action::Axis, 0.5);
+        let mut action_state2 = action_state.clone();
+        action_state2.set_value(&Action::Axis, 0.75);
+        let diff = ActionDiff::create(&action_state, &action_state2);
+        assert_eq!(diff.len(), 1);
+        let mut action_state3 = action_state.clone();
+        diff[0].apply(&mut action_state3);
+        assert_eq!(action_state2, action_state3);
+    }
+
+    #[test]
+    fn test_dual_axis_diff() {
+        let mut action_state = ActionState::default();
+        action_state.set_axis_pair(&Action::DualAxis, Vec2::new(0.5, 0.75));
+        let mut action_state2 = action_state.clone();
+        action_state2.set_axis_pair(&Action::DualAxis, Vec2::new(0.75, 0.5));
+        let diff = ActionDiff::create(&action_state, &action_state2);
+        assert_eq!(diff.len(), 1);
+        let mut action_state3 = action_state.clone();
+        diff[0].apply(&mut action_state3);
+        assert_eq!(action_state2, action_state3);
+    }
+
+    #[test]
+    fn test_triple_axis_diff() {
+        let mut action_state = ActionState::default();
+        action_state.set_axis_triple(&Action::TripleAxis, Vec3::new(0.5, 0.75, 0.25));
+        let mut action_state2 = action_state.clone();
+        action_state2.set_axis_triple(&Action::TripleAxis, Vec3::new(0.75, 0.5, 0.25));
+        let diff = ActionDiff::create(&action_state, &action_state2);
+        assert_eq!(diff.len(), 1);
+        let mut action_state3 = action_state.clone();
+        diff[0].apply(&mut action_state3);
+        assert_eq!(action_state2, action_state3);
+    }
 }
