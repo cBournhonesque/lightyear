@@ -1,5 +1,5 @@
 use crate::prelude::{Deserialize, LeafwingUserAction, Serialize};
-use bevy::math::Vec2;
+use bevy::math::{Vec2, Vec3};
 use bevy::prelude::Reflect;
 use leafwing_input_manager::action_state::{ActionKindData, ActionState};
 
@@ -35,6 +35,13 @@ pub enum ActionDiff<A> {
         action: A,
         /// The new value of the axis
         axis_pair: Vec2,
+    },
+    /// The axis triple of the action changed
+    AxisTripleChanged {
+        /// The value of the action
+        action: A,
+        /// The new value of the axis
+        axis_triple: Vec3,
     },
 }
 
@@ -93,6 +100,18 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                             });
                         }
                     }
+                    ActionKindData::TripleAxis(triple_axis_after) => {
+                        let triple_axis_before = match &action_data_before.kind_data {
+                            ActionKindData::TripleAxis(triple_axis_before) => triple_axis_before,
+                            _ => unreachable!(),
+                        };
+                        if triple_axis_after.triple != triple_axis_before.triple {
+                            diffs.push(ActionDiff::AxisTripleChanged {
+                                action: action.clone(),
+                                axis_triple: triple_axis_after.triple,
+                            });
+                        }
+                    }
                 }
             } else {
                 match &action_data_after.kind_data {
@@ -119,6 +138,12 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                             axis_pair: dual_axis.pair,
                         });
                     }
+                    ActionKindData::TripleAxis(triple_axis) => {
+                        diffs.push(ActionDiff::AxisTripleChanged {
+                            action: action.clone(),
+                            axis_triple: triple_axis.triple,
+                        });
+                    }
                 }
             }
         }
@@ -141,6 +166,12 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
             }
             ActionDiff::AxisPairChanged { action, axis_pair } => {
                 action_state.set_axis_pair(&action, axis_pair);
+            }
+            ActionDiff::AxisTripleChanged {
+                action,
+                axis_triple,
+            } => {
+                action_state.set_axis_triple(&action, axis_triple);
             }
         };
     }
