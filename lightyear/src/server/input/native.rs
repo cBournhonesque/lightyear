@@ -13,7 +13,7 @@ use crate::server::events::InputEvent;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
-pub struct InputPlugin<A> {
+pub struct InputPlugin<A: UserAction> {
     _marker: std::marker::PhantomData<A>,
 }
 
@@ -32,7 +32,7 @@ impl<A> Default for InputBuffers<A> {
     }
 }
 
-impl<A> Default for InputPlugin<A> {
+impl<A: UserAction> Default for InputPlugin<A> {
     fn default() -> Self {
         Self {
             _marker: std::marker::PhantomData,
