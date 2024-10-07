@@ -115,7 +115,7 @@ impl Default for InputConfig {
     }
 }
 
-pub struct InputPlugin<A> {
+pub struct InputPlugin<A: UserAction> {
     config: InputConfig,
     _marker: std::marker::PhantomData<A>,
 }
