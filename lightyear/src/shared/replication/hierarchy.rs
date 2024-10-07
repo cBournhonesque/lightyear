@@ -107,8 +107,11 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                         continue;
                     }
                     trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
+                    let Some(mut child_commands) = commands.get_entity(child) else {
+                        continue;
+                    };
                     // no need to set the correct parent as it will be set later in the `update_parent_sync` system
-                    commands.entity(child).insert((
+                    child_commands.insert((
                         // TODO: should we add replicating?
                         Replicating,
                         // the entire hierarchy is replicated as a single group so we re-use the parent's replication group id
@@ -513,5 +516,39 @@ mod tests {
                 .unwrap(),
             &ParentSync(Some(server_parent))
         );
+    }
+
+    #[test]
+    fn test_remove_child() {
+        let mut stepper = BevyStepper::default();
+        let child = stepper
+            .client_app
+            .world_mut()
+            .spawn(ComponentSyncModeFull(0.0))
+            .id();
+        let parent = stepper
+            .client_app
+            .world_mut()
+            .spawn((ComponentSyncModeSimple(0.0), client::Replicate::default()))
+            .add_child(child)
+            .id();
+        stepper
+            .client_app
+            .world_mut()
+            .commands()
+            .entity(child)
+            .despawn();
+
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // check that child was removed
+        let server_child = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
+            .get_single(stepper.server_app.world());
+        assert_eq!(server_child.is_err(), true);
     }
 }
