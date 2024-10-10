@@ -64,7 +64,7 @@ thiserror = "1.0.50"
 seahash = "4.1.0"
 
 # input
-leafwing-input-manager = { version = "0.15", optional = true }
+leafwing-input-manager = { version = "0.15", default-features = false, optional = true }
 
 # physics
 avian2d = { version = "0.1.1", optional = true, default-features = false }
