@@ -47,14 +47,14 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
             &server_url
         );
 
-        let options = xwt_web_sys::WebTransportOptions {
-            server_certificate_hashes: vec![xwt_web_sys::CertificateHash {
-                algorithm: xwt_web_sys::HashAlgorithm::Sha256,
+        let options = xwt_web::WebTransportOptions {
+            server_certificate_hashes: vec![xwt_web::CertificateHash {
+                algorithm: xwt_web::HashAlgorithm::Sha256,
                 value: ring::test::from_hex(&self.certificate_digest).unwrap(),
             }],
             ..Default::default()
         };
-        let endpoint = xwt_web_sys::Endpoint {
+        let endpoint = xwt_web::Endpoint {
             options: options.to_js(),
         };
 
@@ -118,7 +118,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
             };
             loop {
                 tokio::select! {
-                    _ = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => return,
+                    _ = connection.transport.closed() => return,
                     to_send = connection.receive_datagram() => {
                         match to_send {
                            Ok(data) => {
@@ -139,7 +139,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
             };
             loop {
                 tokio::select! {
-                    _ = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => return,
+                    _ = connection.transport.closed() => return,
                     recv = to_server_receiver.recv() => {
                         if let Some(msg) = recv {
                             trace!("send datagram to server: {:?}", &msg);
@@ -157,7 +157,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
             };
             // Wait for a close signal from the close channel, or for the quic connection to be closed
             tokio::select! {
-                reason = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => {
+                reason = connection.transport.closed() => {
                     info!("WebTransport connection closed. Reason: {reason:?}");
                     status_tx.send(ClientIoEvent::Disconnected(std::io::Error::other(format!("Error: {:?}", reason)).into())).await.unwrap();
                 },
