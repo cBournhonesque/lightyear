@@ -156,8 +156,8 @@ impl RemoteEntityMap {
             let local = Self::mark_unmapped(remote_entity);
             if let Some(remote) = self.local_to_remote.remove(&local) {
                 self.remote_to_local.remove(&remote);
-                return Some(local);
             }
+            return Some(local);
         } else if let Some(local) = self.remote_to_local.remove(&remote_entity) {
             self.local_to_remote.remove(&local);
             return Some(local);
