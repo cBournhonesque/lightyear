@@ -126,7 +126,7 @@ fn movement(
     for input in input_reader.read() {
         let client_id = input.context();
         if let Some(input) = input.input() {
-            info!(
+            trace!(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
                 input,
                 client_id,
