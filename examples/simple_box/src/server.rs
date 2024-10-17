@@ -26,6 +26,7 @@ impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ClientEntityMap>();
         app.add_systems(Startup, (init, start_server));
+        // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_systems(FixedUpdate, movement);
         app.add_systems(Update, (send_message, handle_connections));
     }
