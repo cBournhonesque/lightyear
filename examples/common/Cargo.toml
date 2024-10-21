@@ -34,4 +34,4 @@ bevy = { version = "0.14", default-features = true, features = [
   "bevy_state",
   "serialize",
 ] }
-bevy-inspector-egui = "0.26"
+bevy-inspector-egui = "0.27"

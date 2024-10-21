@@ -34,4 +34,4 @@ bevy = { version = "0.14", features = [
 bevy_mod_picking = { version = "0.20", features = ["backend_bevy_ui"] }
 rand = "0.8"
 metrics-exporter-prometheus = { version = "0.15.1", optional = true }
-bevy-inspector-egui = "0.26"
+bevy-inspector-egui = "0.27"
