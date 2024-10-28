@@ -53,7 +53,7 @@ chrono = "=0.4.34"
 cfg-if = "1.0"
 enum_dispatch = "0.3"
 hashbrown = "0.14"
-governor = "0.6.0"
+governor = "0.7.0"
 mock_instant = { version = "0.4.0", optional = true }
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.1"
