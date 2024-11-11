@@ -154,7 +154,7 @@ fn add_character_cosmetics(
 /// do not exist since floors aren't predicted.
 fn add_floor_cosmetics(
     mut commands: Commands,
-    floor_query: Query<Entity, (Added<Replicated>, With<FloorMarker>)>,
+    floor_query: Query<Entity, Added<FloorMarker>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
