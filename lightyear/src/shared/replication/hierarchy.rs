@@ -549,6 +549,6 @@ mod tests {
             .world_mut()
             .query_filtered::<Entity, With<ComponentSyncModeFull>>()
             .get_single(stepper.server_app.world());
-        assert_eq!(server_child.is_err(), true);
+        assert!(server_child.is_err());
     }
 }
