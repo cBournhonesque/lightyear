@@ -185,6 +185,10 @@ tracing-subscriber = "0.3.17"
 bitvec = "1.0"
 approx = "0.5.1"
 
+[dev-dependencies.leafwing-input-manager]
+version = "*"
+# Used by tests.
+features = ["keyboard"]
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
