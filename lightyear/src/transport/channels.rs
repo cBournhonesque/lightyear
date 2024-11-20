@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use bevy::utils::HashMap;
 use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
-use tracing::info;
+use tracing::debug;
 
 use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
@@ -28,7 +28,7 @@ impl Channels {
         let mut remote_recv = HashMap::new();
         let mut remote_send = HashMap::new();
         for (remote_addr, recv, send) in channels {
-            info!("adding remote: {:?}", remote_addr);
+            debug!("adding remote: {:?}", remote_addr);
             remote_recv.insert(remote_addr, recv);
             remote_send.insert(remote_addr, send);
         }
