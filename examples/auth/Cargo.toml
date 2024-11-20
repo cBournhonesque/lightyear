@@ -18,19 +18,19 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 [dependencies]
 lightyear_examples_common = { path = "../common" }
 lightyear = { path = "../../lightyear", features = [
-  "steam",
-  "webtransport",
-  "websocket",
+    "steam",
+    "webtransport",
+    "websocket",
 ] }
 async-compat = "0.2.3"
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"
 tracing-subscriber = "0.3.17"
-bevy = { version = "0.14", features = [
-  "multi_threaded",
-  "bevy_state",
-  "serialize",
+bevy = { version = "0.15.0-rc.3", features = [
+    "multi_threaded",
+    "bevy_state",
+    "serialize",
 ] }
 bevy_mod_picking = { version = "0.20", features = ["backend_bevy_ui"] }
 rand = "0.8.1"

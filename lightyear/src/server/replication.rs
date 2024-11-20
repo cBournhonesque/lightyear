@@ -137,9 +137,9 @@ pub(crate) mod send {
                     .run_if(is_host_server),
             );
 
-            app.observe(replicate_entity_local_despawn);
-            app.observe(add_has_authority_component);
-            app.observe(handle_pre_predicted);
+            app.add_observer(replicate_entity_local_despawn);
+            app.add_observer(add_has_authority_component);
+            app.add_observer(handle_pre_predicted);
         }
     }
 
@@ -501,6 +501,7 @@ pub(crate) mod send {
                     let override_target = replicated_component.override_target.and_then(|id| {
                         entity_ref
                             .get_by_id(id)
+                            .ok()
                             // SAFETY: we know the archetype has the OverrideTarget<C> component
                             // the OverrideTarget<C> component has the same memory layout as NetworkTarget
                             .map(|ptr| unsafe { ptr.deref::<NetworkTarget>() })
@@ -1353,7 +1354,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .get_entity(client_entity)
-                .is_none());
+                .is_err());
         }
 
         /// Check that if interest management is used, a client losing visibility of an entity
@@ -1404,7 +1405,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .get_entity(client_entity)
-                .is_none());
+                .is_err());
         }
 
         /// Test that if an entity with visibility is despawned, the despawn-message is not sent
@@ -1481,14 +1482,14 @@ pub(crate) mod send {
                 .client_app_1
                 .world()
                 .get_entity(client_entity_1)
-                .is_none());
+                .is_err());
 
             // check that the entity still exists on client 2
             assert!(stepper
                 .client_app_2
                 .world()
                 .get_entity(client_entity_2)
-                .is_some());
+                .is_ok());
         }
 
         /// Check that if we change the replication target on an entity that already has one
@@ -1536,7 +1537,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .get_entity(client_entity)
-                .is_none());
+                .is_err());
         }
 
         #[test]
@@ -3117,7 +3118,7 @@ pub(crate) mod commands {
 
     impl AuthorityCommandExt for EntityCommands<'_> {
         fn transfer_authority(&mut self, new_owner: AuthorityPeer) {
-            self.add(move |entity: Entity, world: &mut World| {
+            self.queue(move |entity: Entity, world: &mut World| {
                 // check who the current owner is
                 let current_owner =
                     world
@@ -3320,7 +3321,7 @@ pub(crate) mod commands {
     fn despawn_without_replication(entity: Entity, world: &mut World) {
         // remove replicating separately so that when we despawn the entity and trigger the observer
         // the entity doesn't have replicating anymore
-        if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.remove::<Replicating>();
             entity_mut.despawn();
         }
@@ -3332,7 +3333,7 @@ pub(crate) mod commands {
     }
     impl DespawnReplicationCommandExt for EntityCommands<'_> {
         fn despawn_without_replication(&mut self) {
-            self.add(despawn_without_replication);
+            self.queue(despawn_without_replication);
         }
     }
 

@@ -169,7 +169,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage.run_if(
                     // no need to send input messages via io if we are in host-server mode
-                    is_synced.and_then(not(is_host_server)),
+                    is_synced.and(not(is_host_server)),
                 ),
                 InternalMainSet::<ClientMarker>::Send,
             )
@@ -194,7 +194,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             FixedPostUpdate,
             clear_input_events::<A>.in_set(InputSystemSet::ClearInputEvent),
         );
-        app.observe(receive_tick_events::<A>);
+        app.add_observer(receive_tick_events::<A>);
         app.add_systems(
             PostUpdate,
             (prepare_input_message::<A>.in_set(InputSystemSet::SendInputMessage),),

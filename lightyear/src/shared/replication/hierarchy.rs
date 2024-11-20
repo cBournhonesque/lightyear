@@ -197,7 +197,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
 
 impl<R: ReplicationSend> Plugin for HierarchySendPlugin<R> {
     fn build(&self, app: &mut App) {
-        app.observe(Self::handle_parent_remove);
+        app.add_observer(Self::handle_parent_remove);
         app.add_systems(
             PostUpdate,
             (Self::propagate_replicate, Self::update_parent_sync)
@@ -273,7 +273,7 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
 mod tests {
     use std::ops::Deref;
 
-    use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
+    use bevy::hierarchy::{BuildChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
 
     use crate::prelude::client;

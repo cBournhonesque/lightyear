@@ -74,7 +74,7 @@ impl Plugin for ClientNetworkingPlugin {
                     // we are running the listen_io_state in a different set because it can impact the run_condition for the
                     // Receive system set
                     .before(InternalMainSet::<ClientMarker>::Receive)
-                    .run_if(not(is_host_server.or_else(is_disconnected))),
+                    .run_if(not(is_host_server.or(is_disconnected))),
             )
             .add_systems(
                 PreUpdate,

@@ -36,11 +36,8 @@ pub(crate) mod receive {
                 //  and the message might be ignored by the server
                 //  But then pre-predicted entities that are spawned right away will not be replicated?
                 // NOTE: we always need to add this condition if we don't enable replication, because
-                InternalReplicationSet::<ClientMarker>::All.run_if(
-                    is_connected
-                        .and_then(is_synced)
-                        .and_then(not(is_host_server)),
-                ),
+                InternalReplicationSet::<ClientMarker>::All
+                    .run_if(is_connected.and(is_synced).and(not(is_host_server))),
             );
 
             app.add_systems(
@@ -131,11 +128,8 @@ pub(crate) mod send {
                     //  and the message might be ignored by the server
                     //  But then pre-predicted entities that are spawned right away will not be replicated?
                     // NOTE: we always need to add this condition if we don't enable replication, because
-                    InternalReplicationSet::<ClientMarker>::All.run_if(
-                        is_connected
-                            .and_then(is_synced)
-                            .and_then(not(is_host_server)),
-                    ),
+                    InternalReplicationSet::<ClientMarker>::All
+                        .run_if(is_connected.and(is_synced).and(not(is_host_server))),
                 )
                 // SYSTEMS
                 .add_systems(
@@ -155,7 +149,7 @@ pub(crate) mod send {
             //  if we have an Add and we already had buffered a remove, keep only the Add (because at the time of sending,
             //    the component is there)
             // TODO: or maybe don't use observers for buffering component removes..
-            app.observe(send_entity_despawn);
+            app.add_observer(send_entity_despawn);
         }
     }
 
@@ -631,7 +625,7 @@ pub(crate) mod send {
 
     pub(crate) fn register_replicate_component_send<C: Component>(app: &mut App) {
         // TODO: what if we remove and add within one replication_interval?
-        app.observe(send_component_removed::<C>);
+        app.add_observer(send_component_removed::<C>);
     }
 
     #[cfg(test)]
@@ -785,7 +779,7 @@ pub(crate) mod send {
                 .server_app
                 .world()
                 .get_entity(server_entity)
-                .is_none());
+                .is_err());
         }
 
         #[test]
@@ -825,7 +819,7 @@ pub(crate) mod send {
                 .server_app
                 .world()
                 .get_entity(server_entity)
-                .is_none());
+                .is_err());
         }
 
         #[test]
@@ -1207,7 +1201,7 @@ pub(crate) mod commands {
     fn despawn_without_replication(entity: Entity, world: &mut World) {
         // remove replicating separately so that when we despawn the entity and trigger the observer
         // the entity doesn't have replicating anymore
-        if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.remove::<Replicating>();
             entity_mut.despawn();
         }
@@ -1220,7 +1214,7 @@ pub(crate) mod commands {
 
     impl DespawnReplicationCommandExt for EntityCommands<'_> {
         fn despawn_without_replication(&mut self) {
-            self.add(despawn_without_replication);
+            self.queue(despawn_without_replication);
         }
     }
 }

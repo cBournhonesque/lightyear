@@ -71,8 +71,8 @@ impl Plugin for SpaceshipsRendererPlugin {
 
         // observers that add VisualInterpolationStatus components to entities which receive
         // a Position or Rotation component.
-        app.observe(add_visual_interpolation_components::<Position>);
-        app.observe(add_visual_interpolation_components::<Rotation>);
+        app.add_observer(add_visual_interpolation_components::<Position>);
+        app.add_observer(add_visual_interpolation_components::<Rotation>);
     }
 }
 

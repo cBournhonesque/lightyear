@@ -50,7 +50,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             FixedUpdate,
             handle_hit_event
-                .run_if(on_event::<BulletHitEvent>())
+                .run_if(on_event::<BulletHitEvent>)
                 .after(process_collisions),
         );
 

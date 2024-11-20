@@ -10,7 +10,7 @@ use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::is_synced;
 use crate::prelude::server::{ServerConfig, ServerConnections};
 use crate::prelude::{
-    is_host_server, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
+    is_host_server_ref, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
     ReplicationTarget, ShouldBePredicted, TickManager,
 };
 use crate::shared::replication::components::PrePredicted;
@@ -46,7 +46,7 @@ impl Plugin for PrePredictionPlugin {
             ), // .run_if(is_connected),
         );
 
-        app.observe(Self::handle_prepredicted);
+        app.add_observer(Self::handle_prepredicted);
     }
 }
 
@@ -96,7 +96,7 @@ impl PrePredictionPlugin {
         if let Some(&predicted) = predicted_map.confirmed_to_predicted.get(&trigger.entity()) {
             let confirmed = trigger.entity();
             debug!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
-            commands.add(move |world: &mut World| {
+            commands.queue(move |world: &mut World| {
                 world
                     .entity_mut(predicted)
                     .insert(Predicted {
@@ -108,12 +108,12 @@ impl PrePredictionPlugin {
             let predicted_entity = trigger.entity();
             // PrePredicted was added by the client:
             // Spawn a Confirmed entity and update the mapping
-            commands.add(move |world: &mut World| {
+            commands.queue(move |world: &mut World| {
                 // TODO: check host_server via sub state
                 // for host-server, we don't want to spawn a separate entity because
                 //  the confirmed/predicted/server entity are the same! Instead we just want
                 //  to remove PrePredicted and add Predicted
-                if is_host_server(
+                if is_host_server_ref(
                     world.get_resource_ref::<ServerConfig>(),
                     world.get_resource_ref::<ServerConnections>(),
                 ) {

@@ -229,7 +229,7 @@ impl ReplicationReceiver {
             match actions.spawn {
                 SpawnAction::Spawn => {
                     if let Some(local_entity) = self.remote_entity_map.get_local(*remote_entity) {
-                        if world.get_entity(local_entity).is_some() {
+                        if world.get_entity(local_entity).is_ok() {
                             warn!("Received spawn for an entity that already exists");
                             continue;
                         }
@@ -268,7 +268,7 @@ impl ReplicationReceiver {
                     events.push_spawn(local_entity.id());
                 }
                 SpawnAction::Reuse(local_entity) => {
-                    let Some(mut entity_mut) = world.get_entity_mut(local_entity) else {
+                    let Ok(mut entity_mut) = world.get_entity_mut(local_entity) else {
                         // TODO: ignore the entity in the next steps because it does not exist!
                         error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
                         continue;
@@ -292,7 +292,7 @@ impl ReplicationReceiver {
                         group.local_entities.remove(&local_entity);
                     }
                     // TODO: we despawn all children as well right now, but that might not be what we want?
-                    if let Some(entity_mut) = world.get_entity_mut(local_entity) {
+                    if let Ok(entity_mut) = world.get_entity_mut(local_entity) {
                         entity_mut.despawn_recursive();
                     }
                     events.push_despawn(local_entity);
@@ -440,7 +440,7 @@ impl ReplicationReceiver {
 
         if let Some(g) = self.group_channels.get(&group_id) {
             g.local_entities.iter().for_each(|local_entity| {
-                if let Some(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
+                if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
                     trace!(?remote_tick, "updating confirmed tick for entity");
                     if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
                         confirmed.tick = remote_tick;
@@ -811,7 +811,7 @@ impl GroupChannel {
             match actions.spawn {
                 SpawnAction::Spawn => {
                     if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
-                        if world.get_entity(local_entity).is_some() {
+                        if world.get_entity(local_entity).is_ok() {
                             warn!(
                                 ?remote_entity,
                                 ?local_entity,
@@ -860,7 +860,7 @@ impl GroupChannel {
                     events.push_spawn(local_entity.id());
                 }
                 SpawnAction::Reuse(local_entity) => {
-                    let Some(mut entity_mut) = world.get_entity_mut(local_entity) else {
+                    let Ok(mut entity_mut) = world.get_entity_mut(local_entity) else {
                         // TODO: ignore the entity in the next steps because it does not exist!
                         error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
                         continue;
@@ -882,7 +882,7 @@ impl GroupChannel {
                 if let Some(local_entity) = remote_entity_map.remove_by_remote(entity) {
                     self.local_entities.remove(&local_entity);
                     // TODO: we despawn all children as well right now, but that might not be what we want?
-                    if let Some(entity_mut) = world.get_entity_mut(local_entity) {
+                    if let Ok(entity_mut) = world.get_entity_mut(local_entity) {
                         entity_mut.despawn_recursive();
                     }
                     events.push_despawn(local_entity);
@@ -1055,7 +1055,7 @@ impl GroupChannel {
         // }
 
         self.local_entities.iter().for_each(|local_entity| {
-            if let Some(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
+            if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
                 trace!(
                     ?remote_tick,
                     ?local_entity,

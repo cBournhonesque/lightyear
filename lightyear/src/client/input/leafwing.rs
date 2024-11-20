@@ -263,7 +263,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         );
 
         // if the client tick is updated because of a desync, update the ticks in the input buffers
-        app.observe(receive_tick_events::<A>);
+        app.add_observer(receive_tick_events::<A>);
         app.add_systems(
             PostUpdate,
             (

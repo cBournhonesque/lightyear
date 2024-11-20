@@ -163,8 +163,8 @@ impl Plugin for RoomPlugin {
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
             ),
         );
-        app.observe(systems::handle_client_disconnect);
-        app.observe(systems::clean_entity_despawns);
+        app.add_observer(systems::handle_client_disconnect);
+        app.add_observer(systems::clean_entity_despawns);
     }
 }
 
@@ -674,7 +674,7 @@ mod tests {
             .client_app
             .world()
             .get_entity(client_entity)
-            .is_none());
+            .is_err());
     }
 
     #[test]
@@ -843,7 +843,7 @@ mod tests {
             .client_app
             .world()
             .get_entity(client_entity)
-            .is_none());
+            .is_err());
     }
 
     /// The client is in a room with the entity

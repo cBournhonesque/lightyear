@@ -143,10 +143,10 @@ impl Plugin for ClientsMetadataPlugin {
             systems::handle_controlled_by_update
                 .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
         );
-        app.observe(handle_controlled_by_remove);
+        app.add_observer(handle_controlled_by_remove);
         // TODO: should we have a system that runs in the `Last` SystemSet instead? because the user might want to still have access
         //  to the client entity
-        app.observe(systems::handle_client_disconnect);
+        app.add_observer(systems::handle_client_disconnect);
         // we handle this in the `Last` `SystemSet` to let the user handle the disconnect event
         // however they want first, before the client entity gets despawned
         // app.add_systems(Last, systems::handle_client_disconnect);
@@ -331,12 +331,12 @@ mod tests {
             .server_app
             .world()
             .get_entity(server_entity)
-            .is_none());
+            .is_err());
         assert!(stepper
             .server_app
             .world()
             .get_entity(server_entity_2)
-            .is_some());
+            .is_ok());
     }
 
     /// The owning client despawns the entity that they control.
