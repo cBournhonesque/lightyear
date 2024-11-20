@@ -226,7 +226,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
         (
-            Entity,
             Option<&mut C>,
             &mut PredictionHistory<C>,
             Option<&mut Correction<C>>,
@@ -239,6 +238,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     rollback: Res<Rollback>,
+    manager: Res<PredictionManager>,
 ) {
     let kind = std::any::type_name::<C>();
 
@@ -258,13 +258,13 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         // // careful, we added 1 to the tick in the check_rollback stage...
         // let tick = Tick(*current_tick - 1);
 
-        let Some(p) = confirmed.predicted else {
+        let Some(predicted_entity) = confirmed.predicted else {
             continue;
         };
 
         // 1. Get the predicted entity, and it's history
-        let Ok((predicted_entity, predicted_component, mut predicted_history, mut correction)) =
-            predicted_query.get_mut(p)
+        let Ok((predicted_component, mut predicted_history, mut correction)) =
+            predicted_query.get_mut(predicted_entity)
         else {
             debug!(
                 "Predicted entity {:?} was not found when preparing rollback for {:?}",
@@ -291,14 +291,20 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 entity_mut.remove::<C>();
             }
             // confirm exist, update or insert on predicted
-            Some(c) => {
-                predicted_history
-                    .buffer
-                    .push(rollback_tick, ComponentState::Updated(c.clone()));
+            Some(confirmed_component) => {
+                let mut rollbacked_predicted_component = confirmed_component.clone();
+                let _ = manager.map_entities(
+                    &mut rollbacked_predicted_component,
+                    component_registry.as_ref(),
+                );
+                predicted_history.buffer.push(
+                    rollback_tick,
+                    ComponentState::Updated(rollbacked_predicted_component.clone()),
+                );
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted Full component to predicted");
-                        entity_mut.insert(c.clone());
+                        entity_mut.insert(rollbacked_predicted_component.clone());
                     }
                     Some(mut predicted_component) => {
                         // // no need to do a correction if the values are the same
@@ -324,7 +330,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                 correction.original_tick = current_tick;
                                 correction.final_correction_tick = final_correction_tick;
                                 // TODO: can set this to None, shouldnt make any diff
-                                correction.current_correction = Some(c.clone());
+                                correction.current_correction =
+                                    Some(rollbacked_predicted_component.clone());
                             } else {
                                 debug!("inserting new correction");
                                 entity_mut.insert(Correction {
@@ -338,7 +345,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                         }
 
                         // update the component to the corrected value
-                        *predicted_component = c.clone();
+                        *predicted_component = rollbacked_predicted_component.clone();
                     }
                 };
             }
@@ -880,10 +887,16 @@ mod integration_tests {
 
     use super::test_utils::*;
 
-    use crate::prelude::client::*;
+    use crate::client::prediction::resource::PredictionManager;
+    use crate::prelude::server::SyncTarget;
+    use crate::prelude::{
+        client::*, AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig,
+    };
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
+    use bevy::ecs::entity::MapEntities;
     use bevy::prelude::*;
+    use serde::{Deserialize, Serialize};
 
     fn setup(increment_component: bool) -> (BevyStepper, Entity, Entity) {
         fn increment_component_system(
@@ -930,6 +943,142 @@ mod integration_tests {
             .predicted = Some(predicted);
         stepper.frame_step();
         (stepper, confirmed, predicted)
+    }
+
+    /// Test that the entities within a predicted component marked as to be
+    /// entity-mapped are mapped when rollbacked.
+    #[test]
+    fn test_rollback_entity_mapping() {
+        #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq)]
+        struct ComponentWithEntity(Entity);
+
+        impl MapEntities for ComponentWithEntity {
+            fn map_entities<M: bevy::prelude::EntityMapper>(&mut self, entity_mapper: &mut M) {
+                self.0 = entity_mapper.map_entity(self.0);
+            }
+        }
+
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let mut stepper = BevyStepper::new(shared_config, ClientConfig::default(), frame_duration);
+        // Make `ComponentWithEntity` fully predictable and entity-mappable.
+        stepper
+            .client_app
+            .register_component::<ComponentWithEntity>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_map_entities();
+        stepper
+            .server_app
+            .register_component::<ComponentWithEntity>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full)
+            .add_map_entities();
+        stepper.init();
+
+        // Spawn a remote entity with a `ComponentWithEntity` component that
+        // points to the remote entity. This entity will be replicated to the
+        // client and predicted by the client.
+        let remote_entity = stepper.server_app.world_mut().spawn_empty().id();
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(remote_entity)
+            .insert((
+                ComponentWithEntity(remote_entity),
+                crate::server::replication::send::Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        ..default()
+                    },
+                    ..default()
+                },
+            ));
+
+        // Wait for server to send replicated component to client.
+        for _ in 0..100 {
+            stepper.frame_step();
+        }
+
+        // Get the confirmed and predicted entities associated with `remote_entity`.
+        let confirmed_entity = *stepper
+            .client_app
+            .world_mut()
+            .resource::<ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .remote_to_local
+            .get(&remote_entity)
+            .unwrap();
+        let predicted_entity = *stepper
+            .client_app
+            .world_mut()
+            .resource_mut::<PredictionManager>()
+            .predicted_entity_map
+            .get_mut()
+            .confirmed_to_predicted
+            .get(&confirmed_entity)
+            .unwrap();
+
+        // Modify `predicted_entity`'s `ComponentWithEntity` to point to some
+        // incorrect value, perform a rollback, and verify that
+        // `predicted_entity`'s `ComponentWithEntity` points to
+        // `predicted_entity`.
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted_entity)
+            .get_mut::<ComponentWithEntity>()
+            .unwrap()
+            .0 = Entity::PLACEHOLDER;
+        let tick = stepper.client_tick();
+        stepper
+            .client_app
+            .world_mut()
+            .resource_mut::<Rollback>()
+            .set_rollback_tick(tick);
+        stepper.tick_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .entity(predicted_entity)
+                .get::<ComponentWithEntity>()
+                .unwrap()
+                .0,
+            predicted_entity,
+            "Expected predicted component to point to predicted entity"
+        );
+
+        // Delete `predicted_entity`'s `ComponentWithEntity`, perform a
+        // rollback, and verify that `predicted_entity`'s
+        // `ComponentWithEntity` gets re-created and points to
+        // `predicted_entity`.
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted_entity)
+            .remove::<ComponentWithEntity>();
+        let tick = stepper.client_tick();
+        stepper
+            .client_app
+            .world_mut()
+            .resource_mut::<Rollback>()
+            .set_rollback_tick(tick);
+        stepper.tick_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world_mut()
+                .entity_mut(predicted_entity)
+                .get_mut::<ComponentWithEntity>()
+                .unwrap()
+                .0,
+            predicted_entity,
+            "Expected predicted component to point to predicted entity"
+        );
     }
 
     /// Test that:
