@@ -126,6 +126,8 @@ pub(crate) fn receive_packets(
             }
         }
 
+        // copy the disconnections here because they get cleared in `netserver.try_update`
+        let new_disconnections = netserver.new_disconnections();
         let _ = netserver
             .try_update(delta.as_secs_f64())
             .map_err(|e| error!("Error updating netcode server: {:?}", e));
@@ -137,8 +139,8 @@ pub(crate) fn receive_packets(
                 .id();
             connection_manager.add(client_id, client_entity);
         }
-        // handle disconnections
 
+        // handle disconnections
         // disconnections because the io task was closed
         if !to_disconnect.is_empty() {
             to_disconnect.into_iter().for_each(|addr| {
@@ -150,7 +152,7 @@ pub(crate) fn receive_packets(
             })
         }
         // disconnects because we received a disconnect message
-        for client_id in netserver.new_disconnections().iter().copied() {
+        for client_id in new_disconnections {
             if netservers.client_server_map.remove(&client_id).is_some() {
                 connection_manager.remove(client_id);
                 // NOTE: we don't despawn the entity right away to let the user react to

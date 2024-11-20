@@ -219,9 +219,9 @@ impl ServerConnections {
             Err(ConnectionError::ConnectionNotFound),
             |&server_idx| {
                 self.servers[server_idx].disconnect(client_id)?;
-                // NOTE: we don't remove the client from the map here because it is done
-                //  in the server's `receive` method
-                // self.client_server_map.remove(&client_id);
+                // we are not removing the client_id from the client_server_map here
+                // because we still need it there to be able to send disconnect packets
+                // the client_id gets removed in the server's receive_packets function
                 Ok(())
             },
         )
@@ -255,4 +255,41 @@ pub enum ConnectionError {
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamError(#[from] steamworks::SteamError),
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::connection::server::{NetServer, ServerConnections};
+    use crate::prelude::ClientId;
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+
+    // Check that the server can successfully disconnect a client
+    // and that there aren't any excessive logs afterwards
+    // Enable logging to see if the logspam is fixed!
+    #[test]
+    fn test_server_disconnect_client() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::INFO)
+        //     .init();
+        let mut stepper = BevyStepper::default();
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<ServerConnections>()
+            .disconnect(ClientId::Netcode(TEST_CLIENT_ID))
+            .unwrap();
+        // make sure the server disconnected the client
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+        assert_eq!(
+            stepper
+                .server_app
+                .world_mut()
+                .resource_mut::<ServerConnections>()
+                .servers[0]
+                .connected_client_ids(),
+            vec![]
+        );
+    }
 }
