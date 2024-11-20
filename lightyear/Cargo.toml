@@ -28,7 +28,6 @@ webtransport = [
   "dep:xwt-core",
   "dep:xwt-web",
   "dep:web-sys",
-  "dep:ring",
   "dep:wasm-bindgen-futures",
 ]
 leafwing = ["dep:leafwing-input-manager"]
@@ -147,7 +146,6 @@ zstd = { version = "0.13.1", optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook = { version = "0.1.7" }
-ring = { version = "0.17.8", optional = true, default-features = false }
 web-sys = { version = "0.3", optional = true, features = [
   "Document",
   "WebTransport",
