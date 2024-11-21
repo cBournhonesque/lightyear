@@ -1,3 +1,6 @@
+use crate::protocol::*;
+use crate::shared;
+use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
@@ -7,10 +10,7 @@ use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
+use lightyear::shared::replication::components::InitialReplicated;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
@@ -123,10 +123,13 @@ pub(crate) fn replicate_inputs(
 }
 
 // Replicate the pre-predicted entities back to the client
+// We have to use `InitialReplicated` instead of `Replicated`, because
+// the server has already assumed authority over the entity so the `Replicated` component
+// has been removed
 pub(crate) fn replicate_players(
     global: Res<Global>,
     mut commands: Commands,
-    query: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
+    query: Query<(Entity, &InitialReplicated), (Added<InitialReplicated>, With<PlayerId>)>,
 ) {
     for (entity, replicated) in query.iter() {
         let client_id = replicated.client_id();
