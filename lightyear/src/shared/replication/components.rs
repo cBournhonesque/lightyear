@@ -22,6 +22,13 @@ pub struct InitialReplicated {
     pub from: Option<ClientId>,
 }
 
+impl InitialReplicated {
+    /// For client->server replication, identify the client that replicated this entity to the server
+    pub fn client_id(&self) -> ClientId {
+        self.from.expect("expected a client id")
+    }
+}
+
 /// Marker component that indicates that the entity is being replicated
 /// from a remote world.
 ///

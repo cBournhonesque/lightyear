@@ -17,10 +17,7 @@ use std::sync::Arc;
 use crate::protocol::*;
 use crate::shared;
 
-
-
 pub struct ExampleServerPlugin;
-
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
@@ -32,11 +29,10 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-
 /// A simple resource map that tell me  the corresponding server entity of that client
 /// Important for O(n) acess
-#[derive(Resource,Default)]
-pub struct ClientEntityMap(HashMap<ClientId,Entity>);
+#[derive(Resource, Default)]
+pub struct ClientEntityMap(HashMap<ClientId, Entity>);
 
 /// Start the server
 fn start_server(mut commands: Commands) {
@@ -139,12 +135,14 @@ fn movement(
                     shared::shared_movement_behaviour(position, input);
                 }
             } else {
-                error!("Couldnt find this player in map which means I cant move him")
+                debug!(
+                    "Couldnt find player in client entity map for client_id: {:?}",
+                    client_id
+                )
             }
         }
     }
 }
-
 
 /// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
 /// and cannot do input handling)

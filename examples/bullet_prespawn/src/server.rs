@@ -2,13 +2,13 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::prelude::*;
 
-use lightyear::client::prediction::Predicted;
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_player_movement};
+use lightyear::client::prediction::Predicted;
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
+use lightyear::shared::replication::components::InitialReplicated;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -58,9 +58,15 @@ pub(crate) fn init(mut commands: Commands) {
 // }
 
 // Replicate the pre-spawned entities back to the client
+// We have to use `InitialReplicated` instead of `Replicated`, because
+// the server has already assumed authority over the entity so the `Replicated` component
+// has been removed
 pub(crate) fn replicate_players(
     mut commands: Commands,
-    replicated_players: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
+    replicated_players: Query<
+        (Entity, &InitialReplicated),
+        (Added<InitialReplicated>, With<PlayerId>),
+    >,
 ) {
     for (entity, replicated) in replicated_players.iter() {
         let client_id = replicated.client_id();

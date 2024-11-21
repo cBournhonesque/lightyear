@@ -1,15 +1,15 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
+use crate::protocol::*;
+use crate::shared;
+use crate::shared::{color_from_id, shared_movement_behaviour};
 use lightyear::client::components::Confirmed;
 use lightyear::client::interpolation::Interpolated;
 use lightyear::client::prediction::Predicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour};
+use lightyear::shared::replication::components::InitialReplicated;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -107,7 +107,10 @@ fn delete_player(
 // And we want to handle deletion properly
 pub(crate) fn replicate_players(
     mut commands: Commands,
-    replicated_players: Query<(Entity, &Replicated), (With<PlayerPosition>, Added<Replicated>)>,
+    replicated_players: Query<
+        (Entity, &InitialReplicated),
+        (With<PlayerPosition>, Added<InitialReplicated>),
+    >,
 ) {
     for (entity, replicated) in replicated_players.iter() {
         let client_id = replicated.client_id();
@@ -146,7 +149,10 @@ pub(crate) fn replicate_players(
 
 pub(crate) fn replicate_cursors(
     mut commands: Commands,
-    replicated_cursor: Query<(Entity, &Replicated), (With<CursorPosition>, Added<Replicated>)>,
+    replicated_cursor: Query<
+        (Entity, &InitialReplicated),
+        (With<CursorPosition>, Added<InitialReplicated>),
+    >,
 ) {
     for (entity, replicated) in replicated_cursor.iter() {
         let client_id = replicated.client_id();
