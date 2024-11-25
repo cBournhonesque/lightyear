@@ -102,7 +102,10 @@ fn delete_player(
     }
 }
 
-// Replicate the pre-spawned entities back to the client
+// Replicate the pre-predicted entities back to the client.
+//
+// The objective was to create a normal 'predicted' entity directly in the client timeline, instead
+// of having to create the entity in the server timeline and wait for it to be replicated.
 // Note that this needs to run before FixedUpdate, since we handle client inputs in the FixedUpdate schedule (subject to change)
 // And we want to handle deletion properly
 pub(crate) fn replicate_players(
@@ -123,8 +126,6 @@ pub(crate) fn replicate_players(
                     // we want to replicate back to the original client, since they are using a pre-spawned entity
                     target: NetworkTarget::All,
                 },
-                // keep the authority on the client
-                authority: AuthorityPeer::Client(client_id),
                 sync: SyncTarget {
                     // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
                     prediction: NetworkTarget::Single(client_id),
