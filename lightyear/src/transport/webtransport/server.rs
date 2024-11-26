@@ -58,7 +58,7 @@ impl ServerTransportBuilder for WebTransportServerSocketBuilder {
 
         let mut config = ServerConfig::builder()
             .with_bind_address(self.server_addr)
-            .with_identity(&self.certificate)
+            .with_identity(self.certificate)
             .build();
         let mut quic_config = wtransport::quinn::TransportConfig::default();
         quic_config
