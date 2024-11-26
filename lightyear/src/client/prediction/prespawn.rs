@@ -1,5 +1,6 @@
 //! Handles spawning entities that are predicted
-use bevy::ecs::component::Components;
+use bevy::ecs::component::{Components, StorageType};
+use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
@@ -65,8 +66,8 @@ impl Plugin for PreSpawnedPlayerObjectPlugin {
         );
         app.add_systems(
             FixedPostUpdate,
-            // compute hashes for all pre-spawned player objects
-            Self::compute_prespawn_hash
+            // adds new prespawn hashes to the prediction manager
+            Self::register_prespawn_hashes
                 .in_set(InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash),
         );
 
@@ -85,15 +86,15 @@ impl Plugin for PreSpawnedPlayerObjectPlugin {
 }
 
 impl PreSpawnedPlayerObjectPlugin {
-    /// Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
-    pub(crate) fn compute_prespawn_hash(
+    /// For all newly added prespawn hashes, register them in the prediction manager
+    pub(crate) fn register_prespawn_hashes(
         // ignore replicated entities, we only want to iterate through entities spawned on the client
         // directly
         // we need a param-set because of https://github.com/bevyengine/bevy/issues/7255
         // (entity-mut conflicts with resources)
         mut set: ParamSet<(
             Query<
-                (EntityRef, &PreSpawnedPlayerObject),
+                (Entity, &PreSpawnedPlayerObject),
                 (
                     Without<Replicated>,
                     Without<Confirmed>,
@@ -110,33 +111,12 @@ impl PreSpawnedPlayerObjectPlugin {
         let mut prediction_manager = std::mem::take(&mut *set.p1());
         // get the rollback tick if the pre-spawned entity is being recreated during rollback!
         let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
-        for (entity_ref, prespawn) in set.p0().iter() {
-            let entity = entity_ref.id();
-            let hash = prespawn.hash.map_or_else(
-                || {
-                    let new_hash = compute_default_hash(
-                        &component_registry,
-                        components,
-                        entity_ref.archetype(),
-                        tick,
-                        prespawn.user_salt,
-                    );
-                    // No need to set the value on the component here, we only need the value in the resource!
-                    // prespawn.hash = Some(new_hash);
-                    debug!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
-                    new_hash
-                },
-                |hash| {
-                    trace!(
-                        ?entity,
-                        ?tick,
-                        ?hash,
-                        "the hash has already been computed for the entity!"
-                    );
-                    hash
-                },
-            );
-
+        for (entity, prespawn) in set.p0().iter() {
+            // the hash can be None when PreSpawnedPlayerObject is inserted, but the component
+            // hook will calculate it, so it can't be None here.
+            let hash = prespawn
+                .hash
+                .expect("prespawn hash should have been calculated by a hook");
             // check if we can match with an existing server entity that was received
             // before the client entity was spawned
             // this could happen if we are predicting remote players:
@@ -311,9 +291,7 @@ impl PreSpawnedPlayerObjectPlugin {
     }
 }
 
-#[derive(
-    Component, Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq, Reflect,
-)]
+#[derive(Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq, Reflect)]
 /// Added to indicate the client has prespawned the predicted version of this entity.
 ///
 /// ```rust,ignore
@@ -358,6 +336,56 @@ impl PreSpawnedPlayerObject {
             hash: None,
             user_salt: Some(salt),
         }
+    }
+}
+
+/// Hook calculates the hash (if missing), and updates the PreSpawnedPlayerObject component.
+/// Since this is a hook, it will calculate based on components inserted before or alongside the
+/// PreSpawnedPlayerObject component, on the same tick that PreSpawnedPlayerObject was inserted.
+impl Component for PreSpawnedPlayerObject {
+    const STORAGE_TYPE: StorageType = StorageType::Table;
+    fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
+        hooks.on_add(|mut deferred_world, entity, _component_id| {
+            let prespawned_obj = deferred_world
+                .entity(entity)
+                .get::<PreSpawnedPlayerObject>()
+                .unwrap();
+            // The user may have provided the hash for us, in which case do nothing.
+            if prespawned_obj.hash.is_some() {
+                return;
+            }
+            // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
+            // ignore replicated entities, we only want to iterate through entities spawned on the client directly
+            let components = deferred_world.components();
+            let tick_manager = deferred_world.resource::<TickManager>();
+            let component_registry = deferred_world.resource::<ComponentRegistry>();
+            let rollback = deferred_world.get_resource::<Rollback>();
+            let tick = if let Some(rollback) = rollback {
+                tick_manager.tick_or_rollback_tick(rollback)
+            } else {
+                tick_manager.tick()
+            };
+            let entity_ref = deferred_world.entity(entity);
+            let hash = compute_default_hash(
+                component_registry,
+                components,
+                entity_ref.archetype(),
+                tick,
+                prespawned_obj.user_salt,
+            );
+            // update component with the computed hash
+            trace!(
+                ?entity,
+                ?tick,
+                hash = ?hash,
+                "PreSpawnedPlayerObject hook, setting the hash on the component"
+            );
+            deferred_world
+                .entity_mut(entity)
+                .get_mut::<PreSpawnedPlayerObject>()
+                .unwrap()
+                .hash = Some(hash);
+        });
     }
 }
 
@@ -484,7 +512,7 @@ mod tests {
 
         let current_tick = stepper.client_app.world().resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world().resource::<PredictionManager>();
-        let expected_hash: u64 = 1572575978495317502;
+        let expected_hash: u64 = 14837968436853353711;
         assert_eq!(
             prediction_manager
                 .prespawn_hash_to_entities
