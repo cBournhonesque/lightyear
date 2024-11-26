@@ -4,9 +4,9 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use bevy::prelude::{Entity, Resource};
+use bevy::utils::hashbrown::HashMap;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
-use hashbrown::HashMap;
 
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;

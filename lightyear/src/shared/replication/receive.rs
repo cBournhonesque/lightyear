@@ -15,7 +15,7 @@ use crate::shared::replication::components::{InitialReplicated, Replicated, Repl
 use crate::utils::captures::Captures;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{DespawnRecursiveExt, Entity, EntityWorldMut, World};
-use bevy::utils::HashSet;
+use bevy::utils::{hashbrown, HashSet};
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
