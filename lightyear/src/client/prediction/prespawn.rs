@@ -1,6 +1,5 @@
 //! Handles spawning entities that are predicted
 use bevy::ecs::component::{Components, StorageType};
-use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
