@@ -51,7 +51,6 @@ zstd = ["dep:zstd"]
 chrono = "=0.4.34"
 cfg-if = "1.0"
 enum_dispatch = "0.3"
-hashbrown = "0.14"
 governor = "0.7.0"
 mock_instant = { version = "0.4.0", optional = true }
 nonzero_ext = "0.3.0"
@@ -59,7 +58,7 @@ parking_lot = "0.12.1"
 paste = "1.0"
 rand = "0.8"
 ringbuffer = "0.15"
-thiserror = "1.0.50"
+thiserror = "2.0.3"
 seahash = "4.1.0"
 
 # input
@@ -131,7 +130,7 @@ async-channel = "2.2.0"
 # steamworks-sys doesn't build on wasm
 steamworks = { version = "0.11", optional = true }
 # webtransport
-wtransport = { version = "=0.1.14", optional = true, features = [
+wtransport = { version = "=0.5.0", optional = true, features = [
   "quinn",
   "self-signed",
   "dangerous-configuration",
