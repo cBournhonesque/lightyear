@@ -3193,7 +3193,7 @@ pub(crate) mod commands {
                             )
                             .expect("could not send message");
                         // TODO: this is very flimsy, find a better solution? https://github.com/cBournhonesque/lightyear/issues/639
-                        // send_sync_components(world, entity, c);
+                        send_sync_components(world, entity, c);
                     }
                     (AuthorityPeer::Server, AuthorityPeer::Client(c)) => {
                         world
@@ -3236,7 +3236,7 @@ pub(crate) mod commands {
                             )
                             .expect("could not send message");
                         // TODO: this is very flimsy, find a better solution? https://github.com/cBournhonesque/lightyear/issues/639
-                        // send_sync_components(world, entity, c1);
+                        send_sync_components(world, entity, c1);
                     }
                     _ => unreachable!(),
                 }

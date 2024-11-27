@@ -443,7 +443,7 @@ impl ReplicationReceiver {
         if let Some(g) = self.group_channels.get(&group_id) {
             g.local_entities.iter().for_each(|local_entity| {
                 if let Some(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
-                    info!(
+                    trace!(
                         ?local_entity,
                         ?remote_tick,
                         "updating confirmed tick for entity"
