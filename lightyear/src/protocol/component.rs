@@ -594,7 +594,7 @@ mod replication {
             tick: Tick,
             entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
-        ) -> Result<(), ComponentError> {
+        ) -> Result<ComponentKind, ComponentError> {
             let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
             let kind = self
                 .kind_map
@@ -612,7 +612,8 @@ mod replication {
                 entity_world_mut,
                 entity_map,
                 events,
-            )
+            )?;
+            Ok(*kind)
         }
 
         pub(crate) fn write<C: Component + PartialEq>(

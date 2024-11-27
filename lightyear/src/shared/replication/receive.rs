@@ -5,8 +5,10 @@ use super::entity_map::RemoteEntityMap;
 use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
-use crate::prelude::{ClientConnectionManager, ClientId, ServerConnectionManager, Tick};
-use crate::protocol::component::ComponentRegistry;
+use crate::prelude::{
+    ClientConnectionManager, ClientId, PrePredicted, ServerConnectionManager, Tick,
+};
+use crate::protocol::component::{ComponentKind, ComponentRegistry};
 use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
@@ -441,7 +443,11 @@ impl ReplicationReceiver {
         if let Some(g) = self.group_channels.get(&group_id) {
             g.local_entities.iter().for_each(|local_entity| {
                 if let Some(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
-                    trace!(?remote_tick, "updating confirmed tick for entity");
+                    trace!(
+                        ?local_entity,
+                        ?remote_tick,
+                        "updating confirmed tick for entity"
+                    );
                     if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
                         confirmed.tick = remote_tick;
                     }
@@ -866,8 +872,10 @@ impl GroupChannel {
                         continue;
                     };
                     entity_mut.insert(Replicated { from: remote });
-                    // update the entity mapping
-                    remote_entity_map.insert(*remote_entity, local_entity);
+                    self.local_entities.insert(local_entity);
+                    local_entity_to_group.insert(local_entity, group_id);
+                    // no need to update the entity mapping since the remote already is aware of the mapping?
+                    // remote_entity_map.insert(*remote_entity, local_entity);
                 }
                 _ => {}
             }
@@ -913,7 +921,7 @@ impl GroupChannel {
             for component in actions.insert {
                 // TODO: reuse a single reader that reads through the entire message
                 let mut reader = Reader::from(component);
-                let _ = component_registry
+                if let Ok(kind) = component_registry
                     .raw_write(
                         &mut reader,
                         &mut local_entity_mut,
@@ -921,11 +929,17 @@ impl GroupChannel {
                         &mut remote_entity_map.remote_to_local,
                         events,
                     )
-                    .inspect_err(|e| {
-                        error!("could not write the component to the entity: {:?}", e)
-                    });
+                    .inspect_err(|e| error!("could not write the component to the entity: {:?}", e))
+                {
+                    // for pre-predicted, we need to update the local_entities data, because the entity
+                    // is not spawned so the local_entities data is not updated
+                    if kind == ComponentKind::of::<PrePredicted>() {
+                        self.local_entities.insert(local_entity_mut.id());
+                        local_entity_to_group.insert(local_entity_mut.id(), group_id);
+                    }
+                }
 
-                // TODO: special-case for pre-spawned entities: we receive them from a client, but then we
+                // TODO: special-case for pre-predicted entities: we receive them from a client, but then we
                 //  we should immediately take ownership of it, so we won't receive a despawn for it
                 //  thus, we should remove it from the entity map right after receiving it!
                 //  Actually, we should figure out a way to cleanup every received entity where the sender
