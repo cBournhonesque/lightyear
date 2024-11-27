@@ -158,6 +158,7 @@ pub(crate) mod send {
     /// If this component gets removed, we despawn the entity on the server.
     #[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
     #[reflect(Component)]
+    #[require(Replicating, HasAuthority, ReplicationGroup, ReplicateHierarchy)]
     pub struct ReplicateToServer;
 
     /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating

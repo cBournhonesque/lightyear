@@ -2,8 +2,9 @@
 use std::mem;
 
 use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::{ComponentRegistry, Replicating, ReplicationTarget};
+use crate::prelude::{ComponentRegistry, Replicating};
 use crate::protocol::component::ComponentKind;
+use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::authority::HasAuthority;
 use bevy::ecs::archetype::ArchetypeEntity;
 use bevy::ecs::component::{ComponentTicks, StorageType};

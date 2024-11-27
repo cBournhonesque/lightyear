@@ -66,7 +66,7 @@ pub(crate) mod send {
     };
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
-        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId, ReplicationTarget,
+        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId,
         ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
@@ -189,6 +189,31 @@ pub(crate) mod send {
         SessionBased,
         /// The entity is not despawned even if the controlling client disconnects
         Persistent,
+    }
+
+    /// Component that indicates which clients the entity should be replicated to.
+    #[derive(Component, Clone, Debug, PartialEq, Reflect)]
+    #[reflect(Component)]
+    #[require(
+        Replicating,
+        AuthorityPeer,
+        SyncTarget,
+        NetworkRelevanceMode,
+        ControlledBy,
+        ReplicationGroup,
+        ReplicateHierarchy
+    )]
+    pub struct ReplicationTarget {
+        /// Which clients should this entity be replicated to
+        pub target: NetworkTarget,
+    }
+
+    impl Default for ReplicationTarget {
+        fn default() -> Self {
+            Self {
+                target: NetworkTarget::All,
+            }
+        }
     }
 
     /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating

@@ -157,9 +157,10 @@ impl Plugin for ClientsMetadataPlugin {
 mod tests {
     use crate::client::networking::ClientCommands;
     use crate::prelude::server::{ConnectionManager, ControlledBy, Replicate};
-    use crate::prelude::{client, ClientId, NetworkTarget, Replicated, ReplicationTarget};
+    use crate::prelude::{client, ClientId, NetworkTarget, Replicated};
     use crate::server::clients::ControlledEntities;
     use crate::server::replication::send::Lifetime;
+    use crate::server::replication::send::ReplicationTarget;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::ecs::entity::EntityHashMap;

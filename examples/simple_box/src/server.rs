@@ -11,16 +11,13 @@ use bevy::prelude::*;
 use bevy::utils::HashMap;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::ReplicationTarget;
+use lightyear::server::replication::send::ReplicationTarget;
 use std::sync::Arc;
 
 use crate::protocol::*;
 use crate::shared;
 
-
-
 pub struct ExampleServerPlugin;
-
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
@@ -32,11 +29,10 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-
 /// A simple resource map that tell me  the corresponding server entity of that client
 /// Important for O(n) acess
-#[derive(Resource,Default)]
-pub struct ClientEntityMap(HashMap<ClientId,Entity>);
+#[derive(Resource, Default)]
+pub struct ClientEntityMap(HashMap<ClientId, Entity>);
 
 /// Start the server
 fn start_server(mut commands: Commands) {
@@ -144,7 +140,6 @@ fn movement(
         }
     }
 }
-
 
 /// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
 /// and cannot do input handling)

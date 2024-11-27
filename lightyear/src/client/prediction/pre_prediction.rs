@@ -11,8 +11,9 @@ use crate::prelude::client::is_synced;
 use crate::prelude::server::{ServerConfig, ServerConnections};
 use crate::prelude::{
     is_host_server_ref, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
-    ReplicationTarget, ShouldBePredicted, TickManager,
+    ShouldBePredicted, TickManager,
 };
+use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
