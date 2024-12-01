@@ -43,12 +43,7 @@ impl PlayerBundle {
             id: PlayerId(id),
             position: Position(position),
             color: ColorComponent(color),
-            replicate: client::Replicate {
-                // NOTE (important): all entities that are being predicted need to be part of the same replication-group
-                //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                group: REPLICATION_GROUP,
-                ..default()
-            },
+            replicate: client::Replicate::default(),
             physics: PhysicsBundle::player(),
             inputs: InputManagerBundle::<PlayerActions> {
                 action_state: ActionState::default(),

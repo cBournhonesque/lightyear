@@ -3,9 +3,9 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{Component, Entity, Resource, World};
 use bevy::ptr::Ptr;
+use bevy::utils::{hashbrown, hashbrown::hash_map::Entry};
 use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
-use hashbrown::hash_map::Entry;
 use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};

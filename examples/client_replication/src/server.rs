@@ -1,15 +1,15 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
+use crate::protocol::*;
+use crate::shared;
+use crate::shared::{color_from_id, shared_movement_behaviour};
 use lightyear::client::components::Confirmed;
 use lightyear::client::interpolation::Interpolated;
 use lightyear::client::prediction::Predicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour};
+use lightyear::shared::replication::components::InitialReplicated;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -102,12 +102,18 @@ fn delete_player(
     }
 }
 
-// Replicate the pre-spawned entities back to the client
+// Replicate the pre-predicted entities back to the client.
+//
+// The objective was to create a normal 'predicted' entity directly in the client timeline, instead
+// of having to create the entity in the server timeline and wait for it to be replicated.
 // Note that this needs to run before FixedUpdate, since we handle client inputs in the FixedUpdate schedule (subject to change)
 // And we want to handle deletion properly
 pub(crate) fn replicate_players(
     mut commands: Commands,
-    replicated_players: Query<(Entity, &Replicated), (With<PlayerPosition>, Added<Replicated>)>,
+    replicated_players: Query<
+        (Entity, &InitialReplicated),
+        (With<PlayerPosition>, Added<InitialReplicated>),
+    >,
 ) {
     for (entity, replicated) in replicated_players.iter() {
         let client_id = replicated.client_id();
@@ -120,8 +126,6 @@ pub(crate) fn replicate_players(
                     // we want to replicate back to the original client, since they are using a pre-spawned entity
                     target: NetworkTarget::All,
                 },
-                // keep the authority on the client
-                authority: AuthorityPeer::Client(client_id),
                 sync: SyncTarget {
                     // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
                     prediction: NetworkTarget::Single(client_id),
@@ -146,7 +150,10 @@ pub(crate) fn replicate_players(
 
 pub(crate) fn replicate_cursors(
     mut commands: Commands,
-    replicated_cursor: Query<(Entity, &Replicated), (With<CursorPosition>, Added<Replicated>)>,
+    replicated_cursor: Query<
+        (Entity, &InitialReplicated),
+        (With<CursorPosition>, Added<InitialReplicated>),
+    >,
 ) {
     for (entity, replicated) in replicated_cursor.iter() {
         let client_id = replicated.client_id();

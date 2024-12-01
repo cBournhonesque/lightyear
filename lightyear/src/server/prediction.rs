@@ -54,7 +54,10 @@ pub(crate) fn compute_hash(
 }
 
 /// When we receive an entity that a clients wants PrePredicted,
-/// we immediately transfer authority back to the server
+/// we immediately transfer authority back to the server. The server will replicate the PrePredicted
+/// component back to the client. Upon receipt, the client will replace PrePredicted with Predicted.
+///
+/// The entity mapping is done on the client.
 pub(crate) fn handle_pre_predicted(
     trigger: Trigger<OnAdd, PrePredicted>,
     mut commands: Commands,
@@ -63,6 +66,10 @@ pub(crate) fn handle_pre_predicted(
     q: Query<(Entity, &PrePredicted, &Replicated)>,
 ) {
     if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.entity()) {
+        debug!(
+            "Received PrePredicted entity from client: {:?}. Transferring authority to server",
+            replicated.from
+        );
         let sending_client = replicated.from.unwrap();
         commands
             .entity(local_entity)

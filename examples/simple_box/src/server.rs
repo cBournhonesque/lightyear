@@ -135,7 +135,10 @@ fn movement(
                     shared::shared_movement_behaviour(position, input);
                 }
             } else {
-                error!("Couldnt find this player in map which means I cant move him")
+                debug!(
+                    "Couldnt find player in client entity map for client_id: {:?}",
+                    client_id
+                )
             }
         }
     }

@@ -8,6 +8,7 @@ use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::component::ComponentError;
 use crate::shared::replication::entity_map::PredictedEntityMap;
 use crate::utils::ready_buffer::ReadyBuffer;
+use bevy::utils::hashbrown;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 

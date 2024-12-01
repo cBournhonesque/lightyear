@@ -6,7 +6,7 @@ use crate::shared::replication::components::ReplicationGroupId;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
-use bevy::utils::HashMap;
+use bevy::utils::{hashbrown, HashMap};
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

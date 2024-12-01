@@ -52,6 +52,8 @@ use crate::prelude::server::is_started;
 use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceManager};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 
+use bevy::utils::hashbrown;
+
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
