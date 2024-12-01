@@ -75,7 +75,7 @@ impl Plugin for ServerNetworkingPlugin {
         //  a ConnectionManager or a NetConfig at startup
         // Create the server connection resources to avoid some systems panicking
         // TODO: remove this when possible?
-        app.world_mut().run_system_once(rebuild_server_connections);
+        let _ = app.world_mut().run_system_once(rebuild_server_connections);
     }
 }
 

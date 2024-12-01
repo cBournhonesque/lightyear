@@ -203,9 +203,9 @@ mod tests {
     /// In host-server mode, the server is sending a message to the local client
     #[test]
     fn server_send_message_to_local_client() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::ERROR)
-            .init();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
         let mut stepper = HostServerStepper::default();
 
         stepper.server_app.init_resource::<Counter>();

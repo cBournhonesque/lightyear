@@ -232,7 +232,8 @@ impl HostServerStepper {
     pub(crate) fn init(&mut self) {
         self.server_app.finish();
         self.server_app.cleanup();
-        self.server_app
+        let _ = self
+            .server_app
             .world_mut()
             .run_system_once(|mut commands: Commands| {
                 commands.start_server();
@@ -240,7 +241,8 @@ impl HostServerStepper {
             });
         self.client_app.finish();
         self.client_app.cleanup();
-        self.client_app
+        let _ = self
+            .client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
         // Advance the world to let the connection process complete
@@ -258,13 +260,15 @@ impl HostServerStepper {
     }
 
     pub(crate) fn start(&mut self) {
-        self.server_app
+        let _ = self
+            .server_app
             .world_mut()
             .run_system_once(|mut commands: Commands| {
                 commands.start_server();
                 commands.connect_client();
             });
-        self.client_app
+        let _ = self
+            .client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
 
@@ -283,13 +287,15 @@ impl HostServerStepper {
     }
 
     pub(crate) fn stop(&mut self) {
-        self.server_app
+        let _ = self
+            .server_app
             .world_mut()
             .run_system_once(|mut commands: Commands| {
                 commands.stop_server();
                 commands.disconnect_client();
             });
-        self.client_app
+        let _ = self
+            .client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.disconnect_client());
 

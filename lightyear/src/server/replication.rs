@@ -2026,11 +2026,11 @@ pub(crate) mod send {
             stepper.set_client_tick(stepper.client_tick() + tick_delta);
             stepper.set_server_tick(stepper.server_tick() + tick_delta);
 
-            stepper
+            let _ = stepper
                 .server_app
                 .world_mut()
                 .run_system_once(systems::send_cleanup::<server::ConnectionManager>);
-            stepper
+            let _ = stepper
                 .client_app
                 .world_mut()
                 .run_system_once(systems::receive_cleanup::<client::ConnectionManager>);

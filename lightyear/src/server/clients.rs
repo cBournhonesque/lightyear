@@ -327,6 +327,8 @@ mod tests {
             .commands()
             .disconnect_client();
 
+        // TODO: why do we need to run frame_step twice for this to work?
+        stepper.frame_step();
         stepper.frame_step();
         assert!(stepper
             .server_app

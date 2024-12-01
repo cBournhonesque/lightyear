@@ -125,7 +125,7 @@ impl Plugin for ClientNetworkingPlugin {
         // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
         // that depend on these resources do not panic
         // We build it here so that it uses the latest Protocol
-        app.world_mut().run_system_once(rebuild_client_connection);
+        let _ = app.world_mut().run_system_once(rebuild_client_connection);
     }
 }
 

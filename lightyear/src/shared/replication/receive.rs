@@ -875,7 +875,7 @@ impl GroupChannel {
                     self.local_entities.insert(local_entity);
                     local_entity_to_group.insert(local_entity, group_id);
                     // no need to update the entity mapping since the remote already is aware of the mapping?
-                    // remote_entity_map.insert(*remote_entity, local_entity);
+                    remote_entity_map.insert(*remote_entity, local_entity);
                 }
                 _ => {}
             }
