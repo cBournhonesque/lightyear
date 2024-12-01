@@ -113,6 +113,7 @@ app.add_channel::<Channel1>(ChannelSettings {
 
 | Lightyear | Bevy |
 |-----------|------|
+| 0.18      | 0.15 |
 | 0.16-0.17 | 0.14 |
 | 0.10-0.15 | 0.13 |
 | 0.1-0.9   | 0.12 |
