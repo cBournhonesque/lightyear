@@ -465,8 +465,8 @@ pub(crate) mod send {
                         .unwrap_unchecked()
                 };
                 let (added_tick, changed_tick) = (
-                    replication_target_ticks.added_tick(),
-                    replication_target_ticks.last_changed_tick(),
+                    replication_target_ticks.added,
+                    replication_target_ticks.changed,
                 );
                 // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
                 // so create the ref manually
@@ -980,7 +980,7 @@ pub(crate) mod send {
                         component_registry,
                         group_id,
                         update_target,
-                        component_ticks.last_changed_tick(),
+                        component_ticks.changed,
                         system_ticks.this_run(),
                         current_tick,
                         delta_compression,

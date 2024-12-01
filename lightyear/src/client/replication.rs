@@ -542,12 +542,10 @@ pub(crate) mod send {
 
                 // send the update for all changes newer than the last send bevy tick for the group
                 if send_tick.map_or(true, |c| {
-                    component_ticks
-                        .last_changed_tick()
-                        .is_newer_than(c, system_ticks.this_run())
+                    component_ticks.is_changed(c, system_ticks.this_run())
                 }) {
                     trace!(
-                        change_tick = ?component_ticks.last_changed_tick(),
+                        change_tick = ?component_ticks.changed,
                         ?send_tick,
                         current_tick = ?system_ticks.this_run(),
                         "prepare entity update changed check"
