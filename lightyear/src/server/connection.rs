@@ -284,20 +284,18 @@ impl ConnectionManager {
         }
     }
 
-    /// Remove the connection associated with the given [`ClientId`],
-    /// and returns the [`Entity`] associated with the client
-    pub(crate) fn remove(&mut self, client_id: ClientId) -> Entity {
+    /// Remove the connection associated with the given [`ClientId`]
+    ///
+    /// Emits a server [`DisconnectEvent`].
+    pub(crate) fn remove(&mut self, client_id: ClientId) {
         #[cfg(feature = "metrics")]
         metrics::gauge!("connected_clients").decrement(1.0);
-
         info!("Client {} disconnected", client_id);
-        let entity = self
-            .client_entity(client_id)
-            .expect("client entity not found");
-        self.events
-            .add_disconnect_event(DisconnectEvent { client_id, entity });
+        if let Ok(entity) = self.client_entity(client_id) {
+            self.events
+                .add_disconnect_event(DisconnectEvent { client_id, entity });
+        }
         self.connections.remove(&client_id);
-        entity
     }
 
     pub(crate) fn buffer_message_bytes(
