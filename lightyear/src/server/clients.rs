@@ -1,6 +1,7 @@
 //! The server spawns an entity per connected client to store metadata about them.
 //!
 //! This module contains components and systems to manage the metadata on client entities.
+use crate::prelude::server::NetworkingState;
 use crate::server::clients::systems::handle_controlled_by_remove;
 use crate::server::replication::send::Lifetime;
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
@@ -129,11 +130,25 @@ mod systems {
                 }
             }
         }
-        // despawn the entity itself
+        // despawn the client entity itself
         if let Some(command) = commands.get_entity(client_entity) {
             command.despawn_recursive();
         };
     }
+
+    // TODO: is this necessary? calling server.stop() should already run the disconnection process
+    //  for all clients
+    // /// When the server gets disconnected, despawn the client entities.
+    // pub(super) fn handle_server_disconnect(
+    //     mut commands: Commands,
+    //     client_query: Query<Entity, With<ControlledEntities>>,
+    // ) {
+    //     for client_entity in client_query.iter() {
+    //         if let Some(command) = commands.get_entity(client_entity) {
+    //             command.despawn_recursive();
+    //         }
+    //     }
+    // }
 }
 
 impl Plugin for ClientsMetadataPlugin {
@@ -149,7 +164,7 @@ impl Plugin for ClientsMetadataPlugin {
         app.observe(systems::handle_client_disconnect);
         // we handle this in the `Last` `SystemSet` to let the user handle the disconnect event
         // however they want first, before the client entity gets despawned
-        // app.add_systems(Last, systems::handle_client_disconnect);
+        // app.add_systems(Last, systems::handle_server_disconnect);
     }
 }
 

@@ -151,6 +151,8 @@ pub(crate) fn receive_packets(
                 }
             })
         }
+        // TODO: handle disconnections in a separate system that listens to ServerDisconnect events
+        //  to avoid duplicate logic for host-server in client/networking.rs
         // disconnects because we received a disconnect message
         for client_id in new_disconnections {
             if netservers.client_server_map.remove(&client_id).is_some() {
