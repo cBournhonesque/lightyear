@@ -290,7 +290,7 @@ pub(crate) fn sync_update(
 }
 
 /// Bevy [`State`] representing the networking state of the client.
-#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash,Reflect)]
 pub enum NetworkingState {
     /// The client is disconnected from the server. The receive/send packets systems do not run.
     #[default]
