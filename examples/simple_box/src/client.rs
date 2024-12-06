@@ -262,15 +262,9 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
         });
 }
 
-/// Remove all entities when the client disconnect
-fn on_disconnect(
-    mut commands: Commands,
-    player_entities: Query<Entity, With<PlayerId>>,
-    debug_text: Query<Entity, With<ClientIdText>>,
-) {
-    for entity in player_entities.iter() {
-        commands.entity(entity).despawn_recursive();
-    }
+/// Remove the debug text when the client disconnect
+/// (Replicated entities are automatically despawned by lightyear on disconnection)
+fn on_disconnect(mut commands: Commands, debug_text: Query<Entity, With<ClientIdText>>) {
     for entity in debug_text.iter() {
         commands.entity(entity).despawn_recursive();
     }
