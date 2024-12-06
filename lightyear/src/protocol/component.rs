@@ -575,11 +575,11 @@ mod replication {
             self.replication_map.insert(
                 kind,
                 ReplicationMetadata {
-                    component_id: world.init_component::<C>(),
-                    delta_compression_id: world.init_component::<DeltaCompression<C>>(),
-                    replicate_once_id: world.init_component::<ReplicateOnceComponent<C>>(),
-                    override_target_id: world.init_component::<OverrideTargetComponent<C>>(),
-                    disabled_id: world.init_component::<DisabledComponent<C>>(),
+                    component_id: world.register_component::<C>(),
+                    delta_compression_id: world.register_component::<DeltaCompression<C>>(),
+                    replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
+                    override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
+                    disabled_id: world.register_component::<DisabledComponent<C>>(),
                     write,
                     remove: Some(remove),
                 },

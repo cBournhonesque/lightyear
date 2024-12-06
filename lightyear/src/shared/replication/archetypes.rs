@@ -2,8 +2,9 @@
 use std::mem;
 
 use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::{ComponentRegistry, Replicating, ReplicationTarget};
+use crate::prelude::{ComponentRegistry, Replicating};
 use crate::protocol::component::ComponentKind;
+use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::authority::HasAuthority;
 use bevy::ecs::archetype::ArchetypeEntity;
 use bevy::ecs::component::{ComponentTicks, StorageType};
@@ -64,9 +65,9 @@ impl FromWorld for ServerReplicatedArchetypes {
 impl<C: Component> ReplicatedArchetypes<C> {
     pub(crate) fn client(world: &mut World) -> Self {
         Self {
-            replication_component_id: world.init_component::<ReplicateToServer>(),
-            replicating_component_id: world.init_component::<Replicating>(),
-            has_authority_component_id: Some(world.init_component::<HasAuthority>()),
+            replication_component_id: world.register_component::<ReplicateToServer>(),
+            replicating_component_id: world.register_component::<Replicating>(),
+            has_authority_component_id: Some(world.register_component::<HasAuthority>()),
             generation: ArchetypeGeneration::initial(),
             archetypes: Vec::new(),
             marker: Default::default(),
@@ -75,8 +76,8 @@ impl<C: Component> ReplicatedArchetypes<C> {
 
     pub(crate) fn server(world: &mut World) -> Self {
         Self {
-            replication_component_id: world.init_component::<ReplicationTarget>(),
-            replicating_component_id: world.init_component::<Replicating>(),
+            replication_component_id: world.register_component::<ReplicationTarget>(),
+            replicating_component_id: world.register_component::<Replicating>(),
             has_authority_component_id: None,
             generation: ArchetypeGeneration::initial(),
             archetypes: Vec::new(),
@@ -114,10 +115,12 @@ pub(crate) unsafe fn get_erased_component<'w>(
 ) -> (Ptr<'w>, ComponentTicks) {
     match storage_type {
         StorageType::Table => {
-            let column = table.get_column(component_id).unwrap_unchecked();
-            let component = column.get_data_unchecked(entity.table_row());
-            let ticks = column.get_ticks_unchecked(entity.table_row());
-
+            let component = table
+                .get_component(component_id, entity.table_row())
+                .unwrap_unchecked();
+            let ticks = table
+                .get_ticks_unchecked(component_id, entity.table_row())
+                .unwrap_unchecked();
             (component, ticks)
         }
         StorageType::SparseSet => {

@@ -108,7 +108,7 @@ pub(crate) mod send {
         app.add_systems(
             PostUpdate,
             (
-                send_resource_removal::<R, S>.run_if(resource_removed::<R>()),
+                send_resource_removal::<R, S>.run_if(resource_removed::<R>),
                 send_resource_update::<R, S>,
             )
                 .in_set(InternalReplicationSet::<S::SetMarker>::BufferResourceUpdates),

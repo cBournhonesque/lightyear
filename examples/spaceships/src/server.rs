@@ -62,7 +62,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             FixedUpdate,
             handle_hit_event
-                .run_if(on_event::<BulletHitEvent>())
+                .run_if(on_event::<BulletHitEvent>)
                 .after(shared::process_collisions),
         );
     }

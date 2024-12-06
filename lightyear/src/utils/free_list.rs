@@ -77,7 +77,7 @@ impl<T: Sized, const N: usize> std::ops::IndexMut<usize> for FreeList<T, N> {
     }
 }
 
-impl<'a, T: Sized + Copy, const N: usize> Iterator for FreeListIter<'a, T, N> {
+impl<T: Sized + Copy, const N: usize> Iterator for FreeListIter<'_, T, N> {
     type Item = (usize, T);
 
     fn next(&mut self) -> Option<Self::Item> {

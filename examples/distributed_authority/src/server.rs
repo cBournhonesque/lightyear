@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use bevy::utils::HashMap;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::ReplicationTarget;
+use lightyear::server::replication::send::ReplicationTarget;
 use std::sync::Arc;
 use std::time::Duration;
 

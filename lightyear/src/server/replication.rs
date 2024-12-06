@@ -66,7 +66,7 @@ pub(crate) mod send {
     };
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
-        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId, ReplicationTarget,
+        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId,
         ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
@@ -137,9 +137,9 @@ pub(crate) mod send {
                     .run_if(is_host_server),
             );
 
-            app.observe(replicate_entity_local_despawn);
-            app.observe(add_has_authority_component);
-            app.observe(handle_pre_predicted);
+            app.add_observer(replicate_entity_local_despawn);
+            app.add_observer(add_has_authority_component);
+            app.add_observer(handle_pre_predicted);
         }
     }
 
@@ -189,6 +189,31 @@ pub(crate) mod send {
         SessionBased,
         /// The entity is not despawned even if the controlling client disconnects
         Persistent,
+    }
+
+    /// Component that indicates which clients the entity should be replicated to.
+    #[derive(Component, Clone, Debug, PartialEq, Reflect)]
+    #[reflect(Component)]
+    #[require(
+        Replicating,
+        AuthorityPeer,
+        SyncTarget,
+        NetworkRelevanceMode,
+        ControlledBy,
+        ReplicationGroup,
+        ReplicateHierarchy
+    )]
+    pub struct ReplicationTarget {
+        /// Which clients should this entity be replicated to
+        pub target: NetworkTarget,
+    }
+
+    impl Default for ReplicationTarget {
+        fn default() -> Self {
+            Self {
+                target: NetworkTarget::All,
+            }
+        }
     }
 
     /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
@@ -440,8 +465,8 @@ pub(crate) mod send {
                         .unwrap_unchecked()
                 };
                 let (added_tick, changed_tick) = (
-                    replication_target_ticks.added_tick(),
-                    replication_target_ticks.last_changed_tick(),
+                    replication_target_ticks.added,
+                    replication_target_ticks.changed,
                 );
                 // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
                 // so create the ref manually
@@ -501,6 +526,7 @@ pub(crate) mod send {
                     let override_target = replicated_component.override_target.and_then(|id| {
                         entity_ref
                             .get_by_id(id)
+                            .ok()
                             // SAFETY: we know the archetype has the OverrideTarget<C> component
                             // the OverrideTarget<C> component has the same memory layout as NetworkTarget
                             .map(|ptr| unsafe { ptr.deref::<NetworkTarget>() })
@@ -954,7 +980,7 @@ pub(crate) mod send {
                         component_registry,
                         group_id,
                         update_target,
-                        component_ticks.last_changed_tick(),
+                        component_ticks.changed,
                         system_ticks.this_run(),
                         current_tick,
                         delta_compression,
@@ -1353,7 +1379,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .get_entity(client_entity)
-                .is_none());
+                .is_err());
         }
 
         /// Check that if interest management is used, a client losing visibility of an entity
@@ -1404,7 +1430,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .get_entity(client_entity)
-                .is_none());
+                .is_err());
         }
 
         /// Test that if an entity with visibility is despawned, the despawn-message is not sent
@@ -1481,14 +1507,14 @@ pub(crate) mod send {
                 .client_app_1
                 .world()
                 .get_entity(client_entity_1)
-                .is_none());
+                .is_err());
 
             // check that the entity still exists on client 2
             assert!(stepper
                 .client_app_2
                 .world()
                 .get_entity(client_entity_2)
-                .is_some());
+                .is_ok());
         }
 
         /// Check that if we change the replication target on an entity that already has one
@@ -1536,7 +1562,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .get_entity(client_entity)
-                .is_none());
+                .is_err());
         }
 
         #[test]
@@ -2000,11 +2026,11 @@ pub(crate) mod send {
             stepper.set_client_tick(stepper.client_tick() + tick_delta);
             stepper.set_server_tick(stepper.server_tick() + tick_delta);
 
-            stepper
+            let _ = stepper
                 .server_app
                 .world_mut()
                 .run_system_once(systems::send_cleanup::<server::ConnectionManager>);
-            stepper
+            let _ = stepper
                 .client_app
                 .world_mut()
                 .run_system_once(systems::receive_cleanup::<client::ConnectionManager>);
@@ -3117,7 +3143,7 @@ pub(crate) mod commands {
 
     impl AuthorityCommandExt for EntityCommands<'_> {
         fn transfer_authority(&mut self, new_owner: AuthorityPeer) {
-            self.add(move |entity: Entity, world: &mut World| {
+            self.queue(move |entity: Entity, world: &mut World| {
                 // check who the current owner is
                 let current_owner =
                     world
@@ -3320,7 +3346,7 @@ pub(crate) mod commands {
     fn despawn_without_replication(entity: Entity, world: &mut World) {
         // remove replicating separately so that when we despawn the entity and trigger the observer
         // the entity doesn't have replicating anymore
-        if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.remove::<Replicating>();
             entity_mut.despawn();
         }
@@ -3332,7 +3358,7 @@ pub(crate) mod commands {
     }
     impl DespawnReplicationCommandExt for EntityCommands<'_> {
         fn despawn_without_replication(&mut self) {
-            self.add(despawn_without_replication);
+            self.queue(despawn_without_replication);
         }
     }
 

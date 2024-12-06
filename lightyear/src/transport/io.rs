@@ -107,7 +107,7 @@ impl IoDiagnosticsPlugin {
         time: &Res<Time<Real>>,
         diagnostics: &mut Diagnostics,
     ) {
-        let delta_seconds = time.delta_seconds_f64();
+        let delta_seconds = time.delta_secs_f64();
         if delta_seconds == 0.0 {
             return;
         }

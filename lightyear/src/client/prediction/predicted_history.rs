@@ -718,7 +718,7 @@ mod tests {
             .world_mut()
             .entity_mut(predicted)
             .insert(ComponentSyncModeFull(3.0));
-        stepper
+        let _ = stepper
             .client_app
             .world_mut()
             .run_system_once(update_prediction_history::<ComponentSyncModeFull>);
@@ -740,7 +740,7 @@ mod tests {
             .world_mut()
             .entity_mut(predicted)
             .remove::<ComponentSyncModeFull>();
-        stepper
+        let _ = stepper
             .client_app
             .world_mut()
             .run_system_once(update_prediction_history::<ComponentSyncModeFull>);

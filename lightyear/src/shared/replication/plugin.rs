@@ -249,8 +249,9 @@ pub(crate) mod shared {
     use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
         NetworkRelevanceMode, PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated,
-        ReplicationConfig, ReplicationGroup, ReplicationTarget, ShouldBePredicted, TargetEntity,
+        ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity,
     };
+    use crate::server::replication::send::ReplicationTarget;
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
         Controlled, Replicating, ReplicationGroupId, ReplicationGroupIdBuilder,

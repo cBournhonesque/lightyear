@@ -38,7 +38,7 @@ impl Plugin for ExampleClientPlugin {
 
         app.add_systems(PostUpdate, interpolation_debug_log);
 
-        app.observe(handle_ball);
+        app.add_observer(handle_ball);
     }
 }
 

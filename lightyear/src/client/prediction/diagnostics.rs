@@ -61,8 +61,7 @@ pub struct PredictionMetrics {
 
 impl Plugin for PredictionDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
-        let should_run =
-            on_timer(self.flush_interval).and_then(not(is_host_server.or_else(is_disconnected)));
+        let should_run = on_timer(self.flush_interval).and(not(is_host_server.or(is_disconnected)));
 
         app.register_type::<PredictionMetrics>();
 

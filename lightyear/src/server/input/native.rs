@@ -84,7 +84,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             FixedPostUpdate,
             clear_input_events::<A>.in_set(InputSystemSet::ClearInputEvents),
         );
-        app.observe(handle_client_disconnect::<A>);
+        app.add_observer(handle_client_disconnect::<A>);
     }
 }
 

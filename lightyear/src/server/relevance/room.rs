@@ -165,8 +165,8 @@ impl Plugin for RoomPlugin {
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
             ),
         );
-        app.observe(systems::handle_client_disconnect);
-        app.observe(systems::clean_entity_despawns);
+        app.add_observer(systems::handle_client_disconnect);
+        app.add_observer(systems::clean_entity_despawns);
     }
 }
 
@@ -554,7 +554,7 @@ mod tests {
             .unwrap()
             .contains(&room_id));
         // Run update replication cache once
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
@@ -564,7 +564,7 @@ mod tests {
             .entity(server_entity)
             .get::<CachedNetworkRelevance>()
             .is_some());
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);
@@ -633,11 +633,11 @@ mod tests {
             .get(&server_entity)
             .unwrap()
             .contains(&room_id));
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);
@@ -676,7 +676,7 @@ mod tests {
             .client_app
             .world()
             .get_entity(client_entity)
-            .is_none());
+            .is_err());
     }
 
     #[test]
@@ -730,11 +730,11 @@ mod tests {
             .unwrap()
             .contains(&room_id));
         // Run update replication cache once
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);
@@ -802,11 +802,11 @@ mod tests {
             .get(&client_id)
             .unwrap()
             .contains(&room_id));
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);
@@ -845,7 +845,7 @@ mod tests {
             .client_app
             .world()
             .get_entity(client_entity)
-            .is_none());
+            .is_err());
     }
 
     /// The client is in a room with the entity
@@ -872,7 +872,7 @@ mod tests {
                 ..Default::default()
             })
             .id();
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(add_cached_network_relevance);
@@ -882,11 +882,11 @@ mod tests {
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         // Run update replication cache once
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);
@@ -937,11 +937,11 @@ mod tests {
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
         // Run update replication cache once
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);
@@ -986,7 +986,7 @@ mod tests {
                 ..Default::default()
             })
             .id();
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(add_cached_network_relevance);
@@ -996,11 +996,11 @@ mod tests {
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, room_id);
         // Run update replication cache once
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);
@@ -1039,11 +1039,11 @@ mod tests {
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
         // Run update replication cache once
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);
@@ -1083,7 +1083,7 @@ mod tests {
                 ..Default::default()
             })
             .id();
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(add_cached_network_relevance);
@@ -1098,11 +1098,11 @@ mod tests {
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
         // Run update replication cache once
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);
@@ -1141,11 +1141,11 @@ mod tests {
             .resource_mut::<RoomManager>()
             .add_client(client_id, new_room_id);
         // Run update replication cache once
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(buffer_room_relevance_events);
-        stepper
+        let _ = stepper
             .server_app
             .world_mut()
             .run_system_once(update_relevance_from_events);

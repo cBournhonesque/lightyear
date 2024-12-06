@@ -315,7 +315,8 @@ mod tests {
                 .len(),
             2
         );
-        app.world_mut()
+        let _ = app
+            .world_mut()
             .run_system_once(systems::update_relevance_from_events);
         assert_eq!(
             app.world()
@@ -352,7 +353,8 @@ mod tests {
         app.world_mut()
             .resource_mut::<RelevanceManager>()
             .lose_relevance(client, entity1);
-        app.world_mut()
+        let _ = app
+            .world_mut()
             .run_system_once(systems::update_relevance_from_events);
         assert_eq!(
             app.world()
@@ -374,7 +376,8 @@ mod tests {
                 .unwrap(),
             &ClientRelevance::Gained
         );
-        app.world_mut()
+        let _ = app
+            .world_mut()
             .run_system_once(systems::update_cached_relevance);
         assert!(app
             .world()

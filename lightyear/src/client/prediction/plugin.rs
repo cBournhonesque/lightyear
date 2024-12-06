@@ -186,7 +186,7 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 
 /// Enable rollbacking a component even if the component is not networked
 pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app: &mut App) {
-    app.observe(apply_component_removal_predicted::<C>);
+    app.add_observer(apply_component_removal_predicted::<C>);
     app.add_systems(
         PreUpdate,
         (
@@ -232,7 +232,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
     );
     match prediction_mode {
         ComponentSyncMode::Full => {
-            app.observe(apply_component_removal_predicted::<C>);
+            app.add_observer(apply_component_removal_predicted::<C>);
             app.add_systems(
                 PreUpdate,
                 // restore to the corrected state (as the visual state might be interpolating
@@ -263,7 +263,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             );
         }
         ComponentSyncMode::Simple => {
-            app.observe(apply_component_removal_confirmed::<C>);
+            app.add_observer(apply_component_removal_confirmed::<C>);
             app.add_systems(
                 PreUpdate,
                 (
@@ -298,7 +298,7 @@ impl Plugin for PredictionPlugin {
         // we only run prediction:
         // - if we're not in host-server mode
         // - after the client is synced
-        let should_prediction_run = not(is_host_server).and_then(is_synced);
+        let should_prediction_run = not(is_host_server).and(is_synced);
 
         // REFLECTION
         app.register_type::<Predicted>()
@@ -351,7 +351,7 @@ impl Plugin for PredictionPlugin {
                 run_rollback.in_set(PredictionSet::Rollback),
             ),
         );
-        app.observe(despawn_confirmed);
+        app.add_observer(despawn_confirmed);
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)

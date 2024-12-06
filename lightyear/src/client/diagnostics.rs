@@ -47,9 +47,8 @@ impl Plugin for ClientDiagnosticsPlugin {
             app.add_plugins(ping_plugin);
             app.add_systems(
                 PostUpdate,
-                ping_diagnostics_system.run_if(
-                    on_timer(flush_interval).and_then(not(is_host_server.or_else(is_disconnected))),
-                ),
+                ping_diagnostics_system
+                    .run_if(on_timer(flush_interval).and(not(is_host_server.or(is_disconnected)))),
             );
         }
         app.add_plugins(PredictionDiagnosticsPlugin::default());
@@ -59,8 +58,8 @@ impl Plugin for ClientDiagnosticsPlugin {
             app.add_systems(
                 PostUpdate,
                 io_diagnostics_system.run_if(
-                    // on_timer(self.flush_interval).and_then(
-                    not(is_host_server.or_else(is_disconnected)),
+                    // on_timer(self.flush_interval).and(
+                    not(is_host_server.or(is_disconnected)),
                 ),
             );
         }

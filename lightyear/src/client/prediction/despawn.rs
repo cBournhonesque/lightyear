@@ -43,7 +43,7 @@ impl Command for PredictionDespawnCommand {
 
         let mut predicted_entity_to_despawn: Option<Entity> = None;
 
-        if let Some(mut entity) = world.get_entity_mut(self.entity) {
+        if let Ok(mut entity) = world.get_entity_mut(self.entity) {
             if entity.get::<Predicted>().is_some() || entity.get::<ShouldBePredicted>().is_some() {
                 // if this is a predicted or pre-predicted entity, do not despawn the entity immediately but instead
                 // add a PredictionDespawn component to it to mark that it should be despawned as soon
@@ -82,7 +82,7 @@ pub trait PredictionDespawnCommandsExt {
 impl PredictionDespawnCommandsExt for EntityCommands<'_> {
     fn prediction_despawn(&mut self) {
         let entity = self.id();
-        self.commands().add(PredictionDespawnCommand { entity })
+        self.commands().queue(PredictionDespawnCommand { entity })
     }
 }
 

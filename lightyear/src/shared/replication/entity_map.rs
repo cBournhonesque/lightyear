@@ -146,7 +146,7 @@ impl RemoteEntityMap {
         remote_entity: Entity,
     ) -> Option<EntityWorldMut<'a>> {
         self.get_local(remote_entity)
-            .and_then(|e| world.get_entity_mut(e))
+            .and_then(|e| world.get_entity_mut(e).ok())
     }
 
     /// Remove the entity from our mapping and return the local entity

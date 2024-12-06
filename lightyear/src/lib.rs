@@ -210,7 +210,7 @@ pub mod prelude {
     pub use crate::shared::replication::components::{
         DeltaCompression, DisabledComponent, NetworkRelevanceMode, OverrideTargetComponent,
         PrePredicted, ReplicateHierarchy, ReplicateOnceComponent, Replicated, Replicating,
-        ReplicationGroup, ReplicationTarget, ShouldBePredicted, TargetEntity,
+        ReplicationGroup, ShouldBePredicted, TargetEntity,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
     pub use crate::shared::replication::hierarchy::ParentSync;
@@ -320,7 +320,9 @@ pub mod prelude {
         pub use crate::server::replication::commands::AuthorityCommandExt;
         pub use crate::server::replication::commands::DespawnReplicationCommandExt;
         pub use crate::server::replication::{
-            send::{ControlledBy, Lifetime, Replicate, ServerFilter, SyncTarget},
+            send::{
+                ControlledBy, Lifetime, Replicate, ReplicationTarget, ServerFilter, SyncTarget,
+            },
             ReplicationSet, ServerReplicationSet,
         };
         pub use crate::server::run_conditions::{is_started, is_stopped};

@@ -35,8 +35,8 @@ impl Plugin for ExampleServerPlugin {
         let client_ids = Arc::new(RwLock::new(HashSet::default()));
         app.add_systems(Startup, (init, start_server));
 
-        app.observe(handle_disconnect_event);
-        app.observe(handle_connect_event);
+        app.add_observer(handle_disconnect_event);
+        app.add_observer(handle_connect_event);
 
         start_netcode_authentication_task(
             self.game_server_addr,

@@ -75,7 +75,7 @@ pub(crate) fn handle_pre_predicted(
             .entity(local_entity)
             .transfer_authority(AuthorityPeer::Server);
         let confirmed_entity = pre_predicted.confirmed_entity.unwrap();
-        commands.add(move |world: &mut World| {
+        commands.queue(move |world: &mut World| {
             // update the mapping so that when we send updates, the server entity gets mapped
             // to the client's confirmed entity
             world

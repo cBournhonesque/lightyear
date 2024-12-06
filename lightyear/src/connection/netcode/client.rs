@@ -176,7 +176,6 @@ pub enum ClientState {
 /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
 /// client.connect();
 /// ```
-
 pub struct NetcodeClient<Ctx = ()> {
     id: ClientId,
     state: ClientState,

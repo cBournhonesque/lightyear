@@ -133,8 +133,8 @@ Here's how you might enable Visual Interpolation for Avian's `Position` and `Rot
 app.add_plugins(VisualInterpolationPlugin::<Position>::default());
 app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
 
-app.observe(add_visual_interpolation_components::<Position>);
-app.observe(add_visual_interpolation_components::<Rotation>);
+app.add_observer(add_visual_interpolation_components::<Position>);
+app.add_observer(add_visual_interpolation_components::<Rotation>);
 
 // ...
 
