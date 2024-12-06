@@ -19,6 +19,7 @@ use crate::client::run_conditions::is_disconnected;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, ConnectionState, DisconnectReason, NetClient};
 use crate::connection::server::IoConfig;
+use crate::prelude::server::ServerConnections;
 use crate::prelude::{
     is_host_server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
 };
@@ -421,21 +422,22 @@ fn on_disconnect(
     // for the next connection attempt
     let reason = std::mem::take(&mut netclient.disconnect_reason);
     disconnect_event_writer.send(DisconnectEvent { reason });
-    // commands.trigger(DisconnectEvent { reason });
+    // TODO: how can we also provide a reason here? or do we even need to?
+    // we need to also trigger the event because we sometimes react to it via observers
+    commands.trigger(DisconnectEvent { reason: None });
     // TODO: remove ClientConnection and ConnectionManager resources?
 }
 
+/// Make sure that the DisconnectEvent is emitted even when the local client disconnects
 fn on_disconnect_host_server(
     netcode: Res<ClientConnection>,
+    mut connection_manager: ResMut<crate::prelude::server::ConnectionManager>,
     mut metadata: ResMut<HostServerMetadata>,
-    mut server_disconnect_event_writer: ResMut<Events<crate::server::events::DisconnectEvent>>,
 ) {
     let client_id = netcode.id();
     if let Some(client_entity) = std::mem::take(&mut metadata.client_entity) {
-        server_disconnect_event_writer.send(crate::server::events::DisconnectEvent {
-            client_id,
-            entity: client_entity,
-        });
+        // removing the client from the server's connection list also emits the server DisconnectEvent
+        connection_manager.remove(client_id);
     }
 }
 

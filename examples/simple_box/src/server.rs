@@ -65,7 +65,7 @@ pub(crate) fn handle_connections(
 ) {
     for connection in connections.read() {
         let client_id = connection.client_id;
-        // server and client are running in the same app, no need to replicate to the local client
+        // in host-server mode, server and client are running in the same app, no need to replicate to the local client
         let replicate = Replicate {
             sync: SyncTarget {
                 prediction: NetworkTarget::Single(client_id),
