@@ -24,4 +24,4 @@ serde = { version = "1.0.188", features = ["derive"] }
 
 [dev-dependencies]
 lightyear = { path = "../lightyear" }
-bevy = { version = "0.14", default-features = false }
+bevy = { version = "0.15", default-features = false }

@@ -101,7 +101,7 @@ metrics-exporter-prometheus = { version = "0.15.1", optional = true, default-fea
 ] }
 
 # bevy
-bevy = { version = "0.14", default-features = false, features = [
+bevy = { version = "0.15", default-features = false, features = [
     "multi_threaded",
     "bevy_state",
     "serialize",
