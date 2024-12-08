@@ -402,7 +402,8 @@ fn on_disconnect(
     mut disconnect_event_writer: EventWriter<DisconnectEvent>,
     mut netclient: ResMut<ClientConnection>,
     mut commands: Commands,
-    received_entities: Query<Entity, Or<(With<Replicated>, With<Predicted>, With<Interpolated>)>>,
+    // no need to handle Predicted/Interpolated because there are separate systems that handle these
+    received_entities: Query<Entity, With<Replicated>>,
 ) {
     info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
