@@ -38,4 +38,4 @@ bevy = { version = "0.14", features = [
 ] }
 
 rand = "0.8.1"
-metrics-exporter-prometheus = { version = "0.15.1", optional = true }
+metrics-exporter-prometheus = { version = "0.16", optional = true }
