@@ -167,8 +167,8 @@ futures-lite = { version = "2.1.0", optional = true }
 getrandom = { version = "0.2.11", features = [
     "js", # feature 'js' is required for wasm
 ] }
-xwt-core = { version = "0.5", optional = true }
-xwt-web = { version = "0.13.0", optional = true }
+xwt-core = { version = "0.6", optional = true }
+xwt-web = { version = "0.15.0", optional = true }
 wasm-bindgen = { version = "0.2.90", optional = true }
 wasm-bindgen-futures = { version = "0.4.42", optional = true }
 # compression
