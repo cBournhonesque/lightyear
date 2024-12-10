@@ -3,7 +3,6 @@ name = "lobby"
 version = "0.1.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
-rust-version = "1.65"
 description = "Examples for the lightyearServer-client networking library for the Bevy game engine"
 readme = "README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
@@ -13,28 +12,23 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
+default = [
+  "lightyear_examples_common/server",
+  "lightyear_examples_common/client",
+]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
-lightyear_examples_common = { path = "../common" }
-# Keep version of bevy_egui and egui_extras in sync:
-bevy_egui = "0.28"
-egui_extras = "0.28"
-leafwing-input-manager = "0.15"
-lightyear = { path = "../../lightyear", features = [
-  "webtransport",
-  "websocket",
-  "leafwing",
-  "steam",
-] }
-serde = { version = "1.0.188", features = ["derive"] }
-anyhow = { version = "1.0.75", features = [] }
-tracing = "0.1"
-tracing-subscriber = "0.3.17"
-bevy = { version = "0.14", features = [
-  "multi_threaded",
-  "bevy_state",
-  "serialize",
-] }
-rand = "0.8.1"
-metrics-exporter-prometheus = { version = "0.16.0", optional = true }
+lightyear_examples_common.workspace = true
+lightyear = { workspace = true, features = ["steam", "websocket", "leafwing"] }
+
+bevy_egui.workspace = true
+egui_extras.workspace = true
+leafwing-input-manager.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+bevy.workspace = true
+rand.workspace = true
+metrics-exporter-prometheus = { workspace = true, optional = true }

@@ -1,27 +1,28 @@
 [package]
 name = "lightyear_macros"
-version = "0.17.0"
-authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
-edition = "2021"
-rust-version = "1.65"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
 description = "Procedural macros for the lightyear networking library"
 readme = "README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
 keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
 categories = ["game-development", "network-programming"]
-license = "MIT OR Apache-2.0"
+license.workspace = true
 exclude = ["/tests"]
 
 [lib]
 proc-macro = true
 
-
 [dependencies]
+serde.workspace = true
+
+# deps specific to macros, not in top-level Cargo workspace
+
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "2.0", features = ["full"] }
-serde = { version = "1.0.188", features = ["derive"] }
 
 [dev-dependencies]
-lightyear = { path = "../lightyear" }
-bevy = { version = "0.14", default-features = false }
+lightyear.workspace = true
+bevy.workspace = true

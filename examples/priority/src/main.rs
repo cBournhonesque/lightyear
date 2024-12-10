@@ -19,7 +19,7 @@ fn main() {
     let settings_str = include_str!("../assets/settings.ron");
     let settings = read_settings::<Settings>(settings_str);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    let mut apps = Apps::new(settings, cli);
+    let mut apps = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
     // for this example, we will use input delay and a correction function
     apps.update_lightyear_server_config(|config| {
         // for this example, we will put a bandwidth cap on the server-side

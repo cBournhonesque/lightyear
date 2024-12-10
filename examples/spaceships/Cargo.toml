@@ -1,45 +1,49 @@
 [package]
 name = "spaceships"
-version = "0.0.0"
+version.workspace = true
 authors = [
   "Charles Bournhonesque <charlesbour@gmail.com>",
   "Richard Jones <rj@metabrew.com>",
 ]
-edition = "2021"
-rust-version = "1.65"
+edition.workspace = true
 publish = false
 
 [features]
+default = ["server", "client"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
+client = [
+  "lightyear_examples_common/client",
+  "dep:bevy_screen_diagnostics",
+  "gui",
+]
+gui = ["lightyear_examples_common/gui", "dep:bevy_screen_diagnostics"]
+server = ["lightyear_examples_common/server"]
+tls = ["dep:bevygap_client_plugin"]
+bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
+bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
 
 [dependencies]
-lightyear_examples_common = { path = "../common" }
-bevy_screen_diagnostics = "0.6"
-leafwing-input-manager = "0.15"
-avian2d = { version = "0.1.1", default-features = false, features = [
+lightyear_examples_common.workspace = true
+bevy_screen_diagnostics = { workspace = true, optional = true }
+metrics-exporter-prometheus = { workspace = true, optional = true }
+leafwing-input-manager = { workspace = true, features = ["keyboard", "mouse"] }
+avian2d = { workspace = true, features = [
   "2d",
   "f32",
   "parry-f32",
   "parallel",
   "serialize",
 ] }
-lightyear = { path = "../../lightyear", features = [
-  "webtransport",
-  "leafwing",
-  "avian2d",
-] }
-serde = { version = "1.0", features = ["derive"] }
-anyhow = { version = "1.0", features = [] }
-tracing = "0.1"
-tracing-subscriber = "0.3.17"
-bevy = { version = "0.14", features = [
-  "multi_threaded",
-  "bevy_state",
-  "serialize",
+lightyear = { workspace = true, features = ["leafwing", "avian2d"] }
+serde.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+bevy.workspace = true
+rand.workspace = true
+bevygap_client_plugin = { workspace = true, optional = true, features = [
+  "matchmaker-tls",
 ] }
 
-rand = "0.8.1"
-metrics-exporter-prometheus = { version = "0.16", optional = true }
-
-[lints.clippy]
-type_complexity = "allow"
+[lints]
+workspace = true

@@ -3,39 +3,37 @@ name = "avian_physics"
 version = "0.0.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
-rust-version = "1.65"
 publish = false
 
 [features]
+default = [
+  "lightyear_examples_common/server",
+  "lightyear_examples_common/client",
+]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
-lightyear_examples_common = { path = "../common" }
-bevy_screen_diagnostics = "0.6"
-leafwing-input-manager = "0.15"
-avian2d = { version = "0.1.1", default-features = false, features = [
+lightyear_examples_common.workspace = true
+lightyear = { workspace = true, features = [
+  "steam",
+  "websocket",
+  "leafwing",
+  "avian2d",
+] }
+
+bevy_screen_diagnostics.workspace = true
+leafwing-input-manager.workspace = true
+avian2d = { workspace = true, features = [
   "2d",
   "f32",
   "parry-f32",
   "parallel",
   "serialize",
 ] }
-lightyear = { path = "../../lightyear", features = [
-  "webtransport",
-  "websocket",
-  "leafwing",
-  "avian2d",
-  "steam",
-] }
-serde = { version = "1.0.188", features = ["derive"] }
-anyhow = { version = "1.0.75", features = [] }
-tracing = "0.1"
-tracing-subscriber = "0.3.17"
-bevy = { version = "0.14", features = [
-  "multi_threaded",
-  "bevy_state",
-  "serialize",
-] }
-
-rand = "0.8.1"
-metrics-exporter-prometheus = { version = "0.16", optional = true }
+serde.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+bevy.workspace = true
+rand.workspace = true
+metrics-exporter-prometheus = { workspace = true, optional = true }

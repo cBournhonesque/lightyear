@@ -10,16 +10,13 @@ use tracing::{error, trace};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent};
-use crate::client::interpolation::Interpolated;
 use crate::client::io::ClientIoEvent;
 use crate::client::networking::utils::AppStateExt;
-use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::client::run_conditions::is_disconnected;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, ConnectionState, DisconnectReason, NetClient};
 use crate::connection::server::IoConfig;
-use crate::prelude::server::ServerConnections;
 use crate::prelude::{
     is_host_server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
 };
@@ -290,7 +287,7 @@ pub(crate) fn sync_update(
 }
 
 /// Bevy [`State`] representing the networking state of the client.
-#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash,Reflect)]
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum NetworkingState {
     /// The client is disconnected from the server. The receive/send packets systems do not run.
     #[default]

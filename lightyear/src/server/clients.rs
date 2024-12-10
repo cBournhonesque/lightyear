@@ -1,7 +1,6 @@
 //! The server spawns an entity per connected client to store metadata about them.
 //!
 //! This module contains components and systems to manage the metadata on client entities.
-use crate::prelude::server::NetworkingState;
 use crate::server::clients::systems::handle_controlled_by_remove;
 use crate::server::replication::send::Lifetime;
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};

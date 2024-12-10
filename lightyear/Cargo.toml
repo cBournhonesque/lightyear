@@ -1,16 +1,17 @@
 [package]
 name = "lightyear"
-version = "0.17.0"
-authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
+version.workspace = true
+authors.workspace = true
+rust-version.workspace = true
 edition = "2021"
-rust-version = "1.76"
 description = "Server-client networking library for the Bevy game engine"
 readme = "../README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
 keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
 categories = ["game-development", "network-programming"]
-license = "MIT OR Apache-2.0"
+license.workspace = true
 exclude = ["/tests"]
+publish = true
 
 [features]
 # Enable sending messages bigger than 300KB
@@ -31,6 +32,8 @@ webtransport = [
   "dep:wasm-bindgen-futures",
 ]
 leafwing = ["dep:leafwing-input-manager"]
+# NOTE: because lightyear doesn't enable any features of avian by default, your crate must
+#       enable essential features (like f32 or f64).
 avian2d = ["dep:avian2d"]
 avian3d = ["dep:avian3d", "avian3d/3d"]
 websocket = [
@@ -48,144 +51,98 @@ zstd = ["dep:zstd"]
 
 [dependencies]
 # utils
-chrono = "0.4.38"
-cfg-if = "1.0"
-enum_dispatch = "0.3"
-governor = "0.7.0"
-mock_instant = { version = "0.5.1", optional = true }
-nonzero_ext = "0.3.0"
-parking_lot = "0.12.3"
-paste = "1.0"
-rand = "0.8"
-ringbuffer = "0.15"
-thiserror = "2.0.3"
-seahash = "4.1.0"
+chrono.workspace = true
+cfg-if.workspace = true
+enum_dispatch.workspace = true
+governor.workspace = true
+mock_instant = { workspace = true, optional = true }
+nonzero_ext.workspace = true
+parking_lot.workspace = true
+paste.workspace = true
+rand.workspace = true
+ringbuffer.workspace = true
+thiserror.workspace = true
+seahash.workspace = true
 
 # input
-leafwing-input-manager = { version = "0.15", default-features = false, optional = true }
+leafwing-input-manager = { workspace = true, optional = true }
 
 # physics
-avian2d = { version = "0.1.2", optional = true, default-features = false }
-avian3d = { version = "0.1.2", optional = true, default-features = false }
+avian2d = { workspace = true, optional = true }
+avian3d = { workspace = true, optional = true }
 
 # serialization
-bincode = { version = "2.0.0-rc.3", features = ["serde"] }
-byteorder = "1.5.0"
-bytes = { version = "1.8", features = ["serde"] }
-self_cell = "1.0"
-serde = { version = "1", features = ["derive"] }
+bincode.workspace = true
+byteorder.workspace = true
+bytes.workspace = true
+self_cell.workspace = true
+serde.workspace = true
 
 # netcode
-chacha20poly1305 = { version = "0.10", features = ["std"] }
+chacha20poly1305.workspace = true
 
 # derive
-lightyear_macros = { version = "0.17.0", path = "../macros" }
+lightyear_macros.workspace = true
 
 # tracing
-tracing = "0.1.40"
-tracing-log = "0.2.0"
-tracing-subscriber = { version = "0.3.17", features = [
-  "registry",
-  "env-filter",
-] }
+tracing.workspace = true
+tracing-log.workspace = true
+tracing-subscriber.workspace = true
 
 # server
-crossbeam-channel = { version = "0.5.13", features = [] }
+crossbeam-channel.workspace = true
 
 # metrics
-metrics = { version = "0.24", optional = true }
-metrics-util = { version = "0.18", optional = true }
-metrics-tracing-context = { version = "0.17", optional = true }
-metrics-exporter-prometheus = { version = "0.15.1", optional = true, default-features = false, features = [
-  "http-listener",
-] }
+metrics = { workspace = true, optional = true }
+metrics-util = { workspace = true, optional = true }
+metrics-tracing-context = { workspace = true, optional = true }
+metrics-exporter-prometheus = { workspace = true, optional = true }
 
 # bevy
-bevy = { version = "0.14", default-features = false, features = [
-  "multi_threaded",
-  "bevy_state",
-  "serialize",
-] }
+bevy.workspace = true
 
 # compression
-lz4_flex = { version = "0.11", optional = true, default-features = false, features = [
-  "std",
-] }
+lz4_flex = { workspace = true, optional = true }
 
 # WebSocket
-futures-util = { version = "0.3.30", optional = true }
+futures-util = { workspace = true, optional = true }
 
 # transport
 # we don't need any tokio features, we use only use the tokio channels
-tokio = { version = "1.36", features = [
-  "sync",
-  "macros",
-], default-features = false }
-futures = "0.3.30"
-async-compat = "0.2.3"
-async-channel = "2.2.0"
+# except for tests, which need tokio::time (see [dev-dependencies])
+tokio.workspace = true
+futures.workspace = true
+async-compat.workspace = true
+async-channel.workspace = true
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
-# connection
-# steamworks-sys doesn't build on wasm
-steamworks = { version = "0.11", optional = true }
-# webtransport
-wtransport = { version = "=0.5.0", optional = true, features = [
-  "quinn",
-  "self-signed",
-  "dangerous-configuration",
-] }
-# websocket
-tokio-tungstenite = { version = "0.23.0", optional = true, features = [
-  "connect",
-  "handshake",
-] }
-# compression
-zstd = { version = "0.13.1", optional = true }
+steamworks = { workspace = true, optional = true }
+wtransport = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
+zstd = { workspace = true, optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
-console_error_panic_hook = { version = "0.1.7" }
-web-sys = { version = "0.3", optional = true, features = [
-  "Document",
-  "WebTransport",
-  "WebTransportHash",
-  "WebTransportOptions",
-  "WebTransportBidirectionalStream",
-  "WebTransportSendStream",
-  "WebTransportReceiveStream",
-  "ReadableStreamDefaultReader",
-  "WritableStreamDefaultWriter",
-  "WebTransportDatagramDuplexStream",
-  "WebSocket",
-  "CloseEvent",
-  "ErrorEvent",
-  "MessageEvent",
-  "BinaryType",
-] }
-bevy_web_keepalive = "0.3"
-futures-lite = { version = "2.1.0", optional = true }
-getrandom = { version = "0.2.11", features = [
-  "js", # feature 'js' is required for wasm
-] }
-xwt-core = { version = "0.6", optional = true }
-xwt-web = { version = "0.15.0", optional = true }
-wasm-bindgen = { version = "0.2.90", optional = true }
-wasm-bindgen-futures = { version = "0.4.42", optional = true }
-# compression
-zstd = { version = "0.13.1", optional = true, features = ["wasm"] }
+console_error_panic_hook.workspace = true
+web-sys = { workspace = true, optional = true }
+bevy_web_keepalive.workspace = true
+futures-lite = { workspace = true, optional = true }
+getrandom.workspace = true
+xwt-core = { workspace = true, optional = true }
+xwt-web = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
+zstd = { workspace = true, optional = true, features = ["wasm"] }
 
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.39"
-mock_instant = { version = "0.5" }
-tracing-subscriber = "0.3.17"
-bitvec = "1.0"
-approx = "0.5.1"
-
-[dev-dependencies.leafwing-input-manager]
-version = "*"
-# Used by tests.
-features = ["keyboard"]
+wasm-bindgen-test.workspace = true
+mock_instant.workspace = true
+tracing-subscriber.workspace = true
+bitvec.workspace = true
+approx.workspace = true
+leafwing-input-manager.workspace = true
+# tokio::time needed for tests (tests build with dev-dependencies)
+tokio = { workspace = true, features = ["time"] }
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]

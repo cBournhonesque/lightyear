@@ -69,7 +69,7 @@ impl Identity {
     }
 }
 
-impl<'w, 's> NetworkIdentity<'w, 's> {
+impl NetworkIdentity<'_, '_> {
     pub fn identity(&self) -> Identity {
         let Some(config) = &self.client_config else {
             return Identity::Server;

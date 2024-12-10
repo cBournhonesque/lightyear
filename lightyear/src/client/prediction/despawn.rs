@@ -4,7 +4,7 @@ use bevy::prelude::{
     Commands, Component, DespawnRecursiveExt, Entity, OnRemove, Query, Reflect, ReflectComponent,
     Res, ResMut, Trigger, With, Without, World,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;

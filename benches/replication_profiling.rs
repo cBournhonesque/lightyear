@@ -21,7 +21,7 @@ fn main() {
             );
             NUM_ENTITIES
         ];
-        stepper.server_app.world.spawn_batch(entities);
+        stepper.server_app.world_mut().spawn_batch(entities);
 
         // advance time by one frame
         stepper.advance_time(stepper.frame_duration);
