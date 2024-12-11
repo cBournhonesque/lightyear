@@ -290,7 +290,7 @@ pub(crate) fn sync_update(
 }
 
 /// Bevy [`State`] representing the networking state of the client.
-#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash,Reflect)]
 pub enum NetworkingState {
     /// The client is disconnected from the server. The receive/send packets systems do not run.
     #[default]
@@ -402,7 +402,8 @@ fn on_disconnect(
     mut disconnect_event_writer: EventWriter<DisconnectEvent>,
     mut netclient: ResMut<ClientConnection>,
     mut commands: Commands,
-    received_entities: Query<Entity, Or<(With<Replicated>, With<Predicted>, With<Interpolated>)>>,
+    // no need to handle Predicted/Interpolated because there are separate systems that handle these
+    received_entities: Query<Entity, With<Replicated>>,
 ) {
     info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
