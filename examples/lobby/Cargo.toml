@@ -20,7 +20,7 @@ lightyear_examples_common = { path = "../common" }
 # Keep version of bevy_egui and egui_extras in sync:
 bevy_egui = "0.28"
 egui_extras = "0.28"
-leafwing-input-manager = "0.15"
+leafwing-input-manager = "0.16"
 lightyear = { path = "../../lightyear", features = [
   "webtransport",
   "websocket",

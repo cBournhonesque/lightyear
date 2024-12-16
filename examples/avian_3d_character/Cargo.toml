@@ -12,7 +12,7 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 [dependencies]
 lightyear_examples_common = { path = "../common" }
 bevy_screen_diagnostics = "0.6"
-leafwing-input-manager = "0.15"
+leafwing-input-manager = "0.16"
 avian3d = { version = "0.1.1", default-features = false, features = [
   "3d",
   "f32",
