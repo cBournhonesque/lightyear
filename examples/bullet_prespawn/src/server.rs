@@ -28,20 +28,15 @@ impl Plugin for ExampleServerPlugin {
 
 pub(crate) fn init(mut commands: Commands) {
     commands.start_server();
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
+    commands.spawn((
+        Text("Server".to_string()),
+        TextColor(Color::WHITE),
+        TextFont::default().with_font_size(30.0),
+        Node {
             align_self: AlignSelf::End,
             ..default()
-        }),
-    );
+        },
+    ));
 }
 
 // // The client input only gets applied to predicted entities that we own

@@ -7,7 +7,7 @@ use leafwing_input_manager::prelude::ActionState;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::{Replicate, SyncTarget};
+use lightyear::prelude::server::{Replicate, ReplicationTarget, SyncTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::shared::plugin::Identity;
@@ -74,7 +74,7 @@ impl Plugin for SharedPlugin {
 }
 
 fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2d);
 }
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
@@ -107,8 +107,7 @@ pub(crate) fn shared_player_movement(
         return;
     };
     // warn!(?mouse_position);
-    let angle =
-        Vec2::new(0.0, 1.0).angle_between(cursor_data.pair - transform.translation.truncate());
+    let angle = Vec2::new(0.0, 1.0).angle_to(cursor_data.pair - transform.translation.truncate());
     // careful to only activate change detection if there was an actual change
     if (angle - transform.rotation.to_euler(EulerRot::XYZ).2).abs() > EPS {
         transform.rotation = Quat::from_rotation_z(angle);
@@ -309,9 +308,10 @@ pub(crate) fn draw_elements(
         // let angle = transform.rotation.to_axis_angle().1;
         // warn!(axis = ?transform.rotation.to_axis_angle().0);
         gizmos.rect_2d(
-            transform.translation.truncate(),
-            // angle,
-            transform.rotation.to_euler(EulerRot::XYZ).2,
+            Isometry2d::new(
+                transform.translation.truncate(),
+                transform.rotation.to_euler(EulerRot::XYZ).2.into(),
+            ),
             Vec2::ONE * PLAYER_SIZE,
             color.0,
         );
