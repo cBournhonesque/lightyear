@@ -136,7 +136,7 @@ wtransport = { version = "=0.5.0", optional = true, features = [
   "dangerous-configuration",
 ] }
 # websocket
-tokio-tungstenite = { version = "0.23.0", optional = true, features = [
+tokio-tungstenite = { version = "0.25.0", optional = true, features = [
   "connect",
   "handshake",
 ] }
