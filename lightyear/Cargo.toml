@@ -51,7 +51,7 @@ zstd = ["dep:zstd"]
 chrono = "0.4.38"
 cfg-if = "1.0"
 enum_dispatch = "0.3"
-governor = "0.7.0"
+governor = "0.8.0"
 mock_instant = { version = "0.5.1", optional = true }
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.3"
