@@ -66,7 +66,7 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                             );
                             *n
                         ];
-                        stepper.server_app.world.spawn_batch(entities);
+                        stepper.server_app.world_mut().spawn_batch(entities);
 
                         // advance time by one frame
                         stepper.advance_time(stepper.frame_duration);
@@ -117,15 +117,15 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
                     for _ in 0..iter {
                         let mut stepper = LocalBevyStepper::default();
                         let entities = vec![(Component1(1.0), Replicate::default()); *n];
-                        stepper.server_app.world.spawn_batch(entities);
+                        stepper.server_app.world_mut().spawn_batch(entities);
                         stepper.update();
 
                         // update the entities
                         for mut component in stepper
                             .server_app
-                            .world()
+                            .world_mut()
                             .query_filtered::<&mut Component1, With<Replicating>>()
-                            .iter_mut(&mut stepper.server_app.world)
+                            .iter_mut(stepper.server_app.world_mut())
                         {
                             component.0 = 0.0;
                         }
@@ -182,7 +182,7 @@ fn receive_float_insert(criterion: &mut Criterion) {
                             );
                             *n
                         ];
-                        stepper.server_app.world.spawn_batch(entities);
+                        stepper.server_app.world_mut().spawn_batch(entities);
 
                         // advance time by one frame
                         stepper.advance_time(stepper.frame_duration);
@@ -228,15 +228,15 @@ fn receive_float_update(criterion: &mut Criterion) {
                     for _ in 0..iter {
                         let mut stepper = LocalBevyStepper::default();
                         let entities = vec![(Component1(1.0), Replicate::default()); *n];
-                        stepper.server_app.world.spawn_batch(entities);
+                        stepper.server_app.world_mut().spawn_batch(entities);
                         stepper.update();
 
                         // update the entities
                         for mut component in stepper
                             .server_app
-                            .world()
+                            .world_mut()
                             .query_filtered::<&mut Component1, With<Replicating>>()
-                            .iter_mut(&mut stepper.server_app.world)
+                            .iter_mut(stepper.server_app.world_mut())
                         {
                             component.0 = 0.0;
                         }
@@ -287,7 +287,7 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
                         let mut stepper = LocalBevyStepper::default_n_clients(*n);
                         let entities =
                             vec![(Component1(0.0), Replicate::default()); FIXED_NUM_ENTITIES];
-                        stepper.server_app.world.spawn_batch(entities);
+                        stepper.server_app.world_mut().spawn_batch(entities);
 
                         // advance time by one frame
                         stepper.advance_time(stepper.frame_duration);

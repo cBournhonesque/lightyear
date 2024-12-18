@@ -41,19 +41,24 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.insert_resource(ClearColor::default());
         // app.insert_resource(ClearColor(css::DARK_GRAY.into()));
         let draw_shadows = false;
-        // draw last to ensure all the interpolation/syncing stuff has happened
+        // in an attempt to reduce flickering, draw walls before FixedUpdate runs
+        // so they exist for longer during this tick.
+        // retained gizmos may help us in bevy 0.15?
+        app.add_systems(PreUpdate, draw_walls);
+
+        // draw after visual interpolation has propagated
         app.add_systems(
-            Last,
+            PostUpdate,
             (
                 add_player_label,
                 update_player_label,
-                draw_walls,
                 draw_confirmed_shadows.run_if(move || draw_shadows),
                 draw_predicted_entities,
                 draw_confirmed_entities.run_if(is_server),
                 draw_explosions,
             )
-                .chain(),
+                .chain()
+                .after(bevy::transform::TransformSystem::TransformPropagate),
         );
 
         app.add_systems(FixedPreUpdate, insert_bullet_mesh);
@@ -110,9 +115,7 @@ fn add_visual_interpolation_components<T: Component>(
         });
 }
 
-fn init_camera(mut commands: Commands, mut windows: Query<&mut Window>) {
-    let mut window = windows.single_mut();
-    window.resolution.set(800., 800.);
+fn init_camera(mut commands: Commands) {
     commands.spawn((
         Camera2dBundle {
             camera: Camera {
@@ -139,7 +142,7 @@ fn add_player_label(
             VisibilityBundle::default(),
             TransformBundle::default(),
             EntityLabel {
-                text: format!("{}\n{}", player.nickname, score.0),
+                text: format!("{} <{}>", player.nickname, score.0),
                 color: css::ANTIQUE_WHITE.with_alpha(0.8).into(),
                 offset: Vec2::Y * -45.0,
                 ..Default::default()
@@ -171,7 +174,7 @@ fn update_player_label(
         } else {
             0
         };
-        label.text = format!("{}\n{}", player.nickname, score.0);
+        label.text = format!("{} <{}>", player.nickname, score.0);
         label.sub_text = format!(
             "{}~{}ms [{num_buffered_inputs}]",
             player.rtt.as_millis(),
@@ -212,7 +215,6 @@ fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
 }
 
 /// System that draws the outlines of confirmed entities, with lines to the centre of their predicted location.
-#[allow(clippy::type_complexity)]
 pub(crate) fn draw_confirmed_shadows(
     mut gizmos: Gizmos,
     confirmed_q: Query<
@@ -242,7 +244,6 @@ pub(crate) fn draw_confirmed_shadows(
 }
 
 /// System that draws the player's boxes and cursors
-#[allow(clippy::type_complexity)]
 fn draw_predicted_entities(
     mut gizmos: Gizmos,
     predicted: Query<
@@ -319,7 +320,6 @@ fn draw_walls(walls: Query<&Wall, Without<Player>>, mut gizmos: Gizmos) {
 
 /// Draws confirmed entities that have colliders.
 /// Only useful on the server
-#[allow(clippy::type_complexity)]
 fn draw_confirmed_entities(
     mut gizmos: Gizmos,
     confirmed: Query<

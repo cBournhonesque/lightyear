@@ -161,6 +161,7 @@ impl ConnectionEvents {
 }
 
 pub trait IterEntitySpawnEvent<Ctx: EventContext = ()> {
+    #[allow(clippy::wrong_self_convention)]
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
     fn has_entity_spawn(&self) -> bool;
 }
@@ -177,6 +178,7 @@ impl IterEntitySpawnEvent for ConnectionEvents {
 }
 
 pub trait IterEntityDespawnEvent<Ctx: EventContext = ()> {
+    #[allow(clippy::wrong_self_convention)]
     fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
     fn has_entity_despawn(&self) -> bool;
 }

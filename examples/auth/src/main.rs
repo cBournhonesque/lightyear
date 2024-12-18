@@ -49,7 +49,7 @@ fn main() {
         )),
     };
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    let mut apps = Apps::new(settings.common, cli);
+    let mut apps = Apps::new(settings.common, cli, env!("CARGO_PKG_NAME").to_string());
     // add the lightyear [`ClientPlugins`] and [`ServerPlugins`]
     apps.add_lightyear_plugins()
         // add user plugins

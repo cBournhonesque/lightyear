@@ -115,6 +115,7 @@ pub enum Inputs {
 }
 
 // Protocol
+#[derive(Clone)]
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {

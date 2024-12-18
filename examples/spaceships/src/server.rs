@@ -87,6 +87,7 @@ fn start_server(mut commands: Commands) {
 }
 
 fn init(mut commands: Commands) {
+    #[cfg(feature = "gui")]
     commands.spawn(
         TextBundle::from_section(
             "Server",

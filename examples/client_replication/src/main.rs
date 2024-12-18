@@ -19,7 +19,7 @@ fn main() {
     let settings = read_settings::<Settings>(settings_str);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut app = Apps::new(settings, cli);
+    let mut app = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
     // add `ClientPlugins` and `ServerPlugins` plugin groups
     app.add_lightyear_plugins();
     // add our plugins
