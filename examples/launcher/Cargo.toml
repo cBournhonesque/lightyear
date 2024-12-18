@@ -1,0 +1,11 @@
+[package]
+name = "launcher"
+edition = "2021"
+version = "0.0.1"
+authors = ["RJ <rj@metabrew.com>"]
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

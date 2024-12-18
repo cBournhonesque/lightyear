@@ -10,7 +10,7 @@ use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::client::{self, LeafwingInputConfig};
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
-use lightyear::utils::avian3d::*;
+use lightyear::utils::avian3d::{position, rotation};
 use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::shared::color_from_id;

@@ -105,7 +105,7 @@ impl LocalBevyStepper {
             // Setup io
             let client_id = i as u64;
             let port = 1234 + i;
-            let addr = SocketAddr::from_str(&*format!("127.0.0.1:{:?}", port)).unwrap();
+            let addr = SocketAddr::from_str(&format!("127.0.0.1:{:?}", port)).unwrap();
             // channels to receive a message from/to server
             let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
             let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
@@ -120,8 +120,7 @@ impl LocalBevyStepper {
             client_app.add_plugins((
                 MinimalPlugins,
                 StatesPlugin,
-                #[cfg(feature = "bevy/trace_tracy")]
-                LogPlugin::default(),
+                // LogPlugin::default(),
             ));
             let auth = Authentication::Manual {
                 server_addr,
@@ -130,15 +129,15 @@ impl LocalBevyStepper {
                 client_id,
             };
             let config = ClientConfig {
-                shared: shared_config.clone(),
+                shared: shared_config,
                 net: client::NetConfig::Netcode {
                     auth,
                     config: client::NetcodeConfig::default(),
                     io: client_io,
                 },
-                sync: sync_config.clone(),
+                sync: sync_config,
                 prediction: prediction_config,
-                interpolation: interpolation_config.clone(),
+                interpolation: interpolation_config,
                 ..default()
             };
             client_app.add_plugins((ClientPlugins::new(config), ProtocolPlugin));
@@ -160,11 +159,10 @@ impl LocalBevyStepper {
         server_app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
-            #[cfg(feature = "bevy/trace_tracy")]
-            LogPlugin::default(),
+            // LogPlugin::default(),
         ));
         let config = ServerConfig {
-            shared: shared_config.clone(),
+            shared: shared_config,
             net: vec![server::NetConfig::Netcode {
                 config: server::NetcodeConfig::default()
                     .with_protocol_id(protocol_id)
@@ -234,7 +232,7 @@ impl LocalBevyStepper {
         self.client_apps.values_mut().for_each(|client_app| {
             client_app.finish();
             client_app.cleanup();
-            let _ = client_app
+            client_app
                 .world_mut()
                 .run_system_once(|mut commands: Commands| commands.connect_client());
         });

@@ -3,7 +3,6 @@ name = "lightyear_examples_common"
 version = "0.17.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
-rust-version = "1.76"
 description = "Common harness for the lightyear examples"
 readme = "../README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
@@ -12,26 +11,60 @@ categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
+[features]
+default = ["steam", "websocket", "client", "server", "gui"]
+steam = ["lightyear/steam"]
+websocket = ["lightyear/websocket"]
+server = []
+client = ["gui"]
+bevygap_client = ["client", "dep:bevygap_client_plugin"]
+bevygap_server = ["server", "dep:bevygap_server_plugin"]
+
+#inspector = ["gui", "dep:bevy-inspector-egui"]
+
+# this serves as a bit of "workspace-hack" crate by enabling all bevy features needed by examples.
+# you can read about workspace-hack crates here: https://docs.rs/cargo-hakari/latest/cargo_hakari/about/index.html
+# even though we're not using cargo-hakari.
+
+gui = [
+  "dep:bevy_mod_picking",
+
+  "bevy/bevy_asset",
+  "bevy/bevy_render",
+  "bevy/bevy_pbr",
+  "bevy/bevy_scene",
+  "bevy/bevy_core_pipeline",
+  "bevy/bevy_gizmos",
+  "bevy/tonemapping_luts",
+  "bevy/smaa_luts",
+  "bevy/default_font",
+  "bevy/png",
+  "bevy/hdr",
+  "bevy/x11",
+  "bevy/webgl2",
+  "bevy/bevy_winit",
+  "bevy/bevy_sprite",
+  "bevy/bevy_text",
+  "bevy/bevy_ui",
+]
+
 [dependencies]
-lightyear = { version = "0.17.0", path = "../../lightyear", features = [
-  "steam",
-  "webtransport",
-  "websocket",
-] }
+lightyear = { workspace = true, features = ["webtransport"] }
+anyhow.workspace = true
+async-compat.workspace = true
+cfg-if.workspace = true
+clap.workspace = true
+crossbeam-channel.workspace = true
+rand.workspace = true
+serde.workspace = true
+bevy.workspace = true
+bevygap_client_plugin = { workspace = true, optional = true }
+bevygap_server_plugin = { workspace = true, optional = true }
+bevy_mod_picking = { workspace = true, optional = true }
+#bevy-inspector-egui = {workspace = true, optional = true}
 
-# utils
-anyhow = { version = "1.0.75", features = [] }
-async-compat = "0.2.3"
-cfg-if = "1.0.0"
-clap = { version = "4.5.4", features = ["derive"] }
-crossbeam-channel = "0.5.12"
-rand = "0.8.5"
-serde = { version = "1.0.201", features = ["derive"] }
+[target."cfg(target_family = \"wasm\")".dependencies]
+web-sys = { workspace = true, features = ["Window", "Location"] }
 
-# bevy
-bevy = { version = "0.14", default-features = true, features = [
-  "multi_threaded",
-  "bevy_state",
-  "serialize",
-] }
-bevy-inspector-egui = "0.27"
+[lints]
+workspace = true

@@ -20,7 +20,7 @@ fn main() {
     let settings_str = include_str!("../assets/settings.ron");
     let settings = read_settings::<MySettings>(settings_str);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    let mut apps = Apps::new(settings.common, cli);
+    let mut apps = Apps::new(settings.common, cli, env!("CARGO_PKG_NAME").to_string());
     // for this example, we will use input delay and a correction function
     apps.update_lightyear_client_config(|config| {
         config.prediction.minimum_input_delay_ticks = settings.input_delay_ticks;
