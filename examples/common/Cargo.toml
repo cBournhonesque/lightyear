@@ -27,25 +27,25 @@ bevygap_server = ["server", "dep:bevygap_server_plugin"]
 # even though we're not using cargo-hakari.
 
 gui = [
-  "dep:bevy_mod_picking",
-
-  "bevy/bevy_asset",
-  "bevy/bevy_render",
-  "bevy/bevy_pbr",
-  "bevy/bevy_scene",
-  "bevy/bevy_core_pipeline",
-  "bevy/bevy_gizmos",
-  "bevy/tonemapping_luts",
-  "bevy/smaa_luts",
-  "bevy/default_font",
-  "bevy/png",
-  "bevy/hdr",
-  "bevy/x11",
-  "bevy/webgl2",
-  "bevy/bevy_winit",
-  "bevy/bevy_sprite",
-  "bevy/bevy_text",
-  "bevy/bevy_ui",
+    "bevy/bevy_asset",
+    "bevy/bevy_render",
+    "bevy/bevy_pbr",
+    "bevy/bevy_scene",
+    "bevy/bevy_core_pipeline",
+    "bevy/bevy_gizmos",
+    "bevy/tonemapping_luts",
+    "bevy/smaa_luts",
+    "bevy/default_font",
+    "bevy/png",
+    "bevy/hdr",
+    "bevy/x11",
+    "bevy/webgl2",
+    "bevy/bevy_winit",
+    "bevy/bevy_picking",
+    "bevy/bevy_sprite",
+    "bevy/bevy_text",
+    "bevy/bevy_ui",
+    "bevy/bevy_window",
 ]
 
 [dependencies]
@@ -60,7 +60,6 @@ serde.workspace = true
 bevy.workspace = true
 bevygap_client_plugin = { workspace = true, optional = true }
 bevygap_server_plugin = { workspace = true, optional = true }
-bevy_mod_picking = { workspace = true, optional = true }
 #bevy-inspector-egui = {workspace = true, optional = true}
 
 [target."cfg(target_family = \"wasm\")".dependencies]

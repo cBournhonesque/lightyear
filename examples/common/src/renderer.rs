@@ -1,7 +1,7 @@
 use bevy::prelude::*;
-use bevy_mod_picking::picking_core::Pickable;
-use bevy_mod_picking::prelude::{Click, On, Pointer};
-use bevy_mod_picking::DefaultPickingPlugins;
+// use bevy::picking::Pickable;
+use bevy::picking::prelude::{Click, On, Pointer};
+use bevy::picking::DefaultPickingPlugins;
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
 use lightyear::prelude::{client::*, *};
@@ -143,15 +143,12 @@ struct StatusMessageMarker;
 pub(crate) fn spawn_connect_button(mut commands: Commands) {
     commands
         .spawn((
-            NodeBundle {
-                style: Style {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    align_items: AlignItems::FlexEnd,
-                    justify_content: JustifyContent::FlexEnd,
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                },
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                align_items: AlignItems::FlexEnd,
+                justify_content: JustifyContent::FlexEnd,
+                flex_direction: FlexDirection::Row,
                 ..default()
             },
             Pickable::IGNORE,
@@ -159,17 +156,12 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
         .with_children(|parent| {
             parent
                 .spawn((
-                    TextBundle::from_section(
-                        "Lightyear Example",
-                        TextStyle {
-                            font_size: 18.0,
-                            color: Color::srgb(0.9, 0.9, 0.9).with_alpha(0.4),
-                            ..default()
-                        },
-                    ),
+                    Text("Lightyear Example".to_string()),
+                    TextColor(Color::srgb(0.9, 0.9, 0.9).with_alpha(0.4)),
+                    TextFont::from_font_size(18.0),
                     StatusMessageMarker,
                 ))
-                .insert(Style {
+                .insert(Node {
                     padding: UiRect::all(Val::Px(10.0)),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
@@ -177,33 +169,29 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                 });
             parent
                 .spawn((
-                    ButtonBundle {
-                        style: Style {
-                            width: Val::Px(150.0),
-                            height: Val::Px(65.0),
-                            border: UiRect::all(Val::Px(5.0)),
-                            // horizontally center child text
-                            justify_content: JustifyContent::Center,
-                            // vertically center child text
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        border_color: BorderColor(Color::BLACK),
-                        image: UiImage::default().with_color(Color::srgb(0.15, 0.15, 0.15)),
+                    // ImageNode {
+                    //     image: UiImage::default().with_color(Color::srgb(0.15, 0.15, 0.15)),
+                    //     ..default()
+                    // },
+                    BorderColor(Color::BLACK),
+                    Node {
+                        width: Val::Px(150.0),
+                        height: Val::Px(65.0),
+                        border: UiRect::all(Val::Px(5.0)),
+                        // horizontally center child text
+                        justify_content: JustifyContent::Center,
+                        // vertically center child text
+                        align_items: AlignItems::Center,
                         ..default()
                     },
+                    Button,
                     On::<Pointer<Click>>::run(|| {}),
                 ))
                 .with_children(|parent| {
                     parent.spawn((
-                        TextBundle::from_section(
-                            "Connect",
-                            TextStyle {
-                                font_size: 20.0,
-                                color: Color::srgb(0.9, 0.9, 0.9),
-                                ..default()
-                            },
-                        ),
+                        Text("Connect".to_string()),
+                        TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                        TextFont::from_font_size(20.0),
                         Pickable::IGNORE,
                     ));
                 });
@@ -218,11 +206,11 @@ fn button_system(
     state: Res<State<NetworkingState>>,
 ) {
     if state.is_changed() {
-        for (_entity, children, mut on_click) in &mut interaction_query {
+        for (_entity, children, mut on_click) in interaction_query {
             let mut text = text_query.get_mut(children[0]).unwrap();
             match state.get() {
                 NetworkingState::Disconnected => {
-                    text.sections[0].value = "Connect".to_string();
+                    text.0 = "Connect".to_string();
                     *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
                         #[cfg(feature = "bevygap_client")]
                         commands.bevygap_connect_client();
@@ -231,11 +219,11 @@ fn button_system(
                     });
                 }
                 NetworkingState::Connecting => {
-                    text.sections[0].value = "Connecting".to_string();
+                    text.0 = "Connecting".to_string();
                     *on_click = On::<Pointer<Click>>::run(|| {});
                 }
                 NetworkingState::Connected => {
-                    text.sections[0].value = "Disconnect".to_string();
+                    text.0 = "Disconnect".to_string();
                     *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
                         commands.disconnect_client();
                     });
@@ -260,14 +248,8 @@ pub(crate) fn handle_connection(
     for event in connection_event.read() {
         let client_id = event.client_id();
         commands.spawn((
-            TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ),
+            Text(format!("Client {}", client_id)),
+            TextFont::from_font_size(30.0),
             ClientIdText,
         ));
     }

@@ -12,6 +12,7 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
 use bevy::state::app::StatesPlugin;
+use bevy::window::PresentMode;
 use bevy::DefaultPlugins;
 use clap::{Parser, ValueEnum};
 use lightyear::prelude::client::ClientConfig;
@@ -434,7 +435,7 @@ fn window_plugin() -> WindowPlugin {
         primary_window: Some(Window {
             title: format!("Lightyear Example: {}", env!("CARGO_PKG_NAME")),
             resolution: (1024., 768.).into(),
-            present_mode: bevy::window::PresentMode::AutoVsync,
+            present_mode: PresentMode::AutoVsync,
             // Tells wasm to resize the window according to the available canvas
             fit_canvas_to_parent: true,
             // set to true if we want to capture tab etc in wasm

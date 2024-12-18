@@ -181,8 +181,6 @@ bevy = { version = "0.15", default-features = false, features = [
     "sysinfo_plugin",
 ] }
 
-bevy_mod_picking = { version = "0.20", features = ["backend_bevy_ui"] }
-
 # input
 leafwing-input-manager = { version = "0.16", default-features = false, features = [
     "keyboard",
@@ -203,8 +201,8 @@ bevygap_server_plugin = { git = "https://github.com/RJ/bevygap.git", rev = "041e
 bevygap_client_plugin = { git = "https://github.com/RJ/bevygap.git", rev = "041e2be874ec61fe7eb5b959a3eee8852b734ff3" }
 
 # Make sure bevygap's lightyear dep is our exact version:
-#[patch."https://github.com/cBournhonesque/lightyear.git"]
-#lightyear = { path = "./lightyear", rev = "5845699d02ee953b73fa6f341224fe0df9dfa12b" }
+[patch."https://github.com/cBournhonesque/lightyear.git"]
+lightyear = { path = "./lightyear", version = "0.18" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"

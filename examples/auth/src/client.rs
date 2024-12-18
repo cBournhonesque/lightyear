@@ -35,7 +35,7 @@ impl Plugin for ExampleClientPlugin {
             auth_backend_addr: self.auth_backend_address,
             task: None,
         });
-        app.add_systems(Startup, spawn_connect_button);
+        // app.add_systems(Startup, spawn_connect_button);
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         app.add_systems(Update, button_system);
         app.add_systems(Update, fetch_connect_token);
@@ -76,27 +76,27 @@ fn fetch_connect_token(
 #[derive(Component)]
 pub struct ClientIdText;
 
-/// Listen for events to know when the client is connected, and spawn a text entity
-/// to display the client id
-pub(crate) fn handle_connection(
-    mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
-) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        commands.spawn((
-            TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ),
-            ClientIdText,
-        ));
-    }
-}
+// /// Listen for events to know when the client is connected, and spawn a text entity
+// /// to display the client id
+// pub(crate) fn handle_connection(
+//     mut commands: Commands,
+//     mut connection_event: EventReader<ConnectEvent>,
+// ) {
+//     for event in connection_event.read() {
+//         let client_id = event.client_id();
+//         commands.spawn((
+//             TextBundle::from_section(
+//                 format!("Client {}", client_id),
+//                 TextStyle {
+//                     font_size: 30.0,
+//                     color: Color::WHITE,
+//                     ..default()
+//                 },
+//             ),
+//             ClientIdText,
+//         ));
+//     }
+// }
 
 /// Get a ConnectToken via a TCP connection to the authentication server
 async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -> ConnectToken {
@@ -128,58 +128,58 @@ async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -
     }
 }
 
-/// Create a button that allow you to connect/disconnect to a server
-pub(crate) fn spawn_connect_button(mut commands: Commands) {
-    commands
-        .spawn((
-            NodeBundle {
-                style: Style {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    align_items: AlignItems::FlexEnd,
-                    justify_content: JustifyContent::FlexEnd,
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                },
-                ..default()
-            },
-            Pickable::IGNORE,
-        ))
-        .with_children(|parent| {
-            parent
-                .spawn((
-                    ButtonBundle {
-                        style: Style {
-                            width: Val::Px(150.0),
-                            height: Val::Px(65.0),
-                            border: UiRect::all(Val::Px(5.0)),
-                            // horizontally center child text
-                            justify_content: JustifyContent::Center,
-                            // vertically center child text
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        border_color: BorderColor(Color::BLACK),
-                        background_color: Color::srgb(0.15, 0.15, 0.15).into(),
-                        ..default()
-                    },
-                    On::<Pointer<Click>>::run(|| {}),
-                ))
-                .with_children(|parent| {
-                    parent.spawn((
-                        TextBundle::from_section(
-                            "Connect",
-                            TextStyle {
-                                font_size: 20.0,
-                                color: Color::srgb(0.9, 0.9, 0.9),
-                                ..default()
-                            },
-                        ),
-                        Pickable::IGNORE,
-                    ));
-                });
-        });
-}
+// /// Create a button that allow you to connect/disconnect to a server
+// pub(crate) fn spawn_connect_button(mut commands: Commands) {
+//     commands
+//         .spawn((
+//             NodeBundle {
+//                 style: Style {
+//                     width: Val::Percent(100.0),
+//                     height: Val::Percent(100.0),
+//                     align_items: AlignItems::FlexEnd,
+//                     justify_content: JustifyContent::FlexEnd,
+//                     flex_direction: FlexDirection::Row,
+//                     ..default()
+//                 },
+//                 ..default()
+//             },
+//             Pickable::IGNORE,
+//         ))
+//         .with_children(|parent| {
+//             parent
+//                 .spawn((
+//                     ButtonBundle {
+//                         style: Style {
+//                             width: Val::Px(150.0),
+//                             height: Val::Px(65.0),
+//                             border: UiRect::all(Val::Px(5.0)),
+//                             // horizontally center child text
+//                             justify_content: JustifyContent::Center,
+//                             // vertically center child text
+//                             align_items: AlignItems::Center,
+//                             ..default()
+//                         },
+//                         border_color: BorderColor(Color::BLACK),
+//                         background_color: Color::srgb(0.15, 0.15, 0.15).into(),
+//                         ..default()
+//                     },
+//                     On::<Pointer<Click>>::run(|| {}),
+//                 ))
+//                 .with_children(|parent| {
+//                     parent.spawn((
+//                         TextBundle::from_section(
+//                             "Connect",
+//                             TextStyle {
+//                                 font_size: 20.0,
+//                                 color: Color::srgb(0.9, 0.9, 0.9),
+//                                 ..default()
+//                             },
+//                         ),
+//                         Pickable::IGNORE,
+//                     ));
+//                 });
+//         });
+// }
 
 /// Remove all entities when the client disconnect
 fn on_disconnect(mut commands: Commands, debug_text: Query<Entity, With<ClientIdText>>) {
@@ -188,57 +188,57 @@ fn on_disconnect(mut commands: Commands, debug_text: Query<Entity, With<ClientId
     }
 }
 
-///  System that will assign a callback to the 'Connect' button depending on the connection state.
-fn button_system(
-    mut interaction_query: Query<(Entity, &Children, &mut On<Pointer<Click>>), With<Button>>,
-    mut text_query: Query<&mut Text>,
-    state: Res<State<NetworkingState>>,
-) {
-    if state.is_changed() {
-        for (entity, children, mut on_click) in &mut interaction_query {
-            let mut text = text_query.get_mut(children[0]).unwrap();
-            match state.get() {
-                NetworkingState::Disconnected => {
-                    text.sections[0].value = "Connect".to_string();
-                    *on_click = On::<Pointer<Click>>::run(
-                        |mut commands: Commands,
-                         config: Res<ClientConfig>,
-                         mut task_state: ResMut<ConnectTokenRequestTask>| {
-                            if let NetConfig::Netcode { auth, .. } = &config.net {
-                                // if we have a connect token, try to connect to the game server
-                                if auth.has_token() {
-                                    commands.connect_client();
-                                    return;
-                                } else {
-                                    let auth_backend_addr = task_state.auth_backend_addr;
-                                    let task =
-                                        IoTaskPool::get().spawn_local(Compat::new(async move {
-                                            get_connect_token_from_auth_backend(auth_backend_addr)
-                                                .await
-                                        }));
-                                    task_state.task = Some(task);
-                                }
-                            }
-                        },
-                    );
-                }
-                NetworkingState::Connecting => {
-                    text.sections[0].value = "Connecting".to_string();
-                    *on_click = On::<Pointer<Click>>::run(|| {});
-                }
-                NetworkingState::Connected => {
-                    text.sections[0].value = "Disconnect".to_string();
-                    *on_click = On::<Pointer<Click>>::run(
-                        |mut commands: Commands, mut config: ResMut<ClientConfig>| {
-                            commands.disconnect_client();
-                            // reset the authentication method to None, so that we have to request a new ConnectToken
-                            if let NetConfig::Netcode { auth, .. } = &mut config.net {
-                                *auth = Authentication::None;
-                            }
-                        },
-                    );
-                }
-            };
-        }
-    }
-}
+// ///  System that will assign a callback to the 'Connect' button depending on the connection state.
+// fn button_system(
+//     mut interaction_query: Query<(Entity, &Children, &mut On<Pointer<Click>>), With<Button>>,
+//     mut text_query: Query<&mut Text>,
+//     state: Res<State<NetworkingState>>,
+// ) {
+//     if state.is_changed() {
+//         for (entity, children, mut on_click) in &mut interaction_query {
+//             let mut text = text_query.get_mut(children[0]).unwrap();
+//             match state.get() {
+//                 NetworkingState::Disconnected => {
+//                     text.sections[0].value = "Connect".to_string();
+//                     *on_click = On::<Pointer<Click>>::run(
+//                         |mut commands: Commands,
+//                          config: Res<ClientConfig>,
+//                          mut task_state: ResMut<ConnectTokenRequestTask>| {
+//                             if let NetConfig::Netcode { auth, .. } = &config.net {
+//                                 // if we have a connect token, try to connect to the game server
+//                                 if auth.has_token() {
+//                                     commands.connect_client();
+//                                     return;
+//                                 } else {
+//                                     let auth_backend_addr = task_state.auth_backend_addr;
+//                                     let task =
+//                                         IoTaskPool::get().spawn_local(Compat::new(async move {
+//                                             get_connect_token_from_auth_backend(auth_backend_addr)
+//                                                 .await
+//                                         }));
+//                                     task_state.task = Some(task);
+//                                 }
+//                             }
+//                         },
+//                     );
+//                 }
+//                 NetworkingState::Connecting => {
+//                     text.sections[0].value = "Connecting".to_string();
+//                     *on_click = On::<Pointer<Click>>::run(|| {});
+//                 }
+//                 NetworkingState::Connected => {
+//                     text.sections[0].value = "Disconnect".to_string();
+//                     *on_click = On::<Pointer<Click>>::run(
+//                         |mut commands: Commands, mut config: ResMut<ClientConfig>| {
+//                             commands.disconnect_client();
+//                             // reset the authentication method to None, so that we have to request a new ConnectToken
+//                             if let NetConfig::Netcode { auth, .. } = &mut config.net {
+//                                 *auth = Authentication::None;
+//                             }
+//                         },
+//                     );
+//                 }
+//             };
+//         }
+//     }
+// }
