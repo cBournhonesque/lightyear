@@ -5,7 +5,6 @@ use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian3d::math::Scalar;
 use avian3d::prelude::*;
 use bevy::app::{App, FixedPostUpdate, Plugin};
-use bevy::math::Quat;
 use bevy::prelude::IntoSystemSetConfigs;
 use tracing::trace;
 
@@ -20,18 +19,21 @@ impl Plugin for Avian3dPlugin {
                 (
                     InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
                     InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
-                ),
+                )
+                    .chain(),
                 (
                     PhysicsSet::Prepare,
                     PhysicsSet::StepSimulation,
                     PhysicsSet::Sync,
-                ),
+                )
+                    .chain(),
                 // run physics before updating the prediction history
                 (
                     PredictionSet::UpdateHistory,
                     PredictionSet::IncrementRollbackTick,
                     InterpolationSet::UpdateVisualInterpolationState,
-                ),
+                )
+                    .chain(),
             )
                 .chain(),
         );
@@ -71,19 +73,12 @@ pub mod position {
     }
 }
 
-/// copied from Animatable trait in bevy_animation, which we don't want as a dep because
-/// it pulls in all the render stuff, and we might need to interpolate on a headless server.
-fn interpolate_quat(a: &Quat, b: &Quat, t: f32) -> Quat {
-    // We want to smoothly interpolate between the two quaternions by default,
-    // rather than using a quicker but less correct linear interpolation.
-    a.slerp(*b, t)
-}
-
 pub mod rotation {
     use super::*;
-
+    /// We want to smoothly interpolate between the two quaternions by default,
+    /// rather than using a quicker but less correct linear interpolation.
     pub fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {
-        Rotation(interpolate_quat(&start.0, &other.0, t))
+        start.slerp(*other, Scalar::from(t))
     }
 }
 

@@ -4,7 +4,7 @@ use crate::shared::replication::delta::Diffable;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian2d::math::Scalar;
 use avian2d::prelude::*;
-use bevy::prelude::{App, FixedPostUpdate, IntoSystemSetConfigs, Plugin};
+use bevy::prelude::{App, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin};
 use tracing::trace;
 
 pub(crate) struct Avian2dPlugin;
@@ -19,18 +19,21 @@ impl Plugin for Avian2dPlugin {
                 (
                     InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
                     InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
-                ),
+                )
+                    .chain(),
                 (
                     PhysicsSet::Prepare,
                     PhysicsSet::StepSimulation,
                     PhysicsSet::Sync,
-                ),
+                )
+                    .chain(),
                 // run physics before updating the prediction history
                 (
                     PredictionSet::UpdateHistory,
                     PredictionSet::IncrementRollbackTick,
                     InterpolationSet::UpdateVisualInterpolationState,
-                ),
+                )
+                    .chain(),
             )
                 .chain(),
         );
