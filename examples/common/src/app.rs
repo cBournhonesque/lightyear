@@ -32,30 +32,13 @@ use bevy::window::PresentMode;
 
 /// CLI options to create an [`App`]
 #[derive(Parser, PartialEq, Debug)]
-pub enum Cli {
-    /// We have the client and the server running inside the same app.
-    /// The server will also act as a client. (i.e. one client acts as the 'host')
-    #[cfg(all(feature = "client", feature = "server"))]
-    HostServer {
-        #[arg(short, long, default_value = None)]
-        client_id: Option<u64>,
-    },
-    /// We will create two apps: a client app and a server app.
-    /// Data gets passed between the two via channels.
-    #[cfg(all(feature = "client", feature = "server"))]
-    ClientAndServer {
-        #[arg(short, long, default_value = None)]
-        client_id: Option<u64>,
-    },
-    /// Dedicated server
-    #[cfg(feature = "server")]
-    Server,
-    /// The program will act as a client
+pub struct Cli {
     #[cfg(feature = "client")]
-    Client {
-        #[arg(short, long, default_value = None)]
-        client_id: Option<u64>,
-    },
+    #[arg(short, long, default_value = None)]
+    client_id: Option<u64>,
+
+    #[cfg(all(feature = "client", feature = "server"))]
+    mode: Mode,
 }
 
 /// App that is Send.
@@ -117,72 +100,72 @@ pub enum Apps {
 impl Apps {
     /// Build the apps with the given settings and CLI options.
     pub fn new(settings: Settings, cli: Cli, name: String) -> Self {
-        match cli {
-            #[cfg(all(feature = "client", feature = "server"))]
-            Cli::HostServer { client_id } => {
-                let client_net_config = client::NetConfig::Local {
-                    id: client_id.unwrap_or(settings.client.client_id),
-                };
-                let (mut app, client_config, server_config) =
-                    combined_app(settings, vec![], client_net_config);
-                app.add_plugins(ExampleRendererPlugin::new(name));
-                Apps::HostServer {
-                    app,
-                    client_config,
-                    server_config,
-                }
-            }
-            #[cfg(all(feature = "client", feature = "server"))]
-            Cli::ClientAndServer { client_id } => {
-                // we will communicate between the client and server apps via channels
-                let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
-                let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
-                let transport_config = client::ClientTransport::LocalChannel {
-                    recv: from_server_recv,
-                    send: to_server_send,
-                };
+        cfg_if::cfg_if! {
+            if #[cfg(all(feature = "client", feature = "server"))] {
+                match cli.mode {
+                    Mode::HostServer => {
+                        let client_net_config = client::NetConfig::Local {
+                            id: cli.client_id.unwrap_or(settings.client.client_id),
+                        };
+                        let (mut app, client_config, server_config) =
+                            combined_app(settings, vec![], client_net_config);
+                        app.add_plugins(ExampleRendererPlugin::new(name));
+                        Apps::HostServer {
+                            app,
+                            client_config,
+                            server_config,
+                        }
+                    }
+                    Mode::Separate => {
+                            // we will communicate between the client and server apps via channels
+                        let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
+                        let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
+                        let transport_config = client::ClientTransport::LocalChannel {
+                            recv: from_server_recv,
+                            send: to_server_send,
+                        };
 
-                // create client app
-                let net_config = build_client_netcode_config(
-                    client_id.unwrap_or(settings.client.client_id),
-                    // when communicating via channels, we need to use the address `LOCAL_SOCKET` for the server
-                    LOCAL_SOCKET,
-                    settings.client.conditioner.as_ref(),
-                    &settings.shared,
-                    transport_config,
-                );
-                let (mut client_app, client_config) = client_app(settings.clone(), net_config);
-                client_app.add_plugins(ExampleRendererPlugin::new(name));
+                        // create client app
+                        let net_config = build_client_netcode_config(
+                            cli.client_id.unwrap_or(settings.client.client_id),
+                            // when communicating via channels, we need to use the address `LOCAL_SOCKET` for the server
+                            LOCAL_SOCKET,
+                            settings.client.conditioner.as_ref(),
+                            &settings.shared,
+                            transport_config,
+                        );
+                        let (mut client_app, client_config) = client_app(settings.clone(), net_config);
+                        client_app.add_plugins(ExampleRendererPlugin::new(name));
 
-                // create server app, which will be headless when we have client app in same process
-                let extra_transport_configs = vec![server::ServerTransport::Channels {
-                    // even if we communicate via channels, we need to provide a socket address for the client
-                    channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
-                }];
-                let (server_app, server_config) = server_app(settings, extra_transport_configs);
-                Apps::ClientAndServer {
-                    client_app,
-                    client_config,
-                    server_app,
-                    server_config,
+                        // create server app, which will be headless when we have client app in same process
+                        let extra_transport_configs = vec![server::ServerTransport::Channels {
+                            // even if we communicate via channels, we need to provide a socket address for the client
+                            channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
+                        }];
+                        let (server_app, server_config) = server_app(settings, extra_transport_configs);
+                        Apps::ClientAndServer {
+                            client_app,
+                            client_config,
+                            server_app,
+                            server_config,
+                        }
+                    }
                 }
-            }
-            #[cfg(feature = "server")]
-            Cli::Server => {
-                #[allow(unused_mut)]
+            } else if #[cfg(feature = "server")] {
+                // server only
+                 #[allow(unused_mut)]
                 let (mut app, config) = server_app(settings, vec![]);
                 #[cfg(feature = "gui")]
                 app.add_plugins(ExampleRendererPlugin::new(name));
                 Apps::Server { app, config }
-            }
-            #[cfg(feature = "client")]
-            Cli::Client { client_id } => {
+            } else {
+                // client only
                 let server_addr = SocketAddr::new(
                     settings.client.server_addr.into(),
                     settings.client.server_port,
                 );
                 // use the cli-provided client id if it exists, otherwise use the settings client id
-                let client_id = client_id.unwrap_or(settings.client.client_id);
+                let client_id = cli.client_id.unwrap_or(settings.client.client_id);
                 let net_config = get_client_net_config(&settings, client_id);
                 let (mut app, config) = client_app(settings, net_config);
                 app.add_plugins(ExampleRendererPlugin::new(name));

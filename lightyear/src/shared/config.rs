@@ -29,10 +29,12 @@ pub struct SharedConfig {
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum Mode {
     #[default]
-    /// Run the client and server in two different apps
+    /// We will create two bevy Apps: a client app and a server app.
+    /// Data gets passed between the two via channels.
     Separate,
-    /// Run only the server, but can support a local player
-    /// This means that the ServerPlugin and ClientPlugin are running in the same App.
+    /// Run the app in headless mode
+    /// We have the client and the server running inside the same app.
+    /// The server will also act as a client. (i.e. one client acts as the 'host')
     HostServer,
 }
 
