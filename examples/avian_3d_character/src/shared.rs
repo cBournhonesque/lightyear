@@ -1,8 +1,7 @@
-use bevy::diagnostic::LogDiagnosticsPlugin;
+// use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::ecs::query::QueryData;
 use bevy::math::VectorSpace;
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use server::ControlledEntities;
@@ -16,12 +15,11 @@ use tracing::Level;
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
-use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
-use lightyear::transport::io::IoDiagnosticsPlugin;
+// use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
+// use lightyear::transport::io::IoDiagnosticsPlugin;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
-use crate::renderer::ExampleRendererPlugin;
 
 pub const FLOOR_WIDTH: f32 = 100.0;
 pub const FLOOR_HEIGHT: f32 = 1.0;
@@ -102,9 +100,9 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        if app.is_plugin_added::<RenderPlugin>() {
-            app.add_plugins(ExampleRendererPlugin);
-        }
+        // if app.is_plugin_added::<RenderPlugin>() {
+        //     app.add_plugins(ExampleRendererPlugin);
+        // }
 
         // Physics
 

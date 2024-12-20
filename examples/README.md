@@ -2,6 +2,8 @@
 
 This folder contains various examples that showcase various `lightyear` features.
 
+The top level `Cargo.toml` workspace defines the deps that examples can use and pick features from.
+
 
 ## Easy
 
@@ -68,3 +70,20 @@ commands:
 - You then have to replace the certificate digest in the `assets/settings.ron` file with the one that the server printed
   out.
 - then start the client wasm test with `trunk serve`
+
+## NOTES
+
+The common crate provides the initial UI setup along with a connect/disconnect button, and manages
+the bevygap stuff if needed.
+
+## Building for Edgegap
+
+```bash
+# building the game server container
+docker build -t examples -f examples/Dockerfile.server --progress=plain --build-arg examples="simple_box spaceships" .
+
+# and to run, specify the example name as an env:
+docker run --rm -it -e EXAMPLE_NAME=simple_box examples
+# or with a key and an extra SANs for self-signed cert:
+ docker run --rm -it -e EXAMPLE_NAME=simple_box -e LIGHTYEAR_PRIVATE_KEY="1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1" -e SELF_SIGNED_SANS="example.com,10.1.2.3" examples
+```

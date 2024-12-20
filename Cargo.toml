@@ -9,3 +9,205 @@ members = [
 ]
 default-members = ["lightyear"]
 exclude = ["examples/certificates"]
+
+
+[workspace.package]
+version = "0.17.0"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
+publish = false
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+
+# Enable max optimizations for dependencies, but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
+
+# If your own code does CPU-intensive work, you might want to also enable some optimization for it.
+# Enable only a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Here is a configuration for the most aggressive optimizations possible
+# Read this when trying to optimise WASM build: https://bevy-cheatbook.github.io/platforms/wasm/size-opt.html
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+incremental = false
+debug = false
+
+[workspace.dependencies]
+
+lightyear_examples_common = { path = "./examples/common", default-features = false }
+lightyear = { path = "./lightyear", default-features = false }
+
+# utils
+
+anyhow = { version = "1.0.75", features = [] }
+clap = { version = "4.5.4", features = ["derive"] }
+chrono = "0.4.38"
+cfg-if = "1.0"
+enum_dispatch = "0.3"
+governor = "0.7.0"
+nonzero_ext = "0.3.0"
+parking_lot = "0.12.3"
+paste = "1.0"
+rand = "0.8"
+ringbuffer = "0.15"
+thiserror = "2.0.3"
+seahash = "4.1.0"
+zstd = "0.13.1"
+
+# serialization
+
+bincode = { version = "2.0.0-rc.3", features = ["serde"] }
+byteorder = "1.5.0"
+bytes = { version = "1.8", features = ["serde"] }
+self_cell = "1.0"
+serde = { version = "1", features = ["derive"] }
+
+# netcode
+
+chacha20poly1305 = { version = "0.10", features = ["std"] }
+
+# derive
+
+lightyear_macros = { version = "0.17.0", path = "./macros" }
+
+# tracing
+
+tracing = "0.1.40"
+tracing-log = "0.2.0"
+tracing-subscriber = { version = "0.3.17", features = [
+  "registry",
+  "env-filter",
+] }
+
+# server
+
+crossbeam-channel = { version = "0.5.13", features = [] }
+
+# metrics
+
+metrics = "0.24"
+metrics-util = "0.18"
+metrics-tracing-context = "0.17"
+metrics-exporter-prometheus = { version = "0.16", default-features = false, features = [
+  "http-listener",
+] }
+
+
+# compression
+
+lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
+
+# WebSocket
+futures-util = "0.3.30"
+
+# transport
+# we don't need any tokio features, we use only use the tokio channels
+
+tokio = { version = "1.36", features = [
+  "sync",
+  "macros",
+], default-features = false }
+futures = "0.3.30"
+async-compat = "0.2.3"
+async-channel = "2.2.0"
+
+# Non-WASM things
+
+steamworks = "0.11"
+wtransport = { version = "=0.5.0", features = [
+  "quinn",
+  "self-signed",
+  "dangerous-configuration",
+] }
+tokio-tungstenite = { version = "0.23.0", features = ["connect", "handshake"] }
+
+
+# WASM things
+
+console_error_panic_hook = "0.1.7"
+web-sys = { version = "0.3", features = [
+  "Document",
+  "WebTransport",
+  "WebTransportHash",
+  "WebTransportOptions",
+  "WebTransportBidirectionalStream",
+  "WebTransportSendStream",
+  "WebTransportReceiveStream",
+  "ReadableStreamDefaultReader",
+  "WritableStreamDefaultWriter",
+  "WebTransportDatagramDuplexStream",
+  "WebSocket",
+  "CloseEvent",
+  "ErrorEvent",
+  "MessageEvent",
+  "BinaryType",
+] }
+
+# latest version that still uses bevy 0.14:
+#bevy_web_keepalive = "0.3.2"
+bevy_web_keepalive = { git = "https://github.com/Nul-led/bevy_web_keepalive.git", tag = "v0.3.2" }
+
+futures-lite = "2.1.0"
+getrandom = { version = "0.2.11", features = [
+  "js", # feature 'js' is required for wasm
+] }
+xwt-core = "0.6"
+xwt-web = "0.15.0"
+wasm-bindgen = "0.2.90"
+wasm-bindgen-futures = "0.4.42"
+
+# dev deps
+
+wasm-bindgen-test = "0.3.39"
+mock_instant = "0.5"
+bitvec = "1.0"
+approx = "0.5.1"
+
+# Bevy
+# (we add back features needed for gui clients if desired)
+
+bevy = { version = "0.14", default-features = false, features = [
+  "multi_threaded",
+  "bevy_state",
+  "serialize",
+  "bevy_asset",
+  "bevy_state",
+  "bevy_color",
+  "multi_threaded",
+  "sysinfo_plugin",
+
+] }
+
+bevy_mod_picking = { version = "0.20", features = ["backend_bevy_ui"] }
+
+# input
+leafwing-input-manager = { version = "0.15", default-features = false, features = [
+  "keyboard",
+] }
+
+# physics
+avian2d = { version = "0.1.2", default-features = false }
+avian3d = { version = "0.1.2", default-features = false }
+
+# gui debug ui
+bevy-inspector-egui = { version = "0.27" }
+bevy_screen_diagnostics = { version = "0.6" }
+bevy_egui = "0.28"
+egui_extras = "0.28"
+
+# bevygap for deploying on Edgegap
+bevygap_server_plugin = { git = "https://github.com/RJ/bevygap.git", rev = "041e2be874ec61fe7eb5b959a3eee8852b734ff3" }
+bevygap_client_plugin = { git = "https://github.com/RJ/bevygap.git", rev = "041e2be874ec61fe7eb5b959a3eee8852b734ff3" }
+
+# Make sure bevygap's lightyear dep is our exact version:
+
+[patch."https://github.com/cBournhonesque/lightyear.git"]
+lightyear = { path = "./lightyear", version = "0.17.0" }
+
+[workspace.lints.clippy]
+type_complexity = "allow"

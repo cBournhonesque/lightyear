@@ -17,13 +17,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init);
-        app.add_systems(
-            PreUpdate,
-            handle_connection
-                .after(MainSet::Receive)
-                .before(PredictionSet::SpawnPrediction),
-        );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(
             FixedUpdate,
@@ -53,41 +46,6 @@ impl Plugin for ExampleClientPlugin {
                 .run_if(on_event::<BulletHitEvent>())
                 .after(process_collisions),
         );
-
-        #[cfg(target_family = "wasm")]
-        app.add_systems(
-            Startup,
-            |mut settings: ResMut<lightyear::client::web::KeepaliveSettings>| {
-                // the show must go on, even in the background.
-                let keepalive = 1000. / FIXED_TIMESTEP_HZ;
-                info!("Setting webworker keepalive to {keepalive}");
-                settings.wake_delay = keepalive;
-            },
-        );
-    }
-}
-
-// Startup system for the client
-pub(crate) fn init(mut commands: Commands) {
-    commands.connect_client();
-}
-
-/// Listen for events to know when the client is connected, and spawn a text entity
-/// to display the client id
-pub(crate) fn handle_connection(
-    mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
-) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
     }
 }
 
@@ -122,16 +80,16 @@ fn add_bullet_physics(
 
 /// Decorate newly connecting players with physics components
 /// ..and if it's our own player, set up input stuff
-#[allow(clippy::type_complexity)]
 fn handle_new_player(
     connection: Res<ClientConnection>,
     mut commands: Commands,
-    mut player_query: Query<(Entity, Has<Controlled>), (Added<Predicted>, With<Player>)>,
+    mut player_query: Query<(Entity, &Player, Has<Controlled>), Added<Predicted>>,
 ) {
-    for (entity, is_controlled) in player_query.iter_mut() {
+    for (entity, player, is_controlled) in player_query.iter_mut() {
+        info!("handle_new_player, entity = {entity:?} is_controlled = {is_controlled}");
         // is this our own entity?
         if is_controlled {
-            info!("Own player replicated to us, adding inputmap {entity:?}");
+            info!("Own player replicated to us, adding inputmap {entity:?} {player:?}");
             commands.entity(entity).insert(InputMap::new([
                 (PlayerActions::Up, KeyCode::ArrowUp),
                 (PlayerActions::Down, KeyCode::ArrowDown),
@@ -144,7 +102,7 @@ fn handle_new_player(
                 (PlayerActions::Fire, KeyCode::Space),
             ]));
         } else {
-            info!("Remote player replicated to us: {entity:?}");
+            info!("Remote player replicated to us: {entity:?} {player:?}");
         }
         let client_id = connection.id();
         info!(?entity, ?client_id, "adding physics to predicted player");

@@ -4,16 +4,17 @@ Settings(
         client_id: 0,
         client_port: 0, // the OS will assign a random open port
         server_addr: "127.0.0.1",
-        conditioner: Some(Conditioner(
-            latency_ms: 200,
-            jitter_ms: 20,
-            packet_loss: 0.05
-        )),
+        conditioner: None,
+        //Some(Conditioner(
+        //    latency_ms: 200,
+        //    jitter_ms: 20,
+        //    packet_loss: 0.05
+        //)),
         server_port: 5000,
         transport: WebTransport(
             // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
             // the server will print the certificate digest on startup
-            certificate_digest: "d1:b7:34:ef:e1:e5:52:a9:05:8a:db:53:7d:ce:10:f6:fd:1e:4e:ee:81:ef:08:47:63:23:a9:96:b3:f5:fa:5e",
+            certificate_digest: "27:17:bb:f1:7b:a7:1d:fb:de:14:eb:9e:b3:3f:3e:f2:0b:e6:24:da:0e:1f:40:62:51:e6:a9:2e:c1:bf:8b:1a",
         ),
         // server_port: 5001,
         // transport: Udp,
@@ -34,14 +35,15 @@ Settings(
         )),
         transport: [
             WebTransport(
-                local_port: 5000
+                local_port: 5000,
+                certificate: AutoSelfSigned(["localhost", "127.0.0.1"]),
             ),
-            Udp(
-                local_port: 5001
-            ),
-            WebSocket(
-                local_port: 5002
-            ),
+            // Udp(
+            //     local_port: 5001
+            // ),
+            // WebSocket(
+            //     local_port: 5002
+            // ),
             // Steam(
             //     app_id: 480,
             //     server_ip: "0.0.0.0",

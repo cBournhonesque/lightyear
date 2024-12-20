@@ -1,0 +1,86 @@
+name: Build servers for examples
+
+on:
+  pull_request:
+
+  push:
+    tags:
+      - 'v*'
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number in the format `v1.2.3`'
+        required: true
+        type: string
+
+jobs:
+  build-servers:
+    runs-on: ubuntu-latest
+    environment: lightyear-examples
+    permissions:
+      packages: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: 'examples'
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-server
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,format=long
+            latest
+
+      - name: debug tags
+        run: |
+          echo $DOCKER_METADATA_OUTPUT_TAGS
+          echo $DOCKER_METADATA_OUTPUT_TAGS | wc -l
+          echo $DOCKER_METADATA_OUTPUT_TAGS | tr ' ' '\n' |grep -v ':latest' | head -n 1 | sed 's/.*://'
+
+      # default separator for tags is \n, we want to extract the first tag that isn't :latest
+      - name: Extract useful docker image tag for deployment purposes
+        run: |
+          export USEFUL_DEPLOYMENT_DOCKER_TAG=$(echo $DOCKER_METADATA_OUTPUT_TAGS | tr ' ' '\n' | grep -v ':latest' | head -n 1 | sed 's/.*://')
+          echo "USEFUL_DEPLOYMENT_DOCKER_TAG=$USEFUL_DEPLOYMENT_DOCKER_TAG" >> $GITHUB_ENV
+          # fail if missing
+          test -z "$USEFUL_DEPLOYMENT_DOCKER_TAG" && echo "USEFUL_DEPLOYMENT_DOCKER_TAG is empty" && exit 1 || echo "USEFUL_DEPLOYMENT_DOCKER_TAG=$USEFUL_DEPLOYMENT_DOCKER_TAG"
+
+      # Dockerfile is expecting env loaded from this file:
+      - name: Load example_list.env file
+        run: grep -v '^#' ./examples/example_list.env >> $GITHUB_ENV
+
+      - name: Build and publish docker for example server binaries
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          context: .
+          file: ./examples/Dockerfile.server
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Don't "quote" this space-separated list of example names
+          # There are multiple layers of escaping at work here..
+          # this is loaded from example_list.env above
+          build-args: |
+            example_list=${{ env.example_list }}
+
+      - name: Modify Edgegap application versions to use docker tag
+        run: |
+          cargo install arbctl
+          for example in $(echo $example_list | tr ',' ' ') ;
+          do
+            echo "Patching $example to use docker tag $USEFUL_DEPLOYMENT_DOCKER_TAG"
+            arbctl --api-key "${{ secrets.EDGEGAP_TOKEN }}" application patch-version $example 1 --patch /docker_tag "\"${USEFUL_DEPLOYMENT_DOCKER_TAG}\""
+          done

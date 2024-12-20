@@ -332,6 +332,8 @@ impl AppMessageExt for App {
 
 impl MessageRegistry {
     pub(crate) fn message_type(&self, net_id: NetId) -> MessageType {
+        // TODO this unwrap takes down server if client sends invalid netid.
+        //      perhaps return a result from this and handle?
         let kind = self.kind_map.kind(net_id).unwrap();
         self.typed_map
             .get(kind)

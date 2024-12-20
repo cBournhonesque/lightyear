@@ -622,7 +622,7 @@ struct ActionsIterator<'a> {
     current_tick: Tick,
 }
 
-impl<'a> Iterator for ActionsIterator<'a> {
+impl Iterator for ActionsIterator<'_> {
     /// The message along with the tick at which the remote message was sent
     type Item = (Tick, EntityActionsMessage);
 
@@ -739,7 +739,7 @@ struct UpdatesIterator<'a> {
     max_applicable_idx: Option<usize>,
 }
 
-impl<'a> Iterator for UpdatesIterator<'a> {
+impl Iterator for UpdatesIterator<'_> {
     /// The message along with the tick at which the remote message was sent
     type Item = Update;
 

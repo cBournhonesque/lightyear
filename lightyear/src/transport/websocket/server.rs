@@ -57,7 +57,7 @@ impl ServerTransportBuilder for WebSocketServerSocketBuilder {
             serverbound_rx,
         };
 
-        let listener = IoTaskPool::get()
+        IoTaskPool::get()
             .spawn(Compat::new(async move {
                 let listener = match TcpListener::bind(self.server_addr).await {
                     Ok(l) => l,

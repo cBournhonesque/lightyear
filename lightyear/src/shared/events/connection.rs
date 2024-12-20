@@ -161,6 +161,7 @@ impl ConnectionEvents {
 }
 
 pub trait IterEntitySpawnEvent<Ctx: EventContext = ()> {
+    #[allow(clippy::wrong_self_convention)]
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
     fn has_entity_spawn(&self) -> bool;
 }
@@ -177,6 +178,7 @@ impl IterEntitySpawnEvent for ConnectionEvents {
 }
 
 pub trait IterEntityDespawnEvent<Ctx: EventContext = ()> {
+    #[allow(clippy::wrong_self_convention)]
     fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
     fn has_entity_despawn(&self) -> bool;
 }
@@ -244,7 +246,7 @@ pub trait IterComponentRemoveEvent<Ctx: EventContext = ()> {
     fn iter_component_remove<'a, 'b: 'a, C: Component>(
         &'a mut self,
         component_registry: &'b ComponentRegistry,
-    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
+    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + 'a>;
 }
 
 // TODO: move these implementations to client?
@@ -252,7 +254,7 @@ impl IterComponentRemoveEvent for ConnectionEvents {
     fn iter_component_remove<'a, 'b: 'a, C: Component>(
         &'a mut self,
         component_registry: &'b ComponentRegistry,
-    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + 'a> {
         let component_kind = component_registry.net_id::<C>();
         if let Some(data) = self.component_removes.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));

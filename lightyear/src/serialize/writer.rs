@@ -49,7 +49,9 @@ impl Writer {
         self.0.get_mut().clear();
     }
 
+    // by convention, to_* functions with non-Copy self types usually take a &self, but not here.
     /// Consume the writer to get the RawData
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_bytes(self) -> Bytes {
         self.0.into_inner().into()
     }

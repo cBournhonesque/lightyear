@@ -35,15 +35,15 @@ fn send_receive_simple_messages_to_one_client(criterion: &mut Criterion) {
             n,
             |bencher, n| {
                 bencher.iter_batched_ref(
-                    || LocalBevyStepper::default(),
-                    |mut stepper| {
+                    LocalBevyStepper::default,
+                    |stepper| {
                         let client_id = ClientId::Netcode(0);
                         for _ in 0..*n {
                             let _ = stepper
                                 .server_app
-                                .world()
+                                .world_mut()
                                 .resource_mut::<server::ConnectionManager>()
-                                .send_message::<Channel1, _>(client_id, &Message2(1))
+                                .send_message::<Channel1, _>(client_id, &mut Message2(1))
                                 .inspect_err(|e| error!("error: {e:?}"));
                         }
                         stepper.frame_step();
