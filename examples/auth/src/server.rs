@@ -33,7 +33,7 @@ pub struct ExampleServerPlugin {
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         let client_ids = Arc::new(RwLock::new(HashSet::default()));
-        app.add_systems(Startup, (init, start_server));
+        app.add_systems(Startup, start_server);
 
         app.add_observer(handle_disconnect_event);
         app.add_observer(handle_connect_event);
@@ -53,24 +53,6 @@ impl Plugin for ExampleServerPlugin {
 /// Start the server
 fn start_server(mut commands: Commands) {
     commands.start_server();
-}
-
-/// Add some debugging text to the screen
-fn init(mut commands: Commands) {
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
 }
 
 /// This resource will track the list of Netcode client-ids currently in use, so that

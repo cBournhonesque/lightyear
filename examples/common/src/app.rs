@@ -12,7 +12,6 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
 use bevy::state::app::StatesPlugin;
-use bevy::window::PresentMode;
 use bevy::DefaultPlugins;
 use clap::{Parser, ValueEnum};
 use lightyear::prelude::client::ClientConfig;
@@ -28,6 +27,8 @@ use crate::shared::{shared_config, REPLICATION_INTERVAL};
 
 #[cfg(feature = "gui")]
 use crate::renderer::ExampleRendererPlugin;
+#[cfg(feature = "gui")]
+use bevy::window::PresentMode;
 
 /// CLI options to create an [`App`]
 #[derive(Parser, PartialEq, Debug)]
@@ -346,7 +347,6 @@ impl Apps {
                 app.add_plugins(renderer_plugin);
             }
             Apps::Server { app, .. } => {
-                #[cfg(feature = "gui")]
                 app.add_plugins(renderer_plugin);
             }
         }
@@ -359,10 +359,16 @@ impl Apps {
         client_plugin: impl Plugin,
         server_plugin: impl Plugin,
         shared_plugin: impl Plugin + Clone,
+        renderer_plugin: impl Plugin,
     ) -> &mut Self {
-        self.add_user_shared_plugin(shared_plugin)
-            .add_user_client_plugin(client_plugin)
-            .add_user_server_plugin(server_plugin)
+        self.add_user_shared_plugin(shared_plugin);
+        #[cfg(feature = "client")]
+        self.add_user_client_plugin(client_plugin);
+        #[cfg(feature = "server")]
+        self.add_user_server_plugin(server_plugin);
+        #[cfg(feature = "gui")]
+        self.add_user_renderer_plugin(renderer_plugin);
+        self
     }
 
     /// Apply a function to update the [`ClientConfig`]
@@ -430,6 +436,7 @@ impl Apps {
     }
 }
 
+#[cfg(feature = "gui")]
 fn window_plugin() -> WindowPlugin {
     WindowPlugin {
         primary_window: Some(Window {
@@ -454,6 +461,7 @@ fn log_plugin() -> LogPlugin {
     }
 }
 
+#[cfg(feature = "gui")]
 fn new_gui_app() -> App {
     let mut app = App::new();
     app.add_plugins(
@@ -506,9 +514,11 @@ fn server_app(
     // If there's a client app, the server needs to be headless.
     // Winit doesn't support two event loops in the same thread.
     cfg_if::cfg_if! {
-        if #[cfg(feature = "client")] {
-            let app = new_headless_app();
-        } else if #[cfg(feature = "gui")] {
+        // if #[cfg(feature = "client")] {
+            // let app = new_headless_app();
+        // } else if #[cfg(feature = "gui")] {
+
+        if #[cfg(feature = "gui")] {
             let app = new_gui_app();
         } else {
             let app = new_headless_app();
