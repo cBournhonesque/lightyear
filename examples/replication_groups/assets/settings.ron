@@ -34,7 +34,11 @@ Settings(
         )),
         transport: [
             WebTransport(
-                local_port: 5000
+                local_port: 5000,
+                certificate: FromFile(
+                    cert: "../certificates/cert.pem",
+                    key: "../certificates/key.pem",
+                )
             ),
             Udp(
                 local_port: 5001
