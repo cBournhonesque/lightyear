@@ -1,10 +1,6 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-#[cfg(feature = "client")]
-use crate::client::ExampleClientPlugin;
-#[cfg(feature = "server")]
-use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear::prelude::client::PredictionConfig;
@@ -35,9 +31,9 @@ fn main() {
     apps.add_lightyear_plugins();
     apps.add_user_shared_plugin(SharedPlugin);
     #[cfg(feature = "server")]
-    apps.add_user_server_plugin(ExampleServerPlugin);
+    apps.add_user_server_plugin(crate::server::ExampleServerPlugin);
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(ExampleClientPlugin);
+    apps.add_user_client_plugin(crate::client::ExampleClientPlugin);
     #[cfg(feature = "gui")]
     apps.add_user_renderer_plugin(renderer::ExampleRendererPlugin);
 

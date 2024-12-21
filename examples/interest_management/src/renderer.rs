@@ -1,5 +1,8 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_screen_diagnostics::{
+    Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin, ScreenEntityDiagnosticsPlugin,
+};
 use lightyear::{
     client::prediction::diagnostics::PredictionDiagnosticsPlugin,
     prelude::{client::*, *},
@@ -27,6 +30,9 @@ impl Plugin for ExampleRendererPlugin {
                 add_block_cosmetics,
             ),
         );
+
+        // app.add_plugins(ScreenDiagnosticsPlugin::default());
+        // app.add_plugins(ScreenEntityDiagnosticsPlugin);
 
         // Set up visual interp plugins for Position and Rotation. This doesn't
         // do anything until you add VisualInterpolationStatus components to

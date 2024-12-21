@@ -92,9 +92,6 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        // if app.is_plugin_added::<RenderPlugin>() {
-        //     app.add_plugins(ExampleRendererPlugin);
-        // }
 
         // Physics
 
@@ -111,7 +108,6 @@ impl Plugin for SharedPlugin {
         // Fixed schedule runs.
         app.add_plugins(PhysicsPlugins::default().build().disable::<SyncPlugin>())
             .add_plugins(SyncPlugin::new(PostUpdate));
-        app.insert_resource(Time::<Fixed>::from_hz(FIXED_TIMESTEP_HZ));
     }
 }
 

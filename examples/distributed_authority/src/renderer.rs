@@ -1,7 +1,7 @@
+use crate::protocol::*;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
-
-use crate::protocol::*;
+use lightyear::client::components::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -41,8 +41,7 @@ pub(crate) fn draw_boxes(
 ) {
     for (position, color) in &players {
         gizmos.rect(
-            Vec3::new(position.x, position.y, 0.0),
-            Quat::IDENTITY,
+            Isometry2d::from_translation(position.0),
             Vec2::ONE * 50.0,
             color.0,
         );

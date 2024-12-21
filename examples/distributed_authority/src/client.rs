@@ -25,8 +25,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_connect_button);
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
@@ -39,32 +37,6 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(PostUpdate, interpolation_debug_log);
 
         app.add_observer(handle_ball);
-    }
-}
-
-/// Component to identify the text displaying the client id
-#[derive(Component)]
-pub struct ClientIdText;
-
-/// Listen for events to know when the client is connected, and spawn a text entity
-/// to display the client id
-pub(crate) fn handle_connection(
-    mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
-) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        commands.spawn((
-            TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ),
-            ClientIdText,
-        ));
     }
 }
 
@@ -141,59 +113,6 @@ fn player_movement(
             }
         }
     }
-}
-
-/// Create a button that allow you to connect/disconnect to a server
-pub(crate) fn spawn_connect_button(mut commands: Commands) {
-    commands
-        .spawn((
-            NodeBundle {
-                style: Style {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    align_items: AlignItems::FlexEnd,
-                    justify_content: JustifyContent::FlexEnd,
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                },
-                ..default()
-            },
-            Pickable::IGNORE,
-        ))
-        .with_children(|parent| {
-            parent
-                .spawn((
-                    ButtonBundle {
-                        style: Style {
-                            width: Val::Px(150.0),
-                            height: Val::Px(65.0),
-                            border: UiRect::all(Val::Px(5.0)),
-                            // horizontally center child text
-                            justify_content: JustifyContent::Center,
-                            // vertically center child text
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        border_color: BorderColor(Color::BLACK),
-                        image: UiImage::default().with_color(Color::srgb(0.15, 0.15, 0.15)),
-                        ..default()
-                    },
-                    On::<Pointer<Click>>::run(|| {}),
-                ))
-                .with_children(|parent| {
-                    parent.spawn((
-                        TextBundle::from_section(
-                            "Connect",
-                            TextStyle {
-                                font_size: 20.0,
-                                color: Color::srgb(0.9, 0.9, 0.9),
-                                ..default()
-                            },
-                        ),
-                        Pickable::IGNORE,
-                    ));
-                });
-        });
 }
 
 /// Remove all entities when the client disconnect

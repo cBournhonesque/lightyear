@@ -20,7 +20,6 @@ impl Plugin for Avian2dPlugin {
                 InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
                 InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
             )
-                .chain()
                 .before(PhysicsSet::Prepare), // Runs right before physics.
         );
         // NB: the three main physics sets in FixedPostUpdate run in this order:
@@ -37,7 +36,6 @@ impl Plugin for Avian2dPlugin {
                 PredictionSet::IncrementRollbackTick,
                 InterpolationSet::UpdateVisualInterpolationState,
             )
-                .chain()
                 .after(PhysicsSet::Sync), // Runs right after physics.
         );
     }

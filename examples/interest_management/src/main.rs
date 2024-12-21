@@ -25,11 +25,11 @@ fn main() {
     // add `ClientPlugins` and `ServerPlugins` plugin groups
     apps.add_lightyear_plugins();
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(crate::client::ExampleClientPlugin);
+    apps.add_user_client_plugin(client::ExampleClientPlugin);
     #[cfg(feature = "server")]
-    apps.add_user_server_plugin(crate::server::ExampleServerPlugin);
+    apps.add_user_server_plugin(server::ExampleServerPlugin);
     #[cfg(feature = "gui")]
-    apps.add_user_renderer_plugin(crate::renderer::ExampleRendererPlugin);
+    apps.add_user_renderer_plugin(renderer::ExampleRendererPlugin);
     // run the app
     apps.run();
 }
