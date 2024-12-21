@@ -5,11 +5,12 @@ use crate::shared::*;
 use avian2d::parry::shape::SharedShape;
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
-use bevy::core_pipeline::bloom::BloomSettings;
+use bevy::core_pipeline::bloom::Bloom;
+// use bevy::core_pipeline::bloom::BloomSettings;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
-use bevy::sprite::MaterialMesh2dBundle;
-use bevy::sprite::Mesh2dHandle;
+// use bevy::sprite::MaterialMesh2dBundle;
+// use bevy::sprite::Mesh2dHandle;
 use bevy::time::common_conditions::on_timer;
 use bevy_screen_diagnostics::ScreenEntityDiagnosticsPlugin;
 use bevy_screen_diagnostics::ScreenFrameDiagnosticsPlugin;
@@ -63,9 +64,9 @@ impl Plugin for SpaceshipsRendererPlugin {
 
         app.add_systems(FixedPreUpdate, insert_bullet_mesh);
 
-        app.add_systems(Startup, setup_diagnostic);
-        app.add_plugins(ScreenDiagnosticsPlugin::default());
-        app.add_plugins(ScreenEntityDiagnosticsPlugin);
+        // app.add_systems(Startup, setup_diagnostic);
+        // app.add_plugins(ScreenDiagnosticsPlugin::default());
+        // app.add_plugins(ScreenEntityDiagnosticsPlugin);
         // app.add_plugins(ScreenFrameDiagnosticsPlugin);
         app.add_plugins(EntityLabelPlugin);
 
@@ -117,18 +118,14 @@ fn add_visual_interpolation_components<T: Component>(
 
 fn init_camera(mut commands: Commands) {
     commands.spawn((
-        Camera2dBundle {
-            camera: Camera {
-                hdr: true,
-                ..default()
-            },
-            // https://bevyengine.org/examples/3D%20Rendering/tonemapping/
-            // 2. Using a tonemapper that desaturates to white is recommended
-            tonemapping: Tonemapping::TonyMcMapface,
+        Camera2d,
+        Camera {
+            hdr: true,
             ..default()
         },
-        BloomSettings::default(),
-        VisibilityBundle::default(),
+        Tonemapping::TonyMcMapface,
+        Bloom::default(),
+        Visibility::default(),
     ));
 }
 
@@ -139,8 +136,8 @@ fn add_player_label(
     for (e, player, score) in q.iter() {
         // info!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
-            VisibilityBundle::default(),
-            TransformBundle::default(),
+            Visibility::default(),
+            Transform::default(),
             EntityLabel {
                 text: format!("{} <{}>", player.nickname, score.0),
                 color: css::ANTIQUE_WHITE.with_alpha(0.8).into(),
@@ -183,36 +180,36 @@ fn update_player_label(
     }
 }
 
-fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
-    onscreen
-        .add("RB".to_string(), PredictionDiagnosticsPlugin::ROLLBACKS)
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.0}"));
-    onscreen
-        .add(
-            "RBt".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACK_TICKS,
-        )
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.0}"));
-    onscreen
-        .add(
-            "RBd".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACK_DEPTH,
-        )
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.1}"));
-    // screen diagnostics twitches due to layout change when a metric adds or removes
-    // a digit, so pad these metrics to 3 digits.
-    onscreen
-        .add("KB_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:0>3.0}"));
-    onscreen
-        .add("KB_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:0>3.0}"));
-}
+// fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
+//     onscreen
+//         .add("RB".to_string(), PredictionDiagnosticsPlugin::ROLLBACKS)
+//         .aggregate(Aggregate::Value)
+//         .format(|v| format!("{v:.0}"));
+//     onscreen
+//         .add(
+//             "RBt".to_string(),
+//             PredictionDiagnosticsPlugin::ROLLBACK_TICKS,
+//         )
+//         .aggregate(Aggregate::Value)
+//         .format(|v| format!("{v:.0}"));
+//     onscreen
+//         .add(
+//             "RBd".to_string(),
+//             PredictionDiagnosticsPlugin::ROLLBACK_DEPTH,
+//         )
+//         .aggregate(Aggregate::Value)
+//         .format(|v| format!("{v:.1}"));
+//     // screen diagnostics twitches due to layout change when a metric adds or removes
+//     // a digit, so pad these metrics to 3 digits.
+//     onscreen
+//         .add("KB_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
+//         .aggregate(Aggregate::Average)
+//         .format(|v| format!("{v:0>3.0}"));
+//     onscreen
+//         .add("KB_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
+//         .aggregate(Aggregate::Average)
+//         .format(|v| format!("{v:0>3.0}"));
+// }
 
 /// System that draws the outlines of confirmed entities, with lines to the centre of their predicted location.
 pub(crate) fn draw_confirmed_shadows(
@@ -430,13 +427,11 @@ pub fn insert_bullet_mesh(
             .expect("Bullets expected to be balls.");
         let ball = Circle::new(ball.radius);
         let mesh = Mesh::from(ball);
-        let mesh_handle = Mesh2dHandle(meshes.add(mesh));
-        commands.entity(entity).insert((MaterialMesh2dBundle {
-            mesh: mesh_handle,
-            transform: Transform::from_translation(Vec3::Z),
-            material: materials.add(ColorMaterial::from(col.0)),
-            ..default()
-        },));
+        commands.entity(entity).insert((
+            Mesh2d(meshes.add(mesh)),
+            Transform::from_translation(Vec3::Z),
+            MeshMaterial2d(materials.add(ColorMaterial::from(col.0))),
+        ));
     }
 }
 

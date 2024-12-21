@@ -187,8 +187,9 @@ leafwing-input-manager = { version = "0.16", default-features = false, features 
 ] }
 
 # physics
-avian2d = { version = "0.1.2", default-features = false }
-avian3d = { version = "0.1.2", default-features = false }
+avian2d = { version = "0.2", default-features = false }
+avian3d = { version = "0.2", default-features = false }
+
 
 # gui debug ui
 bevy-inspector-egui = { version = "0.28" }

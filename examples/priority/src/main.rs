@@ -29,9 +29,11 @@ fn main() {
             .with_send_bandwidth_bytes_per_second_cap(3000);
     })
     // add the `ClientPlugins` and `ServerPlugins` plugin groups
-    .add_lightyear_plugins()
+    .add_lightyear_plugins();
     // add our plugins
-    .add_user_plugins(ExampleClientPlugin, ExampleServerPlugin, SharedPlugin);
+    apps.add_user_client_plugin(ExampleClientPlugin);
+    apps.add_user_server_plugin(ExampleServerPlugin);
+    apps.add_user_shared_plugin(SharedPlugin);
     // run the app
     apps.run();
 }

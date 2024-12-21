@@ -29,9 +29,7 @@ impl Plugin for ExampleClientPlugin {
             // In host-server mode, the server porition is already applying the
             // character actions and so we don't want to apply the character
             // actions twice.
-            handle_character_actions
-                .run_if(not(is_host_server))
-                .in_set(FixedSet::Main),
+            handle_character_actions.run_if(not(is_host_server)),
         );
         app.add_systems(
             Update,
@@ -93,13 +91,10 @@ pub(crate) fn handle_connection(
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
+        commands.spawn((
+            Text(format!("Client {}", client_id)),
+            TextColor(Color::WHITE),
+            TextFont::from_font_size(30.0),
         ));
     }
 }
@@ -119,7 +114,7 @@ fn handle_new_character(
             info!("Adding InputMap to controlled and predicted entity {entity:?}");
             commands.entity(entity).insert(
                 InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
-                    .with_dual_axis(CharacterAction::Move, KeyboardVirtualDPad::WASD),
+                    .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
             );
         } else {
             info!("Remote character replicated to us: {entity:?}");

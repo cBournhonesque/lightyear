@@ -20,7 +20,7 @@ use crate::protocol::*;
 use crate::shared;
 use crate::shared::ApplyInputsQuery;
 use crate::shared::ApplyInputsQueryItem;
-use crate::shared::{apply_action_state_to_player_movement, color_from_id, FixedSet};
+use crate::shared::{apply_action_state_to_player_movement, color_from_id};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
@@ -47,9 +47,7 @@ impl Plugin for ExampleServerPlugin {
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(
             FixedUpdate,
-            (player_movement, shared::shared_player_firing)
-                .chain()
-                .in_set(FixedSet::Main),
+            (player_movement, shared::shared_player_firing).chain(),
         );
         app.add_systems(
             Update,
@@ -88,20 +86,15 @@ fn start_server(mut commands: Commands) {
 
 fn init(mut commands: Commands) {
     #[cfg(feature = "gui")]
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
+    commands.spawn((
+        Text("Server".into()),
+        TextFont::from_font_size(30.0),
+        TextColor(Color::WHITE),
+        Node {
             align_self: AlignSelf::End,
             ..default()
-        }),
-    );
+        },
+    ));
     // the balls are server-authoritative
     const NUM_BALLS: usize = 6;
     for i in 0..NUM_BALLS {

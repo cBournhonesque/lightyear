@@ -20,14 +20,6 @@ use crate::protocol::*;
 const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum FixedSet {
-    // main fixed update systems (handle inputs)
-    Main,
-    // apply physics steps
-    Physics,
-}
-
 #[derive(Clone)]
 pub struct SharedPlugin {
     pub(crate) show_confirmed: bool,
@@ -61,34 +53,21 @@ impl Plugin for SharedPlugin {
                 ]),
                 ..default()
             });
-            app.add_systems(Startup, setup_diagnostic);
-            app.add_plugins(ScreenDiagnosticsPlugin::default());
+            // app.add_systems(Startup, setup_diagnostic);
+            // app.add_plugins(ScreenDiagnosticsPlugin::default());
         }
         // bundles
         app.add_systems(Startup, init);
 
         // physics
         app.add_plugins(
-            PhysicsPlugins::new(FixedUpdate)
+            PhysicsPlugins::default()
                 .build()
                 .disable::<ColliderHierarchyPlugin>(),
         )
-        .insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)))
+        .insert_resource(Time::<Fixed>::from_hz(FIXED_TIMESTEP_HZ))
         .insert_resource(Gravity(Vec2::ZERO));
-        app.configure_sets(
-            FixedUpdate,
-            (
-                // make sure that any physics simulation happens after the Main SystemSet
-                // (where we apply user's actions)
-                (
-                    PhysicsSet::Prepare,
-                    PhysicsSet::StepSimulation,
-                    PhysicsSet::Sync,
-                )
-                    .in_set(FixedSet::Physics),
-                (FixedSet::Main, FixedSet::Physics).chain(),
-            ),
-        );
+
         // add a log at the start of the physics schedule
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::First));
 
@@ -100,39 +79,39 @@ impl Plugin for SharedPlugin {
     }
 }
 
-fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
-    onscreen
-        .add(
-            "Rollbacks".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACKS,
-        )
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.0}"));
-    onscreen
-        .add(
-            "Rollback ticks".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACK_TICKS,
-        )
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.0}"));
-    onscreen
-        .add(
-            "RB depth".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACK_DEPTH,
-        )
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.1}"));
-    // screen diagnostics twitches due to layout change when a metric adds or removes
-    // a digit, so pad these metrics to 3 digits.
-    onscreen
-        .add("KB_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:0>3.0}"));
-    onscreen
-        .add("KB_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:0>3.0}"));
-}
+// fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
+//     onscreen
+//         .add(
+//             "Rollbacks".to_string(),
+//             PredictionDiagnosticsPlugin::ROLLBACKS,
+//         )
+//         .aggregate(Aggregate::Value)
+//         .format(|v| format!("{v:.0}"));
+//     onscreen
+//         .add(
+//             "Rollback ticks".to_string(),
+//             PredictionDiagnosticsPlugin::ROLLBACK_TICKS,
+//         )
+//         .aggregate(Aggregate::Value)
+//         .format(|v| format!("{v:.0}"));
+//     onscreen
+//         .add(
+//             "RB depth".to_string(),
+//             PredictionDiagnosticsPlugin::ROLLBACK_DEPTH,
+//         )
+//         .aggregate(Aggregate::Value)
+//         .format(|v| format!("{v:.1}"));
+//     // screen diagnostics twitches due to layout change when a metric adds or removes
+//     // a digit, so pad these metrics to 3 digits.
+//     onscreen
+//         .add("KB_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
+//         .aggregate(Aggregate::Average)
+//         .format(|v| format!("{v:0>3.0}"));
+//     onscreen
+//         .add("KB_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
+//         .aggregate(Aggregate::Average)
+//         .format(|v| format!("{v:0>3.0}"));
+// }
 
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: ClientId) -> Color {
@@ -260,8 +239,13 @@ pub(crate) fn draw_confirmed_shadows(
         let speed = velocity.length() / MAX_VELOCITY;
         let ghost_col = css::GRAY.with_alpha(speed);
         gizmos.rect_2d(
-            Vec2::new(position.x, position.y),
-            rotation.as_radians(),
+            Isometry2d {
+                rotation: Rot2 {
+                    sin: rotation.sin,
+                    cos: rotation.cos,
+                },
+                translation: Vec2::new(position.x, position.y),
+            },
             Vec2::ONE * PLAYER_SIZE,
             ghost_col,
         );
@@ -282,8 +266,13 @@ pub(crate) fn draw_elements(
 ) {
     for (position, rotation, color) in &players {
         gizmos.rect_2d(
-            Vec2::new(position.x, position.y),
-            rotation.as_radians(),
+            Isometry2d {
+                rotation: Rot2 {
+                    sin: rotation.sin,
+                    cos: rotation.cos,
+                },
+                translation: Vec2::new(position.x, position.y),
+            },
             Vec2::ONE * PLAYER_SIZE,
             color.0,
         );

@@ -32,7 +32,7 @@ impl Plugin for SharedPlugin {
 }
 
 fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2d::default());
 }
 
 // This system defines how we update the player's positions when we receive an input

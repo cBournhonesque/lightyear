@@ -23,7 +23,6 @@ use crate::shared::apply_character_action;
 use crate::shared::BlockPhysicsBundle;
 use crate::shared::CharacterPhysicsBundle;
 use crate::shared::CharacterQuery;
-use crate::shared::FixedSet;
 use crate::shared::FloorPhysicsBundle;
 use crate::shared::CHARACTER_CAPSULE_HEIGHT;
 use crate::shared::CHARACTER_CAPSULE_RADIUS;
@@ -42,9 +41,7 @@ impl Plugin for ExampleServerPlugin {
             // clients so that a client can predict other clients.
             replicate_inputs.after(MainSet::EmitEvents),
         );
-        // The physics/FixedUpdates systems that consume inputs should be run
-        // in `FixedSet::Main`.
-        app.add_systems(FixedUpdate, handle_character_actions.in_set(FixedSet::Main));
+        app.add_systems(FixedUpdate, handle_character_actions);
         app.add_systems(Update, handle_connections);
     }
 }
