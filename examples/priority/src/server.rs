@@ -32,15 +32,6 @@ pub(crate) struct Global {
 
 pub(crate) fn init(mut commands: Commands) {
     commands.start_server();
-    commands.spawn((
-        Text("Server".to_string()),
-        TextFont::from_font_size(30.0),
-        TextColor(Color::WHITE),
-        Node {
-            align_self: AlignSelf::End,
-            ..default()
-        },
-    ));
     // spawn dots in a grid
     for x in -NUM_CIRCLES..NUM_CIRCLES {
         for y in -NUM_CIRCLES..NUM_CIRCLES {

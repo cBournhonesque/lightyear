@@ -507,14 +507,13 @@ fn server_app(
     use cfg_if::cfg_if;
 
     info!("server_app. gui={}", cfg!(feature = "gui"));
-    // If there's a client app, the server needs to be headless.
-    // Winit doesn't support two event loops in the same thread.
     cfg_if::cfg_if! {
-        // if #[cfg(feature = "client")] {
-            // let app = new_headless_app();
-        // } else if #[cfg(feature = "gui")] {
-
-        if #[cfg(feature = "gui")] {
+        // If there's a client app, the server needs to be headless.
+        // Winit doesn't support two event loops in the same thread.
+        if #[cfg(feature = "client")] {
+            let app = new_headless_app();
+        } else if #[cfg(feature = "gui")] {
+        // if #[cfg(feature = "gui")] {
             let app = new_gui_app();
         } else {
             let app = new_headless_app();

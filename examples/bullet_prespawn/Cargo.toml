@@ -7,7 +7,6 @@ publish = false
 
 [features]
 default = [
-    "lightyear_examples_common/steam",
     "lightyear_examples_common/websocket"
 ]
 client = [

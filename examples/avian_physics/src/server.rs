@@ -51,16 +51,6 @@ fn start_server(mut commands: Commands) {
 }
 
 fn init(mut commands: Commands, global: Res<Global>) {
-    commands.spawn((
-        Text(format!("Server")),
-        TextColor(Color::WHITE),
-        TextFont::from_font_size(30.0),
-        Node {
-            align_self: AlignSelf::End,
-            ..default()
-        },
-    ));
-
     // the ball is server-authoritative
     commands.spawn(BallBundle::new(
         Vec2::new(0.0, 0.0),

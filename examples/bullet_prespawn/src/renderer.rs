@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics};
 use lightyear::client::components::Confirmed;
+use lightyear::prelude::client::{InterpolationSet, PredictionSet};
 use lightyear::transport::io::IoDiagnosticsPlugin;
 
 #[derive(Clone)]
@@ -18,24 +19,11 @@ impl Plugin for ExampleRendererPlugin {
                 .after(InterpolationSet::Interpolate)
                 .after(PredictionSet::VisualCorrection),
         );
-        app.add_systems(Startup, crate::shared::setup_diagnostic);
-        app.add_plugins(ScreenDiagnosticsPlugin::default());
     }
 }
 
 fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
-}
-
-fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
-    onscreen
-        .add("KB/S in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.2}"));
-    onscreen
-        .add("KB/s out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.2}"));
 }
 
 pub(crate) fn draw_elements(

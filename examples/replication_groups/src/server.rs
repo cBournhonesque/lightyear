@@ -24,15 +24,6 @@ impl Plugin for ExampleServerPlugin {
 /// Start the server
 pub(crate) fn init(mut commands: Commands) {
     commands.start_server();
-    commands.spawn((
-        Text("Server".to_string()),
-        TextFont::from_font_size(30.0),
-        TextColor(Color::WHITE),
-        Node {
-            align_self: AlignSelf::End,
-            ..default()
-        },
-    ));
 }
 
 /// Server connection system, create a player upon connection

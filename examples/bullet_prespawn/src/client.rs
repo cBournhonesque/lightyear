@@ -86,7 +86,7 @@ fn update_cursor_state_from_window(
     let window = window_query.single();
     if let Some(world_position) = window
         .cursor_position()
-        .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor).unwrap())
+        .and_then(|cursor| Some(camera.viewport_to_world(camera_transform, cursor).unwrap()))
         .map(|ray| ray.origin.truncate())
     {
         for mut action_state in action_state_query.iter_mut() {
