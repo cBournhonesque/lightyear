@@ -30,15 +30,13 @@ fn main() {
     // add `ClientPlugins` and `ServerPlugins` plugin groups
     .add_lightyear_plugins()
     // add our plugins
-    .add_user_plugins(
-        ExampleClientPlugin,
-        ExampleServerPlugin {
-            predict_all: settings.predict_all,
-        },
-        SharedPlugin {
-            show_confirmed: settings.show_confirmed,
-        },
-    );
+    .add_user_client_plugin(ExampleClientPlugin)
+    .add_user_server_plugin(ExampleServerPlugin {
+        predict_all: settings.predict_all,
+    })
+    .add_user_shared_plugin(SharedPlugin {
+        show_confirmed: settings.show_confirmed,
+    });
     // run the app
     apps.run();
 }

@@ -13,29 +13,31 @@ impl Plugin for Avian3dPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             FixedPostUpdate,
+            // Ensure PreSpawned hash set before physics runs, to avoid any physics interaction affecting it
+            // TODO: maybe use observers so that we don't have any ordering requirements?
             (
-                // run physics after setting the PreSpawned hash to avoid any physics interaction affecting the hash
-                // TODO: maybe use observers so that we don't have any ordering requirements?
-                (
-                    InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
-                    InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
-                )
-                    .chain(),
-                (
-                    PhysicsSet::Prepare,
-                    PhysicsSet::StepSimulation,
-                    PhysicsSet::Sync,
-                )
-                    .chain(),
-                // run physics before updating the prediction history
-                (
-                    PredictionSet::UpdateHistory,
-                    PredictionSet::IncrementRollbackTick,
-                    InterpolationSet::UpdateVisualInterpolationState,
-                )
-                    .chain(),
+                InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
+                InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
             )
-                .chain(),
+                .chain()
+                .before(PhysicsSet::Prepare), // Runs right before physics.
+        );
+        // NB: the three main physics sets in FixedPostUpdate run in this order:
+        // pub enum PhysicsSet {
+        //     Prepare,
+        //     StepSimulation,
+        //     Sync,
+        // }
+        app.configure_sets(
+            FixedPostUpdate,
+            // run physics before updating the prediction history
+            (
+                PredictionSet::UpdateHistory,
+                PredictionSet::IncrementRollbackTick,
+                InterpolationSet::UpdateVisualInterpolationState,
+            )
+                .chain()
+                .after(PhysicsSet::Sync), // Runs right after physics.
         );
     }
 }

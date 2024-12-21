@@ -25,14 +25,6 @@ use crate::renderer::SpaceshipsRendererPlugin;
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
 pub(crate) const WALL_SIZE: f32 = 350.0;
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum FixedSet {
-    // main fixed update systems (handle inputs)
-    Main,
-    // apply physics steps
-    Physics,
-}
-
 #[derive(Clone)]
 pub struct SharedPlugin {
     pub(crate) show_confirmed: bool,
@@ -52,36 +44,19 @@ impl Plugin for SharedPlugin {
         app.insert_resource(avian2d::sync::SyncConfig {
             transform_to_position: false,
             position_to_transform: true,
+            ..default()
         });
         // We change SyncPlugin to PostUpdate, because we want the visually interpreted values
         // synced to transform every time, not just when Fixed schedule runs.
-        app.add_plugins(
-            PhysicsPlugins::new(FixedUpdate)
-                .build()
-                .disable::<SyncPlugin>(),
-        )
-        .add_plugins(SyncPlugin::new(PostUpdate));
+        app.add_plugins(PhysicsPlugins::default().build().disable::<SyncPlugin>())
+            .add_plugins(SyncPlugin::new(PostUpdate));
 
-        app.insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)));
+        app.insert_resource(Time::<Fixed>::from_hz(FIXED_TIMESTEP_HZ));
         app.insert_resource(Gravity(Vec2::ZERO));
-
-        app.configure_sets(
-            FixedUpdate,
-            (
-                // make sure that any physics simulation happens after the Main SystemSet
-                // (where we apply user's actions)
-                (
-                    PhysicsSet::Prepare,
-                    PhysicsSet::StepSimulation,
-                    PhysicsSet::Sync,
-                )
-                    .in_set(FixedSet::Physics),
-                (FixedSet::Main, FixedSet::Physics).chain(),
-            ),
-        );
+        // our systems run in FixedUpdate, avian's systems run in FixedPostUpdate.
         app.add_systems(
             FixedUpdate,
-            (process_collisions, lifetime_despawner).in_set(FixedSet::Main),
+            (process_collisions, lifetime_despawner).chain(),
         );
 
         app.add_systems(PostProcessCollisions, filter_own_bullet_collisions);

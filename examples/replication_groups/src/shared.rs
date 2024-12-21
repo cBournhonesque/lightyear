@@ -31,7 +31,7 @@ impl Plugin for SharedPlugin {
 }
 
 fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2d::default());
 }
 
 // This system defines how we update the player's positions when we receive an input
@@ -109,8 +109,7 @@ pub(crate) fn draw_snakes(
         };
         // draw the head
         gizmos.rect(
-            Vec3::new(position.x, position.y, 0.0),
-            Quat::IDENTITY,
+            Isometry3d::from_translation(Vec3::new(position.x, position.y, 0.0)),
             Vec2::ONE * 20.0,
             color.0,
         );

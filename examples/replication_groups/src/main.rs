@@ -21,9 +21,11 @@ fn main() {
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
     let mut apps = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
     // add the `ClientPlugins` and `ServerPlugins` plugin groups
-    apps.add_lightyear_plugins()
-        // add our plugins
-        .add_user_plugins(ExampleClientPlugin, ExampleServerPlugin, SharedPlugin);
+    apps.add_lightyear_plugins();
+    // add our plugins
+    apps.add_user_client_plugin(ExampleClientPlugin);
+    apps.add_user_server_plugin(ExampleServerPlugin);
+    apps.add_user_shared_plugin(SharedPlugin);
     // run the app
     apps.run();
 }

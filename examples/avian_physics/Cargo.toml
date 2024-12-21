@@ -37,3 +37,6 @@ tracing-subscriber.workspace = true
 bevy.workspace = true
 rand.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@ use bevy::color::palettes::css::{BLUE, GREEN, RED};
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
-use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
+// use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::action_state::ActionState;
 use std::ops::Deref;
 
@@ -25,8 +25,8 @@ impl Plugin for SharedPlugin {
             app.add_systems(Startup, init);
             app.add_systems(Update, (draw_players, draw_props));
             // diagnostics
-            app.add_systems(Startup, setup_diagnostic);
-            app.add_plugins(ScreenDiagnosticsPlugin::default());
+            // app.add_systems(Startup, setup_diagnostic);
+            // app.add_plugins(ScreenDiagnosticsPlugin::default());
         }
 
         // movement
@@ -35,19 +35,19 @@ impl Plugin for SharedPlugin {
 }
 
 fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2d::default());
 }
 
-fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
-    onscreen
-        .add("KB/S in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.2}"));
-    onscreen
-        .add("KB/s out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.2}"));
-}
+// fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
+//     onscreen
+//         .add("KB/S in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
+//         .aggregate(Aggregate::Average)
+//         .format(|v| format!("{v:.2}"));
+//     onscreen
+//         .add("KB/s out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
+//         .aggregate(Aggregate::Average)
+//         .format(|v| format!("{v:.2}"));
+// }
 
 /// Read client inputs and move players
 pub(crate) fn player_movement(
@@ -78,8 +78,7 @@ pub(crate) fn draw_players(
 ) {
     for (position, color) in &players {
         gizmos.rect(
-            Vec3::new(position.x, position.y, 0.0),
-            Quat::IDENTITY,
+            Isometry3d::from_translation(Vec3::new(position.x, position.y, 0.0)),
             Vec2::ONE * 50.0,
             color.0,
         );
@@ -105,7 +104,11 @@ pub(crate) fn draw_props(mut gizmos: Gizmos, props: Query<(&Position, &Shape)>) 
                 );
             }
             Shape::Square => {
-                gizmos.rect_2d(*position.deref(), 0.0, Vec2::splat(PROP_SIZE * 2.0), BLUE);
+                gizmos.rect_2d(
+                    Isometry2d::from_translation(*position.deref()),
+                    Vec2::splat(PROP_SIZE * 2.0),
+                    BLUE,
+                );
             }
         }
     }
