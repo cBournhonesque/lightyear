@@ -2,22 +2,29 @@
 name = "spaceships"
 version.workspace = true
 authors = [
-  "Charles Bournhonesque <charlesbour@gmail.com>",
-  "Richard Jones <rj@metabrew.com>",
+    "Charles Bournhonesque <charlesbour@gmail.com>",
+    "Richard Jones <rj@metabrew.com>",
 ]
 edition.workspace = true
 publish = false
 
 [features]
-default = ["server", "client"]
-metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
-client = [
-  "lightyear_examples_common/client",
-  "dep:bevy_screen_diagnostics",
-  "gui",
+default = [
+    "lightyear_examples_common/steam",
+    "lightyear_examples_common/websocket"
 ]
-gui = ["lightyear_examples_common/gui", "dep:bevy_screen_diagnostics"]
-server = ["lightyear_examples_common/server"]
+client = [
+    "lightyear_examples_common/client",
+    "gui",
+]
+server = [
+    "lightyear_examples_common/server"
+]
+gui = [
+    "lightyear_examples_common/gui",
+    "dep:bevy_screen_diagnostics",
+]
+metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 tls = ["dep:bevygap_client_plugin"]
 bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
 bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
@@ -28,11 +35,11 @@ bevy_screen_diagnostics = { workspace = true, optional = true }
 metrics-exporter-prometheus = { workspace = true, optional = true }
 leafwing-input-manager = { workspace = true, features = ["keyboard", "mouse"] }
 avian2d = { workspace = true, features = [
-  "2d",
-  "f32",
-  "parry-f32",
-  "parallel",
-  "serialize",
+    "2d",
+    "f32",
+    "parry-f32",
+    "parallel",
+    "serialize",
 ] }
 lightyear = { workspace = true, features = ["leafwing", "avian2d"] }
 serde.workspace = true
@@ -42,7 +49,7 @@ tracing-subscriber.workspace = true
 bevy.workspace = true
 rand.workspace = true
 bevygap_client_plugin = { workspace = true, optional = true, features = [
-  "matchmaker-tls",
+    "matchmaker-tls",
 ] }
 
 [lints]

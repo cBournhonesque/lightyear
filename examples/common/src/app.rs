@@ -38,7 +38,20 @@ pub struct Cli {
     client_id: Option<u64>,
 
     #[cfg(all(feature = "client", feature = "server"))]
-    mode: Mode,
+    #[arg(short, long, default_value = "separate")]
+    mode: ServerMode,
+}
+
+#[derive(ValueEnum, Clone, Default, Debug, PartialEq)]
+pub enum ServerMode {
+    #[default]
+    /// We will create two bevy Apps: a client app and a server app.
+    /// Data gets passed between the two via channels.
+    Separate,
+    /// Run the app in headless mode
+    /// We have the client and the server running inside the same app.
+    /// The server will also act as a client. (i.e. one client acts as the 'host')
+    HostServer,
 }
 
 /// App that is Send.
@@ -65,7 +78,7 @@ pub fn cli() -> Cli {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
             let client_id = rand::random::<u64>();
-            Cli::Client {
+            Cli {
                 client_id: Some(client_id)
             }
         } else {
@@ -103,7 +116,7 @@ impl Apps {
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "client", feature = "server"))] {
                 match cli.mode {
-                    Mode::HostServer => {
+                    ServerMode::HostServer => {
                         let client_net_config = client::NetConfig::Local {
                             id: cli.client_id.unwrap_or(settings.client.client_id),
                         };
@@ -116,7 +129,7 @@ impl Apps {
                             server_config,
                         }
                     }
-                    Mode::Separate => {
+                    ServerMode::Separate => {
                             // we will communicate between the client and server apps via channels
                         let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
                         let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();

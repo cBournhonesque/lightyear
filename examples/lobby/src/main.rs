@@ -10,16 +10,19 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-use crate::client::ExampleClientPlugin;
-use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear::prelude::{Deserialize, Serialize};
 use lightyear_examples_common::app::{Apps, Cli};
 use lightyear_examples_common::settings::{read_settings, ServerTransports, Settings};
 
+#[cfg(feature = "client")]
 mod client;
 mod protocol;
+
+#[cfg(feature = "gui")]
+mod renderer;
+#[cfg(feature = "server")]
 mod server;
 mod shared;
 
@@ -52,13 +55,15 @@ fn main() {
     let mut apps = Apps::new(settings.clone(), cli, env!("CARGO_PKG_NAME").to_string());
     // we do not modify the configurations of the plugins, so we can just build
     // the `ClientPlugins` and `ServerPlugins` plugin groups
-    apps.add_lightyear_plugins()
-        // add our plugins
-        .add_user_plugins(
-            ExampleClientPlugin { settings },
-            ExampleServerPlugin,
-            SharedPlugin,
-        );
+    apps.add_lightyear_plugins();
+    apps.add_user_shared_plugin(SharedPlugin);
+    #[cfg(feature = "client")]
+    apps.add_user_client_plugin(crate::client::ExampleClientPlugin);
+    #[cfg(feature = "server")]
+    apps.add_user_server_plugin(crate::server::ExampleServerPlugin);
+    #[cfg(feature = "gui")]
+    apps.add_user_renderer_plugin(crate::renderer::ExampleRendererPlugin);
+
     // run the app
     apps.run();
 }

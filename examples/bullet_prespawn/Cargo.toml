@@ -7,18 +7,28 @@ publish = false
 
 [features]
 default = [
-  "lightyear_examples_common/server",
-  "lightyear_examples_common/client",
+    "lightyear_examples_common/steam",
+    "lightyear_examples_common/websocket"
+]
+client = [
+    "lightyear_examples_common/client",
+    "gui",
+]
+server = [
+    "lightyear_examples_common/server"
+]
+gui = [
+    "lightyear_examples_common/gui"
 ]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
 lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = [
-  "steam",
-  "websocket",
-  "leafwing",
-  "lz4",
+    "steam",
+    "websocket",
+    "leafwing",
+    "lz4",
 ] }
 
 bevy_screen_diagnostics.workspace = true

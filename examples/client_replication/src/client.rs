@@ -49,14 +49,6 @@ pub(crate) fn handle_connection(
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
         info!("Spawning local cursor");
         // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
         commands.spawn(CursorBundle::new(

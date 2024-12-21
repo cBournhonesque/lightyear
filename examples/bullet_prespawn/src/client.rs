@@ -24,7 +24,6 @@ impl Plugin for ExampleClientPlugin {
             (AdminActions::Reset, KeyCode::KeyR),
         ]));
 
-        app.add_systems(Startup, init);
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schdule
         // app.add_systems(FixedUpdate, player_movement);
         // we update the ActionState manually from cursor, so we need to put it in the ManualControl set
@@ -47,11 +46,6 @@ impl Plugin for ExampleClientPlugin {
         );
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
     }
-}
-
-/// Startup system for the client
-pub(crate) fn init(mut commands: Commands) {
-    commands.connect_client();
 }
 
 fn spawn_player(mut commands: Commands, mut connection_event: EventReader<ConnectEvent>) {

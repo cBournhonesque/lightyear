@@ -26,11 +26,12 @@ fn main() {
     let settings_str = include_str!("../assets/settings.ron");
     let settings = read_settings::<MySettings>(settings_str);
     let mut apps = Apps::new(settings.common, cli, env!("CARGO_PKG_NAME").to_string());
+
     apps.update_lightyear_client_config(|config| {
         config.prediction.minimum_input_delay_ticks = settings.input_delay_ticks;
         config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
     });
-    // Add `ClientPlugins` and `ServerPlugins` plugin groups.
+
     apps.add_lightyear_plugins();
     apps.add_user_shared_plugin(SharedPlugin);
     #[cfg(feature = "server")]
