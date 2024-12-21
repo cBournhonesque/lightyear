@@ -1,7 +1,6 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear_examples_common::app::Apps;
 use lightyear_examples_common::settings::{read_settings, Settings};
@@ -24,6 +23,7 @@ fn main() {
     let mut apps = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
     // add `ClientPlugins` and `ServerPlugins` plugin groups
     apps.add_lightyear_plugins();
+    apps.add_user_shared_plugin(shared::SharedPlugin);
     #[cfg(feature = "client")]
     apps.add_user_client_plugin(client::ExampleClientPlugin);
     #[cfg(feature = "server")]

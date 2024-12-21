@@ -6,7 +6,6 @@
 
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use bevy_mod_picking::DefaultPickingPlugins;
 use std::ops::{Deref, DerefMut};
 
 use lightyear::prelude::client::{Confirmed, Interpolated};
@@ -29,10 +28,6 @@ impl Plugin for SharedPlugin {
         app.add_plugins(ProtocolPlugin);
         app.add_systems(FixedUpdate, ball_movement);
     }
-}
-
-fn init(mut commands: Commands) {
-    commands.spawn(Camera2d::default());
 }
 
 // This system defines how we update the player's positions when we receive an input

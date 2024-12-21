@@ -1,14 +1,13 @@
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use tracing::Level;
 
-use lightyear::client::prediction::Predicted;
-use lightyear::prelude::client::{Confirmed, Interpolated};
-use lightyear::prelude::*;
-
 use crate::protocol::Direction;
 use crate::protocol::*;
+use lightyear::client::prediction::Predicted;
+use lightyear::prelude::client::{Confirmed, Interpolated};
+use lightyear::prelude::server::ReplicationTarget;
+use lightyear::prelude::*;
 
 #[derive(Clone)]
 pub struct SharedPlugin;
@@ -24,10 +23,6 @@ impl Plugin for SharedPlugin {
         app.register_type::<TailPoints>();
         app.register_type::<TailLength>();
     }
-}
-
-fn init(mut commands: Commands) {
-    commands.spawn(Camera2d::default());
 }
 
 // This system defines how we update the player's positions when we receive an input

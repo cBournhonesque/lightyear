@@ -14,12 +14,11 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
-use bevy_mod_picking::picking_core::Pickable;
-use bevy_mod_picking::prelude::{Click, On, Pointer};
 use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::server::AuthorityPeer;
 use lightyear::prelude::*;
+use lightyear_examples_common::renderer::ClientIdText;
 
 pub struct ExampleClientPlugin;
 
@@ -31,7 +30,7 @@ impl Plugin for ExampleClientPlugin {
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(Update, (button_system, change_ball_color_on_authority));
+        app.add_systems(Update, change_ball_color_on_authority);
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
 
         app.add_systems(PostUpdate, interpolation_debug_log);
@@ -126,37 +125,6 @@ fn on_disconnect(
     }
     for entity in debug_text.iter() {
         commands.entity(entity).despawn_recursive();
-    }
-}
-
-///  System that will assign a callback to the 'Connect' button depending on the connection state.
-fn button_system(
-    mut interaction_query: Query<(Entity, &Children, &mut On<Pointer<Click>>), With<Button>>,
-    mut text_query: Query<&mut Text>,
-    state: Res<State<NetworkingState>>,
-) {
-    if state.is_changed() {
-        for (entity, children, mut on_click) in &mut interaction_query {
-            let mut text = text_query.get_mut(children[0]).unwrap();
-            match state.get() {
-                NetworkingState::Disconnected => {
-                    text.sections[0].value = "Connect".to_string();
-                    *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
-                        commands.connect_client();
-                    });
-                }
-                NetworkingState::Connecting => {
-                    text.sections[0].value = "Connecting".to_string();
-                    *on_click = On::<Pointer<Click>>::run(|| {});
-                }
-                NetworkingState::Connected => {
-                    text.sections[0].value = "Disconnect".to_string();
-                    *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
-                        commands.disconnect_client();
-                    });
-                }
-            };
-        }
     }
 }
 

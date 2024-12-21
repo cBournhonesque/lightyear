@@ -39,24 +39,27 @@ pub(crate) fn draw_props(mut gizmos: Gizmos, props: Query<(&Position, &Shape)>) 
     for (position, shape) in props.iter() {
         match shape {
             Shape::Circle => {
-                gizmos.circle_2d(*position.deref(), crate::shared::PROP_SIZE, GREEN);
+                gizmos.circle_2d(
+                    Isometry2d::from_translation(position.0),
+                    crate::shared::PROP_SIZE,
+                    GREEN,
+                );
             }
             Shape::Triangle => {
                 gizmos.linestrip_2d(
                     vec![
-                        *position.deref() + Vec2::new(0.0, crate::shared::PROP_SIZE),
-                        *position.deref()
-                            + Vec2::new(crate::shared::PROP_SIZE, -crate::shared::PROP_SIZE),
-                        *position.deref()
+                        position.0 + Vec2::new(0.0, crate::shared::PROP_SIZE),
+                        position.0 + Vec2::new(crate::shared::PROP_SIZE, -crate::shared::PROP_SIZE),
+                        position.0
                             + Vec2::new(-crate::shared::PROP_SIZE, -crate::shared::PROP_SIZE),
-                        *position.deref() + Vec2::new(0.0, crate::shared::PROP_SIZE),
+                        position.0 + Vec2::new(0.0, crate::shared::PROP_SIZE),
                     ],
                     RED,
                 );
             }
             Shape::Square => {
                 gizmos.rect_2d(
-                    Isometry2d::from_translation(*position.deref()),
+                    Isometry2d::from_translation(position.0),
                     Vec2::splat(crate::shared::PROP_SIZE * 2.0),
                     BLUE,
                 );

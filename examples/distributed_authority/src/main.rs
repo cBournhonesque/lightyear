@@ -34,6 +34,7 @@ fn main() {
     let mut apps = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
     // add the `ClientPlugins` and `ServerPlugins` plugin groups
     apps.add_lightyear_plugins();
+    apps.add_user_shared_plugin(shared::SharedPlugin);
     #[cfg(feature = "client")]
     apps.add_user_client_plugin(crate::client::ExampleClientPlugin);
     #[cfg(feature = "server")]

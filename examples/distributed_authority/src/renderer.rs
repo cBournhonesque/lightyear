@@ -40,7 +40,7 @@ pub(crate) fn draw_boxes(
     players: Query<(&Position, &PlayerColor), (Without<BallMarker>, Without<Confirmed>)>,
 ) {
     for (position, color) in &players {
-        gizmos.rect(
+        gizmos.rect_2d(
             Isometry2d::from_translation(position.0),
             Vec2::ONE * 50.0,
             color.0,

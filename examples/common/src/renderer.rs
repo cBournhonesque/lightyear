@@ -1,3 +1,4 @@
+#[cfg(feature = "client")]
 use bevy::picking::prelude::{Click, Pointer};
 use bevy::prelude::*;
 #[cfg(feature = "bevygap_client")]

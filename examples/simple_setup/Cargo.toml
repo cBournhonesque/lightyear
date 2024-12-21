@@ -12,10 +12,6 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-default = [
-  "lightyear_examples_common/server",
-  "lightyear_examples_common/client",
-]
 
 [dependencies]
 lightyear_examples_common.workspace = true

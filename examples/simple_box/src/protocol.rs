@@ -45,7 +45,7 @@ impl PlayerBundle {
 pub struct PlayerId(ClientId);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
-pub struct PlayerPosition(Vec2);
+pub struct PlayerPosition(pub Vec2);
 
 impl Add for PlayerPosition {
     type Output = PlayerPosition;

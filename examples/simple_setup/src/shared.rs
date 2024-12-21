@@ -47,5 +47,5 @@ impl Plugin for SharedPlugin {
 }
 
 fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2d);
 }

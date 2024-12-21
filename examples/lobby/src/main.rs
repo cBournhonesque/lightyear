@@ -58,7 +58,7 @@ fn main() {
     apps.add_lightyear_plugins();
     apps.add_user_shared_plugin(SharedPlugin);
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(crate::client::ExampleClientPlugin);
+    apps.add_user_client_plugin(crate::client::ExampleClientPlugin { settings });
     #[cfg(feature = "server")]
     apps.add_user_server_plugin(crate::server::ExampleServerPlugin);
     #[cfg(feature = "gui")]

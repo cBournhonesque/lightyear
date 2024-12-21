@@ -1,6 +1,5 @@
 use bevy::color::palettes::css::{BLUE, GREEN, RED};
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 // use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::action_state::ActionState;
@@ -13,7 +12,7 @@ use lightyear::transport::io::IoDiagnosticsPlugin;
 use crate::protocol::*;
 
 const MOVE_SPEED: f32 = 10.0;
-const PROP_SIZE: f32 = 5.0;
+pub(crate) const PROP_SIZE: f32 = 5.0;
 
 #[derive(Clone)]
 pub struct SharedPlugin;
@@ -25,10 +24,6 @@ impl Plugin for SharedPlugin {
         // movement
         app.add_systems(FixedUpdate, player_movement);
     }
-}
-
-fn init(mut commands: Commands) {
-    commands.spawn(Camera2d::default());
 }
 
 /// Read client inputs and move players
