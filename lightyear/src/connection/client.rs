@@ -274,7 +274,7 @@ impl Authentication {
     /// Returns true if the Authentication contains a [`ConnectToken`] that can be used to
     /// connect to the game server
     pub fn has_token(&self) -> bool {
-        !matches!(self, Authentication::None)
+        matches!(self, Authentication::Token(..))
     }
 
     pub fn get_token(

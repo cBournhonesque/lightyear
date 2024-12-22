@@ -13,7 +13,6 @@ use bevy::prelude::*;
 use bevy::utils::HashMap;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::ReplicationTarget;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,20 +37,6 @@ fn start_server(mut commands: Commands) {
 
 /// Add some debugging text to the screen
 fn init(mut commands: Commands) {
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
     commands.spawn((
         BallMarker,
         Name::new("Ball"),

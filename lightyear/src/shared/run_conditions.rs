@@ -2,7 +2,7 @@
 use crate::connection::server::ServerConnections;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{Mode, NetworkIdentity};
-use bevy::prelude::Res;
+use bevy::prelude::{Ref, Res};
 
 /// Returns true if the peer is a client
 pub fn is_client(identity: NetworkIdentity) -> bool {
@@ -23,6 +23,16 @@ pub fn is_server(identity: NetworkIdentity) -> bool {
 pub fn is_host_server(
     config: Option<Res<ServerConfig>>,
     server: Option<Res<ServerConnections>>,
+) -> bool {
+    config.map_or(false, |config| {
+        matches!(config.shared.mode, Mode::HostServer)
+            && server.map_or(false, |server| server.is_listening())
+    })
+}
+
+pub fn is_host_server_ref(
+    config: Option<Ref<ServerConfig>>,
+    server: Option<Ref<ServerConnections>>,
 ) -> bool {
     config.map_or(false, |config| {
         matches!(config.shared.mode, Mode::HostServer)

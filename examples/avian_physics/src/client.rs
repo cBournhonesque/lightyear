@@ -8,7 +8,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
+use crate::shared::{color_from_id, shared_movement_behaviour};
 
 pub struct ExampleClientPlugin;
 
@@ -29,7 +29,7 @@ impl Plugin for ExampleClientPlugin {
                 .before(PredictionSet::SpawnPrediction),
         );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedSet::Main));
+        app.add_systems(FixedUpdate, player_movement);
         app.add_systems(
             Update,
             (
@@ -56,13 +56,10 @@ pub(crate) fn handle_connection(
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
+        commands.spawn((
+            Text(format!("Client {}", client_id)),
+            TextColor(Color::WHITE),
+            TextFont::from_font_size(30.0),
         ));
         let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
         // we will spawn two cubes per player, once is controlled with WASD, the other with arrows

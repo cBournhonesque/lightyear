@@ -1,13 +1,11 @@
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
-use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::prelude::ActionState;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::{Replicate, SyncTarget};
+use lightyear::prelude::server::{Replicate, ReplicationTarget, SyncTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::shared::plugin::Identity;
@@ -23,26 +21,6 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        if app.is_plugin_added::<RenderPlugin>() {
-            app.add_systems(Startup, init);
-            // draw after interpolation is done
-            app.add_systems(
-                PostUpdate,
-                draw_elements
-                    .after(InterpolationSet::Interpolate)
-                    .after(PredictionSet::VisualCorrection),
-            );
-            // app.add_plugins(LogDiagnosticsPlugin {
-            //     filter: Some(vec![
-            //         IoDiagnosticsPlugin::BYTES_IN,
-            //         IoDiagnosticsPlugin::BYTES_OUT,
-            //     ]),
-            //     ..default()
-            // });
-            app.add_systems(Startup, setup_diagnostic);
-            app.add_plugins(ScreenDiagnosticsPlugin::default());
-        }
-
         // registry types for reflection
         app.register_type::<PlayerId>();
         app.add_systems(FixedPostUpdate, fixed_update_log);
@@ -73,21 +51,6 @@ impl Plugin for SharedPlugin {
     }
 }
 
-fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
-}
-
-fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
-    onscreen
-        .add("KB/S in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.2}"));
-    onscreen
-        .add("KB/s out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.2}"));
-}
-
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: ClientId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(90)) % 360) as f32) / 360.0;
@@ -107,8 +70,7 @@ pub(crate) fn shared_player_movement(
         return;
     };
     // warn!(?mouse_position);
-    let angle =
-        Vec2::new(0.0, 1.0).angle_between(cursor_data.pair - transform.translation.truncate());
+    let angle = Vec2::new(0.0, 1.0).angle_to(cursor_data.pair - transform.translation.truncate());
     // careful to only activate change detection if there was an actual change
     if (angle - transform.rotation.to_euler(EulerRot::XYZ).2).abs() > EPS {
         transform.rotation = Quat::from_rotation_z(angle);
@@ -280,47 +242,4 @@ pub(crate) fn shoot_bullet(
             }
         }
     }
-}
-
-pub(crate) fn draw_elements(
-    mut gizmos: Gizmos,
-    players: Query<(&Transform, &ColorComponent), (Without<Confirmed>, With<PlayerId>)>,
-    // // we will change the color of balls when they become predicted (i.e. adopt server authority)
-    // prespawned_balls: Query<
-    //     (&Transform, &ColorComponent),
-    //     (
-    //         With<PreSpawnedPlayerObject>,
-    //         Without<Predicted>,
-    //         With<BallMarker>,
-    //     ),
-    // >,
-    // predicted_balls: Query<
-    //     (&Transform, &ColorComponent),
-    //     (
-    //         Without<PreSpawnedPlayerObject>,
-    //         With<Predicted>,
-    //         With<BallMarker>,
-    //     ),
-    // >,
-    balls: Query<(&Transform, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
-) {
-    for (transform, color) in &players {
-        // transform.rotation.angle_between()
-        // let angle = transform.rotation.to_axis_angle().1;
-        // warn!(axis = ?transform.rotation.to_axis_angle().0);
-        gizmos.rect_2d(
-            transform.translation.truncate(),
-            // angle,
-            transform.rotation.to_euler(EulerRot::XYZ).2,
-            Vec2::ONE * PLAYER_SIZE,
-            color.0,
-        );
-    }
-    for (transform, color) in &balls {
-        gizmos.circle_2d(transform.translation.truncate(), BALL_SIZE, color.0);
-    }
-    // for (transform, color) in &prespawned_balls {
-    //     let color = color.0.set
-    //     gizmos.circle_2d(transform.translation.truncate(), BALL_SIZE, color.0);
-    // }
 }

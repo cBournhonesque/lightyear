@@ -12,16 +12,21 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-default = [
+default = ["lightyear_examples_common/websocket"]
+client = [
   "lightyear_examples_common/server",
   "lightyear_examples_common/client",
+  "gui",
 ]
+server = ["lightyear_examples_common/server"]
+gui = ["lightyear_examples_common/gui"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
 lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = ["steam", "websocket", "leafwing"] }
 
+cfg-if.workspace = true
 bevy_egui.workspace = true
 egui_extras.workspace = true
 leafwing-input-manager.workspace = true

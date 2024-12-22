@@ -224,7 +224,7 @@ mod tests {
             .client_app
             .world_mut()
             .insert_resource(TestResource(3.0));
-        stepper
+        let _ = stepper
             .client_app
             .world_mut()
             .run_system_once(update_resource_history::<TestResource>);
@@ -244,7 +244,7 @@ mod tests {
             .client_app
             .world_mut()
             .remove_resource::<TestResource>();
-        stepper
+        let _ = stepper
             .client_app
             .world_mut()
             .run_system_once(update_resource_history::<TestResource>);

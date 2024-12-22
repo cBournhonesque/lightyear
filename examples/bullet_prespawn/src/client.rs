@@ -24,7 +24,6 @@ impl Plugin for ExampleClientPlugin {
             (AdminActions::Reset, KeyCode::KeyR),
         ]));
 
-        app.add_systems(Startup, init);
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schdule
         // app.add_systems(FixedUpdate, player_movement);
         // we update the ActionState manually from cursor, so we need to put it in the ManualControl set
@@ -49,21 +48,13 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-/// Startup system for the client
-pub(crate) fn init(mut commands: Commands) {
-    commands.connect_client();
-}
-
 fn spawn_player(mut commands: Commands, mut connection_event: EventReader<ConnectEvent>) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
+        commands.spawn((
+            Text(format!("Client {}", client_id)),
+            TextColor(Color::WHITE),
+            TextFont::default().with_font_size(30.0),
         ));
         info!("Spawning player with id: {}", client_id);
         let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
@@ -95,7 +86,7 @@ fn update_cursor_state_from_window(
     let window = window_query.single();
     if let Some(world_position) = window
         .cursor_position()
-        .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
+        .and_then(|cursor| Some(camera.viewport_to_world(camera_transform, cursor).unwrap()))
         .map(|ray| ray.origin.truncate())
     {
         for mut action_state in action_state_query.iter_mut() {

@@ -29,8 +29,7 @@ impl Plugin for ExampleClientPlugin {
                 // otherwise we rely on normal server replication to spawn them
                 shared_player_firing.run_if(not(is_in_rollback)),
             )
-                .chain()
-                .in_set(FixedSet::Main),
+                .chain(),
         );
         app.add_systems(
             Update,
@@ -43,7 +42,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             FixedUpdate,
             handle_hit_event
-                .run_if(on_event::<BulletHitEvent>())
+                .run_if(on_event::<BulletHitEvent>)
                 .after(process_collisions),
         );
     }
@@ -118,10 +117,8 @@ fn handle_hit_event(
 ) {
     for ev in events.read() {
         commands.spawn((
-            SpatialBundle {
-                transform: Transform::from_xyz(ev.position.x, ev.position.y, 0.0),
-                ..default()
-            },
+            Transform::from_xyz(ev.position.x, ev.position.y, 0.0),
+            Visibility::default(),
             crate::renderer::Explosion::new(time.elapsed(), ev.bullet_color),
         ));
     }

@@ -131,7 +131,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
         Update,
         add_component_history::<C>.in_set(InterpolationSet::SpawnHistory),
     );
-    app.observe(removed_components::<C>);
+    app.add_observer(removed_components::<C>);
     match interpolation_mode {
         ComponentSyncMode::Full => {
             app.add_systems(
@@ -169,7 +169,7 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
-        let should_run_interpolation = not(is_host_server).and_then(is_synced);
+        let should_run_interpolation = not(is_host_server).and(is_synced);
 
         // REFLECT
         app.register_type::<InterpolationConfig>()
@@ -199,6 +199,6 @@ impl Plugin for InterpolationPlugin {
             Update,
             spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
         );
-        app.observe(despawn_interpolated);
+        app.add_observer(despawn_interpolated);
     }
 }

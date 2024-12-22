@@ -9,22 +9,17 @@ edition.workspace = true
 publish = false
 
 [features]
-default = ["server", "client"]
-metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
-client = [
-  "lightyear_examples_common/client",
-  "dep:bevy_screen_diagnostics",
-  "gui",
-]
-gui = ["lightyear_examples_common/gui", "dep:bevy_screen_diagnostics"]
+default = ["lightyear_examples_common/websocket"]
+client = ["lightyear_examples_common/client", "gui"]
 server = ["lightyear_examples_common/server"]
+gui = ["lightyear_examples_common/gui"]
+metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 tls = ["dep:bevygap_client_plugin"]
 bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
 bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
 
 [dependencies]
 lightyear_examples_common.workspace = true
-bevy_screen_diagnostics = { workspace = true, optional = true }
 metrics-exporter-prometheus = { workspace = true, optional = true }
 leafwing-input-manager = { workspace = true, features = ["keyboard", "mouse"] }
 avian2d = { workspace = true, features = [

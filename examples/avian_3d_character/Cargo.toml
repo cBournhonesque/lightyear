@@ -6,11 +6,11 @@ edition = "2021"
 publish = false
 
 [features]
-default = ["server", "client"]
-gui = ["lightyear_examples_common/gui", "dep:bevy_screen_diagnostics"]
+default = ["lightyear_examples_common/websocket"]
 client = ["lightyear_examples_common/client", "gui"]
-tls = ["dep:bevygap_client_plugin"]
 server = ["lightyear_examples_common/server"]
+gui = ["lightyear_examples_common/gui"]
+tls = ["dep:bevygap_client_plugin"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
 bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
@@ -24,7 +24,6 @@ lightyear = { workspace = true, features = [
 ] }
 leafwing-input-manager.workspace = true
 
-bevy_screen_diagnostics = { workspace = true, optional = true }
 avian3d = { workspace = true, features = [
   "3d",
   "f32",
@@ -42,6 +41,9 @@ metrics-exporter-prometheus = { workspace = true, optional = true }
 bevygap_client_plugin = { workspace = true, optional = true, features = [
   "matchmaker-tls",
 ] }
+
+[target."cfg(target_family = \"wasm\")".dependencies]
+console_error_panic_hook.workspace = true
 
 [lints]
 workspace = true

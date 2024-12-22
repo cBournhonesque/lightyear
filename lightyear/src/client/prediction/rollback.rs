@@ -780,7 +780,7 @@ mod unit_tests {
             .0 = 2.0;
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
-        stepper
+        let _ = stepper
             .client_app
             .world_mut()
             .run_system_once(check_rollback::<ComponentSyncModeFull>);
@@ -807,7 +807,7 @@ mod unit_tests {
             .remove::<ComponentSyncModeFull>();
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
-        stepper
+        let _ = stepper
             .client_app
             .world_mut()
             .run_system_once(check_rollback::<ComponentSyncModeFull>);
@@ -839,7 +839,7 @@ mod unit_tests {
             .insert(ComponentSyncModeFull(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
-        stepper
+        let _ = stepper
             .client_app
             .world_mut()
             .run_system_once(check_rollback::<ComponentSyncModeFull>);
@@ -868,7 +868,7 @@ mod unit_tests {
             .add_update(tick, ComponentSyncModeFull(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
-        stepper
+        let _ = stepper
             .client_app
             .world_mut()
             .run_system_once(check_rollback::<ComponentSyncModeFull>);

@@ -23,7 +23,6 @@ lz4_flex.workspace = true
 bevy = { workspace = true, default-features = true }
 
 # crates specific to benchmarks, so not in top-level Cargo workspace
-
 pprof = { version = "0.14.0", features = ["flamegraph", "frame-pointer"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 rand_chacha = "0.3.1"

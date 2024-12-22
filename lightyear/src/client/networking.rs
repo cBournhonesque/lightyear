@@ -72,7 +72,7 @@ impl Plugin for ClientNetworkingPlugin {
                     // we are running the listen_io_state in a different set because it can impact the run_condition for the
                     // Receive system set
                     .before(InternalMainSet::<ClientMarker>::Receive)
-                    .run_if(not(is_host_server.or_else(is_disconnected))),
+                    .run_if(not(is_host_server.or(is_disconnected))),
             )
             .add_systems(
                 PreUpdate,
@@ -123,7 +123,7 @@ impl Plugin for ClientNetworkingPlugin {
         // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
         // that depend on these resources do not panic
         // We build it here so that it uses the latest Protocol
-        app.world_mut().run_system_once(rebuild_client_connection);
+        let _ = app.world_mut().run_system_once(rebuild_client_connection);
     }
 }
 

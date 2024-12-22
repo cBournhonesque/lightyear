@@ -75,7 +75,7 @@ impl Plugin for ServerNetworkingPlugin {
         //  a ConnectionManager or a NetConfig at startup
         // Create the server connection resources to avoid some systems panicking
         // TODO: remove this when possible?
-        app.world_mut().run_system_once(rebuild_server_connections);
+        let _ = app.world_mut().run_system_once(rebuild_server_connections);
     }
 }
 
@@ -110,8 +110,11 @@ pub(crate) fn receive_packets(
                     Ok(event) => {
                         match event {
                             // if the io task for any connection failed, disconnect the client in netcode
-                            ServerIoEvent::ClientDisconnected(client_id) => {
-                                to_disconnect.push(client_id);
+                            ServerIoEvent::ClientDisconnected(client_addr) => {
+                                debug!(
+                                    "Received server io event: client {client_addr:?} disconnected"
+                                );
+                                to_disconnect.push(client_addr);
                             }
                             ServerIoEvent::ServerDisconnected(e) => {
                                 error!("Disconnect server because of io error: {:?}", e);

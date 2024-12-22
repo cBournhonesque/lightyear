@@ -1,4 +1,3 @@
-// use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::ecs::query::QueryData;
 use bevy::math::VectorSpace;
 use bevy::prelude::*;
@@ -15,8 +14,6 @@ use tracing::Level;
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
-// use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
-// use lightyear::transport::io::IoDiagnosticsPlugin;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
@@ -86,23 +83,12 @@ impl Default for BlockPhysicsBundle {
     }
 }
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum FixedSet {
-    // Main fixed update systems (i.e. handle inputs).
-    Main,
-    // Apply physics steps.
-    Physics,
-}
-
 #[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        // if app.is_plugin_added::<RenderPlugin>() {
-        //     app.add_plugins(ExampleRendererPlugin);
-        // }
 
         // Physics
 
@@ -111,34 +97,14 @@ impl Plugin for SharedPlugin {
         app.insert_resource(avian3d::sync::SyncConfig {
             transform_to_position: false,
             position_to_transform: true,
+            ..default()
         });
 
         // We change SyncPlugin to PostUpdate, because we want the visually
         // interpreted values synced to transform every time, not just when
         // Fixed schedule runs.
-        app.add_plugins(
-            PhysicsPlugins::new(FixedUpdate)
-                .build()
-                .disable::<SyncPlugin>(),
-        )
-        .add_plugins(SyncPlugin::new(PostUpdate));
-
-        app.insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)));
-
-        app.configure_sets(
-            FixedUpdate,
-            (
-                // Make sure that any physics simulation happens after the Main
-                // SystemSet (i.e. where we apply user's actions).
-                (
-                    PhysicsSet::Prepare,
-                    PhysicsSet::StepSimulation,
-                    PhysicsSet::Sync,
-                )
-                    .in_set(FixedSet::Physics),
-                (FixedSet::Main, FixedSet::Physics).chain(),
-            ),
-        );
+        app.add_plugins(PhysicsPlugins::default().build().disable::<SyncPlugin>())
+            .add_plugins(SyncPlugin::new(PostUpdate));
     }
 }
 
@@ -156,7 +122,7 @@ pub struct CharacterQuery {
     pub external_force: &'static mut ExternalForce,
     pub external_impulse: &'static mut ExternalImpulse,
     pub linear_velocity: &'static LinearVelocity,
-    pub mass: &'static Mass,
+    pub mass: &'static ComputedMass,
     pub position: &'static Position,
     pub entity: Entity,
 }
@@ -172,7 +138,7 @@ pub fn apply_character_action(
     const MAX_ACCELERATION: f32 = 20.0;
 
     // How much velocity can change in a single tick given the max acceleration.
-    let max_velocity_delta_per_tick = MAX_ACCELERATION * time.delta_seconds();
+    let max_velocity_delta_per_tick = MAX_ACCELERATION * time.delta_secs();
 
     // Handle jumping.
     if action_state.pressed(&CharacterAction::Jump) {
@@ -193,7 +159,7 @@ pub fn apply_character_action(
                 Dir3::NEG_Y,
                 0.01,
                 true,
-                SpatialQueryFilter::from_excluded_entities([character.entity]),
+                &SpatialQueryFilter::from_excluded_entities([character.entity]),
             )
             .is_some()
         {
@@ -233,9 +199,9 @@ pub fn apply_character_action(
     // `max_velocity_delta_per_tick` which restricts how much the velocity can
     // change in a single tick based on `MAX_ACCELERATION`.
     let required_acceleration =
-        (new_ground_linear_velocity - ground_linear_velocity) / time.delta_seconds();
+        (new_ground_linear_velocity - ground_linear_velocity) / time.delta_secs();
 
     character
         .external_force
-        .apply_force(required_acceleration * character.mass.0);
+        .apply_force(required_acceleration * character.mass.value());
 }
