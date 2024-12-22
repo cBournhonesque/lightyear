@@ -384,7 +384,11 @@ pub(crate) fn build_client_netcode_config(
     };
     println!("Auth: {auth:?}");
     println!("TransportConfig: {transport_config:?}");
-    let netcode_config = client::NetcodeConfig::default();
+    let netcode_config = client::NetcodeConfig {
+        // Make sure that the server times out clients when their connection is closed
+        client_timeout_secs: 3,
+        ..default()
+    };
     let io_config = client::IoConfig {
         transport: transport_config,
         conditioner,
