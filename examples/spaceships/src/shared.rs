@@ -12,6 +12,7 @@ use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
 
 use lightyear::prelude::client::*;
+use lightyear::prelude::server::ReplicationTarget;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
@@ -261,7 +262,7 @@ pub fn shared_player_firing(
                 prespawned,
             ))
             .id();
-        info!(
+        debug!(
             "spawned bullet for ActionState, bullet={bullet_entity:?} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?}",
             weapon.last_fire_tick.0, player.client_id
         );

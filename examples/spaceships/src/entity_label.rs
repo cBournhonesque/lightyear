@@ -1,8 +1,10 @@
 use avian2d::prelude::{Position, Rotation};
+use bevy::prelude::TransformSystem::TransformPropagate;
 /// Utility plugin to display a text label next to an entity.
 ///
 /// Label will track parent position, ignoring rotation.
 use bevy::prelude::*;
+use bevy::text::TextReader;
 use lightyear::{
     client::{
         interpolation::{plugin::InterpolationSet, VisualInterpolateStatus},
@@ -15,11 +17,11 @@ pub struct EntityLabelPlugin;
 
 impl Plugin for EntityLabelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (label_added, label_changed));
-
         app.add_systems(
             PostUpdate,
-            fix_entity_label_rotations.before(bevy::transform::systems::propagate_transforms),
+            (label_added, label_changed, fix_entity_label_rotations)
+                .chain()
+                .before(TransformPropagate),
         );
     }
 }
@@ -59,69 +61,50 @@ fn label_added(
     q: Query<(Entity, &EntityLabel), Added<EntityLabel>>,
     mut commands: Commands,
 ) {
-    let font: Handle<Font> = Default::default();
-    let mut ts = TextStyle {
-        font: font.clone(),
-        font_size: 16.0,
-        color: Color::WHITE,
-    };
-    let mut ts_sub = TextStyle {
-        font,
-        font_size: 13.0,
-        color: Color::WHITE,
-    };
     for (e, label) in q.iter() {
-        ts.font_size = label.size;
-        ts_sub.font_size = label.size * 0.85;
-        ts.color = label.color;
-        ts_sub.color = label.color.with_alpha(0.6);
         commands
             .spawn((
                 EntityLabelChild,
-                Text2dBundle {
-                    text: Text::from_sections([
-                        TextSection::new(label.text.clone(), ts.clone()),
-                        TextSection::new("\n", ts.clone()),
-                        TextSection::new(label.sub_text.clone(), ts_sub.clone()),
-                    ])
-                    .with_no_wrap()
-                    .with_justify(JustifyText::Center),
-                    transform: Transform::from_translation(Vec3::new(
-                        label.offset.x,
-                        label.offset.y,
-                        label.z,
-                    )),
-                    ..default()
+                TextLayout {
+                    justify: JustifyText::Center,
+                    linebreak: LineBreak::NoWrap,
                 },
+                Text2d(label.text.clone()),
+                TextFont::from_font_size(label.size),
+                TextColor(label.color),
+                Transform::from_translation(Vec3::new(label.offset.x, label.offset.y, label.z)),
             ))
-            .set_parent(e);
+            .set_parent(e)
+            .with_children(|builder| {
+                builder.spawn((
+                    TextSpan(label.sub_text.clone()),
+                    TextFont::from_font_size(label.size * 0.85),
+                    TextColor(label.color.with_alpha(0.6)),
+                ));
+            });
     }
 }
 
 /// modify text when EntityLabel changes
 fn label_changed(
     q_parents: Query<(&EntityLabel, &Children), Changed<EntityLabel>>,
-    mut q_children: Query<
-        (&mut Text, &mut Transform),
-        (With<EntityLabelChild>, Without<EntityLabel>),
-    >,
+    mut text_writer: Text2dWriter,
+    mut q_children: Query<&mut Transform, (With<EntityLabelChild>, Without<EntityLabel>)>,
 ) {
     for (label, children) in q_parents.iter() {
-        for child in children.iter() {
-            if let Ok((mut text, mut transform)) = q_children.get_mut(*child) {
-                assert_eq!(text.sections.len(), 3);
-
-                if label.text != text.sections[0].value {
-                    text.sections[0].value.clone_from(&label.text);
+        for &child in children.iter() {
+            if let Ok(mut transform) = q_children.get_mut(child) {
+                if text_writer.text(child, 0).as_str() != label.text {
+                    *text_writer.text(child, 0) = label.text.clone();
                 }
-                text.sections[0].style.font_size = label.size;
-                text.sections[0].style.color = label.color;
+                text_writer.font(child, 0).font_size = label.size;
+                text_writer.color(child, 0).0 = label.color;
 
-                if label.sub_text != text.sections[2].value {
-                    text.sections[2].value.clone_from(&label.sub_text);
+                if text_writer.text(child, 1).as_str() != label.sub_text {
+                    *text_writer.text(child, 1) = label.sub_text.clone();
                 }
-                text.sections[2].style.font_size = label.size * 0.6;
-                text.sections[2].style.color = label.color.with_alpha(0.5);
+                text_writer.font(child, 1).font_size = label.size * 0.85;
+                text_writer.color(child, 1).0 = label.color.with_alpha(0.6);
 
                 *transform =
                     Transform::from_translation(Vec3::new(label.offset.x, label.offset.y, label.z));

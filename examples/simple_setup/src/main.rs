@@ -7,29 +7,20 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+#[cfg(feature = "client")]
 mod client;
+#[cfg(feature = "server")]
 mod server;
 mod shared;
 
-use crate::client::ExampleClientPlugin;
-use crate::server::ExampleServerPlugin;
 use bevy::prelude::*;
-use clap::Parser;
-
-#[derive(Parser, PartialEq, Debug)]
-pub enum Cli {
-    /// The program will act as server
-    Server,
-    /// The program will act as a client
-    Client,
-}
 
 fn main() {
-    let cli = Cli::parse();
     let mut app = App::new();
-    match cli {
-        Cli::Server => app.add_plugins(ExampleServerPlugin),
-        Cli::Client => app.add_plugins(ExampleClientPlugin),
-    };
+    #[cfg(feature = "client")]
+    app.add_plugins(client::ExampleClientPlugin);
+    #[cfg(feature = "server")]
+    app.add_plugins(server::ExampleServerPlugin);
+
     app.run();
 }

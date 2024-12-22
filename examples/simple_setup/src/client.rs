@@ -1,7 +1,5 @@
 //! The client plugin.
-use crate::server::SERVER_ADDR;
-use crate::shared;
-use crate::shared::{shared_config, SharedPlugin};
+use crate::shared::{shared_config, SharedPlugin, SERVER_ADDR};
 use bevy::prelude::*;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -51,7 +49,6 @@ impl Plugin for ExampleClientPlugin {
         app.add_plugins(build_client_plugin());
         // add our shared plugin containing the protocol + other shared behaviour
         app.add_plugins(SharedPlugin);
-
         // add our client-specific logic. Here we will just connect to the server
         app.add_systems(Startup, connect_client);
     }
@@ -59,5 +56,6 @@ impl Plugin for ExampleClientPlugin {
 
 /// Connect to the server
 fn connect_client(mut commands: Commands) {
+    commands.spawn(Camera2d);
     commands.connect_client();
 }

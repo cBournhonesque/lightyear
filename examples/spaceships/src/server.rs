@@ -85,16 +85,6 @@ fn start_server(mut commands: Commands) {
 }
 
 fn init(mut commands: Commands) {
-    #[cfg(feature = "gui")]
-    commands.spawn((
-        Text("Server".into()),
-        TextFont::from_font_size(30.0),
-        TextColor(Color::WHITE),
-        Node {
-            align_self: AlignSelf::End,
-            ..default()
-        },
-    ));
     // the balls are server-authoritative
     const NUM_BALLS: usize = 6;
     for i in 0..NUM_BALLS {

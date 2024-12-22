@@ -19,6 +19,7 @@ mod entity_label;
 mod renderer;
 
 mod protocol;
+#[cfg(feature = "server")]
 mod server;
 mod shared;
 

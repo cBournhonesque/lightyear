@@ -439,8 +439,6 @@ fn window_plugin() -> WindowPlugin {
             title: format!("Lightyear Example: {}", env!("CARGO_PKG_NAME")),
             resolution: (1024., 768.).into(),
             present_mode: PresentMode::AutoVsync,
-            // Tells wasm to resize the window according to the available canvas
-            fit_canvas_to_parent: true,
             // set to true if we want to capture tab etc in wasm
             prevent_default_event_handling: true,
             ..Default::default()

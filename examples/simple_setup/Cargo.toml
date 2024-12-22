@@ -12,11 +12,16 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
+gui = [
+    "bevy/bevy_render",
+    "bevy/bevy_core_pipeline",
+    "bevy/bevy_winit",
+    "bevy/bevy_window"]
+client = ["gui"]
+server = []
 
 [dependencies]
-lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = ["steam", "websocket", "leafwing"] }
 
-serde.workspace = true
-clap.workspace = true
 bevy.workspace = true
+serde.workspace = true

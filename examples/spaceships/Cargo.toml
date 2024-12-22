@@ -10,9 +10,6 @@ publish = false
 
 [features]
 default = [
-    "client",
-    "server",
-    "lightyear_examples_common/steam",
     "lightyear_examples_common/websocket"
 ]
 client = [
@@ -23,8 +20,7 @@ server = [
     "lightyear_examples_common/server"
 ]
 gui = [
-    "lightyear_examples_common/gui",
-    "dep:bevy_screen_diagnostics",
+    "lightyear_examples_common/gui"
 ]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 tls = ["dep:bevygap_client_plugin"]
