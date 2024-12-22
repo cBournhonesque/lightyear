@@ -6,37 +6,28 @@ edition = "2021"
 publish = false
 
 [features]
-default = [
-    "lightyear_examples_common/websocket"
-]
-client = [
-    "lightyear_examples_common/client",
-    "gui",
-]
-server = [
-    "lightyear_examples_common/server"
-]
-gui = [
-    "lightyear_examples_common/gui"
-]
+default = ["lightyear_examples_common/websocket"]
+client = ["lightyear_examples_common/client", "gui"]
+server = ["lightyear_examples_common/server"]
+gui = ["lightyear_examples_common/gui"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
 lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = [
-    "steam",
-    "websocket",
-    "leafwing",
-    "avian2d",
+  "steam",
+  "websocket",
+  "leafwing",
+  "avian2d",
 ] }
 
 leafwing-input-manager.workspace = true
 avian2d = { workspace = true, features = [
-    "2d",
-    "f32",
-    "parry-f32",
-    "parallel",
-    "serialize",
+  "2d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
 ] }
 serde.workspace = true
 anyhow.workspace = true

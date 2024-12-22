@@ -159,7 +159,7 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 ```
 
 [`Replicated`]: prelude::Replicated
-[`ReplicationTarget`]: prelude::ReplicationTarget
+[`ReplicationTarget`]: prelude::server::ReplicationTarget
 [`Replicating`]: prelude::Replicating
 [`SharedConfig`]: prelude::SharedConfig
  */

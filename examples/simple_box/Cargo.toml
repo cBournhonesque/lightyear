@@ -12,19 +12,10 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-default = [
-    "lightyear_examples_common/websocket"
-]
-client = [
-    "lightyear_examples_common/client",
-    "gui",
-]
-server = [
-    "lightyear_examples_common/server"
-]
-gui = [
-    "lightyear_examples_common/gui"
-]
+default = ["lightyear_examples_common/websocket"]
+client = ["lightyear_examples_common/client", "gui"]
+server = ["lightyear_examples_common/server"]
+gui = ["lightyear_examples_common/gui"]
 tls = ["dep:bevygap_client_plugin"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
@@ -42,7 +33,7 @@ rand.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }
 bevy-inspector-egui = { workspace = true, optional = true }
 bevygap_client_plugin = { workspace = true, optional = true, features = [
-    "matchmaker-tls",
+  "matchmaker-tls",
 ] }
 
 [lints]
