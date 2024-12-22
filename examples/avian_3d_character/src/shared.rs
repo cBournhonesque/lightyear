@@ -1,4 +1,3 @@
-// use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::ecs::query::QueryData;
 use bevy::math::VectorSpace;
 use bevy::prelude::*;
@@ -15,8 +14,6 @@ use tracing::Level;
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
-// use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
-// use lightyear::transport::io::IoDiagnosticsPlugin;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
@@ -125,7 +122,7 @@ pub struct CharacterQuery {
     pub external_force: &'static mut ExternalForce,
     pub external_impulse: &'static mut ExternalImpulse,
     pub linear_velocity: &'static LinearVelocity,
-    pub mass: &'static Mass,
+    pub mass: &'static ComputedMass,
     pub position: &'static Position,
     pub entity: Entity,
 }
@@ -206,5 +203,5 @@ pub fn apply_character_action(
 
     character
         .external_force
-        .apply_force(required_acceleration * character.mass.0);
+        .apply_force(required_acceleration * character.mass.value());
 }

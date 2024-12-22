@@ -1,7 +1,6 @@
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::prelude::ActionState;
 
 use lightyear::client::prediction::plugin::is_in_rollback;

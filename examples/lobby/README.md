@@ -16,11 +16,11 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/4ef661e6-b2e3-4b99-b1
 
 There are different 'modes' of operation:
 
-- as a dedicated server with `cargo run -- server`
+- as a dedicated server with `cargo run --features=server`
 
 Then you can launch clients with the commands:
 
-- `cargo run -- client -c 1` (`-c 1` overrides the client id, to use client id 1)
-- `cargo run -- client -c 2`
+- `cargo run --features=client -- -c 1` (`-c 1` overrides the client id, to use client id 1)
+- `cargo run --features=client -- -c 2`
 
 You can modify the file `assets/settings.ron` to modify some networking settings.

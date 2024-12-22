@@ -30,7 +30,6 @@ lightyear = { workspace = true, features = [
     "lz4",
 ] }
 
-bevy_screen_diagnostics.workspace = true
 leafwing-input-manager.workspace = true
 serde.workspace = true
 anyhow.workspace = true

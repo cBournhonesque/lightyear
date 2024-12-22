@@ -192,10 +192,18 @@ avian3d = { version = "0.2", default-features = false }
 
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.28" }
-bevy_screen_diagnostics = { version = "0.6" }
-bevy_egui = "0.31"
-egui_extras = "0.30"
+bevy-inspector-egui = { version = "0.28", default-features = false, features = [
+    "bevy_pbr",
+    "bevy_image",
+    "bevy_render",
+    "egui_open_url",
+] }
+bevy_egui = { version = "0.31", default-features = false, features = [
+    "open_url",
+    "default_fonts",
+    "render",
+] }
+egui_extras = "=0.29"
 
 # bevygap for deploying on Edgegap
 bevygap_server_plugin = { git = "https://github.com/RJ/bevygap.git", rev = "041e2be874ec61fe7eb5b959a3eee8852b734ff3" }

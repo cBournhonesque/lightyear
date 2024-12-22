@@ -1,7 +1,6 @@
 use bevy::color::palettes::css::{BLUE, GREEN, RED};
 use bevy::prelude::*;
 use bevy::utils::Duration;
-// use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::action_state::ActionState;
 use std::ops::Deref;
 

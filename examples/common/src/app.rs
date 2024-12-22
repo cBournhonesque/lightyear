@@ -39,7 +39,7 @@ pub struct Cli {
 
     #[cfg(all(feature = "client", feature = "server"))]
     #[arg(short, long, default_value = "separate")]
-    mode: ServerMode,
+    pub mode: ServerMode,
 }
 
 #[derive(ValueEnum, Clone, Default, Debug, PartialEq)]
@@ -456,7 +456,7 @@ fn log_plugin() -> LogPlugin {
 }
 
 #[cfg(feature = "gui")]
-fn new_gui_app() -> App {
+fn new_gui_app(add_inspector: bool) -> App {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -469,6 +469,9 @@ fn new_gui_app() -> App {
             .set(log_plugin())
             .set(window_plugin()),
     );
+    if add_inspector {
+        app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
+    }
     app
 }
 
@@ -482,7 +485,7 @@ fn new_headless_app() -> App {
 /// Takes in a `net_config` parameter so that we configure the network transport.
 #[cfg(feature = "client")]
 fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, ClientConfig) {
-    let app = new_gui_app();
+    let app = new_gui_app(settings.client.inspector);
 
     let client_config = ClientConfig {
         shared: shared_config(Mode::Separate),
@@ -511,8 +514,7 @@ fn server_app(
         if #[cfg(feature = "client")] {
             let app = new_headless_app();
         } else if #[cfg(feature = "gui")] {
-        // if #[cfg(feature = "gui")] {
-            let app = new_gui_app();
+            let app = new_gui_app(settings.server.inspector);
         } else {
             let app = new_headless_app();
         }
@@ -542,7 +544,7 @@ fn combined_app(
     extra_transport_configs: Vec<server::ServerTransport>,
     client_net_config: client::NetConfig,
 ) -> (App, ClientConfig, ServerConfig) {
-    let app = new_gui_app();
+    let app = new_gui_app(settings.client.inspector || settings.server.inspector);
     // server config
     let mut net_configs = get_server_net_configs(&settings);
     let extra_net_configs = extra_transport_configs.into_iter().map(|c| {

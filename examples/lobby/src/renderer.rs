@@ -29,8 +29,9 @@ pub(crate) fn draw_boxes(
     players: Query<(&PlayerPosition, &PlayerColor), Or<(With<Predicted>, With<Interpolated>)>>,
 ) {
     for (position, color) in &players {
-        gizmos.rect(
-            Isometry3d::from_translation(Vec3::new(position.x, position.y, 0.0)),
+        debug!("Drawing player at {:?}", position.0);
+        gizmos.rect_2d(
+            Isometry2d::from_translation(position.0),
             Vec2::ONE * 50.0,
             color.0,
         );

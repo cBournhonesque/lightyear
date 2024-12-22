@@ -24,7 +24,6 @@ lightyear = { workspace = true, features = [
 ] }
 leafwing-input-manager.workspace = true
 
-bevy_screen_diagnostics = { workspace = true, optional = true }
 avian3d = { workspace = true, features = [
     "3d",
     "f32",
@@ -42,6 +41,9 @@ metrics-exporter-prometheus = { workspace = true, optional = true }
 bevygap_client_plugin = { workspace = true, optional = true, features = [
     "matchmaker-tls",
 ] }
+
+[target."cfg(target_family = \"wasm\")".dependencies]
+console_error_panic_hook.workspace = true
 
 [lints]
 workspace = true

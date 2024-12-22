@@ -1,7 +1,6 @@
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
-use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics};
 use lightyear::client::components::Confirmed;
 use lightyear::prelude::client::{InterpolationSet, PredictionSet};
 use lightyear::transport::io::IoDiagnosticsPlugin;

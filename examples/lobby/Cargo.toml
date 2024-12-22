@@ -13,10 +13,10 @@ publish = false
 
 [features]
 default = [
-    "lightyear_examples_common/steam",
     "lightyear_examples_common/websocket"
 ]
 client = [
+    "lightyear_examples_common/server",
     "lightyear_examples_common/client",
     "gui",
 ]
@@ -32,6 +32,7 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = ["steam", "websocket", "leafwing"] }
 
+cfg-if.workspace = true
 bevy_egui.workspace = true
 egui_extras.workspace = true
 leafwing-input-manager.workspace = true

@@ -36,7 +36,7 @@ impl Plugin for Avian2dPlugin {
                 PredictionSet::IncrementRollbackTick,
                 InterpolationSet::UpdateVisualInterpolationState,
             )
-                .after(PhysicsSet::Sync), // Runs right after physics.
+                .after(PhysicsSet::Sync),
         );
     }
 }

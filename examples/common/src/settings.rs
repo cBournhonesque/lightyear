@@ -203,8 +203,8 @@ pub(crate) fn build_server_netcode_config(
         shared.private_key
     };
 
-    println!("🔑 Using lightyear private key: {privkey:?}");
-    println!("🔑 Using lightyear protocol id:: {}", shared.protocol_id);
+    // println!("🔑 Using lightyear private key: {privkey:?}");
+    // println!("🔑 Using lightyear protocol id:: {}", shared.protocol_id);
 
     let netcode_config = server::NetcodeConfig::default()
         .with_protocol_id(shared.protocol_id)

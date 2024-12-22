@@ -29,7 +29,6 @@ bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
 
 [dependencies]
 lightyear_examples_common.workspace = true
-bevy_screen_diagnostics = { workspace = true, optional = true }
 metrics-exporter-prometheus = { workspace = true, optional = true }
 leafwing-input-manager = { workspace = true, features = ["keyboard", "mouse"] }
 avian2d = { workspace = true, features = [

@@ -32,7 +32,6 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = ["steam", "websocket", "leafwing"] }
 
-bevy_screen_diagnostics.workspace = true
 leafwing-input-manager.workspace = true
 serde.workspace = true
 anyhow.workspace = true

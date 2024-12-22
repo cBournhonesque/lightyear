@@ -20,13 +20,12 @@ client = ["gui"]
 bevygap_client = ["client", "dep:bevygap_client_plugin"]
 bevygap_server = ["server", "dep:bevygap_server_plugin"]
 
-#inspector = ["gui", "dep:bevy-inspector-egui"]
-
 # this serves as a bit of "workspace-hack" crate by enabling all bevy features needed by examples.
 # you can read about workspace-hack crates here: https://docs.rs/cargo-hakari/latest/cargo_hakari/about/index.html
 # even though we're not using cargo-hakari.
 
 gui = [
+    "dep:bevy-inspector-egui",
     "bevy/bevy_asset",
     "bevy/bevy_render",
     "bevy/bevy_pbr",
@@ -60,7 +59,7 @@ serde.workspace = true
 bevy.workspace = true
 bevygap_client_plugin = { workspace = true, optional = true }
 bevygap_server_plugin = { workspace = true, optional = true }
-#bevy-inspector-egui = {workspace = true, optional = true}
+bevy-inspector-egui = { workspace = true, optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 web-sys = { workspace = true, features = ["Window", "Location"] }
