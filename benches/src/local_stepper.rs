@@ -226,7 +226,8 @@ impl LocalBevyStepper {
     pub fn init(&mut self) {
         self.server_app.finish();
         self.server_app.cleanup();
-        self.server_app
+        let _ = self
+            .server_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_apps.values_mut().for_each(|client_app| {

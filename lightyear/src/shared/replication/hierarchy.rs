@@ -8,9 +8,10 @@ use crate::prelude::server::ControlledBy;
 use crate::prelude::{
     MainSet, NetworkRelevanceMode, PrePredicted, Replicated, Replicating, ReplicationGroup,
 };
+use crate::server::replication::send::ReplicationTarget;
 use crate::server::replication::send::SyncTarget;
 use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
-use crate::shared::replication::components::{ReplicateHierarchy, ReplicationTarget};
+use crate::shared::replication::components::ReplicateHierarchy;
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
@@ -197,7 +198,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
 
 impl<R: ReplicationSend> Plugin for HierarchySendPlugin<R> {
     fn build(&self, app: &mut App) {
-        app.observe(Self::handle_parent_remove);
+        app.add_observer(Self::handle_parent_remove);
         app.add_systems(
             PostUpdate,
             (Self::propagate_replicate, Self::update_parent_sync)
@@ -273,7 +274,7 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
 mod tests {
     use std::ops::Deref;
 
-    use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
+    use bevy::hierarchy::{BuildChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
 
     use crate::prelude::client;

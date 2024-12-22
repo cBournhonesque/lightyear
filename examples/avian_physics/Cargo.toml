@@ -6,10 +6,10 @@ edition = "2021"
 publish = false
 
 [features]
-default = [
-  "lightyear_examples_common/server",
-  "lightyear_examples_common/client",
-]
+default = ["lightyear_examples_common/websocket"]
+client = ["lightyear_examples_common/client", "gui"]
+server = ["lightyear_examples_common/server"]
+gui = ["lightyear_examples_common/gui"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
@@ -21,7 +21,6 @@ lightyear = { workspace = true, features = [
   "avian2d",
 ] }
 
-bevy_screen_diagnostics.workspace = true
 leafwing-input-manager.workspace = true
 avian2d = { workspace = true, features = [
   "2d",
@@ -37,3 +36,6 @@ tracing-subscriber.workspace = true
 bevy.workspace = true
 rand.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }
+
+[lints]
+workspace = true

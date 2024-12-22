@@ -1,10 +1,6 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-#[cfg(feature = "client")]
-use crate::client::ExampleClientPlugin;
-#[cfg(feature = "server")]
-use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear::prelude::client::PredictionConfig;
@@ -26,17 +22,18 @@ fn main() {
     let settings_str = include_str!("../assets/settings.ron");
     let settings = read_settings::<MySettings>(settings_str);
     let mut apps = Apps::new(settings.common, cli, env!("CARGO_PKG_NAME").to_string());
+
     apps.update_lightyear_client_config(|config| {
         config.prediction.minimum_input_delay_ticks = settings.input_delay_ticks;
         config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
     });
-    // Add `ClientPlugins` and `ServerPlugins` plugin groups.
+
     apps.add_lightyear_plugins();
     apps.add_user_shared_plugin(SharedPlugin);
     #[cfg(feature = "server")]
-    apps.add_user_server_plugin(ExampleServerPlugin);
+    apps.add_user_server_plugin(crate::server::ExampleServerPlugin);
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(ExampleClientPlugin);
+    apps.add_user_client_plugin(crate::client::ExampleClientPlugin);
     #[cfg(feature = "gui")]
     apps.add_user_renderer_plugin(renderer::ExampleRendererPlugin);
 

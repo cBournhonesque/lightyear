@@ -81,17 +81,6 @@ fn handle_connection(
         if let Ok(entity) = debug_text.get_single() {
             commands.entity(entity).despawn_recursive();
         }
-        commands.spawn((
-            TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ),
-            ClientIdText,
-        ));
     }
 }
 

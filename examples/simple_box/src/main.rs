@@ -10,12 +10,6 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-#[cfg(feature = "client")]
-use crate::client::ExampleClientPlugin;
-#[cfg(feature = "gui")]
-use crate::renderer::ExampleRendererPlugin;
-#[cfg(feature = "server")]
-use crate::server::ExampleServerPlugin;
 use bevy::prelude::*;
 use lightyear_examples_common::app::{Apps, Cli};
 use lightyear_examples_common::settings::{read_settings, Settings};
@@ -44,11 +38,11 @@ fn main() {
     apps.add_lightyear_plugins();
     apps.add_user_shared_plugin(ProtocolPlugin);
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(ExampleClientPlugin);
+    apps.add_user_client_plugin(client::ExampleClientPlugin);
     #[cfg(feature = "server")]
-    apps.add_user_server_plugin(ExampleServerPlugin);
+    apps.add_user_server_plugin(server::ExampleServerPlugin);
     #[cfg(feature = "gui")]
-    apps.add_user_renderer_plugin(ExampleRendererPlugin);
+    apps.add_user_renderer_plugin(renderer::ExampleRendererPlugin);
     // run the app
     apps.run();
 }

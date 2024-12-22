@@ -101,6 +101,10 @@ mod game {
         mut commands: Commands,
     ) {
         for connection in connections.read() {
+            info!(
+                "HostServer spawn player for client {:?}",
+                connection.client_id
+            );
             spawn_player_entity(&mut commands, connection.client_id, false);
         }
     }

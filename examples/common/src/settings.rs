@@ -203,8 +203,8 @@ pub(crate) fn build_server_netcode_config(
         shared.private_key
     };
 
-    println!("🔑 Using lightyear private key: {privkey:?}");
-    println!("🔑 Using lightyear protocol id:: {}", shared.protocol_id);
+    // println!("🔑 Using lightyear private key: {privkey:?}");
+    // println!("🔑 Using lightyear protocol id:: {}", shared.protocol_id);
 
     let netcode_config = server::NetcodeConfig::default()
         .with_protocol_id(shared.protocol_id)
@@ -276,6 +276,10 @@ impl From<&WebTransportCertificateSettings> for server::Identity {
                 cert: cert_pem_path,
                 key: private_key_pem_path,
             } => {
+                println!(
+                    "Reading certificate PEM files:\n * cert: {}\n * key: {}",
+                    cert_pem_path, private_key_pem_path
+                );
                 // this is async because we need to load the certificate from io
                 // we need async_compat because wtransport expects a tokio reactor
                 let identity = IoTaskPool::get()
@@ -288,10 +292,6 @@ impl From<&WebTransportCertificateSettings> for server::Identity {
                     })
                     .pop()
                     .unwrap();
-                println!(
-                    "Reading certificate PEM files:\n * cert: {}\n * key: {}",
-                    cert_pem_path, private_key_pem_path
-                );
                 let digest = identity.certificate_chain().as_slice()[0].hash();
                 println!("🔐 Certificate digest: {digest}");
                 identity

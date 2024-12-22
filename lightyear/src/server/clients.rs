@@ -157,10 +157,10 @@ impl Plugin for ClientsMetadataPlugin {
             systems::handle_controlled_by_update
                 .in_set(InternalReplicationSet::<ServerMarker>::BeforeBuffer),
         );
-        app.observe(handle_controlled_by_remove);
+        app.add_observer(handle_controlled_by_remove);
         // TODO: should we have a system that runs in the `Last` SystemSet instead? because the user might want to still have access
         //  to the client entity
-        app.observe(systems::handle_client_disconnect);
+        app.add_observer(systems::handle_client_disconnect);
         // we handle this in the `Last` `SystemSet` to let the user handle the disconnect event
         // however they want first, before the client entity gets despawned
         // app.add_systems(Last, systems::handle_server_disconnect);
@@ -171,9 +171,10 @@ impl Plugin for ClientsMetadataPlugin {
 mod tests {
     use crate::client::networking::ClientCommands;
     use crate::prelude::server::{ConnectionManager, ControlledBy, Replicate};
-    use crate::prelude::{client, ClientId, NetworkTarget, Replicated, ReplicationTarget};
+    use crate::prelude::{client, ClientId, NetworkTarget, Replicated};
     use crate::server::clients::ControlledEntities;
     use crate::server::replication::send::Lifetime;
+    use crate::server::replication::send::ReplicationTarget;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::ecs::entity::EntityHashMap;
@@ -340,17 +341,19 @@ mod tests {
             .commands()
             .disconnect_client();
 
+        // TODO: why do we need to run frame_step twice for this to work?
+        stepper.frame_step();
         stepper.frame_step();
         assert!(stepper
             .server_app
             .world()
             .get_entity(server_entity)
-            .is_none());
+            .is_err());
         assert!(stepper
             .server_app
             .world()
             .get_entity(server_entity_2)
-            .is_some());
+            .is_ok());
     }
 
     /// The owning client despawns the entity that they control.

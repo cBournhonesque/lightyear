@@ -1,8 +1,5 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_screen_diagnostics::{
-    Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin, ScreenEntityDiagnosticsPlugin,
-};
 use lightyear::{
     client::prediction::diagnostics::PredictionDiagnosticsPlugin,
     prelude::{client::*, *},
@@ -31,9 +28,6 @@ impl Plugin for ExampleRendererPlugin {
             ),
         );
 
-        app.add_plugins(ScreenDiagnosticsPlugin::default());
-        app.add_plugins(ScreenEntityDiagnosticsPlugin);
-
         // Set up visual interp plugins for Position and Rotation. This doesn't
         // do anything until you add VisualInterpolationStatus components to
         // entities.
@@ -42,54 +36,24 @@ impl Plugin for ExampleRendererPlugin {
 
         // Observers that add VisualInterpolationStatus components to entities
         // which receive a Position or Rotation component.
-        app.observe(add_visual_interpolation_components::<Position>);
-        app.observe(add_visual_interpolation_components::<Rotation>);
+        app.add_observer(add_visual_interpolation_components::<Position>);
+        app.add_observer(add_visual_interpolation_components::<Rotation>);
     }
 }
 
-fn init(mut commands: Commands, mut onscreen: ResMut<ScreenDiagnostics>) {
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 4.5, -9.0).looking_at(Vec3::ZERO, Dir3::Y),
-        ..default()
-    });
+fn init(mut commands: Commands) {
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 4.5, -9.0).looking_at(Vec3::ZERO, Dir3::Y),
+    ));
 
-    commands.spawn(PointLightBundle {
-        point_light: PointLight {
+    commands.spawn((
+        PointLight {
             shadows_enabled: true,
             ..default()
         },
-        transform: Transform::from_xyz(4.0, 8.0, 4.0),
-        ..default()
-    });
-
-    onscreen
-        .add("RB".to_string(), PredictionDiagnosticsPlugin::ROLLBACKS)
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.0}"));
-    onscreen
-        .add(
-            "RBt".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACK_TICKS,
-        )
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.0}"));
-    onscreen
-        .add(
-            "RBd".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACK_DEPTH,
-        )
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.1}"));
-    // Screen diagnostics twitches due to layout change when a metric adds or
-    // removes a digit so pad these metrics to 3 digits.
-    onscreen
-        .add("KB_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:0>3.0}"));
-    onscreen
-        .add("KB_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:0>3.0}"));
+        Transform::from_xyz(4.0, 8.0, 4.0),
+    ));
 }
 
 /// Add the VisualInterpolateStatus component to non-floor entities with
@@ -138,14 +102,13 @@ fn add_character_cosmetics(
 ) {
     for (entity, color) in &character_query {
         info!(?entity, "Adding cosmetics to character {:?}", entity);
-        commands.entity(entity).insert((PbrBundle {
-            mesh: meshes.add(Capsule3d::new(
+        commands.entity(entity).insert((
+            Mesh3d(meshes.add(Capsule3d::new(
                 CHARACTER_CAPSULE_RADIUS,
                 CHARACTER_CAPSULE_HEIGHT,
-            )),
-            material: materials.add(color.0),
-            ..default()
-        },));
+            ))),
+            MeshMaterial3d(materials.add(color.0)),
+        ));
     }
 }
 
@@ -160,11 +123,10 @@ fn add_floor_cosmetics(
 ) {
     for entity in &floor_query {
         info!(?entity, "Adding cosmetics to floor {:?}", entity);
-        commands.entity(entity).insert(PbrBundle {
-            mesh: meshes.add(Cuboid::new(FLOOR_WIDTH, FLOOR_HEIGHT, FLOOR_WIDTH)),
-            material: materials.add(Color::srgb(1.0, 1.0, 1.0)),
-            ..default()
-        });
+        commands.entity(entity).insert((
+            Mesh3d(meshes.add(Cuboid::new(FLOOR_WIDTH, FLOOR_HEIGHT, FLOOR_WIDTH))),
+            MeshMaterial3d(materials.add(Color::srgb(1.0, 1.0, 1.0))),
+        ));
     }
 }
 
@@ -178,10 +140,9 @@ fn add_block_cosmetics(
 ) {
     for entity in &floor_query {
         info!(?entity, "Adding cosmetics to block {:?}", entity);
-        commands.entity(entity).insert(PbrBundle {
-            mesh: meshes.add(Cuboid::new(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_WIDTH)),
-            material: materials.add(Color::srgb(1.0, 0.0, 1.0)),
-            ..default()
-        });
+        commands.entity(entity).insert((
+            Mesh3d(meshes.add(Cuboid::new(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_WIDTH))),
+            MeshMaterial3d(materials.add(Color::srgb(1.0, 0.0, 1.0))),
+        ));
     }
 }

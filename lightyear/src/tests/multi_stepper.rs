@@ -193,17 +193,20 @@ impl MultiBevyStepper {
     pub fn init(&mut self) {
         self.server_app.finish();
         self.server_app.cleanup();
-        self.server_app
+        let _ = self
+            .server_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_app_1.finish();
         self.client_app_1.cleanup();
-        self.client_app_1
+        let _ = self
+            .client_app_1
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
         self.client_app_2.finish();
         self.client_app_2.cleanup();
-        self.client_app_2
+        let _ = self
+            .client_app_2
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
 

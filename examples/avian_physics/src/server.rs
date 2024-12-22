@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
+use crate::shared::{color_from_id, shared_movement_behaviour};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
@@ -41,7 +41,7 @@ impl Plugin for ExampleServerPlugin {
             replicate_players.in_set(ServerReplicationSet::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, movement.in_set(FixedSet::Main));
+        app.add_systems(FixedUpdate, movement);
     }
 }
 
@@ -51,21 +51,6 @@ fn start_server(mut commands: Commands) {
 }
 
 fn init(mut commands: Commands, global: Res<Global>) {
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
-
     // the ball is server-authoritative
     commands.spawn(BallBundle::new(
         Vec2::new(0.0, 0.0),

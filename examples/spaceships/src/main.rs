@@ -3,10 +3,6 @@
 #![allow(dead_code)]
 use std::time::Duration;
 
-#[cfg(feature = "client")]
-use crate::client::ExampleClientPlugin;
-use crate::server::ExampleServerPlugin;
-use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear::client::config::ClientConfig;
 use lightyear::prelude::client::PredictionConfig;
@@ -23,6 +19,7 @@ mod entity_label;
 mod renderer;
 
 mod protocol;
+#[cfg(feature = "server")]
 mod server;
 mod shared;
 
@@ -51,13 +48,13 @@ fn main() {
     // add `ClientPlugins` and `ServerPlugins` plugin groups
     apps.add_lightyear_plugins();
     // add our plugins
-    apps.add_user_shared_plugin(SharedPlugin {
+    apps.add_user_shared_plugin(shared::SharedPlugin {
         show_confirmed: settings.show_confirmed,
     });
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(ExampleClientPlugin);
+    apps.add_user_client_plugin(client::ExampleClientPlugin);
     #[cfg(feature = "server")]
-    apps.add_user_server_plugin(ExampleServerPlugin {
+    apps.add_user_server_plugin(server::ExampleServerPlugin {
         predict_all: settings.predict_all,
     });
     #[cfg(feature = "gui")]

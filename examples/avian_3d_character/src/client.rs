@@ -19,19 +19,11 @@ impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, connect_to_server);
         app.add_systems(
-            PreUpdate,
-            handle_connection
-                .after(MainSet::Receive)
-                .before(PredictionSet::SpawnPrediction),
-        );
-        app.add_systems(
             FixedUpdate,
-            // In host-server mode, the server porition is already applying the
+            // In host-server mode, the server portion is already applying the
             // character actions and so we don't want to apply the character
             // actions twice.
-            handle_character_actions
-                .run_if(not(is_host_server))
-                .in_set(FixedSet::Main),
+            handle_character_actions.run_if(not(is_host_server)),
         );
         app.add_systems(
             Update,
@@ -56,7 +48,7 @@ fn handle_character_actions(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
 ) {
-    // Get the current tick. It may be apart of a rollback.
+    // Get the current tick. It may be a part of a rollback.
     let tick = rollback
         .as_ref()
         .map(|rb| tick_manager.tick_or_rollback_tick(rb))
@@ -85,25 +77,6 @@ pub(crate) fn connect_to_server(mut commands: Commands) {
     commands.connect_client();
 }
 
-/// Listen for events to know when the client is connected and spawn a text
-/// entity to display the client id.
-pub(crate) fn handle_connection(
-    mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
-) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
-    }
-}
-
 /// Add physics to characters that are newly predicted. If the client controls
 /// the character then add an input component.
 fn handle_new_character(
@@ -119,7 +92,7 @@ fn handle_new_character(
             info!("Adding InputMap to controlled and predicted entity {entity:?}");
             commands.entity(entity).insert(
                 InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
-                    .with_dual_axis(CharacterAction::Move, KeyboardVirtualDPad::WASD),
+                    .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
             );
         } else {
             info!("Remote character replicated to us: {entity:?}");

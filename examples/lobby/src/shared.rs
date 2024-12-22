@@ -4,9 +4,6 @@
 //! The simulation logic (movement, etc.) should be shared between client and server to guarantee that there won't be
 //! mispredictions/rollbacks.
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
-use bevy::utils::Duration;
-use bevy_egui::EguiPlugin;
 
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -20,18 +17,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        if app.is_plugin_added::<RenderPlugin>() {
-            if !app.is_plugin_added::<EguiPlugin>() {
-                app.add_plugins(EguiPlugin);
-            }
-            app.add_systems(Startup, init);
-            app.add_systems(Update, draw_boxes);
-        }
     }
-}
-
-fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
 }
 
 // This system defines how we update the player's positions when we receive an input
@@ -53,21 +39,5 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
             }
         }
         _ => {}
-    }
-}
-
-/// System that draws the boxes of the player positions.
-/// The components should be replicated from the server to the client
-pub(crate) fn draw_boxes(
-    mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Or<(With<Predicted>, With<Interpolated>)>>,
-) {
-    for (position, color) in &players {
-        gizmos.rect(
-            Vec3::new(position.x, position.y, 0.0),
-            Quat::IDENTITY,
-            Vec2::ONE * 50.0,
-            color.0,
-        );
     }
 }

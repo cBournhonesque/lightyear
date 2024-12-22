@@ -40,7 +40,7 @@ impl Plugin for TickManagerPlugin {
                 (increment_tick
                     .in_set(FixedUpdateSet::TickUpdate)
                     // run if there is no rollback resource, or if we are not in rollback
-                    .run_if(not(resource_exists::<Rollback>).or_else(not(is_in_rollback))),),
+                    .run_if(not(resource_exists::<Rollback>).or(not(is_in_rollback))),),
             );
     }
 }

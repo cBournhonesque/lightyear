@@ -8,10 +8,10 @@ use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::Resource;
 use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
+use bevy::prelude::{Reflect, Resource};
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::ComponentSyncMode;
@@ -93,11 +93,11 @@ pub struct Lobby {
 
 // Components
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
-pub struct PlayerPosition(Vec2);
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Reflect)]
+pub struct PlayerPosition(pub Vec2);
 
 impl Add for PlayerPosition {
     type Output = PlayerPosition;
@@ -184,6 +184,7 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<(PlayerPosition, PlayerId)>();
         // messages
         app.register_message::<StartGame>(ChannelDirection::Bidirectional);
         app.register_message::<JoinLobby>(ChannelDirection::ClientToServer);

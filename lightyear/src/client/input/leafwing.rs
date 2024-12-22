@@ -191,7 +191,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         );
         app.configure_sets(
             FixedPostUpdate,
-            InputSystemSet::PrepareInputMessage.run_if(should_run.clone().and_then(is_synced)),
+            InputSystemSet::PrepareInputMessage.run_if(should_run.clone().and(is_synced)),
         );
         app.configure_sets(
             PostUpdate,
@@ -200,7 +200,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
                 // run after SyncSet to make sure that the TickEvents are handled
                 (InputSystemSet::SendInputMessage, InputSystemSet::CleanUp)
                     .chain()
-                    .run_if(should_run.clone().and_then(is_synced)),
+                    .run_if(should_run.clone().and(is_synced)),
                 InternalMainSet::<ClientMarker>::Send,
             )
                 .chain(),
@@ -252,8 +252,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             (
                 get_delayed_action_state::<A>.run_if(
                     is_input_delay
-                        .and_then(should_run.clone())
-                        .and_then(not(is_in_rollback)),
+                        .and(should_run.clone())
+                        .and(not(is_in_rollback)),
                 ),
                 prepare_input_message::<A>
                     .in_set(InputSystemSet::PrepareInputMessage)
@@ -263,7 +263,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         );
 
         // if the client tick is updated because of a desync, update the ticks in the input buffers
-        app.observe(receive_tick_events::<A>);
+        app.add_observer(receive_tick_events::<A>);
         app.add_systems(
             PostUpdate,
             (
