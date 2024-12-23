@@ -40,7 +40,7 @@ debug = false
 [workspace.dependencies]
 
 lightyear_examples_common = { path = "./examples/common", default-features = false }
-lightyear = { path = "./lightyear", default-features = false }
+lightyear = { path = "./lightyear", version = "0.18.0", default-features = false }
 
 # utils
 
