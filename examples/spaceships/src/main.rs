@@ -38,11 +38,9 @@ fn main() {
         ));
     // use input delay and a correction function to smooth over rollback errors
     apps.update_lightyear_client_config(|config| {
-        // guarantee that we use this amount of input delay ticks
-        config.prediction.minimum_input_delay_ticks = settings.input_delay_ticks;
-        // TODO: this doesn't work properly for now
-        // config.prediction.maximum_input_delay_before_prediction = settings.input_delay_ticks;
-        config.prediction.maximum_predicted_ticks = settings.max_prediction_ticks;
+        config
+            .prediction
+            .set_fixed_input_delay_ticks(settings.input_delay_ticks);
         config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
     });
     // add `ClientPlugins` and `ServerPlugins` plugin groups

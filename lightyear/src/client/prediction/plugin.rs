@@ -79,15 +79,32 @@ pub struct PredictionConfig {
 }
 
 impl Default for PredictionConfig {
-    // TODO: the settings of 0/3/7 do not work! investigate!
-    /// The defaults are to not use any input delay, but to use as much client-prediction as there is latency.
-    ///
-    /// Other reasonable defaults would be:
+    /// By default we don't apply any input delay, because input_delay is only compatible with
+    /// the leafwing inputs
+    /// (Adding input delay would mess up the client timeline)
+    fn default() -> Self {
+        Self::no_input_delay()
+    }
+}
+
+impl PredictionConfig {
+    /// Cover up to 50ms of latency with input delay, and after that use prediction for up to 100ms
     /// - `minimum_input_delay_ticks`: no minimum input delay
     /// - `minimum_input_delay_before_prediction`: 3 ticks (or about 50ms at 60Hz), cover 50ms of latency with input delay
     /// - `maximum_predicted_ticks`: 7 ticks (or about 100ms at 60Hz), cover the next 100ms of latency with prediction
     ///   (the rest will be covered by more input delay)
-    fn default() -> Self {
+    pub fn balanced() -> Self {
+        Self {
+            always_rollback: false,
+            minimum_input_delay_ticks: 0,
+            maximum_input_delay_before_prediction: 3,
+            maximum_predicted_ticks: 7,
+            correction_ticks_factor: 1.0,
+        }
+    }
+
+    /// No input-delay, all the latency will be covered by prediction
+    pub fn no_input_delay() -> Self {
         Self {
             always_rollback: false,
             minimum_input_delay_ticks: 0,
@@ -96,12 +113,28 @@ impl Default for PredictionConfig {
             correction_ticks_factor: 1.0,
         }
     }
-}
 
-impl PredictionConfig {
+    /// All the latency will be covered by adding input-delay
+    pub fn no_prediction() -> Self {
+        Self {
+            always_rollback: false,
+            minimum_input_delay_ticks: 0,
+            maximum_input_delay_before_prediction: 0,
+            maximum_predicted_ticks: 0,
+            correction_ticks_factor: 0.0,
+        }
+    }
+
     pub fn always_rollback(mut self, always_rollback: bool) -> Self {
         self.always_rollback = always_rollback;
         self
+    }
+
+    /// Ensures that there is a fixed amount of input delay in all cases
+    pub fn set_fixed_input_delay_ticks(&mut self, tick: u16) {
+        self.minimum_input_delay_ticks = tick;
+        self.maximum_input_delay_before_prediction = tick;
+        self.maximum_predicted_ticks = 100;
     }
 
     /// Update the amount of input delay (number of ticks)
@@ -118,23 +151,24 @@ impl PredictionConfig {
 
     /// Compute the amount of input delay that should be applied, considering the current RTT
     pub fn input_delay_ticks(&self, rtt: Duration, tick_interval: Duration) -> u16 {
-        let rtt_ticks = rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32;
+        assert!(self.minimum_input_delay_ticks <= self.maximum_input_delay_before_prediction,
+                "The minimum amount of input_delay should be lower than the maximum_input_delay_before_prediction");
+        let rtt_ticks = (rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32).ceil() as u16;
         // if the rtt is lower than the minimum input delay, we will apply the minimum input delay
-        if rtt_ticks <= self.minimum_input_delay_ticks as f32 {
+        if rtt_ticks <= self.minimum_input_delay_ticks {
             return self.minimum_input_delay_ticks;
         }
         // else, apply input delay up to the maximum input delay
-        if rtt_ticks <= self.maximum_input_delay_before_prediction as f32 {
-            return rtt_ticks.ceil() as u16;
+        if rtt_ticks <= self.maximum_input_delay_before_prediction {
+            return rtt_ticks;
         }
         // else, apply input delay up to the maximum input delay, and cover the rest with prediction
         // if not possible, add even more input delay
-        if rtt_ticks
-            <= (self.maximum_predicted_ticks + self.maximum_input_delay_before_prediction) as f32
+        if rtt_ticks <= (self.maximum_predicted_ticks + self.maximum_input_delay_before_prediction)
         {
             self.maximum_input_delay_before_prediction
         } else {
-            rtt_ticks.ceil() as u16 - self.maximum_predicted_ticks
+            rtt_ticks - self.maximum_predicted_ticks
         }
     }
 }

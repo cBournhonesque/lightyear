@@ -32,14 +32,6 @@
 //! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdate`] [`Schedule`].
 //!
 //! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
-//!
-//! There are some edge-cases to be careful of:
-//! - the `leafwing_input_manager` crate handles inputs every frame, but `lightyear` needs to store and send inputs for each tick.
-//!   This can cause issues if we have multiple ticks in a single frame, or multiple frames in a single tick.
-//!   For instance, let's say you have a system in the `FixedUpdate` schedule that reacts on a button press when the button was `JustPressed`.
-//!   If we have 2 frames with no FixedUpdate in between (because the framerate is high compared to the tickrate), then on the second frame
-//!   the button won't be `JustPressed` anymore (it will simply be `Pressed`) so your system might not react correctly to it.
-//!
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -97,8 +89,8 @@ pub struct LeafwingInputConfig<A> {
 ///
 /// We need this because:
 /// - we write the InputMessages during FixedPostUpdate
-/// - we apply the TickUpdateEvents (from doing sync) during PostUpdate. During this phase,
-/// we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
+/// - we apply the TickUpdateEvents (from doing sync) during PostUpdate, which might affect the ticks from the InputMessages.
+///   During this phase, we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
 #[derive(Debug, Resource)]
 struct MessageBuffer<A: LeafwingUserAction>(Vec<InputMessage<A>>);
 
