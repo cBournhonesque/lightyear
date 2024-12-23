@@ -1,3 +1,12 @@
+//! The InputBuffer contains a history of the ActionState for each tick.
+//!
+//! It is used for several purposes:
+//! - the client's inputs for tick T must arrive before the server processes tick T, so they are stored
+//!   in the buffer until the server processes them. The InputBuffer can be updated efficiently by receiving
+//!   a list of [`ActionDiff`]s compared from an initial [`ActionState`]
+//! - to implement input-delay, we want a button press at tick t to be processed at tick t + delay on the client.
+//!   Therefore, we will store the computed ActionState at tick t + delay, but then we load the ActionState at tick t
+//!   from the buffer
 use bevy::utils::Instant;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
