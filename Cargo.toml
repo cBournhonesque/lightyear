@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-  "lightyear",
-  "macros",
-  # internal
-  "benches",
-  "examples/*",
+    "lightyear",
+    "macros",
+    # internal
+    "benches",
+    "examples/*",
 ]
 default-members = ["lightyear"]
 exclude = ["examples/certificates"]
@@ -40,7 +40,7 @@ debug = false
 [workspace.dependencies]
 
 lightyear_examples_common = { path = "./examples/common", default-features = false }
-lightyear = { path = "./lightyear", default-features = false }
+lightyear = { path = "./lightyear", version = "0.18.0", default-features = false }
 
 # utils
 
@@ -80,8 +80,8 @@ lightyear_macros = { version = "0.18.0", path = "./macros" }
 tracing = "0.1.40"
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.17", features = [
-  "registry",
-  "env-filter",
+    "registry",
+    "env-filter",
 ] }
 
 # server
@@ -94,7 +94,7 @@ metrics = "0.24"
 metrics-util = "0.18"
 metrics-tracing-context = "0.17"
 metrics-exporter-prometheus = { version = "0.16", default-features = false, features = [
-  "http-listener",
+    "http-listener",
 ] }
 
 
@@ -109,8 +109,8 @@ futures-util = "0.3.30"
 # we don't need any tokio features, we use only use the tokio channels
 
 tokio = { version = "1.36", features = [
-  "sync",
-  "macros",
+    "sync",
+    "macros",
 ], default-features = false }
 futures = "0.3.30"
 async-compat = "0.2.3"
@@ -120,9 +120,9 @@ async-channel = "2.2.0"
 
 steamworks = "0.11"
 wtransport = { version = "=0.5.0", features = [
-  "quinn",
-  "self-signed",
-  "dangerous-configuration",
+    "quinn",
+    "self-signed",
+    "dangerous-configuration",
 ] }
 tokio-tungstenite = { version = "0.23.0", features = ["connect", "handshake"] }
 
@@ -131,21 +131,21 @@ tokio-tungstenite = { version = "0.23.0", features = ["connect", "handshake"] }
 
 console_error_panic_hook = "0.1.7"
 web-sys = { version = "0.3", features = [
-  "Document",
-  "WebTransport",
-  "WebTransportHash",
-  "WebTransportOptions",
-  "WebTransportBidirectionalStream",
-  "WebTransportSendStream",
-  "WebTransportReceiveStream",
-  "ReadableStreamDefaultReader",
-  "WritableStreamDefaultWriter",
-  "WebTransportDatagramDuplexStream",
-  "WebSocket",
-  "CloseEvent",
-  "ErrorEvent",
-  "MessageEvent",
-  "BinaryType",
+    "Document",
+    "WebTransport",
+    "WebTransportHash",
+    "WebTransportOptions",
+    "WebTransportBidirectionalStream",
+    "WebTransportSendStream",
+    "WebTransportReceiveStream",
+    "ReadableStreamDefaultReader",
+    "WritableStreamDefaultWriter",
+    "WebTransportDatagramDuplexStream",
+    "WebSocket",
+    "CloseEvent",
+    "ErrorEvent",
+    "MessageEvent",
+    "BinaryType",
 ] }
 
 # latest version that still uses bevy 0.14:
@@ -153,7 +153,7 @@ bevy_web_keepalive = "0.3.4"
 
 futures-lite = "2.1.0"
 getrandom = { version = "0.2.11", features = [
-  "js", # feature 'js' is required for wasm
+    "js", # feature 'js' is required for wasm
 ] }
 xwt-core = "0.6"
 xwt-web = "0.15.0"
@@ -171,19 +171,19 @@ approx = "0.5.1"
 # (we add back features needed for gui clients if desired)
 
 bevy = { version = "0.15", default-features = false, features = [
-  "multi_threaded",
-  "bevy_state",
-  "serialize",
-  "bevy_asset",
-  "bevy_state",
-  "bevy_color",
-  "multi_threaded",
-  "sysinfo_plugin",
+    "multi_threaded",
+    "bevy_state",
+    "serialize",
+    "bevy_asset",
+    "bevy_state",
+    "bevy_color",
+    "multi_threaded",
+    "sysinfo_plugin",
 ] }
 
 # input
 leafwing-input-manager = { version = "0.16", default-features = false, features = [
-  "keyboard",
+    "keyboard",
 ] }
 
 # physics
@@ -193,25 +193,21 @@ avian3d = { version = "0.2", default-features = false }
 
 # gui debug ui
 bevy-inspector-egui = { version = "0.28", default-features = false, features = [
-  "bevy_pbr",
-  "bevy_image",
-  "bevy_render",
-  "egui_open_url",
+    "bevy_pbr",
+    "bevy_image",
+    "bevy_render",
+    "egui_open_url",
 ] }
 bevy_egui = { version = "0.31", default-features = false, features = [
-  "open_url",
-  "default_fonts",
-  "render",
+    "open_url",
+    "default_fonts",
+    "render",
 ] }
 egui_extras = "=0.29"
 
 # bevygap for deploying on Edgegap
-bevygap_server_plugin = { git = "https://github.com/RJ/bevygap.git", rev = "041e2be874ec61fe7eb5b959a3eee8852b734ff3" }
-bevygap_client_plugin = { git = "https://github.com/RJ/bevygap.git", rev = "041e2be874ec61fe7eb5b959a3eee8852b734ff3" }
-
-# Make sure bevygap's lightyear dep is our exact version:
-[patch."https://github.com/cBournhonesque/lightyear.git"]
-lightyear = { path = "./lightyear", version = "0.18" }
+bevygap_server_plugin = { version = "0.3.1" }
+bevygap_client_plugin = { version = "0.3.1" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"

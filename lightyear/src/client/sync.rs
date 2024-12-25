@@ -3,7 +3,7 @@
 use bevy::prelude::{Reflect, SystemSet};
 use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::packet::packet::PacketId;
@@ -100,6 +100,15 @@ pub struct SyncManager {
     interpolation_speed_ratio: f32,
 
     // ticks
+    /// Number of input delay ticks to apply.
+    ///
+    /// This value is only updated when there are big changes in the RTT that warrant ping changes.
+    /// (i.e. in the `finalize` function)
+    ///
+    /// It's not updated every frame otherwise the input delay would jitter constantly and some
+    /// inputs would be overriden or ignored. Besides, we are already changing the client
+    /// speed to stay in sync with the server, so we don't want to modify the input delay on top of that.
+    pub(crate) current_input_delay: u16,
     // TODO: see if this is correct; should we instead attach the tick on every update message?
     /// Tick of the server that we last received in any packet from the server.
     /// This is not updated every tick, but only when we receive a packet from the server.
@@ -125,6 +134,7 @@ impl SyncManager {
             interpolation_time: WrappedTime::default(),
             interpolation_speed_ratio: 1.0,
             // server tick
+            current_input_delay: 0,
             latest_received_server_tick: None,
             duration_since_latest_received_server_tick: Duration::default(),
             new_latest_received_server_tick: false,
@@ -141,6 +151,7 @@ impl SyncManager {
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
         ping_manager: &PingManager,
+        prediction_config: &PredictionConfig,
         interpolation_delay: &InterpolationDelay,
         server_send_interval: Duration,
     ) -> Option<TickEvent> {
@@ -162,7 +173,7 @@ impl SyncManager {
                 interpolation_tick = ?self.interpolation_tick(tick_manager),
                 "Client is synced!"
             );
-            return self.finalize(time_manager, tick_manager, ping_manager);
+            return self.finalize(time_manager, tick_manager, ping_manager, prediction_config);
         }
 
         if self.synced {
@@ -278,15 +289,10 @@ impl SyncManager {
     /// So the client should be ahead by RTT/2 - input_delay_ticks
     ///
     /// This could be a negative value
-    fn client_ahead_minimum(
-        &self,
-        tick_duration: Duration,
-        jitter: Duration,
-        input_delay_ticks: u16,
-    ) -> ChronoDuration {
+    fn client_ahead_minimum(&self, tick_duration: Duration, jitter: Duration) -> ChronoDuration {
         // TODO: do we need to make sure that the client time is ahead of the server time?
         //  we might have some weird interpolation issues if this is not the case
-        let input_delay = tick_duration * input_delay_ticks as u32;
+        let input_delay = tick_duration * self.current_input_delay as u32;
         ChronoDuration::nanoseconds(
             jitter.as_nanos() as i64 * self.config.jitter_multiple_margin as i64
                 // TODO: this should actually be `n * client_input_send_interval`
@@ -297,17 +303,16 @@ impl SyncManager {
         )
     }
 
-    // Returns what we think the client time should be, given the current server time estimate
-    // and the jitter/input_delay
+    /// Returns what we think the client time should be, given the current server time estimate
+    /// and the jitter/input_delay
     fn client_ideal_time(
         &self,
         rtt: Duration,
         tick_duration: Duration,
         jitter: Duration,
-        input_delay_ticks: u16,
     ) -> WrappedTime {
         let ideal_time = self.predicted_server_receive_time(rtt)
-            + self.client_ahead_minimum(tick_duration, jitter, input_delay_ticks);
+            + self.client_ahead_minimum(tick_duration, jitter);
 
         // TODO: client_ideal_time must be higher than server_time in raw value (not wrapping)
         //  so that wrapping with Ticks still works!! Need to update this
@@ -416,6 +421,7 @@ impl SyncManager {
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
         ping_manager: &PingManager,
+        prediction_config: &PredictionConfig,
     ) -> Option<TickEvent> {
         let rtt = ping_manager.rtt();
         let jitter = ping_manager.jitter();
@@ -423,15 +429,8 @@ impl SyncManager {
         let current_prediction_time = self.current_prediction_time(tick_manager, time_manager);
 
         // client ideal time
-        let input_delay_ticks = self
-            .prediction_config
-            .input_delay_ticks(rtt, tick_manager.config.tick_duration);
-        let client_ideal_time = self.client_ideal_time(
-            rtt,
-            tick_manager.config.tick_duration,
-            jitter,
-            input_delay_ticks,
-        );
+        let client_ideal_time =
+            self.client_ideal_time(rtt, tick_manager.config.tick_duration, jitter);
 
         let error = current_prediction_time - client_ideal_time;
         let error_margin_time = chrono::Duration::from_std(
@@ -463,7 +462,7 @@ impl SyncManager {
                 "Error too big, snapping prediction time/tick to objective",
             );
 
-            return self.finalize(time_manager, tick_manager, ping_manager);
+            return self.finalize(time_manager, tick_manager, ping_manager, prediction_config);
         }
 
         time_manager.sync_relative_speed = if error > error_margin_time {
@@ -510,19 +509,19 @@ impl SyncManager {
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
         ping_manager: &PingManager,
+        prediction_config: &PredictionConfig,
     ) -> Option<TickEvent> {
         let tick_duration = tick_manager.config.tick_duration;
         let rtt = ping_manager.rtt();
         let jitter = ping_manager.jitter();
+        // recompute the input delay using the new rtt estimate
+        self.current_input_delay = prediction_config.input_delay_ticks(rtt, tick_duration);
+        info!("New input delay: {}", self.current_input_delay);
         // recompute the server time estimate (using the rtt we just computed)
         self.update_server_time_estimate(tick_duration, rtt);
 
         // Compute how many ticks the client must be compared to server
-        let input_delay_ticks = self
-            .prediction_config
-            .input_delay_ticks(rtt, tick_manager.config.tick_duration);
-        let client_ideal_time =
-            self.client_ideal_time(rtt, tick_duration, jitter, input_delay_ticks);
+        let client_ideal_time = self.client_ideal_time(rtt, tick_duration, jitter);
 
         // TODO: client_ideal_time must be higher than server_time in raw value (not wrapping)
         //  so that wrapping with Ticks still works
@@ -544,7 +543,7 @@ impl SyncManager {
                 ?jitter,
                 ?delta_tick,
                 predicted_server_receive_time = ?self.predicted_server_receive_time(rtt),
-                client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter, input_delay_ticks),
+                client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter),
                 ?client_ideal_time,
                 ?client_ideal_tick,
                 server_tick = ?self.latest_received_server_tick,
