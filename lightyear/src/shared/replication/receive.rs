@@ -421,7 +421,9 @@ impl ReplicationReceiver {
     }
 
     /// Update the Confirmed tick for all entities in the replication group
-    /// so that Predicted/Interpolated entities can be notified
+    /// so that Predicted/Interpolated entities can be notified.
+    ///
+    /// The Confirmed tick is the latest tick at which we have received an update for the entity.
     ///
     /// We update it for all entities in the group (even if we received only an update that contains
     /// updates for E1, it also means that E2 is updated to the same tick, since they are part of the
@@ -1025,10 +1027,6 @@ impl GroupChannel {
                 trace!("Ignored a replication update received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
                 continue;
             };
-            if !Self::authority_check(&mut local_entity_mut, remote) {
-                debug!("authority check failed for entity: {:?}", entity);
-                continue;
-            }
             for component in components {
                 let mut reader = Reader::from(component);
                 let _ = component_registry

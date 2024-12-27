@@ -2275,7 +2275,6 @@ pub(crate) mod send {
         /// One component is delta, the other is not
         /// This fails to work if we don't have an ack tick specific to the delta component
         #[test]
-        #[ignore]
         fn test_component_update_delta_with_non_delta_component() {
             let mut stepper = BevyStepper::default();
 
@@ -2293,7 +2292,6 @@ pub(crate) mod send {
             let group_id = ReplicationGroupId(server_entity.to_bits());
             stepper.frame_step();
             let insert_tick = stepper.server_tick();
-            dbg!(insert_tick);
             stepper.frame_step();
             let client_entity = stepper
                 .client_app
