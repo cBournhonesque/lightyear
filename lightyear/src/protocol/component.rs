@@ -792,7 +792,6 @@ mod delta {
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
             let entity = entity_world_mut.id();
-            // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             match delta.delta_type {
                 DeltaType::Normal { previous_tick } => {
                     let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
@@ -812,7 +811,8 @@ mod delta {
                     let mut new_value = past_value.clone();
                     new_value.apply_diff(&delta.delta);
                     // we can remove all the values strictly older than previous_tick in the component history
-                    // (since we now that server has receive an ack for previous_tick)
+                    // (since we now know that the sender has received an ack for previous_tick, otherwise it wouldn't
+                    // have sent a diff based on the previous_tick)
                     history.buffer = history.buffer.split_off(&previous_tick);
                     // store the new value in the history
                     history.buffer.insert(tick, new_value.clone());
@@ -823,6 +823,8 @@ mod delta {
                         ));
                     };
                     *c = new_value;
+
+                    // TODO: should we send the event based on the message type (Insert/Update) or based on whether the component was actually inserted?
                     events.push_update_component(entity, net_id, tick);
                 }
                 DeltaType::FromBase => {

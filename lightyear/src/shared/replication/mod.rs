@@ -69,6 +69,7 @@ impl ToBytes for Entity {
     }
 }
 
+/// All the entity actions (Spawn/despawn/inserts/removals) for a single entity
 #[derive(Clone, PartialEq, Debug)]
 pub struct EntityActions {
     pub(crate) spawn: SpawnAction,

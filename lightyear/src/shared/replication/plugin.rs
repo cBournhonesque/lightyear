@@ -40,6 +40,9 @@ pub enum SendUpdatesMode {
     ///
     /// If we receive a NACK (i.e. the packet got lost), we will send the updates since the last ACK.
     SinceLastSend,
+    // t1: E1-C1-update,E2-C2-update. Sender has ack_tick = 1
+    // t2: E1-C1-update. Send C1-diff-1-2
+    // t3: no update. SinceLastAck: Send C1-diff-1-3, SinceLastSend: don't send anything
 }
 
 impl Default for ReplicationConfig {
