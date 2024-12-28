@@ -3,13 +3,13 @@
 #![allow(dead_code)]
 use std::time::Duration;
 
+use crate::settings::get_settings;
 use bevy::prelude::*;
 use lightyear::client::config::ClientConfig;
 use lightyear::prelude::client::PredictionConfig;
 use lightyear::server::config::ServerConfig;
 use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::{read_settings, Settings};
-use serde::{Deserialize, Serialize};
+use lightyear_examples_common::settings::Settings;
 
 #[cfg(feature = "client")]
 mod client;
@@ -21,13 +21,13 @@ mod renderer;
 mod protocol;
 #[cfg(feature = "server")]
 mod server;
+mod settings;
 mod shared;
 
 fn main() {
     let cli = Cli::default();
-    let settings_str = include_str!("../assets/settings.ron");
     #[allow(unused_mut)]
-    let mut settings = read_settings::<MySettings>(settings_str);
+    let mut settings = get_settings();
     #[cfg(target_family = "wasm")]
     lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.common.client);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
@@ -59,40 +59,4 @@ fn main() {
     apps.add_user_renderer_plugin(renderer::SpaceshipsRendererPlugin);
     // run the app
     apps.run();
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct MySettings {
-    pub common: Settings,
-
-    /// If true, we will predict the client's entities, but also the ball and other clients' entities!
-    /// This is what is done by RocketLeague (see [video](https://www.youtube.com/watch?v=ueEmiDM94IE))
-    ///
-    /// If false, we will predict the client's entities but simple interpolate everything else.
-    pub(crate) predict_all: bool,
-
-    /// By how many ticks an input press will be delayed before we apply client-prediction?
-    ///
-    /// This can be useful as a tradeoff between input delay and prediction accuracy.
-    /// If the input delay is greater than the RTT, then there won't ever be any mispredictions/rollbacks.
-    /// See [this article](https://www.snapnet.dev/docs/core-concepts/input-delay-vs-rollback/) for more information.
-    pub(crate) input_delay_ticks: u16,
-
-    /// What is the maximum number of ticks that we will rollback for?
-    /// After applying input delay, we will try cover `max_prediction_ticks` ticks of latency using client-side prediction
-    /// Any more latency beyond that will use more input delay.
-    pub(crate) max_prediction_ticks: u16,
-
-    /// If visual correction is enabled, we don't instantly snapback to the corrected position
-    /// when we need to rollback. Instead we interpolated between the current position and the
-    /// corrected position.
-    /// This controls the duration of the interpolation; the higher it is, the longer the interpolation
-    /// will take
-    pub(crate) correction_ticks_factor: f32,
-
-    /// If true, we will also show the Confirmed entities (on top of the Predicted entities)
-    pub(crate) show_confirmed: bool,
-
-    /// Sets server replication send interval in both client and server configs
-    pub(crate) server_replication_send_interval: u64,
 }

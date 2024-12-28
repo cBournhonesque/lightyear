@@ -10,11 +10,12 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+use crate::settings::get_settings;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear::prelude::{Deserialize, Mode, Serialize};
 use lightyear_examples_common::app::{Apps, Cli, ServerMode};
-use lightyear_examples_common::settings::{read_settings, ServerTransports, Settings};
+use lightyear_examples_common::settings::{ServerTransports, Settings};
 
 #[cfg(feature = "client")]
 mod client;
@@ -23,14 +24,14 @@ mod protocol;
 #[cfg(feature = "gui")]
 mod renderer;
 mod server;
+mod settings;
 mod shared;
 
 pub const HOST_SERVER_PORT: u16 = 5050;
 
 fn main() {
     let mut cli = Cli::default();
-    let settings_str = include_str!("../assets/settings.ron");
-    let mut settings = read_settings::<Settings>(settings_str);
+    let mut settings = get_settings();
 
     // in this example, every client will actually launch in host-server mode
     // the reason is that we want every client to be able to be the 'host' of a lobby

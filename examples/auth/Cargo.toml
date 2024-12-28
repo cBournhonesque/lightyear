@@ -13,8 +13,8 @@ publish = false
 
 [features]
 default = [
-  "lightyear_examples_common/steam",
-  "lightyear_examples_common/websocket",
+    "lightyear_examples_common/steam",
+    "lightyear_examples_common/websocket",
 ]
 client = ["lightyear_examples_common/client", "gui"]
 server = ["lightyear_examples_common/server"]
@@ -26,7 +26,6 @@ lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = ["steam", "websocket"] }
 
 async-compat.workspace = true
-serde.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
