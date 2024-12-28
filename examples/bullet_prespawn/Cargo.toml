@@ -15,14 +15,13 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 [dependencies]
 lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = [
-  "steam",
-  "websocket",
-  "leafwing",
-  "lz4",
+    "steam",
+    "websocket",
+    "leafwing",
+    "lz4",
 ] }
 
 leafwing-input-manager.workspace = true
-serde.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

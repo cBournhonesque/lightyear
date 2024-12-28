@@ -17,6 +17,7 @@ client = ["lightyear_examples_common/client", "gui"]
 server = ["lightyear_examples_common/server"]
 gui = ["lightyear_examples_common/gui"]
 tls = ["dep:bevygap_client_plugin"]
+steam = ["lightyear_examples_common/steam"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
 bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
@@ -33,7 +34,7 @@ rand.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }
 bevy-inspector-egui = { workspace = true, optional = true }
 bevygap_client_plugin = { workspace = true, optional = true, features = [
-  "matchmaker-tls",
+    "matchmaker-tls",
 ] }
 
 [lints]

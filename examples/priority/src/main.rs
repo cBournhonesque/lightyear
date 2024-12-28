@@ -1,10 +1,11 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+use crate::settings::get_settings;
 use bevy::prelude::*;
 use lightyear::prelude::server::PacketConfig;
 use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::{read_settings, Settings};
+use lightyear_examples_common::settings::Settings;
 
 #[cfg(feature = "client")]
 mod client;
@@ -14,12 +15,12 @@ mod protocol;
 mod renderer;
 #[cfg(feature = "server")]
 mod server;
+mod settings;
 mod shared;
 
 fn main() {
     let cli = Cli::default();
-    let settings_str = include_str!("../assets/settings.ron");
-    let settings = read_settings::<Settings>(settings_str);
+    let settings = get_settings();
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     let mut apps = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
     // for this example, we will use input delay and a correction function

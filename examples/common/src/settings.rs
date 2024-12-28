@@ -1,4 +1,4 @@
-//! This module parses the settings.ron file and builds a lightyear configuration from it
+//! This module introduces a settings struct that can be used to configure the server and client.
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 use std::net::{Ipv4Addr, SocketAddr};
@@ -6,8 +6,6 @@ use std::net::{Ipv4Addr, SocketAddr};
 use bevy::asset::ron;
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_family = "wasm"))]
 use async_compat::Compat;
@@ -21,11 +19,6 @@ use lightyear::prelude::client::{SocketConfig, SteamConfig};
 use lightyear::prelude::{CompressionConfig, LinkConditionerConfig};
 
 use lightyear::prelude::{client, server};
-
-/// We parse the settings.ron file to read the settings
-pub fn read_settings<T: DeserializeOwned>(settings_str: &str) -> T {
-    ron::de::from_str::<T>(settings_str).expect("Could not deserialize the settings file")
-}
 
 /// Read certificate digest from alternate sources, for WASM builds.
 #[cfg(target_family = "wasm")]
@@ -69,22 +62,21 @@ fn get_digest_on_wasm() -> Option<String> {
     None
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ClientTransports {
     #[cfg(not(target_family = "wasm"))]
     Udp,
     WebTransport {
+        #[cfg(target_family = "wasm")]
         certificate_digest: String,
     },
     #[cfg(feature = "websocket")]
     WebSocket,
     #[cfg(feature = "steam")]
-    Steam {
-        app_id: u32,
-    },
+    Steam { app_id: u32 },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ServerTransports {
     Udp {
         local_port: u16,
@@ -106,14 +98,14 @@ pub enum ServerTransports {
     },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct Conditioner {
     /// One way latency in milliseconds
-    pub(crate) latency_ms: u16,
+    pub latency_ms: u16,
     /// One way jitter in milliseconds
-    pub(crate) jitter_ms: u16,
+    pub jitter_ms: u16,
     /// Percentage of packet loss
-    pub(crate) packet_loss: f32,
+    pub packet_loss: f32,
 }
 
 impl Conditioner {
@@ -126,31 +118,31 @@ impl Conditioner {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct ServerSettings {
     /// If true, disable any rendering-related plugins
-    pub(crate) headless: bool,
+    pub headless: bool,
 
     /// If true, enable bevy_inspector_egui
-    pub(crate) inspector: bool,
+    pub inspector: bool,
 
     /// Possibly add a conditioner to simulate network conditions
-    pub(crate) conditioner: Option<Conditioner>,
+    pub conditioner: Option<Conditioner>,
 
     /// Which transport to use
     pub transport: Vec<ServerTransports>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct ClientSettings {
     /// If true, enable bevy_inspector_egui
-    pub(crate) inspector: bool,
+    pub inspector: bool,
 
     /// The client id
-    pub(crate) client_id: u64,
+    pub client_id: u64,
 
     /// The client port to listen on
-    pub(crate) client_port: u16,
+    pub client_port: u16,
 
     /// The ip address of the server
     pub server_addr: Ipv4Addr,
@@ -159,13 +151,13 @@ pub struct ClientSettings {
     pub server_port: u16,
 
     /// Which transport to use
-    pub(crate) transport: ClientTransports,
+    pub transport: ClientTransports,
 
     /// Possibly add a conditioner to simulate network conditions
-    pub(crate) conditioner: Option<Conditioner>,
+    pub conditioner: Option<Conditioner>,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug)]
 pub struct SharedSettings {
     /// An id to identify the protocol version
     pub protocol_id: u64,
@@ -174,10 +166,10 @@ pub struct SharedSettings {
     pub private_key: [u8; 32],
 
     /// compression options
-    pub(crate) compression: CompressionConfig,
+    pub compression: CompressionConfig,
 }
 
-#[derive(Resource, Debug, Clone, Deserialize, Serialize)]
+#[derive(Resource, Debug, Clone)]
 pub struct Settings {
     pub server: ServerSettings,
     pub client: ClientSettings,
@@ -220,7 +212,7 @@ pub(crate) fn build_server_netcode_config(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WebTransportCertificateSettings {
     /// Generate a self-signed certificate, with given SANs list to add to the certifictate
     /// eg: ["example.com", "*.gameserver.example.org", "10.1.2.3", "::1"]
@@ -418,7 +410,10 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
             &settings.shared,
             client::ClientTransport::UdpSocket(client_addr),
         ),
-        ClientTransports::WebTransport { certificate_digest } => build_client_netcode_config(
+        ClientTransports::WebTransport {
+            #[cfg(target_family = "wasm")]
+            certificate_digest,
+        } => build_client_netcode_config(
             client_id,
             server_addr,
             settings.client.conditioner.as_ref(),

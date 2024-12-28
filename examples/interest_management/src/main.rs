@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 use bevy::prelude::*;
 use lightyear_examples_common::app::Apps;
-use lightyear_examples_common::settings::{read_settings, Settings};
+use lightyear_examples_common::settings::Settings;
 
 #[cfg(feature = "client")]
 mod client;
@@ -13,12 +13,12 @@ mod protocol;
 mod renderer;
 #[cfg(feature = "server")]
 mod server;
+mod settings;
 mod shared;
 
 fn main() {
     let cli = lightyear_examples_common::app::cli();
-    let settings_str = include_str!("../assets/settings.ron");
-    let settings = read_settings::<Settings>(settings_str);
+    let settings = settings::get_settings();
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     let mut apps = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
     // add `ClientPlugins` and `ServerPlugins` plugin groups

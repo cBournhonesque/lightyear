@@ -10,9 +10,10 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+use crate::settings::get_settings;
 use bevy::prelude::*;
 use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::{read_settings, Settings};
+use lightyear_examples_common::settings::Settings;
 use protocol::ProtocolPlugin;
 
 #[cfg(feature = "client")]
@@ -22,13 +23,13 @@ mod protocol;
 mod renderer;
 #[cfg(feature = "server")]
 mod server;
+mod settings;
 mod shared;
 
 fn main() {
     let cli = Cli::default();
-    let settings_str = include_str!("../assets/settings.ron");
     #[allow(unused_mut)]
-    let mut settings = read_settings::<Settings>(settings_str);
+    let mut settings = get_settings();
     #[cfg(target_family = "wasm")]
     lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.client);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
