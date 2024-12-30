@@ -14,6 +14,7 @@ tls = ["dep:bevygap_client_plugin"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
 bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
+steam = ["lightyear_examples_common/steam"]
 
 [dependencies]
 lightyear_examples_common.workspace = true
