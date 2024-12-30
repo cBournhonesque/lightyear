@@ -24,7 +24,9 @@ fn main() {
     let mut apps = Apps::new(settings.common, cli, env!("CARGO_PKG_NAME").to_string());
 
     apps.update_lightyear_client_config(|config| {
-        config.prediction.minimum_input_delay_ticks = settings.input_delay_ticks;
+        config
+            .prediction
+            .set_fixed_input_delay_ticks(settings.input_delay_ticks);
         config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
     });
 

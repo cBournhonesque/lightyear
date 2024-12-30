@@ -10,6 +10,7 @@ default = ["lightyear_examples_common/websocket"]
 client = ["lightyear_examples_common/client", "gui"]
 server = ["lightyear_examples_common/server"]
 gui = ["lightyear_examples_common/gui"]
+steam = ["lightyear_examples_common/steam"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 
 [dependencies]
