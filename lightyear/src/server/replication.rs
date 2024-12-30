@@ -61,6 +61,7 @@ pub(crate) mod send {
     use crate::server::error::ServerError;
     use crate::server::prediction::handle_pre_predicted;
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
+    use crate::shared;
     use crate::shared::replication::archetypes::{
         get_erased_component, ServerReplicatedArchetypes,
     };
@@ -455,25 +456,15 @@ pub(crate) mod send {
                 let controlled_by = entity_ref.get::<ControlledBy>();
                 let authority_peer = entity_ref.get::<AuthorityPeer>();
                 let initial_replicated = entity_ref.get::<InitialReplicated>();
+
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
-                let replication_target =
-                    unsafe { entity_ref.get::<ReplicationTarget>().unwrap_unchecked() };
-                let replication_target_ticks = unsafe {
-                    entity_ref
-                        .get_change_ticks::<ReplicationTarget>()
-                        .unwrap_unchecked()
-                };
-                let (added_tick, changed_tick) = (
-                    replication_target_ticks.added,
-                    replication_target_ticks.changed,
-                );
+
                 // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
                 // so create the ref manually
-                let replication_target = Ref::new(
-                    replication_target,
-                    &added_tick,
-                    &changed_tick,
+                let replication_target = shared::replication::utils::get_ref::<ReplicationTarget>(
+                    world,
+                    entity.id(),
                     system_ticks.last_run(),
                     system_ticks.this_run(),
                 );
