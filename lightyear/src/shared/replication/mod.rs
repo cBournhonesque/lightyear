@@ -38,6 +38,7 @@ pub(crate) mod receive;
 pub(crate) mod resources;
 pub(crate) mod send;
 pub(crate) mod systems;
+pub(crate) mod utils;
 
 /// Serialize Entity as two varints for the index and generation (because they will probably be low).
 /// Revisit this when relations comes out
