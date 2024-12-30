@@ -50,6 +50,7 @@ pub(crate) fn get_ref<C: Component>(
 }
 
 // Utility function to return
+#[inline]
 unsafe fn get_component_and_ticks(
     world: UnsafeWorldCell<'_>,
     component_id: ComponentId,
