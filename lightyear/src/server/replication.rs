@@ -53,7 +53,7 @@ pub(crate) mod send {
     use super::*;
     use crate::prelude::server::AuthorityCommandExt;
     use crate::prelude::{
-        is_host_server, ClientId, ComponentRegistry, DisabledComponent, NetworkRelevanceMode,
+        is_host_server, ClientId, ComponentRegistry, DisabledComponents, NetworkRelevanceMode,
         OverrideTargetComponent, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
         TargetEntity, Tick, TickManager, TimeManager,
     };
@@ -310,7 +310,10 @@ pub(crate) mod send {
                         .entity(entity)
                         // NOTE: do not replicate this Controlled to other clients, or they will
                         // think they control this entity
-                        .insert((Controlled, DisabledComponent::<Controlled>::default()));
+                        .insert((
+                            Controlled,
+                            DisabledComponents::default().disable::<Controlled>(),
+                        ));
                 }
             }
             if (replication_target.is_changed()) && replication_target.target.targets(&local_client)
@@ -457,6 +460,8 @@ pub(crate) mod send {
                 let authority_peer = entity_ref.get::<AuthorityPeer>();
                 let initial_replicated = entity_ref.get::<InitialReplicated>();
 
+                let disabled_components = entity_ref.get::<DisabledComponents>();
+
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
 
@@ -503,8 +508,12 @@ pub(crate) mod send {
                     continue;
                 }
 
-                // d. all components that were added or changed
-                for replicated_component in replicated_archetype.components.iter() {
+                // d. all components that were added or changed and that are not disabled
+                for replicated_component in replicated_archetype
+                    .components
+                    .iter()
+                    .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
+                {
                     let (data, component_ticks) = unsafe {
                         get_erased_component(
                             table,
@@ -993,7 +1002,7 @@ pub(crate) mod send {
                 &ReplicationGroup,
                 Option<&AuthorityPeer>,
                 Option<&CachedNetworkRelevance>,
-                Has<DisabledComponent<C>>,
+                Option<&DisabledComponents>,
                 Option<&OverrideTargetComponent<C>>,
             ),
             With<Replicating>,
@@ -1008,12 +1017,12 @@ pub(crate) mod send {
                 group,
                 authority_peer,
                 visibility,
-                disabled,
+                disabled_components,
                 override_target,
             )) = query.get(entity)
             {
                 // do not replicate components that are disabled
-                if disabled {
+                if disabled_components.is_some_and(|d| !d.enabled::<C>()) {
                     return;
                 }
                 // use the overriden target if present
@@ -1821,7 +1830,7 @@ pub(crate) mod send {
                 .entity_mut(server_entity)
                 .insert((
                     ComponentSyncModeFull(1.0),
-                    DisabledComponent::<ComponentSyncModeFull>::default(),
+                    DisabledComponents::default().disable::<ComponentSyncModeFull>(),
                 ));
             stepper.frame_step();
             stepper.frame_step();
@@ -2836,7 +2845,7 @@ pub(crate) mod send {
                 .entity_mut(server_entity)
                 .insert((
                     ComponentSyncModeFull(2.0),
-                    DisabledComponent::<ComponentSyncModeFull>::default(),
+                    DisabledComponents::default().disable::<ComponentSyncModeFull>(),
                 ));
             stepper.frame_step();
             stepper.frame_step();

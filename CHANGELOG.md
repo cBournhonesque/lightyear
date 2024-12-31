@@ -1,17 +1,10 @@
 # Changelog
 
+
 ## [Unreleased]
 
-### Added
+- Removed `DisabledComponent::<C>` in favor of `DisabledComponents` to have more control over
+which components are disabled. In particular, it is now possible to express 'disable all components except these'.
 
-- Spaceships example
 
-### Changed
-
-- Exposed `rtt()` and `jitter()` via server's `Connection`
-- `InputBuffer` bits made pub, so clients can query how many inputs are buffered for remote players
-- `Rollback.is_rollback()` and `KeepaliveSettings` (for wasm) made public.
-
-### Fixed 
-
-- Conditionally compile steam bits only if cargo's `steam` feature is enabled. (steamworks not building on linux at the mo)
+## 0.18.0 - 2024-12-24
