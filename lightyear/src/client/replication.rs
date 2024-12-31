@@ -82,7 +82,7 @@ pub(crate) mod send {
 
     use crate::prelude::{
         client::{is_connected, is_synced},
-        is_host_server, ComponentRegistry, DisabledComponent, ReplicateHierarchy, Replicated,
+        is_host_server, ComponentRegistry, DisabledComponents, ReplicateHierarchy, Replicated,
         ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
@@ -295,6 +295,7 @@ pub(crate) mod send {
                 });
                 let priority = group.map_or(1.0, |g| g.priority());
                 let target_entity = entity_ref.get::<TargetEntity>();
+                let disabled_components = entity_ref.get::<DisabledComponents>();
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
                 let replication_target_ticks = unsafe {
@@ -337,8 +338,12 @@ pub(crate) mod send {
                     continue;
                 }
 
-                // d. all components that were added or changed
-                for replicated_component in replicated_archetype.components.iter() {
+                // d. all components that were added or changed and that are not disabled
+                for replicated_component in replicated_archetype
+                    .components
+                    .iter()
+                    .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
+                {
                     let (data, component_ticks) = unsafe {
                         get_erased_component(
                             table,
@@ -598,7 +603,7 @@ pub(crate) mod send {
         mut sender: ResMut<ConnectionManager>,
         // only remove the component for entities that are being actively replicated
         query: Query<
-            (&ReplicationGroup, Has<DisabledComponent<C>>),
+            (&ReplicationGroup, Option<&DisabledComponents>),
             (With<Replicating>, With<ReplicateToServer>),
         >,
     ) {
@@ -608,9 +613,11 @@ pub(crate) mod send {
             .replication_receiver
             .remote_entity_map
             .to_remote(entity);
-        if let Ok((group, disabled)) = query.get(entity) {
-            // do not replicate components that are disabled
-            if disabled {
+        if let Ok((group, disabled_components)) = query.get(entity) {
+            // do not replicate components (even removals) that are disabled
+            if disabled_components
+                .is_some_and(|disabled_components| !disabled_components.enabled::<C>())
+            {
                 return;
             }
             let group_id = group.group_id(Some(entity));
@@ -632,7 +639,7 @@ pub(crate) mod send {
         use crate::client::replication::send::ReplicateToServer;
         use crate::prelude::client::Replicate;
         use crate::prelude::{
-            server, ClientId, DisabledComponent, ReplicateOnceComponent, Replicated, TargetEntity,
+            server, ClientId, DisabledComponents, ReplicateOnceComponent, Replicated, TargetEntity,
         };
         use crate::tests::protocol::ComponentSyncModeFull;
         use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
@@ -902,7 +909,7 @@ pub(crate) mod send {
                 .entity_mut(client_entity)
                 .insert((
                     ComponentSyncModeFull(1.0),
-                    DisabledComponent::<ComponentSyncModeFull>::default(),
+                    DisabledComponents::default().disable::<ComponentSyncModeFull>(),
                 ));
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1172,7 +1179,7 @@ pub(crate) mod send {
                 .entity_mut(client_entity)
                 .insert((
                     ComponentSyncModeFull(2.0),
-                    DisabledComponent::<ComponentSyncModeFull>::default(),
+                    DisabledComponents::default().disable::<ComponentSyncModeFull>(),
                 ));
             for _ in 0..10 {
                 stepper.frame_step();

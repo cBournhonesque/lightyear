@@ -6,6 +6,7 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 
 use crate::connection::id::ClientId;
+use crate::protocol::component::ComponentKind;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
@@ -127,17 +128,69 @@ impl<C> Default for DeltaCompression<C> {
 /// If this component is present, we won't replicate the component
 ///
 /// (By default, all components that are present in the [`ComponentRegistry`](crate::prelude::ComponentRegistry) will be replicated.)
-#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+#[derive(Component, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct DisabledComponent<C> {
-    _marker: std::marker::PhantomData<C>,
+pub struct DisabledComponents {
+    /// If `disable_all` is true, all components are disabled for replication. Only the components in `enabled` will be replicated
+    enabled: Vec<ComponentKind>,
+    /// if True, all components are disabled for replication. Only the components in `enabled` will be replicated
+    disable_all: bool,
+    /// If `disable_all` is false, all components are enabled for replication. Only the components in `disabled` will not be replicated
+    disabled: Vec<ComponentKind>,
 }
 
-impl<C> Default for DisabledComponent<C> {
+impl Default for DisabledComponents {
     fn default() -> Self {
         Self {
-            _marker: Default::default(),
+            enabled: vec![],
+            disable_all: false,
+            disabled: vec![],
         }
+    }
+}
+
+impl DisabledComponents {
+    /// Returns true if a component is enabled for replication
+    pub(crate) fn enabled_kind(&self, kind: ComponentKind) -> bool {
+        if self.disable_all {
+            return self.enabled.contains(&kind);
+        }
+        !self.disabled.contains(&kind)
+    }
+
+    /// Returns true if a component is enabled for replication
+    pub(crate) fn enabled<C: Component>(&self) -> bool {
+        self.enabled_kind(ComponentKind::of::<C>())
+    }
+
+    /// Disables the replication of a component
+    pub fn disable<C: Component>(mut self) -> Self {
+        self.enabled.retain(|c| c != &ComponentKind::of::<C>());
+        self.disabled.push(ComponentKind::of::<C>());
+        self
+    }
+
+    /// Enables the replication of a component
+    pub fn enable<C: Component>(mut self) -> Self {
+        self.disabled.retain(|c| c != &ComponentKind::of::<C>());
+        self.enabled.push(ComponentKind::of::<C>());
+        self
+    }
+
+    /// Disables all components for replication. Only the components that are explicitly enabled will be replicated
+    pub fn disable_all(mut self) -> Self {
+        self.disable_all = true;
+        self.disabled.clear();
+        self.enabled.clear();
+        self
+    }
+
+    /// Enables all components for replication. Only the components that are explicitly disabled will not be replicated
+    pub fn enable_all(mut self) -> Self {
+        self.disable_all = false;
+        self.enabled.clear();
+        self.disabled.clear();
+        self
     }
 }
 

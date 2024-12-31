@@ -8,7 +8,7 @@ It is composed of multiple smaller components that each control an aspect of rep
 - `ControlledBy` so the server can track which entity is owned by each client
 - `ReplicationGroup` to know which entity updates should be sent together in the same message
 - `ReplicateHierarchy` to control if the children of an entity should also be replicated
-- `DisabledComponent<C>` to disable replication for a specific component
+- `DisabledComponents` to control which specific components will be replicated for a given entity (if you only want to replicate a subset of the registered components)
 - `ReplicateOnceComponent<C>` to specify that some components should not replicate updates, only inserts/removals
 - `OverrideTargetComponent<C>` to override the replication target for a specific component
 

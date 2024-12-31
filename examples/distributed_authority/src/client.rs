@@ -48,7 +48,7 @@ pub(crate) fn handle_ball(trigger: Trigger<OnAdd, BallMarker>, mut commands: Com
         .insert((
             Replicate::default(),
             Name::new("Ball"),
-            DisabledComponent::<PlayerColor>::default(),
+            DisabledComponents::default().disable::<PlayerColor>(),
         ))
         // NOTE: we need to make sure that the ball doesn't have authority!
         //  or should let the client receive updates even if it has HasAuthority

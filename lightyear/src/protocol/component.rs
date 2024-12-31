@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::{Add, Mul};
 
-use bevy::prelude::{App, Component, EntityWorldMut, Mut, Resource, TypePath, World};
+use bevy::prelude::{App, Component, EntityWorldMut, Mut, Reflect, Resource, TypePath, World};
 use bevy::ptr::Ptr;
 use bevy::utils::HashMap;
 use serde::de::DeserializeOwned;
@@ -152,7 +152,6 @@ pub struct ReplicationMetadata {
     pub delta_compression_id: ComponentId,
     pub replicate_once_id: ComponentId,
     pub override_target_id: ComponentId,
-    pub disabled_id: ComponentId,
     pub write: RawWriteFn,
     pub remove: Option<RawRemoveFn>,
 }
@@ -561,7 +560,7 @@ mod interpolation {
 mod replication {
     use super::*;
     use crate::prelude::{
-        DeltaCompression, DisabledComponent, OverrideTargetComponent, ReplicateOnceComponent,
+        DeltaCompression, DisabledComponents, OverrideTargetComponent, ReplicateOnceComponent,
     };
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
@@ -579,7 +578,6 @@ mod replication {
                     delta_compression_id: world.register_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
                     override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
-                    disabled_id: world.register_component::<DisabledComponent<C>>(),
                     write,
                     remove: Some(remove),
                 },
@@ -697,7 +695,6 @@ mod delta {
                     delta_compression_id: ComponentId::new(0),
                     replicate_once_id: ComponentId::new(0),
                     override_target_id: ComponentId::new(0),
-                    disabled_id: ComponentId::new(0),
                     write,
                     remove: None,
                 },
@@ -1199,7 +1196,7 @@ impl AppComponentExt for App {
 }
 
 /// [`ComponentKind`] is an internal wrapper around the type of the component
-#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
+#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq, Reflect)]
 pub struct ComponentKind(pub(crate) TypeId);
 
 impl ComponentKind {

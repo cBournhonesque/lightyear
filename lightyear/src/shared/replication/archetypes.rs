@@ -145,6 +145,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
                 archetype.contains(self.replication_component_id)
                     && archetype.contains(self.replicating_component_id)
                     // on the client, we only replicate if we have authority
+                    // (on the server, we need to replicate to other clients even if we don't have authority)
                     && self
                         .has_authority_component_id
                         .map_or(true, |id| archetype.contains(id))
@@ -156,7 +157,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
             };
             // TODO: pause inserts/updates if Replicating is not present on the entity!
             // add all components of the archetype that are present in the ComponentRegistry, and:
-            // - ignore component if the component is disabled (DisabledComponent<C>) is present
+            // - ignore component if the component is disabled
             // - check if delta-compression is enabled
             archetype.components().for_each(|component| {
                 let info = unsafe { world.components().get_info(component).unwrap_unchecked() };
@@ -173,13 +174,6 @@ impl<C: Component> ReplicatedArchetypes<C> {
                     trace!("including {:?} in replicated components", info.name());
 
                     // check per component metadata
-                    let disabled = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.disabled_id);
-                    // we do not replicate the component
-                    if disabled {
-                        return;
-                    }
                     // TODO: should we store the components in a hashmap for faster lookup?
                     let delta_compression = archetype
                         .components()
@@ -192,9 +186,6 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         .any(|c| c == replication_metadata.override_target_id)
                         .then_some(replication_metadata.override_target_id);
 
-                    let disabled = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.disabled_id);
                     // SAFETY: component ID obtained from this archetype.
                     let storage_type =
                         unsafe { archetype.get_storage_type(component).unwrap_unchecked() };

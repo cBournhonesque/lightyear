@@ -208,7 +208,7 @@ pub mod prelude {
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::authority::HasAuthority;
     pub use crate::shared::replication::components::{
-        DeltaCompression, DisabledComponent, NetworkRelevanceMode, OverrideTargetComponent,
+        DeltaCompression, DisabledComponents, NetworkRelevanceMode, OverrideTargetComponent,
         PrePredicted, ReplicateHierarchy, ReplicateOnceComponent, Replicated, Replicating,
         ReplicationGroup, ShouldBePredicted, TargetEntity,
     };
