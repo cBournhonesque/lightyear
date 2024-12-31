@@ -559,9 +559,7 @@ mod interpolation {
 
 mod replication {
     use super::*;
-    use crate::prelude::{
-        DeltaCompression, DisabledComponents, OverrideTargetComponent, ReplicateOnceComponent,
-    };
+    use crate::prelude::{DeltaCompression, OverrideTargetComponent, ReplicateOnceComponent};
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
