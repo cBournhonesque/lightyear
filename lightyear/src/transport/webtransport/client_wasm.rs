@@ -21,8 +21,10 @@ use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender,
 // Adapted from https://github.com/briansmith/ring/blob/befdc87ac7cbca615ab5d68724f4355434d3a620/src/test.rs#L364-L393
 pub fn from_hex(hex_str: &str) -> std::result::Result<Vec<u8>, String> {
     if hex_str.len() % 2 != 0 {
-        return Err(String::from(
-            "Hex string does not have an even number of digits",
+        return Err(format!(
+            "Hex string does not have an even number of digits. Length: {}. String: .{}.",
+            hex_str.len(),
+            hex_str
         ));
     }
 
