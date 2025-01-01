@@ -79,7 +79,7 @@ struct MyMessage;
 struct MyChannel;
 
 fn send_message(mut connection_manager: ResMut<ConnectionManager>) {
-    let _ = connection_manager.send_message_to_target::<MyChannel, MyMessage>(&mut MyMessage, NetworkTarget::All);
+    let _ = connection_manager.send_message_to_target::<MyChannel, MyMessage>(&MyMessage, NetworkTarget::All);
 }
 ```
 
@@ -201,9 +201,11 @@ pub mod prelude {
     pub use crate::protocol::message::{AppMessageExt, MessageRegistry};
     pub use crate::protocol::serialize::AppSerializeExt;
     pub use crate::shared::config::{Mode, SharedConfig};
+    pub use crate::shared::events::EventSend;
     #[cfg(feature = "leafwing")]
     pub use crate::shared::input::leafwing::LeafwingInputPlugin;
     pub use crate::shared::input::native::InputPlugin;
+    pub use crate::shared::message::MessageSend;
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::authority::HasAuthority;

@@ -43,7 +43,7 @@ use crate::server::relevance::error::RelevanceError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::private::InternalEventSend;
 use crate::shared::events::EventSend;
-use crate::shared::message::{InternalMessageSend, MessageSend};
+use crate::shared::message::{private::InternalMessageSend, MessageSend};
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::components::ReplicationGroupId;
