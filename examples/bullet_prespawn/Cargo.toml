@@ -23,6 +23,7 @@ lightyear = { workspace = true, features = [
 ] }
 
 leafwing-input-manager.workspace = true
+serde.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
