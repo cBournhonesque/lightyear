@@ -88,7 +88,7 @@ impl RemoteEntityMap {
     /// It's possible that the remote_entity was already mapped by the sender,
     /// in which case we don't want to map it again
     #[inline]
-    pub(crate) fn get_local(&self, remote_entity: Entity) -> Option<Entity> {
+    pub fn get_local(&self, remote_entity: Entity) -> Option<Entity> {
         // the remote_entity is actually local, because it has already been mapped!
         let unmapped = Self::mark_unmapped(remote_entity);
         if Self::is_mapped(remote_entity) {
@@ -119,13 +119,13 @@ impl RemoteEntityMap {
     }
 
     /// Returns true if the entity already has been mapped
-    pub(crate) const fn is_mapped(entity: Entity) -> bool {
+    pub const fn is_mapped(entity: Entity) -> bool {
         entity.to_bits() & MARKED != 0
     }
 
     /// Convert a local entity to a network entity that we can send
     /// We will try to map it to a remote entity if we can
-    pub(crate) fn to_remote(&self, local_entity: Entity) -> Entity {
+    pub fn to_remote(&self, local_entity: Entity) -> Entity {
         if let Some(remote_entity) = self.local_to_remote.get(&local_entity) {
             Self::mark_mapped(*remote_entity)
         } else {
