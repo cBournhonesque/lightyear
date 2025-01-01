@@ -140,19 +140,10 @@ impl ConnectionManager {
         Ok(())
     }
 
-    /// Queues up a message to be sent to all clients matching the specific [`NetworkTarget`]
-    pub fn send_message_to_target<C: Channel, M: Message>(
-        &mut self,
-        message: &mut M,
-        target: NetworkTarget,
-    ) -> Result<(), ServerError> {
-        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
-    }
-
     /// Send a message to all clients in a room
     pub fn send_message_to_room<C: Channel, M: Message>(
         &mut self,
-        message: &mut M,
+        message: &M,
         room_id: RoomId,
         room_manager: &RoomManager,
     ) -> Result<(), ServerError> {
@@ -167,9 +158,55 @@ impl ConnectionManager {
     pub fn send_message<C: Channel, M: Message>(
         &mut self,
         client_id: ClientId,
-        message: &mut M,
+        message: &M,
     ) -> Result<(), ServerError> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
+    }
+
+    /// Send an event to all clients in a room
+    pub fn send_event_to_room<C: Channel, E: Event + Message>(
+        &mut self,
+        event: &E,
+        room_id: RoomId,
+        room_manager: &RoomManager,
+    ) -> Result<(), ServerError> {
+        let room = room_manager
+            .get_room(room_id)
+            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
+        let target = NetworkTarget::Only(room.clients.iter().copied().collect());
+        self.send_event_to_target::<C, E>(event, target)
+    }
+
+    /// Send an event to a single client
+    pub fn send_event<C: Channel, E: Event + Message>(
+        &mut self,
+        client_id: ClientId,
+        event: &E,
+    ) -> Result<(), ServerError> {
+        self.send_event_to_target::<C, E>(event, NetworkTarget::Single(client_id))
+    }
+
+    /// Trigger an event to all clients in a room
+    pub fn trigger_event_to_room<C: Channel, E: Event + Message>(
+        &mut self,
+        event: &E,
+        room_id: RoomId,
+        room_manager: &RoomManager,
+    ) -> Result<(), ServerError> {
+        let room = room_manager
+            .get_room(room_id)
+            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
+        let target = NetworkTarget::Only(room.clients.iter().copied().collect());
+        self.trigger_event_to_target::<C, E>(event, target)
+    }
+
+    /// Trigger an event to a single client
+    pub fn trigger_event<C: Channel, E: Event + Message>(
+        &mut self,
+        client_id: ClientId,
+        event: &E,
+    ) -> Result<(), ServerError> {
+        self.trigger_event_to_target::<C, E>(event, NetworkTarget::Single(client_id))
     }
 
     /// Update the priority of a `ReplicationGroup` that is replicated to a given client

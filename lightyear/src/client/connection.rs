@@ -241,22 +241,25 @@ impl ConnectionManager {
     }
 
     /// Send a [`Message`] to the server using a specific [`Channel`]
-    pub fn send_message<C: Channel, M: Message>(
-        &mut self,
-        message: &mut M,
-    ) -> Result<(), ClientError> {
+    pub fn send_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::None)
     }
 
-    /// Send a [`Message`] to the server using a specific [`Channel`]
-    ///
-    /// The message will be sent to the server and re-broadcasted to all clients that match the [`NetworkTarget`]
-    pub fn send_message_to_target<C: Channel, M: Message>(
+    /// Send a [`Event`] to the server using a specific [`Channel`].
+    /// The event will be buffered via EventWriter.
+    pub fn send_event<C: Channel, E: Event + Message>(
         &mut self,
-        message: &mut M,
-        target: NetworkTarget,
+        event: &E,
     ) -> Result<(), ClientError> {
-        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
+        self.send_event_to_target::<C, E>(event, NetworkTarget::None)
+    }
+
+    /// Trigger a [`Message`] to the server using a specific [`Channel`]
+    pub fn trigger_event<C: Channel, E: Event + Message>(
+        &mut self,
+        event: &E,
+    ) -> Result<(), ClientError> {
+        self.trigger_event_to_target::<C, E>(event, NetworkTarget::None)
     }
 
     pub(crate) fn buffer_replication_messages(

@@ -15,7 +15,7 @@ pub trait EventSend: private::InternalEventSend {
     /// remote World
     fn send_event_to_target<C: Channel, E: Event + Message>(
         &mut self,
-        event: &mut E,
+        event: &E,
         target: NetworkTarget,
     ) -> Result<(), Self::Error> {
         self.erased_send_event_to_target(event, ChannelKind::of::<C>(), target)
@@ -25,7 +25,7 @@ pub trait EventSend: private::InternalEventSend {
     /// in the remote World
     fn trigger_event_to_target<C: Channel, E: Event + Message>(
         &mut self,
-        event: &mut E,
+        event: &E,
         target: NetworkTarget,
     ) -> Result<(), Self::Error> {
         self.erased_trigger_event_to_target(event, ChannelKind::of::<C>(), target)

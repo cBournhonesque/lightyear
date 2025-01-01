@@ -401,7 +401,7 @@ impl AppMessageExt for App {
         &mut self,
         direction: ChannelDirection,
     ) -> MessageRegistration<'_, E> {
-        self.register_message_internal(direction, MessageType::Event)
+        self.register_event_internal(direction)
     }
 
     fn register_event_custom_serde<E: Event + Message>(
@@ -409,7 +409,7 @@ impl AppMessageExt for App {
         direction: ChannelDirection,
         serialize_fns: SerializeFns<E>,
     ) -> MessageRegistration<'_, E> {
-        self.register_message_internal_custom_serde(direction, MessageType::Event, serialize_fns)
+        self.register_event_internal_custom_serde(direction, serialize_fns)
     }
 
     /// Register a resource to be automatically replicated over the network

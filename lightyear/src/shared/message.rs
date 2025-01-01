@@ -8,7 +8,7 @@ pub trait MessageSend: InternalMessageSend {
     /// Send a message to a target via a channel
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &mut M,
+        message: &M,
         target: NetworkTarget,
     ) -> Result<(), Self::Error> {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)

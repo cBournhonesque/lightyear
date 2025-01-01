@@ -2,7 +2,7 @@ use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect, Resource};
+use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
 use bevy::utils::HashSet;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;
@@ -16,6 +16,10 @@ use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::SerializationError;
 use crate::shared::replication::delta::Diffable;
+
+// Event
+#[derive(Event, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
+pub struct IntegerEvent(pub u32);
 
 // Messages
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
@@ -200,6 +204,8 @@ pub struct Channel2;
 pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        // events
+        app.register_event::<IntegerEvent>(ChannelDirection::Bidirectional);
         // messages
         app.register_message::<StringMessage>(ChannelDirection::Bidirectional);
         app.register_message::<EntityMessage>(ChannelDirection::Bidirectional)
