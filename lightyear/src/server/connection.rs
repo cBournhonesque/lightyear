@@ -1,7 +1,7 @@
 //! Specify how a Server sends/receives messages with a Client
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{Component, Entity, Resource, World};
+use bevy::prelude::{Component, Entity, Event, Resource, World};
 use bevy::ptr::Ptr;
 use bevy::utils::{hashbrown, hashbrown::hash_map::Entry};
 use bevy::utils::{Duration, HashMap};
@@ -30,6 +30,7 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{
     ComponentError, ComponentKind, ComponentNetId, ComponentRegistry,
 };
+use crate::protocol::event::EventReplicationMode;
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
@@ -40,7 +41,9 @@ use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
 use crate::server::relevance::error::RelevanceError;
 use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::message::MessageSend;
+use crate::shared::events::private::InternalEventSend;
+use crate::shared::events::EventSend;
+use crate::shared::message::{InternalMessageSend, MessageSend};
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::components::ReplicationGroupId;
@@ -350,26 +353,36 @@ impl ConnectionManager {
             })
     }
 
-    /// Serialize the message and buffer it to be sent in each `Connection`.
-    ///
-    /// - If the message is not `MapEntities`, we can serialize it once and reuse the same bytes
-    ///   for all `Connections`.
-    /// - If it is `MapEntities`, we need to map it in each connection.
-    pub(crate) fn erased_send_message_to_target<M: Message>(
+    /// Buffer a `MapEntities` message to remote clients.
+    /// We cannot serialize the message once, we need to instead map the message for each client
+    /// using the `EntityMap` of that connection.
+    fn buffer_map_entities_event<E: Event + Message>(
         &mut self,
-        message: &M,
-        channel_kind: ChannelKind,
+        event: &E,
+        event_replication_mode: EventReplicationMode,
+        channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        if self.message_registry.is_map_entities::<M>() {
-            self.buffer_map_entities_message(message, channel_kind, target)?;
-        } else {
-            self.message_registry
-                .serialize(message, &mut self.writer, None)?;
-            let message_bytes = self.writer.split();
-            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
-        }
-        Ok(())
+        self.connections
+            .iter_mut()
+            .filter(|(id, _)| target.targets(id))
+            .try_for_each(|(_, c)| {
+                self.message_registry.serialize_event(
+                    event,
+                    event_replication_mode,
+                    &mut self.writer,
+                    Some(&mut c.replication_receiver.remote_entity_map.local_to_remote),
+                )?;
+                let message_bytes = self.writer.split();
+                // for local clients, we don't want to buffer messages in the MessageManager since
+                // there is no io
+                if c.is_local_client() {
+                    c.local_messages_to_send.push(message_bytes);
+                } else {
+                    c.buffer_message(message_bytes, channel)?;
+                }
+                Ok::<(), ServerError>(())
+            })
     }
 
     /// Buffer all the replication messages to send.
@@ -464,6 +477,7 @@ pub struct Connection {
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
+    pub(crate) received_events: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     pub(crate) received_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
@@ -521,6 +535,7 @@ impl Connection {
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             events: ConnectionEvents::default(),
+            received_events: HashMap::default(),
             received_messages: HashMap::default(),
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
@@ -742,6 +757,9 @@ impl Connection {
                             MessageType::Normal => {
                                 self.received_messages.entry(net_id).or_default().push(data);
                             }
+                            MessageType::Event => {
+                                self.received_events.entry(net_id).or_default().push(data);
+                            }
                         }
                     }
                 }
@@ -781,9 +799,6 @@ impl Connection {
         // we are also sending target and channel kind so the message can be
         // rebroadcasted to other clients after we have converted the entities from the
         // client World to the server World
-        // TODO: but do we have data to convert the entities from the client to the server?
-        //  I don't think so... maybe the sender should map_entities themselves?
-        //  or it matters for input messages?
         // TODO: avoid clone with Arc<[u8]>?
         let data = (reader.consume(), target, channel_kind);
         match message_registry.message_type(net_id) {
@@ -801,6 +816,9 @@ impl Connection {
             }
             MessageType::Normal => {
                 self.received_messages.entry(net_id).or_default().push(data);
+            }
+            MessageType::Event => {
+                self.received_events.entry(net_id).or_default().push(data);
             }
         }
         Ok(())
@@ -1119,23 +1137,89 @@ impl ConnectionManager {
     }
 }
 
-impl MessageSend for ConnectionManager {
+impl EventSend for ConnectionManager {}
+
+impl InternalEventSend for ConnectionManager {
     type Error = ServerError;
-    fn send_message_to_target<C: Channel, M: Message>(
+
+    fn erased_send_event_to_target<E: Event>(
         &mut self,
-        message: &mut M,
+        event: &E,
+        channel_kind: ChannelKind,
         target: NetworkTarget,
-    ) -> Result<(), ServerError> {
-        self.send_message_to_target::<C, M>(message, target)
+    ) -> Result<(), Self::Error> {
+        if self.message_registry.is_map_entities::<E>() {
+            self.buffer_map_entities_event(
+                event,
+                EventReplicationMode::Buffer,
+                channel_kind,
+                target,
+            )?;
+        } else {
+            self.message_registry.serialize_event(
+                event,
+                EventReplicationMode::Buffer,
+                &mut self.writer,
+                None,
+            )?;
+            let message_bytes = self.writer.split();
+            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
+        }
+        Ok(())
     }
 
+    fn erased_trigger_event_to_target<E: Event + Message>(
+        &mut self,
+        event: &E,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<(), Self::Error> {
+        if self.message_registry.is_map_entities::<E>() {
+            self.buffer_map_entities_event(
+                event,
+                EventReplicationMode::Trigger,
+                channel_kind,
+                target,
+            )?;
+        } else {
+            self.message_registry.serialize_event(
+                event,
+                EventReplicationMode::Trigger,
+                &mut self.writer,
+                None,
+            )?;
+            let message_bytes = self.writer.split();
+            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
+        }
+        Ok(())
+    }
+}
+
+impl MessageSend for ConnectionManager {}
+
+impl InternalMessageSend for ConnectionManager {
+    type Error = ServerError;
+
+    /// Serialize the message and buffer it to be sent in each `Connection`.
+    ///
+    /// - If the message is not `MapEntities`, we can serialize it once and reuse the same bytes
+    ///   for all `Connections`.
+    /// - If it is `MapEntities`, we need to map it in each connection.
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &mut M,
+        message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        self.erased_send_message_to_target(message, channel_kind, target)
+        if self.message_registry.is_map_entities::<M>() {
+            self.buffer_map_entities_message(message, channel_kind, target)?;
+        } else {
+            self.message_registry
+                .serialize(message, &mut self.writer, None)?;
+            let message_bytes = self.writer.split();
+            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
+        }
+        Ok(())
     }
 }
 

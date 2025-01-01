@@ -3,25 +3,27 @@ use std::any::TypeId;
 use std::fmt::Debug;
 
 use crate::client::config::ClientConfig;
+use crate::client::events::add_client_receive_event_from_server;
 use crate::client::message::add_client_receive_message_from_server;
-use crate::prelude::{client, server};
-use bevy::prelude::{App, Resource, TypePath};
-use bevy::utils::HashMap;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use tracing::{debug, error};
-
 use crate::packet::message::Message;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::ChannelDirection;
+use crate::prelude::{client, server};
+use crate::protocol::event::EventReplicationMode;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::ToBytes;
+use crate::server::events::add_server_receive_event_from_client;
 use crate::server::message::add_server_receive_message_from_client;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use crate::shared::replication::resources::DespawnResource;
+use bevy::prelude::{App, Event, Resource, TypePath};
+use bevy::utils::HashMap;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use tracing::{debug, error};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageError {
@@ -42,6 +44,8 @@ pub(crate) enum MessageType {
     NativeInput,
     /// This is not an input message, but a regular [`Message`]
     Normal,
+    /// This message is an [`Event`], which can get triggered or buffered in an EventWriter on the remote world
+    Event,
 }
 
 /// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
@@ -102,7 +106,7 @@ pub struct MessageRegistry {
     pub(crate) kind_map: TypeMapper<MessageKind>,
 }
 
-fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection) {
+fn register_message_receive<M: Message>(app: &mut App, direction: ChannelDirection) {
     let is_client = app.world().get_resource::<ClientConfig>().is_some();
     let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
@@ -117,8 +121,29 @@ fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection)
             }
         }
         ChannelDirection::Bidirectional => {
-            register_message_send::<M>(app, ChannelDirection::ClientToServer);
-            register_message_send::<M>(app, ChannelDirection::ServerToClient);
+            register_message_receive::<M>(app, ChannelDirection::ClientToServer);
+            register_message_receive::<M>(app, ChannelDirection::ServerToClient);
+        }
+    }
+}
+
+fn register_event_receive<E: Event + Message>(app: &mut App, direction: ChannelDirection) {
+    let is_client = app.world().get_resource::<ClientConfig>().is_some();
+    let is_server = app.world().get_resource::<ServerConfig>().is_some();
+    match direction {
+        ChannelDirection::ClientToServer => {
+            if is_server {
+                add_server_receive_event_from_client::<E>(app);
+            }
+        }
+        ChannelDirection::ServerToClient => {
+            if is_client {
+                add_client_receive_event_from_server::<E>(app);
+            }
+        }
+        ChannelDirection::Bidirectional => {
+            register_event_receive::<E>(app, ChannelDirection::ClientToServer);
+            register_event_receive::<E>(app, ChannelDirection::ServerToClient);
         }
     }
 }
@@ -216,6 +241,20 @@ pub(crate) trait AppMessageInternalExt {
         message_type: MessageType,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M>;
+
+    /// Function used internally to register an Event
+    fn register_event_internal<E: Event + Message + Serialize + DeserializeOwned>(
+        &mut self,
+        direction: ChannelDirection,
+    ) -> MessageRegistration<'_, E>;
+
+    /// Function used internally to register an event
+    /// with a custom [`SerializeFns`] implementation
+    fn register_event_internal_custom_serde<E: Event + Message>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<E>,
+    ) -> MessageRegistration<'_, E>;
 }
 
 impl AppMessageInternalExt for App {
@@ -229,7 +268,7 @@ impl AppMessageInternalExt for App {
             registry.add_message::<M>(message_type);
         }
         debug!("register message {}", std::any::type_name::<M>());
-        register_message_send::<M>(self, direction);
+        register_message_receive::<M>(self, direction);
         MessageRegistration {
             app: self,
             _marker: std::marker::PhantomData,
@@ -247,7 +286,40 @@ impl AppMessageInternalExt for App {
             registry.add_message_custom_serde::<M>(message_type, serialize_fns);
         }
         debug!("register message {}", std::any::type_name::<M>());
-        register_message_send::<M>(self, direction);
+        register_message_receive::<M>(self, direction);
+        MessageRegistration {
+            app: self,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    fn register_event_internal<E: Event + Message + Serialize + DeserializeOwned>(
+        &mut self,
+        direction: ChannelDirection,
+    ) -> MessageRegistration<'_, E> {
+        let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
+        if !registry.is_registered::<E>() {
+            registry.add_message::<E>(MessageType::Event);
+        }
+        debug!("register message {}", std::any::type_name::<E>());
+        register_event_receive::<E>(self, direction);
+        MessageRegistration {
+            app: self,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    fn register_event_internal_custom_serde<E: Event + Message>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<E>,
+    ) -> MessageRegistration<'_, E> {
+        let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
+        if !registry.is_registered::<E>() {
+            registry.add_message_custom_serde::<E>(MessageType::Event, serialize_fns);
+        }
+        debug!("register message {}", std::any::type_name::<E>());
+        register_event_receive::<E>(self, direction);
         MessageRegistration {
             app: self,
             _marker: std::marker::PhantomData,
@@ -273,6 +345,23 @@ pub trait AppMessageExt {
         direction: ChannelDirection,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M>;
+
+    /// Registers the event in the Registry
+    /// This event can now be sent over the network.
+    fn register_event<E: Event + Message + Serialize + DeserializeOwned>(
+        &mut self,
+        direction: ChannelDirection,
+    ) -> MessageRegistration<'_, E>;
+
+    /// Registers the event in the Registry
+    ///
+    /// This event can now be sent over the network.
+    /// You need to provide your own [`SerializeFns`] for this message
+    fn register_event_custom_serde<E: Event + Message>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<E>,
+    ) -> MessageRegistration<'_, E>;
 
     /// Registers the resource in the Registry
     /// This resource can now be sent over the network.
@@ -306,6 +395,21 @@ impl AppMessageExt for App {
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M> {
         self.register_message_internal_custom_serde(direction, MessageType::Normal, serialize_fns)
+    }
+
+    fn register_event<E: Event + Message + Serialize + DeserializeOwned>(
+        &mut self,
+        direction: ChannelDirection,
+    ) -> MessageRegistration<'_, E> {
+        self.register_message_internal(direction, MessageType::Event)
+    }
+
+    fn register_event_custom_serde<E: Event + Message>(
+        &mut self,
+        direction: ChannelDirection,
+        serialize_fns: SerializeFns<E>,
+    ) -> MessageRegistration<'_, E> {
+        self.register_message_internal_custom_serde(direction, MessageType::Event, serialize_fns)
     }
 
     /// Register a resource to be automatically replicated over the network
@@ -391,6 +495,48 @@ impl MessageRegistry {
             .get(&kind)
             .expect("the message is not part of the protocol");
         erased_fns.map_entities.is_some()
+    }
+
+    pub(crate) fn serialize_event<E: Event + Message>(
+        &self,
+        event: &E,
+        event_replication_mode: EventReplicationMode,
+        writer: &mut Writer,
+        entity_map: Option<&mut SendEntityMap>,
+    ) -> Result<(), MessageError> {
+        let kind = MessageKind::of::<E>();
+        let erased_fns = self
+            .serialize_fns_map
+            .get(&kind)
+            .ok_or(MessageError::MissingSerializationFns)?;
+        let net_id = self.kind_map.net_id(&kind).unwrap();
+        net_id.to_bytes(writer)?;
+        event_replication_mode.to_bytes(writer)?;
+        // SAFETY: the ErasedSerializeFns was created for the type M
+        unsafe {
+            erased_fns.serialize(event, writer, entity_map)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn deserialize_event<E: Event + Message>(
+        &self,
+        reader: &mut Reader,
+        entity_map: &mut ReceiveEntityMap,
+    ) -> Result<(E, EventReplicationMode), MessageError> {
+        let net_id = NetId::from_bytes(reader)?;
+        let event_replication_mode = EventReplicationMode::from_bytes(reader)?;
+        let kind = self
+            .kind_map
+            .kind(net_id)
+            .ok_or(MessageError::NotRegistered)?;
+        let erased_fns = self
+            .serialize_fns_map
+            .get(kind)
+            .ok_or(MessageError::MissingSerializationFns)?;
+        // SAFETY: the ErasedSerializeFns was created for the type M
+        let event = unsafe { erased_fns.deserialize(reader, entity_map) }?;
+        Ok((event, event_replication_mode))
     }
 
     pub(crate) fn serialize<M: Message>(

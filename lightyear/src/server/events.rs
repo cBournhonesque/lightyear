@@ -1,10 +1,16 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
+
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::*;
 use bevy::utils::{hashbrown, HashMap};
+use std::ops::DerefMut;
 
 use crate::connection::id::ClientId;
-use crate::prelude::ComponentRegistry;
+use crate::prelude::server::is_started;
+use crate::prelude::{ComponentRegistry, Message, MessageRegistry, NetworkTarget};
+use crate::protocol::event::EventReplicationMode;
+use crate::protocol::message::{MessageKind, MessageType};
+use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
 use crate::shared::events::connection::{
     ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
@@ -35,6 +41,86 @@ impl Plugin for ServerEventsPlugin {
                 emit_connect_events.in_set(InternalMainSet::<ServerMarker>::EmitEvents),
             );
     }
+}
+
+/// Read the events received from the clients and emits the MessageEvent event
+fn read_event<E: Event + Message>(
+    mut commands: Commands,
+    message_registry: Res<MessageRegistry>,
+    mut connection_manager: ResMut<ConnectionManager>,
+    // mut message_event: EventWriter<MessageEvent<E>>,
+    mut event_writer: EventWriter<E>,
+) {
+    let kind = MessageKind::of::<E>();
+    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
+        error!(
+            "Could not find the network id for the message kind: {:?}",
+            kind
+        );
+        return;
+    };
+    assert_eq!(
+        message_registry.message_type(net),
+        MessageType::Event,
+        "The message must be registered as an event in the protocol by calling `is_event()`"
+    );
+    // re-borrow to allow split borrows
+    let connection_manager = connection_manager.deref_mut();
+    for (client_id, connection) in connection_manager.connections.iter_mut() {
+        if let Some(event_list) = connection.received_events.remove(&net) {
+            for (event_bytes, target, channel_kind) in event_list {
+                let mut reader = Reader::from(event_bytes);
+                match message_registry.deserialize_event::<E>(
+                    &mut reader,
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
+                ) {
+                    Ok((message, event_replication_mode)) => {
+                        // rebroadcast
+                        if target != NetworkTarget::None {
+                            connection.messages_to_rebroadcast.push((
+                                reader.consume(),
+                                target,
+                                channel_kind,
+                            ));
+                        }
+                        trace!("Received message: {:?}", std::any::type_name::<E>());
+                        match event_replication_mode {
+                            // EventReplicationMode::None => {
+                            //     message_event.send(MessageEvent::new(message, *client_id));
+                            // }
+                            EventReplicationMode::Buffer => {
+                                event_writer.send(message);
+                            }
+                            EventReplicationMode::Trigger => {
+                                commands.trigger(message);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Could not deserialize message {}: {:?}",
+                            std::any::type_name::<E>(),
+                            e
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Register an event that can be sent from client to server
+pub(crate) fn add_server_receive_event_from_client<E: Event + Message>(app: &mut App) {
+    app.add_event::<E>();
+    app.add_systems(
+        PreUpdate,
+        read_event::<E>
+            .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
+            .run_if(is_started),
+    );
 }
 
 /// Emit events related to connections and disconnections
