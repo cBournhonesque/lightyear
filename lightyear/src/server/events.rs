@@ -1,10 +1,16 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
+
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::*;
 use bevy::utils::{hashbrown, HashMap};
+use std::ops::DerefMut;
 
 use crate::connection::id::ClientId;
-use crate::prelude::ComponentRegistry;
+use crate::prelude::server::is_started;
+use crate::prelude::{ComponentRegistry, Message, MessageRegistry, NetworkTarget};
+use crate::protocol::event::EventReplicationMode;
+use crate::protocol::message::{MessageKind, MessageType};
+use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
 use crate::shared::events::connection::{
     ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
@@ -35,6 +41,86 @@ impl Plugin for ServerEventsPlugin {
                 emit_connect_events.in_set(InternalMainSet::<ServerMarker>::EmitEvents),
             );
     }
+}
+
+/// Read the events received from the clients and emits the MessageEvent event
+fn read_event<E: Event + Message>(
+    mut commands: Commands,
+    message_registry: Res<MessageRegistry>,
+    mut connection_manager: ResMut<ConnectionManager>,
+    // mut message_event: EventWriter<MessageEvent<E>>,
+    mut event_writer: EventWriter<E>,
+) {
+    let kind = MessageKind::of::<E>();
+    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
+        error!(
+            "Could not find the network id for the message kind: {:?}",
+            kind
+        );
+        return;
+    };
+    assert_eq!(
+        message_registry.message_type(net),
+        MessageType::Event,
+        "The message must be registered as an event in the protocol by calling `is_event()`"
+    );
+    // re-borrow to allow split borrows
+    let connection_manager = connection_manager.deref_mut();
+    for (client_id, connection) in connection_manager.connections.iter_mut() {
+        if let Some(event_list) = connection.received_events.remove(&net) {
+            for (event_bytes, target, channel_kind) in event_list {
+                let mut reader = Reader::from(event_bytes);
+                match message_registry.deserialize_event::<E>(
+                    &mut reader,
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
+                ) {
+                    Ok((message, event_replication_mode)) => {
+                        // rebroadcast
+                        if target != NetworkTarget::None {
+                            connection.messages_to_rebroadcast.push((
+                                reader.consume(),
+                                target,
+                                channel_kind,
+                            ));
+                        }
+                        trace!("Received message: {:?}", std::any::type_name::<E>());
+                        match event_replication_mode {
+                            // EventReplicationMode::None => {
+                            //     message_event.send(MessageEvent::new(message, *client_id));
+                            // }
+                            EventReplicationMode::Buffer => {
+                                event_writer.send(message);
+                            }
+                            EventReplicationMode::Trigger => {
+                                commands.trigger(message);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Could not deserialize message {}: {:?}",
+                            std::any::type_name::<E>(),
+                            e
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Register an event that can be sent from client to server
+pub(crate) fn add_server_receive_event_from_client<E: Event + Message>(app: &mut App) {
+    app.add_event::<E>();
+    app.add_systems(
+        PreUpdate,
+        read_event::<E>
+            .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
+            .run_if(is_started),
+    );
 }
 
 /// Emit events related to connections and disconnections
@@ -284,13 +370,15 @@ pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, Cl
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::prelude::Tick;
     use crate::protocol::channel::ChannelKind;
+    use crate::shared::events::EventSend;
+    use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{
-        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, StringMessage,
+        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, IntegerEvent,
+        StringMessage,
     };
-
-    use super::*;
 
     #[test]
     fn test_iter_component_removes() {
@@ -332,5 +420,78 @@ mod tests {
         assert_eq!(data.len(), 2);
         assert!(data.contains(&(entity_1, client_1)));
         assert!(data.contains(&(entity_2, client_2)));
+    }
+
+    #[derive(Resource, Default)]
+    struct Counter(usize);
+
+    fn count_events(mut counter: ResMut<Counter>, mut events: EventReader<IntegerEvent>) {
+        for event in events.read() {
+            assert_eq!(event.0, 2);
+            counter.0 += 1;
+        }
+    }
+
+    fn observe_events(trigger: Trigger<IntegerEvent>, mut counter: ResMut<Counter>) {
+        assert_eq!(trigger.event().0, 2);
+        counter.0 += 1;
+    }
+
+    /// Check that sending an event to clients works correctly:
+    /// - the event gets buffered to EventWriter
+    /// - it works for the Local client in HostServer mode
+    #[test]
+    fn test_server_send_event_buffered() {
+        let mut stepper = HostServerStepper::default();
+
+        stepper.client_app.init_resource::<Counter>();
+        stepper.client_app.add_systems(Update, count_events);
+        // for the local client
+        stepper.server_app.init_resource::<Counter>();
+        stepper.server_app.add_systems(Update, count_events);
+
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<ConnectionManager>()
+            .send_event_to_target::<Channel1, _>(&IntegerEvent(2), NetworkTarget::All)
+            .unwrap();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // verify that the local-client received the message
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+
+        // verify that the other client received the message
+        assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
+    }
+
+    /// Check that sending an event to clients works correctly:
+    /// - the event gets triggered
+    /// - it works for the Local client in HostServer mode
+    #[test]
+    fn test_server_send_event_triggered() {
+        let mut stepper = HostServerStepper::default();
+
+        stepper.client_app.init_resource::<Counter>();
+        stepper.client_app.add_observer(observe_events);
+        // for the local client
+        stepper.server_app.init_resource::<Counter>();
+        stepper.server_app.add_observer(observe_events);
+
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<ConnectionManager>()
+            .trigger_event_to_target::<Channel1, _>(&IntegerEvent(2), NetworkTarget::All)
+            .unwrap();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // verify that the local-client received the message
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+
+        // verify that the other client received the message
+        assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
     }
 }

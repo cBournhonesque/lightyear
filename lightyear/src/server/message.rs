@@ -181,6 +181,7 @@ pub(crate) fn add_server_receive_message_from_client<M: Message>(app: &mut App) 
 #[cfg(test)]
 mod tests {
     use crate::prelude::NetworkTarget;
+    use crate::shared::message::MessageSend;
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, StringMessage};
     use bevy::app::Update;
@@ -219,7 +220,7 @@ mod tests {
             .world_mut()
             .resource_mut::<crate::prelude::server::ConnectionManager>()
             .send_message_to_target::<Channel1, StringMessage>(
-                &mut StringMessage("a".to_string()),
+                &StringMessage("a".to_string()),
                 NetworkTarget::All,
             )
             .unwrap();
