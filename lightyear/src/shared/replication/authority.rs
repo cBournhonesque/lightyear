@@ -175,6 +175,97 @@ mod tests {
         //     .is_none());
     }
 
+    /// Spawn on client, transfer authority to server, despawn entity on server.
+    /// The entity should get despawned correctly on client.
+    /// Relevant issue: https://github.com/cBournhonesque/lightyear/issues/644
+    #[test]
+    fn test_transfer_authority_client_to_server_despawn() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
+        let mut stepper = BevyStepper::default();
+
+        let client_entity = stepper
+            .client_app
+            .world_mut()
+            .spawn((client::Replicate::default(), ComponentSyncModeSimple(1.0)))
+            .id();
+
+        // TODO: we need to run a couple frames because the server doesn't read the client's updates
+        //  because they are from the future
+        for _ in 0..10 {
+            stepper.frame_step();
+            stepper.frame_step();
+        }
+
+        // check that the entity was replicated
+        let server_entity = stepper
+            .server_app
+            .world()
+            .resource::<server::ConnectionManager>()
+            .connection(ClientId::Netcode(TEST_CLIENT_ID))
+            .expect("client connection missing")
+            .replication_receiver
+            .remote_entity_map
+            .get_local(client_entity)
+            .expect("entity was not replicated to server");
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<Replicated>(server_entity)
+                .unwrap(),
+            &Replicated {
+                from: Some(ClientId::Netcode(TEST_CLIENT_ID))
+            }
+        );
+
+        // add Replicate to the entity to mark it for replication
+        // TODO: resolve this footgun
+        // IMPORTANT: we need to do this BEFORE transferring authority
+        //  or we will be replicating a Spawn message
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .insert(server::Replicate {
+                authority: AuthorityPeer::Client(ClientId::Netcode(TEST_CLIENT_ID)),
+                ..default()
+            });
+        // transfer authority from client to server
+        stepper
+            .server_app
+            .world_mut()
+            .commands()
+            .entity(server_entity)
+            .transfer_authority(AuthorityPeer::Server);
+        stepper.frame_step();
+        stepper.frame_step();
+        assert!(stepper
+            .server_app
+            .world()
+            .get::<HasAuthority>(server_entity)
+            .is_some());
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<HasAuthority>(client_entity)
+            .is_none());
+
+        // despawn entity on server
+        stepper.server_app.world_mut().despawn(server_entity);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was despawned on the client
+        assert!(stepper
+            .client_app
+            .world()
+            .entities()
+            .get(client_entity)
+            .is_none());
+    }
+
     #[test]
     fn test_ignore_updates_from_non_authority() {
         let mut stepper = BevyStepper::default();
@@ -213,6 +304,18 @@ mod tests {
             }
         );
 
+        // add Replicate to the entity to mark it for replication
+        // TODO: resolve this footgun
+        // IMPORTANT: we need to do this BEFORE transferring authority
+        //  or we will be replicating a Spawn message
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .insert(server::Replicate {
+                authority: AuthorityPeer::Client(ClientId::Netcode(TEST_CLIENT_ID)),
+                ..default()
+            });
         // transfer authority from client to server
         stepper
             .server_app
