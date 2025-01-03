@@ -3131,7 +3131,7 @@ pub(crate) mod commands {
     use crate::channel::builder::AuthorityChannel;
     use crate::prelude::server::{ReplicationTarget, SyncTarget};
     use crate::prelude::{
-        ClientId, Replicated, Replicating, ReplicationGroup, ServerConnectionManager,
+        ClientId, PrePredicted, Replicated, Replicating, ReplicationGroup, ServerConnectionManager,
     };
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{InitialReplicated, ReplicationGroupId};
@@ -3179,6 +3179,12 @@ pub(crate) mod commands {
                 // and make sure that the server doesn't send replication updates to the previous authoritative client
                 // by updating the send_tick to the current tick, so that only changes after this tick are sent
                 let spawn_and_update_send_tick = |world: &mut World, c: ClientId| {
+                    // for pre-prediction, we don't need to do anything
+                    // - the ReplicationTarget is added *after* the authority is changed, so a Spawn message is sent
+                    // - prediction is already handled
+                    if world.get::<PrePredicted>(entity).is_some() {
+                        return
+                    }
                     // check that the entity has the Replicate bundle
                     // - so that the authority components are correct
                     // - so that we know the send-group-id of the entity

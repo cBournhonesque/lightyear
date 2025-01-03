@@ -223,7 +223,7 @@ impl SyncManager {
             .tick_duration
             .mul_f32(time_manager.overstep());
         // when getting time from ticks, don't forget the overstep
-        debug!(
+        trace!(
             ?generation,
             current_tick = ?tick_manager.tick(),
             "current_prediction_time: {:?}", res);
@@ -268,7 +268,7 @@ impl SyncManager {
                 * self.config.server_time_estimate_smoothing
                 + new_server_time_estimate * (1.0 - self.config.server_time_estimate_smoothing);
         }
-        debug!(
+        trace!(
             ?new_server_time_estimate,
             updated_server_time_estimate = ?self.server_time_estimate,
             ?self.latest_received_server_tick,

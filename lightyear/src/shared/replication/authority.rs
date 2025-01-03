@@ -105,6 +105,14 @@ mod tests {
         );
 
         // transfer authority from server to client
+        // NOTE: we NEED to add Replicate before transferring authority
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(client_entity)
+            .insert(client::Replicate::default())
+            // don't add authority directly
+            .remove::<HasAuthority>();
         stepper
             .server_app
             .world_mut()
