@@ -309,6 +309,7 @@ mod tests {
     use bevy::prelude::Entity;
     use bevy::ptr::Ptr;
 
+    /// Test serializing/deserializing using the ErasedSerializeFns
     #[test]
     fn test_erased_serde() {
         let mut registry = ErasedSerializeFns::new::<AuthorityChange>();
@@ -317,6 +318,8 @@ mod tests {
         let message = AuthorityChange {
             entity: Entity::from_raw(1),
             gain_authority: true,
+            add_prediction: false,
+            add_interpolation: false,
         };
         let mut writer = Writer::default();
         let _ = unsafe {
@@ -337,6 +340,7 @@ mod tests {
         assert_eq!(new_message, message);
     }
 
+    /// Test serializing/deserializing using the ErasedSerializeFns and applying entity mapping
     #[test]
     fn test_erased_serde_map_entities() {
         let mut registry = ErasedSerializeFns::new::<AuthorityChange>();
@@ -345,6 +349,8 @@ mod tests {
         let message = AuthorityChange {
             entity: Entity::from_raw(1),
             gain_authority: true,
+            add_prediction: false,
+            add_interpolation: false,
         };
         let mut writer = Writer::default();
         let mut entity_map = SendEntityMap::default();
@@ -369,6 +375,8 @@ mod tests {
             AuthorityChange {
                 entity: Entity::from_raw(2),
                 gain_authority: true,
+                add_prediction: false,
+                add_interpolation: false,
             }
         );
     }

@@ -12,10 +12,12 @@ pub(crate) mod receive {
     use crate::prelude::client::MessageEvent;
     use crate::prelude::{
         client::{is_connected, is_synced},
-        is_host_server, Replicated,
+        is_host_server, ClientConnectionManager, Replicated, ReplicationGroup, ShouldBePredicted,
     };
     use crate::shared::replication::authority::{AuthorityChange, HasAuthority};
+    use crate::shared::replication::components::{ReplicationGroupId, ShouldBeInterpolated};
     use crate::shared::sets::InternalMainSet;
+    use bevy::ecs::entity::Entities;
 
     #[derive(Default)]
     pub struct ClientReplicationReceivePlugin {
@@ -48,24 +50,80 @@ pub(crate) mod receive {
     }
 
     /// Apply authority changes requested by the server
+    /// - remove/add HasAuthority
+    /// - remove/add Replicated
+    ///
+    /// - add the entity to the ReplicationReceiver if we lose authority and we were the original spawner of the entity.
+    /// The reason is that upon losing authority we might want to add Interpolation/Prediction to the entity.
+    /// (client C1 spawned entity and authority passes to server).
+    /// We want the entity in the ReplicationReceiver (especially local_entity_to_group) so that the Confirmed tick
+    /// of the entity can keep being updated.
+    ///
     // TODO: use observer to handle these?
     fn handle_authority_change(
         mut commands: Commands,
+        entities: &Entities,
         mut messages: ResMut<Events<MessageEvent<AuthorityChange>>>,
     ) {
-        for message in messages.drain() {
-            let entity = message.message.entity;
-            if let Some(mut entity_mut) = commands.get_entity(entity) {
-                if message.message.gain_authority {
-                    entity_mut.remove::<Replicated>().insert(HasAuthority);
+        for message_event in messages.drain() {
+            let message = message_event.message;
+            let entity = message.entity;
+            if entities.get(entity).is_some() {
+                if message.gain_authority {
+                    commands.queue(move |world: &mut World| {
+                        let bevy_tick = world.change_tick();
+                        // check that the entity has ReplicationGroup bundle
+                        assert!(world.get::<ReplicationGroup>(entity).is_some(), "The Replicate bundle must be added to the entity BEFORE transferring authority to the client");
+                        let group_id = world.get::<ReplicationGroup>(entity).map_or(ReplicationGroupId(entity.to_bits()), |group| group.group_id(Some(entity)));
+
+                        world.entity_mut(entity).remove::<Replicated>().insert(HasAuthority);
+
+                        trace!("Gain authority for entity {:?} with group {:?}", entity, group_id);
+                        // TODO: do we need to send a Spawn so that the receiver has a ReplicationGroup
+                        //  with the correct local_entities?
+                        //  - if the last_action_tick is None (in case of authority transfer), then the receiver will
+                        //    accept Updates
+                        //  - the server doesn't use Confirmed tick
+                        //  so maybe not?
+                        // let network_entity =  world
+                        //     .resource_mut::<ClientConnectionManager>()
+                        //     .replication_receiver
+                        //     .remote_entity_map
+                        //     .to_remote(entity);
+                        // world
+                        //     .resource_mut::<ClientConnectionManager>()
+                        //     .replication_sender
+                        //     .prepare_entity_spawn(network_entity, group_id);
+
+                        // make sure that the client doesn't start sending redundant replication updates
+                        // only send updates that happened after the client received the authority change
+                        world
+                            .resource_mut::<ClientConnectionManager>()
+                            .replication_sender
+                            .group_channels
+                            .entry(group_id)
+                            .or_default()
+                            .send_tick = Some(bevy_tick);
+
+
+                    });
                 } else {
                     // TODO: how do we know if the remote is still actively replicating to us?
                     //  for example is the new authority is None, then we don't want to add Replicated, no?
                     //  Not sure how to handle this. We could include in the message if the authority is None,
                     //  but that's not very elegant
-                    entity_mut
-                        .remove::<HasAuthority>()
-                        .insert(Replicated { from: None });
+                    commands.queue(move |world: &mut World| {
+                        world
+                            .entity_mut(entity)
+                            .remove::<HasAuthority>()
+                            .insert(Replicated { from: None });
+                        if message.add_prediction {
+                            world.entity_mut(entity).insert(ShouldBePredicted);
+                        }
+                        if message.add_interpolation {
+                            world.entity_mut(entity).insert(ShouldBeInterpolated);
+                        }
+                    })
                 }
             }
         }
@@ -287,7 +345,6 @@ pub(crate) mod send {
             // 3. go through all entities of that archetype
             for entity in archetype.entities() {
                 let entity_ref = world.entity(entity.id());
-                let is_replicated = entity_ref.get::<Replicated>().is_some();
                 let group = entity_ref.get::<ReplicationGroup>();
 
                 let group_id = group.map_or(ReplicationGroupId::default(), |g| {
@@ -323,7 +380,7 @@ pub(crate) mod send {
                 // c. add entity spawns
                 // we never want to send a spawn if the entity was replicated to us from the server
                 // (because the server already has the entity)
-                if replication_is_changed && !is_replicated {
+                if replication_is_changed {
                     replicate_entity_spawn(
                         entity.id(),
                         group_id,
@@ -394,15 +451,15 @@ pub(crate) mod send {
         target_entity: Option<&TargetEntity>,
         sender: &mut ConnectionManager,
     ) {
-        // if we had this entity mapped, that means it already exists on the server
-        if let Some(remote_entity) = sender
-            .replication_receiver
-            .remote_entity_map
-            .local_to_remote
-            .get(&entity)
-        {
-            return;
-        }
+        // // if we had this entity mapped, that means it already exists on the server
+        // if let Some(remote_entity) = sender
+        //     .replication_receiver
+        //     .remote_entity_map
+        //     .local_to_remote
+        //     .get(&entity)
+        // {
+        //     return;
+        // }
         debug!(?entity, "Prepare entity spawn to server");
         if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
             sender

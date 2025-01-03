@@ -6,10 +6,12 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
+use crate::prelude::TickManager;
 use crate::shared::replication::components::ShouldBeInterpolated;
 
 /// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added
 pub(crate) fn spawn_interpolated_entity(
+    tick_manager: Res<TickManager>,
     config: Res<ClientConfig>,
     connection: Res<ConnectionManager>,
     mut manager: ResMut<InterpolationManager>,
@@ -17,6 +19,10 @@ pub(crate) fn spawn_interpolated_entity(
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
 ) {
     for (confirmed_entity, confirmed) in confirmed_entities.iter_mut() {
+        // skip if the entity already has an interpolated entity
+        if confirmed.as_ref().is_some_and(|c| c.interpolated.is_some()) {
+            continue;
+        }
         let interpolated = commands.spawn(Interpolated { confirmed_entity }).id();
 
         // update the entity mapping
@@ -35,13 +41,16 @@ pub(crate) fn spawn_interpolated_entity(
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
             trace!(
-                "Confirmed entity missing Confirmed component: {:?}",
-                confirmed_entity
+                "Adding Confirmed component on entity {:?} after we spawned Interpolated entity {:?}",
+                confirmed_entity, interpolated
             );
             let confirmed_tick = connection
                 .replication_receiver
                 .get_confirmed_tick(confirmed_entity)
-                .unwrap();
+                // in most cases we will have a confirmed tick. The only case where we don't is if
+                // the entity was originally spawned on this client, but then authority was removed
+                // and we not want to add Interpolation
+                .unwrap_or(tick_manager.tick());
             confirmed_entity_mut.insert(Confirmed {
                 interpolated: Some(interpolated),
                 predicted: None,

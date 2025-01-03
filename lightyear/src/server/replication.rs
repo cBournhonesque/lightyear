@@ -577,7 +577,7 @@ pub(crate) mod send {
         target_entity: Option<&TargetEntity>,
         authority_peer: Option<&AuthorityPeer>,
         visibility: Option<&CachedNetworkRelevance>,
-        sender: &mut ConnectionManager,
+        connection_manager: &mut ConnectionManager,
         system_ticks: &SystemChangeTick,
     ) {
         let mut target = match visibility {
@@ -634,7 +634,7 @@ pub(crate) mod send {
                 }
 
                 // also replicate to the newly connected clients that match the target
-                let new_connected_clients = sender.new_connected_clients();
+                let new_connected_clients = connection_manager.new_connected_clients();
                 if !new_connected_clients.is_empty() {
                     // replicate to the newly connected clients that match our target
                     let mut new_connected_target = NetworkTarget::Only(new_connected_clients);
@@ -649,17 +649,22 @@ pub(crate) mod send {
         if let Some(AuthorityPeer::Client(c)) = authority_peer {
             target.exclude(&NetworkTarget::Single(*c));
         }
-        // we don't send entity-spawn to the client who originally spawned the entity
-        if let Some(client_id) = initial_replicated.and_then(|r| r.from) {
-            target.exclude(&NetworkTarget::Single(client_id));
-        };
+
+        // NOT NEEDED ANYMORE! WE DO SEND A SPAWN SO THAT THE CLIENT HAS A
+        // - an action tick so that updates can now be received
+        // - a GroupChannel with a Confirmed tick
+        // // we don't send entity-spawn to the client who originally spawned the entity
+        // if let Some(client_id) = initial_replicated.and_then(|r| r.from) {
+        //     target.exclude(&NetworkTarget::Single(client_id));
+        // };
+
         if target.is_empty() {
             return;
         }
-        trace!(?entity, "Prepare entity spawn to client");
+        trace!(?entity, ?target, "Prepare entity spawn to client");
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         //  (i.e. before we received an ack?)
-        let _ = sender
+        let _ = connection_manager
             .connected_targets(target)
             .try_for_each(|client_id| {
                 // TODO: we don't want to convert because this is a spawn! we need to provide the local entity
@@ -673,7 +678,7 @@ pub(crate) mod send {
 
                 // let the client know that this entity is controlled by them
                 if controlled_by.is_some_and(|c| c.targets(&client_id)) {
-                    sender.prepare_typed_component_insert(
+                    connection_manager.prepare_typed_component_insert(
                         entity,
                         group_id,
                         client_id,
@@ -684,7 +689,7 @@ pub(crate) mod send {
                 // if we need to do prediction/interpolation, send a marker component to indicate that to the client
                 if sync_target.is_some_and(|sync| sync.prediction.targets(&client_id)) {
                     // TODO: the serialized data is always the same; cache it somehow?
-                    sender.prepare_typed_component_insert(
+                    connection_manager.prepare_typed_component_insert(
                         entity,
                         group_id,
                         client_id,
@@ -693,7 +698,7 @@ pub(crate) mod send {
                     )?;
                 }
                 if sync_target.is_some_and(|sync| sync.interpolation.targets(&client_id)) {
-                    sender.prepare_typed_component_insert(
+                    connection_manager.prepare_typed_component_insert(
                         entity,
                         group_id,
                         client_id,
@@ -703,19 +708,19 @@ pub(crate) mod send {
                 }
 
                 if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
-                    sender
+                    connection_manager
                         .connection_mut(client_id)?
                         .replication_sender
                         .prepare_entity_spawn_reuse(entity, group_id, *remote_entity);
                 } else {
-                    sender
+                    connection_manager
                         .connection_mut(client_id)?
                         .replication_sender
                         .prepare_entity_spawn(entity, group_id);
                 }
 
                 // also set the priority for the group when we spawn it
-                sender
+                connection_manager
                     .connection_mut(client_id)?
                     .replication_sender
                     .update_base_priority(group_id, priority);
@@ -857,9 +862,10 @@ pub(crate) mod send {
         let target = override_target.map_or(&replication_target.target, |override_target| {
             override_target
         });
-        // TODO: is this correct?
-        // to be safe, if the replication target is added, we force an insert
+        // if the replication target is added, we force an insert. This is to capture
+        // existing components that were added before ReplicationTarget was added
         let force_insert = replication_target.is_changed();
+        // error!("force_insert: {}", force_insert);
         let (mut insert_target, mut update_target): (NetworkTarget, NetworkTarget) =
             match visibility {
                 Some(visibility) => {
@@ -3123,16 +3129,14 @@ pub(crate) mod send {
 
 pub(crate) mod commands {
     use crate::channel::builder::AuthorityChannel;
-    use crate::prelude::server::{ConnectionManager, SyncTarget};
+    use crate::prelude::server::{ReplicationTarget, SyncTarget};
     use crate::prelude::{
-        ClientId, ComponentRegistry, Replicated, Replicating, ReplicationGroup,
-        ServerConnectionManager, ShouldBePredicted,
+        ClientId, Replicated, Replicating, ReplicationGroup, ServerConnectionManager,
     };
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
-    use crate::shared::replication::components::{InitialReplicated, ShouldBeInterpolated};
+    use crate::shared::replication::components::{InitialReplicated, ReplicationGroupId};
     use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{Entity, Mut, World};
-    use tracing::{error, warn};
+    use bevy::prelude::{Entity, World};
 
     pub trait AuthorityCommandExt {
         /// This command is used to transfer the authority of an entity to a different peer.
@@ -3142,6 +3146,7 @@ pub(crate) mod commands {
     impl AuthorityCommandExt for EntityCommands<'_> {
         fn transfer_authority(&mut self, new_owner: AuthorityPeer) {
             self.queue(move |entity: Entity, world: &mut World| {
+                let bevy_tick = world.change_tick();
                 // check who the current owner is
                 let current_owner =
                     world
@@ -3152,6 +3157,64 @@ pub(crate) mod commands {
                                 .copied()
                                 .unwrap_or(AuthorityPeer::None)
                         });
+
+                let compute_sync_target = |world: &World, c: ClientId| {
+                    let initial_replicated = world.get::<InitialReplicated>(entity);
+                    let sync_target = world.get::<SyncTarget>(entity);
+                    // if the entity was originally spawned by a client C1,
+                    // then C1 might want to add prediction or interpolation now that they lose authority
+                    // over it
+                    let add_prediction = initial_replicated.is_some_and(|initial| {
+                        initial.from == Some(c)
+                            && sync_target.is_some_and(|target| target.prediction.targets(&c))
+                    });
+                    let add_interpolation = initial_replicated.is_some_and(|initial| {
+                        initial.from == Some(c)
+                            && sync_target.is_some_and(|target| target.interpolation.targets(&c))
+                    });
+                    (add_prediction, add_interpolation)
+                };
+
+                // send a Spawn message (so that the receiver has a receiver GroupChannel with a Confirmed tick)
+                // and make sure that the server doesn't send replication updates to the previous authoritative client
+                // by updating the send_tick to the current tick, so that only changes after this tick are sent
+                let spawn_and_update_send_tick = |world: &mut World, c: ClientId| {
+                    // check that the entity has the Replicate bundle
+                    // - so that the authority components are correct
+                    // - so that we know the send-group-id of the entity
+                    assert!(world.get::<ReplicationTarget>(entity).is_some(), "The Replicate bundle must be added to the entity BEFORE transferring authority to the server");
+                    let group_id = world.get::<ReplicationGroup>(entity).map_or(ReplicationGroupId(entity.to_bits()), |group| group.group_id(Some(entity)));
+                    // if the entity was initially replicated from this client, then we need to spawn it back
+                    // to that client:
+                    // - so that the client's has a receiver GroupChannel with a confirmed tick
+                    // - to add prediction/interpolation if necessary
+                    if world.get::<InitialReplicated>(entity).is_some_and(|r| r.from == Some(c)) {
+                        let network_entity =  world
+                            .resource_mut::<ServerConnectionManager>()
+                            .connection_mut(c)
+                            .expect("could not get connection when changing authority")
+                            .replication_receiver
+                            .remote_entity_map
+                            .to_remote(entity);
+                        // NOTE: we cannot send ShouldBePredicted/ShouldBeInterpolated here because there is a chance
+                        //  that the EntityAction message arrives before the AuthorityTransfer message arrives.
+                        //  In which case the ComponentInserts/Actions (ShouldBePredicted) will be ignored since the
+                        //  client 1 still has authority!
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .connection_mut(c)
+                            .expect("could not get connection when changing authority").replication_sender.prepare_entity_spawn(network_entity, group_id);
+                    }
+                    world
+                        .resource_mut::<ServerConnectionManager>()
+                        .connection_mut(c)
+                        .expect("could not get connection when changing authority")
+                        .replication_sender
+                        .group_channels
+                        .entry(group_id)
+                        .or_default()
+                        .send_tick = Some(bevy_tick);
+                };
 
                 // TODO: handle authority transfers in host-server mode!
                 //  when transferring to local-client, we want to transfer to the server instead?
@@ -3166,6 +3229,7 @@ pub(crate) mod commands {
                         world
                             .entity_mut(entity)
                             .insert((AuthorityPeer::Client(c), Replicated { from: Some(c) }));
+                        let (add_prediction, add_interpolation) = compute_sync_target(world, c);
                         world
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
@@ -3173,6 +3237,8 @@ pub(crate) mod commands {
                                 &mut AuthorityChange {
                                     entity,
                                     gain_authority: true,
+                                    add_prediction,
+                                    add_interpolation,
                                 },
                             )
                             .expect("could not send message");
@@ -3195,17 +3261,22 @@ pub(crate) mod commands {
                                 &mut AuthorityChange {
                                     entity,
                                     gain_authority: false,
+                                    add_prediction: false,
+                                    add_interpolation: false,
                                 },
                             )
                             .expect("could not send message");
                     }
                     (AuthorityPeer::Client(c), AuthorityPeer::Server) => {
-                        // TODO: only gain the authority when we have received an ack
-                        //  that the client has received the message?
+                        let (add_prediction, add_interpolation) = compute_sync_target(world, c);
                         world
                             .entity_mut(entity)
                             .remove::<Replicated>()
                             .insert((HasAuthority, AuthorityPeer::Server));
+
+                        spawn_and_update_send_tick(world, c);
+
+                        // now that it has authority, by updating the
                         world
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
@@ -3213,11 +3284,11 @@ pub(crate) mod commands {
                                 &mut AuthorityChange {
                                     entity,
                                     gain_authority: false,
+                                    add_prediction,
+                                    add_interpolation,
                                 },
                             )
                             .expect("could not send message");
-                        // TODO: this is very flimsy, find a better solution? https://github.com/cBournhonesque/lightyear/issues/639
-                        send_sync_components(world, entity, c);
                     }
                     (AuthorityPeer::Server, AuthorityPeer::Client(c)) => {
                         world
@@ -3231,6 +3302,9 @@ pub(crate) mod commands {
                                 &mut AuthorityChange {
                                     entity,
                                     gain_authority: true,
+                                    // TODO: should we compute these again?
+                                    add_prediction: false,
+                                    add_interpolation: false,
                                 },
                             )
                             .expect("could not send message");
@@ -3239,6 +3313,8 @@ pub(crate) mod commands {
                         world
                             .entity_mut(entity)
                             .insert((AuthorityPeer::Client(c2), Replicated { from: Some(c2) }));
+                        let (add_prediction, add_interpolation) = compute_sync_target(world, c1);
+                        spawn_and_update_send_tick(world, c1);
                         world
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
@@ -3246,6 +3322,8 @@ pub(crate) mod commands {
                                 &mut AuthorityChange {
                                     entity,
                                     gain_authority: false,
+                                    add_prediction,
+                                    add_interpolation,
                                 },
                             )
                             .expect("could not send message");
@@ -3256,89 +3334,16 @@ pub(crate) mod commands {
                                 &mut AuthorityChange {
                                     entity,
                                     gain_authority: true,
+                                    add_prediction: false,
+                                    add_interpolation: false,
                                 },
                             )
                             .expect("could not send message");
-                        // TODO: this is very flimsy, find a better solution? https://github.com/cBournhonesque/lightyear/issues/639
-                        send_sync_components(world, entity, c1);
                     }
                     _ => unreachable!(),
                 }
             });
         }
-    }
-
-    // TODO: this is very flimsy, find a better solution? https://github.com/cBournhonesque/lightyear/issues/639
-    // If the client that had authority was the original owner, then we might want
-    // to send a message to it to add ShouldBePredicted or ShouldBeInterpolated
-    //
-    // This can happen if:
-    // - client 1 spawns entity 1 and sends it to server
-    // - server adds Replicate with SyncTarget{ interpolation: All} (for example) to replicate to other clients
-    // - if the authority gets removed from client 1, then the server should spawn a Interpolated or Predicted entity on client 1
-    fn send_sync_components(world: &mut World, entity: Entity, client: ClientId) {
-        world.resource_scope(|world: &mut World, mut sender: Mut<ConnectionManager>| {
-            if let Some(rep) = world.entity(entity).get::<InitialReplicated>() {
-                if let Some(from_client) = rep.from {
-                    if from_client == client {
-                        if let Some(sync_target) = world.entity(entity).get::<SyncTarget>() {
-                            if sync_target.prediction.targets(&client) {
-                                warn!("Sending ShouldBePredicted to client {client:?} that lost authority");
-                                let group_id = world
-                                    .entity(entity)
-                                    .get::<ReplicationGroup>()
-                                    .unwrap()
-                                    .group_id(Some(entity));
-                                let component_registry = world.resource::<ComponentRegistry>();
-                                if let Ok(connection_mut) = sender.connection_mut(client) {
-                                    // convert the entity to a network entity
-                                    let network_entity = connection_mut
-                                        .replication_receiver
-                                        .remote_entity_map
-                                        .to_remote(entity);
-                                    let res = sender.prepare_typed_component_insert(
-                                        network_entity,
-                                        group_id,
-                                        client,
-                                        component_registry,
-                                        &mut ShouldBePredicted,
-                                    );
-                                    if let Err(e) = res {
-                                        error!("Error sending ShouldBePredicted: {e:?} to client {client:?} that lost authority");
-                                    }
-                                }
-                            }
-                            if sync_target.interpolation.targets(&client) {
-                                warn!("Sending ShouldBeInterpolated to client {client:?} that lost authority");
-                                let group_id = world
-                                    .entity(entity)
-                                    .get::<ReplicationGroup>()
-                                    .unwrap()
-                                    .group_id(Some(entity));
-                                let component_registry = world.resource::<ComponentRegistry>();
-                                if let Ok(connection_mut) = sender.connection_mut(client) {
-                                    // convert the entity to a network entity
-                                    let network_entity = connection_mut
-                                        .replication_receiver
-                                        .remote_entity_map
-                                        .to_remote(entity);
-                                    let res = sender.prepare_typed_component_insert(
-                                        network_entity,
-                                        group_id,
-                                        client,
-                                        component_registry,
-                                        &mut ShouldBeInterpolated,
-                                    );
-                                    if let Err(e) = res {
-                                        error!("Error sending ShouldBePredicted: {e:?} to client {client:?} that lost authority");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
     }
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {

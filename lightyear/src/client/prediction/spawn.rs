@@ -6,13 +6,14 @@ use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::ShouldBePredicted;
+use crate::prelude::{ShouldBePredicted, TickManager};
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
 // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
 //  instead panic if we find an entity that is both predicted and interpolated?)
 pub(crate) fn spawn_predicted_entity(
+    tick_manager: Res<TickManager>,
     connection: Res<ConnectionManager>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
@@ -30,6 +31,10 @@ pub(crate) fn spawn_predicted_entity(
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
 ) {
     for (confirmed_entity, confirmed) in confirmed_entities.iter_mut() {
+        // skip if the entity already has a predicted entity
+        if confirmed.as_ref().is_some_and(|c| c.predicted.is_some()) {
+            continue;
+        }
         debug!("Received entity with ShouldBePredicted from server: {confirmed_entity:?}");
         // we need to spawn a predicted entity for this confirmed entity
         let predicted_entity = commands
@@ -67,7 +72,10 @@ pub(crate) fn spawn_predicted_entity(
             let confirmed_tick = connection
                 .replication_receiver
                 .get_confirmed_tick(confirmed_entity)
-                .expect("Confirmed entity should have a confirmed tick");
+                // in most cases we will have a confirmed tick. The only case where we don't is if
+                // the entity was originally spawned on this client, but then authority was removed
+                // and we not want to add Prediction
+                .unwrap_or(tick_manager.tick());
             confirmed_entity_mut.insert(Confirmed {
                 predicted: Some(predicted_entity),
                 interpolated: None,
