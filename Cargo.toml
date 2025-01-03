@@ -16,7 +16,7 @@ version = "0.18.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 publish = false
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.82"
 license = "MIT OR Apache-2.0"
 
 # Enable max optimizations for dependencies, but not for our code:

@@ -64,7 +64,7 @@ impl FromWorld for Identity {
             let client_id = world
                 .get_resource::<ClientConnection>()
                 .as_ref()
-                .and_then(|c| Some(c.client.id()));
+                .map(|c| c.client.id());
             Identity::Client(client_id)
         }
     }
@@ -92,7 +92,7 @@ impl NetworkIdentity<'_, '_> {
         {
             Identity::HostServer
         } else {
-            let client_id = self.client.as_ref().and_then(|c| Some(c.client.id()));
+            let client_id = self.client.as_ref().map(|c| c.client.id());
             Identity::Client(client_id)
         }
     }

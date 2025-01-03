@@ -474,12 +474,12 @@ mod tests {
         let child = stepper
             .client_app
             .world_mut()
-            .spawn(ComponentSyncModeOnce(0.0))
+            .spawn(ComponentClientToServer(0.0))
             .id();
         let parent = stepper
             .client_app
             .world_mut()
-            .spawn((ComponentSyncModeSimple(0.0), client::Replicate::default()))
+            .spawn((ComponentSyncModeFull(0.0), client::Replicate::default()))
             .add_child(child)
             .id();
 
@@ -491,13 +491,13 @@ mod tests {
         let server_parent = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
+            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
             .get_single(stepper.server_app.world())
             .expect("parent entity was not replicated");
         let server_child = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
+            .query_filtered::<Entity, With<ComponentClientToServer>>()
             .get_single(stepper.server_app.world())
             .expect("child entity was not replicated");
         assert_eq!(

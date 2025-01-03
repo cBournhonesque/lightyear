@@ -204,7 +204,7 @@ mod tests {
         let client_entity = stepper
             .client_app
             .world_mut()
-            .spawn((client::Replicate::default(), ComponentSyncModeSimple(1.0)))
+            .spawn(client::Replicate::default())
             .id();
 
         // TODO: we need to run a couple frames because the server doesn't read the client's updates
@@ -289,7 +289,7 @@ mod tests {
         let client_entity = stepper
             .client_app
             .world_mut()
-            .spawn((client::Replicate::default(), ComponentSyncModeSimple(1.0)))
+            .spawn((client::Replicate::default(), ComponentSyncModeFull(1.0)))
             .id();
 
         // TODO: we need to run a couple frames because the server doesn't read the client's updates
@@ -388,7 +388,7 @@ mod tests {
         stepper
             .client_app
             .world_mut()
-            .get_mut::<ComponentSyncModeSimple>(client_entity)
+            .get_mut::<ComponentSyncModeFull>(client_entity)
             .unwrap()
             .0 = 2.0;
         for _ in 0..10 {
@@ -400,7 +400,7 @@ mod tests {
             stepper
                 .server_app
                 .world()
-                .get::<ComponentSyncModeSimple>(server_entity)
+                .get::<ComponentSyncModeFull>(server_entity)
                 .unwrap()
                 .0,
             1.0

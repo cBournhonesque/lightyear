@@ -1111,7 +1111,8 @@ impl ConnectionManager {
                 .or_default()
                 .send_tick;
             // send the update for all changes newer than the last send_tick for the group
-            debug!(
+            trace!(
+                name = ?registry.name(kind),
                 ?kind,
                 change_tick = ?component_change_tick,
                 ?send_tick,
@@ -1122,7 +1123,7 @@ impl ConnectionManager {
                 component_change_tick.is_newer_than(tick, system_current_tick)
             }) {
                 num_targets += 1;
-                trace!(
+                debug!(
                     ?entity,
                     ?tick,
                     name = ?registry.name(kind),

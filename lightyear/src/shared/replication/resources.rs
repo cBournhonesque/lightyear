@@ -122,7 +122,7 @@ pub(crate) mod send {
     ) {
         if let Some(replication_resource) = replication_resource {
             let _ = connection_manager.erased_send_message_to_target::<DespawnResource<R>>(
-                &mut DespawnResource::default(),
+                &DespawnResource::default(),
                 replication_resource.channel,
                 replication_resource.target.clone(),
             );

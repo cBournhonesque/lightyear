@@ -150,6 +150,9 @@ impl Diffable for ComponentDeltaCompression2 {
 #[derive(Component, Clone, Debug, PartialEq, Reflect)]
 pub struct ComponentRollback(pub f32);
 
+#[derive(Component, Clone, Debug, PartialEq, Reflect, Serialize, Deserialize)]
+pub struct ComponentClientToServer(pub f32);
+
 // Resources
 #[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct Resource1(pub f32);
@@ -231,7 +234,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ComponentSyncModeOnce>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
-        app.register_component::<ComponentMapEntities>(ChannelDirection::ServerToClient)
+        app.register_component::<ComponentMapEntities>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Simple)
             .add_map_entities();
 
@@ -247,6 +250,8 @@ impl Plugin for ProtocolPlugin {
             .add_delta_compression();
 
         app.add_rollback::<ComponentRollback>();
+
+        app.register_component::<ComponentClientToServer>(ChannelDirection::ClientToServer);
 
         // resources
         app.register_resource::<Resource1>(ChannelDirection::ServerToClient);

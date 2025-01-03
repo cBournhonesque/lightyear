@@ -608,7 +608,7 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            debug!(?remote_entity, ?remote, ?actions, "Received entity actions");
+            trace!(?remote_entity, ?remote, ?actions, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
@@ -684,11 +684,11 @@ impl GroupChannel {
         }
 
         for (entity, actions) in message.actions.into_iter() {
-            debug!(remote_entity = ?entity, "Received entity actions");
+            trace!(remote_entity = ?entity, "Received entity actions");
 
             // despawn
             if actions.spawn == SpawnAction::Despawn {
-                debug!(remote_entity = ?entity, "Received entity despawn");
+                trace!(remote_entity = ?entity, "Received entity despawn");
                 if let Some(local_entity) = remote_entity_map.remove_by_remote(entity) {
                     self.local_entities.remove(&local_entity);
                     // TODO: we despawn all children as well right now, but that might not be what we want?
@@ -719,7 +719,7 @@ impl GroupChannel {
 
             // inserts
             // TODO: remove updates that are duplicate for the same component
-            debug!(remote_entity = ?entity, "Received InsertComponent");
+            trace!(remote_entity = ?entity, "Received InsertComponent");
             for component in actions.insert {
                 // TODO: reuse a single reader that reads through the entire message
                 let mut reader = Reader::from(component);
@@ -759,7 +759,7 @@ impl GroupChannel {
             }
 
             // updates
-            debug!(remote_entity = ?entity, "Received UpdateComponent");
+            trace!(remote_entity = ?entity, "Received UpdateComponent");
             for component in actions.updates {
                 let mut reader = Reader::from(component);
                 let _ = component_registry
@@ -821,7 +821,7 @@ impl GroupChannel {
             return;
         }
         for (entity, components) in message.updates.into_iter() {
-            debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
+            trace!(?components, remote_entity = ?entity, "Received UpdateComponent");
             let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick

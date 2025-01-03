@@ -4,12 +4,13 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum EventReplicationMode {
-    /// TODO: Maybe also allow events to be replicated as normal messages? we would need to:
-    ///  - instead of 'register_event', just add `is_event` to MessageRegistration
-    ///  - in the serialize_function, check if the message type is MessageType::Event, in which case we would
-    ///    use an EventReplicationMode::None
+    // TODO: Maybe also allow events to be replicated as normal messages? we would need to:
+    //  - instead of 'register_event', just add `is_event` to MessageRegistration
+    //  - in the serialize_function, check if the message type is MessageType::Event, in which case we would
+    //    use an EventReplicationMode::None
     // /// Simply replicate the event as a normal message
     // None,
+    ///
     /// Replicate the event and buffer it via an EventWriter
     Buffer,
     /// Replicate the event and trigger it

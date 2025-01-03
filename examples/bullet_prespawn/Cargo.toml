@@ -16,10 +16,10 @@ steam = ["lightyear_examples_common/steam"]
 [dependencies]
 lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = [
-    "steam",
-    "websocket",
-    "leafwing",
-    "lz4",
+  "steam",
+  "websocket",
+  "leafwing",
+  "lz4",
 ] }
 
 leafwing-input-manager.workspace = true

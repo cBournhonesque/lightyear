@@ -121,7 +121,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                         .remote_to_local,
                 ) {
                     Ok(message) => {
-                        debug!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+                        trace!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
                         // TODO: UPDATE THIS
                         for (target, start, diffs) in &message.diffs {
                             match target {
@@ -132,11 +132,11 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 InputTarget::Entity(entity)
                                 | InputTarget::PrePredictedEntity(entity) => {
                                     // TODO Don't update input buffer if inputs arrived too late?
-                                    debug!("received input for entity: {:?}", entity);
+                                    trace!("received input for entity: {:?}", entity);
 
                                     if let Ok(buffer) = query.get_mut(*entity) {
                                         if let Some(mut buffer) = buffer {
-                                            debug!(
+                                            trace!(
                                                 ?target,
                                                 "Update InputBuffer: {} using InputMessage: {}",
                                                 buffer.as_ref(),
@@ -219,7 +219,7 @@ fn update_action_state<A: LeafwingUserAction>(
         // This is equivalent to considering that the player will keep playing the last action they played.
         if let Some(action) = input_buffer.get(tick) {
             *action_state = action.clone();
-            debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
+            trace!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
             // remove all the previous values
             // we keep the current value in the InputBuffer so that if future messages are lost, we can still
             // fallback on the last known value
@@ -276,13 +276,7 @@ mod tests {
             .remote_entity_map
             .get_local(server_entity)
             .unwrap();
-        assert!(stepper
-            .client_app
-            .world()
-            .entity(client_entity)
-            .get::<ActionState<LeafwingInput1>>()
-            .is_some());
-        // add an InputMap to the client entity
+        // add an InputMap to the client entity, this should trigger the creation of an ActionState
         stepper
             .client_app
             .world_mut()
@@ -292,6 +286,12 @@ mod tests {
                 KeyCode::KeyA,
             )]));
         stepper.frame_step();
+        assert!(stepper
+            .client_app
+            .world()
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .is_some());
         // check that the client entity got an InputBuffer added to it
         assert!(stepper
             .client_app

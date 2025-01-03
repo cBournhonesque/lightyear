@@ -2,7 +2,7 @@
 use std::mem;
 
 use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::{ComponentRegistry, Replicating};
+use crate::prelude::{ChannelDirection, ComponentRegistry, Replicating};
 use crate::protocol::component::ComponentKind;
 use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::authority::HasAuthority;
@@ -27,6 +27,8 @@ use bevy::{
 // host-server mode
 #[derive(Resource)]
 pub(crate) struct ReplicatedArchetypes<C: Component> {
+    /// Function that returns true if the direction is compatible with sending from this peer
+    send_direction: SendDirectionFn,
     /// ID of the component identifying if the archetype is used for Replication.
     /// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
     /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
@@ -47,6 +49,22 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     marker: std::marker::PhantomData<C>,
 }
 
+pub type SendDirectionFn = fn(ChannelDirection) -> bool;
+
+fn send_to_server(direction: ChannelDirection) -> bool {
+    matches!(
+        direction,
+        ChannelDirection::Bidirectional | ChannelDirection::ClientToServer
+    )
+}
+
+fn send_to_client(direction: ChannelDirection) -> bool {
+    matches!(
+        direction,
+        ChannelDirection::Bidirectional | ChannelDirection::ServerToClient
+    )
+}
+
 pub(crate) type ClientReplicatedArchetypes = ReplicatedArchetypes<ReplicateToServer>;
 pub(crate) type ServerReplicatedArchetypes = ReplicatedArchetypes<ReplicationTarget>;
 
@@ -65,6 +83,7 @@ impl FromWorld for ServerReplicatedArchetypes {
 impl<C: Component> ReplicatedArchetypes<C> {
     pub(crate) fn client(world: &mut World) -> Self {
         Self {
+            send_direction: send_to_server,
             replication_component_id: world.register_component::<ReplicateToServer>(),
             replicating_component_id: world.register_component::<Replicating>(),
             has_authority_component_id: Some(world.register_component::<HasAuthority>()),
@@ -76,6 +95,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
 
     pub(crate) fn server(world: &mut World) -> Self {
         Self {
+            send_direction: send_to_client,
             replication_component_id: world.register_component::<ReplicationTarget>(),
             replicating_component_id: world.register_component::<Replicating>(),
             has_authority_component_id: None,
@@ -171,6 +191,14 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         );
                         return;
                     };
+                    // ignore the components that are not registered for replication in this direction
+                    if !(self.send_direction)(replication_metadata.direction) {
+                        trace!(
+                            "not including {:?} because it doesn't replicate in this direction",
+                            info.name()
+                        );
+                        return;
+                    }
                     trace!("including {:?} in replicated components", info.name());
 
                     // check per component metadata
