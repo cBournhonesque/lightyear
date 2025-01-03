@@ -115,7 +115,7 @@ pub(crate) fn add_non_networked_component_history<C: Component + PartialEq + Clo
 }
 
 /// Add component history for entities that are predicted
-/// There is extra complexity because the component could get added on the Confirmed entity (received from the server), or added to the Predited entity directly
+/// There is extra complexity because the component could get added on the Confirmed entity (received from the server), or added to the Predicted entity directly
 #[allow(clippy::type_complexity)]
 pub(crate) fn add_component_history<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
@@ -150,41 +150,44 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                 // - full: sync component and add history
                 // - simple/once: sync component
                 if let Some(confirmed_component) = confirmed_component {
-                    if confirmed_component.is_added() {
-                        trace!(?kind, "Component added on confirmed side");
-                        // safety: we know the entity exists
-                        let mut predicted_entity_mut =
-                            commands.get_entity(predicted_entity).unwrap();
-                        // map any entities from confirmed to predicted
-                        let mut new_component = confirmed_component.deref().clone();
-                        let _ =
-                            manager.map_entities(&mut new_component, component_registry.as_ref());
-                        match component_registry.prediction_mode::<C>() {
-                            ComponentSyncMode::Full => {
-                                // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
-                                // or will it? because the component just got spawned anyway..
-                                // TODO: then there's no need to add the component here, since it's going to get added during rollback anyway?
-                                let mut history = PredictionHistory::<C>::default();
-                                history.add_update(tick, confirmed_component.deref().clone());
-                                predicted_entity_mut.insert((new_component, history));
-                            }
-                            ComponentSyncMode::Simple => {
-                                debug!(
-                                    ?kind,
-                                    "Component simple synced between confirmed and predicted"
-                                );
+                    // We check this instead of using confirmed_component.is_added()
+                    // in case there were existing components on the confirmed entity
+                    // when the predicted entity was spawned (for example in case of an authority transfer)
+                    if predicted_component.is_some() {
+                        // component already added on predicted side, no need to do anything
+                        continue;
+                    }
+                    trace!(?kind, "Component added on confirmed side");
+                    // safety: we know the entity exists
+                    let mut predicted_entity_mut = commands.get_entity(predicted_entity).unwrap();
+                    // map any entities from confirmed to predicted
+                    let mut new_component = confirmed_component.deref().clone();
+                    let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
+                    match component_registry.prediction_mode::<C>() {
+                        ComponentSyncMode::Full => {
+                            // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
+                            // or will it? because the component just got spawned anyway..
+                            // TODO: then there's no need to add the component here, since it's going to get added during rollback anyway?
+                            let mut history = PredictionHistory::<C>::default();
+                            history.add_update(tick, confirmed_component.deref().clone());
+                            predicted_entity_mut.insert((new_component, history));
+                        }
+                        ComponentSyncMode::Simple => {
+                            debug!(
+                                ?kind,
+                                "Component simple synced between confirmed and predicted"
+                            );
+                            // we only sync the components once, but we don't do rollback so no need for a component history
+                            predicted_entity_mut.insert(new_component);
+                        }
+                        ComponentSyncMode::Once => {
+                            // if this was a prespawned entity, don't override SyncMode::Once components!
+                            if predicted_component.is_none() {
                                 // we only sync the components once, but we don't do rollback so no need for a component history
                                 predicted_entity_mut.insert(new_component);
                             }
-                            ComponentSyncMode::Once => {
-                                // if this was a prespawned entity, don't override SyncMode::Once components!
-                                if predicted_component.is_none() {
-                                    // we only sync the components once, but we don't do rollback so no need for a component history
-                                    predicted_entity_mut.insert(new_component);
-                                }
-                            }
-                            _ => {}
                         }
+                        _ => {}
                     }
                 }
             }

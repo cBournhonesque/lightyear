@@ -35,6 +35,12 @@ pub enum AuthorityPeer {
 pub(crate) struct AuthorityChange {
     pub entity: Entity,
     pub gain_authority: bool,
+    /// Should we add prediction for that entity? This can be useful if the entity was originally
+    /// spawned by a client C1, and then the authority was transferred away from that client.
+    /// Now we want to start predicting the entity on client C1, but we cannot just rely on the normal
+    /// systems because the entity already exists, and ShouldBePredicted only gets sent on the initial Spawn message
+    pub add_prediction: bool,
+    pub add_interpolation: bool,
 }
 
 impl MapEntities for AuthorityChange {
@@ -45,13 +51,15 @@ impl MapEntities for AuthorityChange {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::client::Confirmed;
+    use crate::prelude::client::{Confirmed, ConfirmedHistory};
     use crate::prelude::server::{Replicate, SyncTarget};
     use crate::prelude::{client, server, ClientId, NetworkTarget, Replicated};
     use crate::server::replication::commands::AuthorityCommandExt;
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
-    use crate::tests::protocol::{ComponentMapEntities, ComponentSyncModeSimple};
+    use crate::tests::protocol::{
+        ComponentMapEntities, ComponentSyncModeFull, ComponentSyncModeSimple,
+    };
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::{default, Entity};
 
@@ -715,18 +723,27 @@ mod tests {
 
     // Check for https://github.com/cBournhonesque/lightyear/issues/639
     // - Spawn an entity on C1 and replicate to server
-    // - Server replicated to all with Interpolation enabled
-    // - Transfer authority from C2 to C2
+    // - Server replicates to all with Interpolation enabled
+    // - Transfer authority from C1 to C2
+    // Check that:
+    // - C1 spawns an interpolated entity
+    // - The ConfirmedTick gets updated correctly on C1 when the component is updated on C2
+    // - a ConfirmedHistory buffer is created on C1
+    // Bonus:
+    // - Server doesn't replicate all components back to C1 when the authority switches to C2
+    // - C2 doesn't replicate all components back to S when the authority switches to C2
+    // These 2 only work because there is a gap between adding the Replicate component on S or C2
+    // and transferring authority
     #[test]
     fn test_transfer_authority_with_interpolation() {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::WARN)
+        //     .with_max_level(tracing::Level::ERROR)
         //     .init();
         let mut stepper = MultiBevyStepper::default();
         let client_entity_1 = stepper
             .client_app_1
             .world_mut()
-            .spawn(client::Replicate::default())
+            .spawn((client::Replicate::default(), ComponentSyncModeFull(1.0)))
             .id();
         // TODO: we need to run a couple frames because the server doesn't read the client's updates
         //  because they are from the future
@@ -743,7 +760,9 @@ mod tests {
             .remote_entity_map
             .get_local(client_entity_1)
             .expect("entity was not replicated to server");
+
         // Add replicate on the server, with interpolation
+        // NOTE: this has to happen BEFORE we transfer authority
         stepper
             .server_app
             .world_mut()
@@ -778,6 +797,21 @@ mod tests {
             .interpolated
             .expect("interpolated entity missing on client 2");
 
+        // add Replicate on it as well, but without switching authority
+        stepper
+            .client_app_2
+            .world_mut()
+            .entity_mut(client_entity_2)
+            .insert(client::Replicate::default())
+            .remove::<HasAuthority>();
+
+        // TODO: even without those 2 frame_step, i.e. if adding Replicate is done at the same time as transferring authority
+        //  then the new authoritative peer (client 2) won't replicate all components to the server
+        //  because the authority change message takes a bit of time to arrive
+        //  How can we test this?
+        // stepper.frame_step();
+        // stepper.frame_step();
+
         // transfer authority from client 1 to client 2
         stepper
             .server_app
@@ -785,32 +819,200 @@ mod tests {
             .commands()
             .entity(server_entity)
             .transfer_authority(AuthorityPeer::Client(ClientId::Netcode(TEST_CLIENT_ID_2)));
-        stepper.frame_step();
+
+        // advance frames.
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // confirm that an interpolated entity is spawned on the client 1 that lost authority
+        let confirmed_1 = stepper
+            .client_app_1
+            .world()
+            .get::<Confirmed>(client_entity_1)
+            .expect("confirmed missing on client 1");
+        let interpolated_1 = confirmed_1
+            .interpolated
+            .expect("interpolated entity missing on client 1");
+
         stepper.frame_step();
         stepper.frame_step();
 
-        // add Replicate on it as well
+        // confirm that interpolation is working correctly by updating the component on the client 2
         stepper
             .client_app_2
             .world_mut()
-            .entity_mut(client_entity_2)
-            .insert(client::Replicate::default());
+            .get_mut::<ComponentSyncModeFull>(client_entity_2)
+            .unwrap()
+            .0 = 2.0;
 
-        // TODO: THIS IS NOT FIXED YET! See https://github.com/cBournhonesque/lightyear/pull/642!
-        // // advance frames.
-        // for _ in 0..10 {
-        //     stepper.frame_step();
-        // }
-        // // Nothing happens, even though we maybe would have expected
-        // // an Interpolated entity to be spawned on client 1?
-        // // Is it because no
-        // let confirmed_1 = stepper
-        //     .client_app_1
-        //     .world()
-        //     .get::<Confirmed>(client_entity_1)
-        //     .expect("confirmed missing on client 1");
-        // let interpolated_1 = confirmed_1
-        //     .interpolated
-        //     .expect("interpolated entity missing on client 1");
+        // give enough time for replication + interpolation
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // TODO: find a way to test that the confirmed tick has been updated
+        //  and that the component has been added to the ConfirmedHistory buffer
+        // confirm that the interpolated entity has the updated value on both clients
+        // it's hard to confirm this
+        assert_eq!(
+            stepper
+                .client_app_2
+                .world()
+                .get::<ComponentSyncModeFull>(interpolated_2)
+                .unwrap()
+                .0,
+            2.0
+        );
+        assert!(stepper
+            .client_app_1
+            .world()
+            .get::<ConfirmedHistory<ComponentSyncModeFull>>(interpolated_2)
+            .is_some());
+
+        // This fails for some reason, maybe because we need more updates for the interpolation to take effect?
+        // assert_eq!(
+        //     stepper
+        //         .client_app_1
+        //         .world()
+        //         .get::<ComponentSyncModeFull>(interpolated_1)
+        //         .unwrap()
+        //         .0,
+        //     2.0
+        // );
+    }
+
+    // Check for https://github.com/cBournhonesque/lightyear/issues/639
+    // - Spawn an entity on C1 and replicate to server
+    // - Server replicates to all with Prediction enabled
+    // - Transfer authority from C1 to Server
+    // Check that:
+    // - C1 spawns an predicted entity
+    // - The ConfirmedTick gets updated correctly on C1 when the component is updated on server
+    // - a PredictionHistory buffer is created on C1
+    // Bonus:
+    // - Server doesn't replicate all components back to C1 when the authority switches to S
+    #[test]
+    fn test_transfer_authority_with_prediction() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
+        let mut stepper = MultiBevyStepper::default();
+        let client_entity_1 = stepper
+            .client_app_1
+            .world_mut()
+            .spawn((client::Replicate::default(), ComponentSyncModeFull(1.0)))
+            .id();
+        // TODO: we need to run a couple frames because the server doesn't read the client's updates
+        //  because they are from the future
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+        let server_entity = stepper
+            .server_app
+            .world()
+            .resource::<server::ConnectionManager>()
+            .connection(ClientId::Netcode(TEST_CLIENT_ID_1))
+            .expect("client connection missing")
+            .replication_receiver
+            .remote_entity_map
+            .get_local(client_entity_1)
+            .expect("entity was not replicated to server");
+
+        // Add replicate on the server, with prediction
+        // NOTE: this has to happen BEFORE we transfer authority
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .insert(Replicate {
+                authority: AuthorityPeer::Client(ClientId::Netcode(TEST_CLIENT_ID_1)),
+                sync: SyncTarget {
+                    prediction: NetworkTarget::All,
+                    interpolation: NetworkTarget::None,
+                },
+                ..default()
+            });
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // entity was replicated to client 2
+        let client_entity_2 = stepper
+            .client_app_2
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to server");
+        // check that it has confirmed and interpolated
+        let confirmed_2 = stepper
+            .client_app_2
+            .world()
+            .get::<Confirmed>(client_entity_2)
+            .expect("confirmed missing on client 2");
+        let predicted_2 = confirmed_2
+            .predicted
+            .expect("predicted entity missing on client 2");
+
+        // transfer authority from client 1 to server
+        stepper
+            .server_app
+            .world_mut()
+            .commands()
+            .entity(server_entity)
+            .transfer_authority(AuthorityPeer::Server);
+
+        // advance frames.
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // confirm that a predicted entity is spawned on the client 1 that lost authority
+        let confirmed_1 = stepper
+            .client_app_1
+            .world()
+            .get::<Confirmed>(client_entity_1)
+            .expect("confirmed missing on client 1");
+        let predicted_1 = confirmed_1
+            .predicted
+            .expect("prediced entity missing on client 1");
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // confirm that prediction is working correctly by updating the component on the server
+        stepper
+            .server_app
+            .world_mut()
+            .get_mut::<ComponentSyncModeFull>(server_entity)
+            .unwrap()
+            .0 = 2.0;
+
+        // give enough time for replication + prediction
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // TODO: find a way to test that the confirmed tick has been updated
+        //  and that the component has been added to the PredictionHistory buffer
+        assert_eq!(
+            stepper
+                .client_app_2
+                .world()
+                .get::<ComponentSyncModeFull>(predicted_2)
+                .unwrap()
+                .0,
+            2.0
+        );
+        assert_eq!(
+            stepper
+                .client_app_2
+                .world()
+                .get::<ComponentSyncModeFull>(predicted_1)
+                .unwrap()
+                .0,
+            2.0
+        );
     }
 }

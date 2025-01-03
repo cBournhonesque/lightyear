@@ -83,8 +83,14 @@ pub(crate) fn add_component_history<C: SyncComponent>(
     tick_manager: Res<TickManager>,
     mut commands: Commands,
     connection: Res<ConnectionManager>,
-    interpolated_entities: Query<Entity, (Without<ConfirmedHistory<C>>, With<Interpolated>)>,
-    confirmed_entities: Query<(&Confirmed, Ref<C>)>,
+    interpolated_entities: Query<
+        Entity,
+        (Without<ConfirmedHistory<C>>, Without<C>, With<Interpolated>),
+    >,
+    // we can't use Added<C> because the interpolated entity might be created
+    // for a confirmed entity that already had the components inserted
+    // (in case of authority transfer)
+    confirmed_entities: Query<(&Confirmed, &C)>,
 ) {
     let current_tick = connection
         .sync_manager
@@ -95,38 +101,35 @@ pub(crate) fn add_component_history<C: SyncComponent>(
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.interpolated {
             if let Ok(interpolated_entity) = interpolated_entities.get(p) {
-                if confirmed_component.is_added() {
-                    // safety: we know the entity exists
-                    let mut interpolated_entity_mut =
-                        commands.get_entity(interpolated_entity).unwrap();
-                    // insert history
-                    let history = ConfirmedHistory::<C>::new();
-                    // map any entities from confirmed to interpolated
-                    let mut new_component = confirmed_component.deref().clone();
-                    let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
-                    match component_registry.interpolation_mode::<C>() {
-                        ComponentSyncMode::Full => {
-                            trace!(?interpolated_entity, tick=?tick_manager.tick(), "spawn interpolation history");
-                            interpolated_entity_mut.insert((
-                                // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
-                                //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
-                                //  stay fixed until we get the next update, then it will start moving)
-                                // new_component,
-                                history,
-                                InterpolateStatus::<C> {
-                                    start: Some((current_tick, new_component)),
-                                    end: None,
-                                    current_tick,
-                                    current_overstep,
-                                },
-                            ));
-                        }
-                        ComponentSyncMode::Once | ComponentSyncMode::Simple => {
-                            debug!("copy interpolation component");
-                            interpolated_entity_mut.insert(new_component);
-                        }
-                        ComponentSyncMode::None => {}
+                // safety: we know the entity exists
+                let mut interpolated_entity_mut = commands.get_entity(interpolated_entity).unwrap();
+                // insert history
+                let history = ConfirmedHistory::<C>::new();
+                // map any entities from confirmed to interpolated
+                let mut new_component = confirmed_component.clone();
+                let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
+                match component_registry.interpolation_mode::<C>() {
+                    ComponentSyncMode::Full => {
+                        trace!(?interpolated_entity, tick=?tick_manager.tick(), "spawn interpolation history");
+                        interpolated_entity_mut.insert((
+                            // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
+                            //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
+                            //  stay fixed until we get the next update, then it will start moving)
+                            // new_component,
+                            history,
+                            InterpolateStatus::<C> {
+                                start: Some((current_tick, new_component)),
+                                end: None,
+                                current_tick,
+                                current_overstep,
+                            },
+                        ));
                     }
+                    ComponentSyncMode::Once | ComponentSyncMode::Simple => {
+                        debug!("copy interpolation component");
+                        interpolated_entity_mut.insert(new_component);
+                    }
+                    ComponentSyncMode::None => {}
                 }
             }
         }
