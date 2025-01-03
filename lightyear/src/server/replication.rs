@@ -1096,8 +1096,8 @@ pub(crate) mod send {
         use crate::prelude::client::Confirmed;
         use crate::prelude::server::{ControlledBy, NetConfig, RelevanceManager, Replicate};
         use crate::prelude::{
-            client, server, DeltaCompression, LinkConditionerConfig, ReplicateOnceComponent,
-            Replicated,
+            client, server, ChannelDirection, DeltaCompression, LinkConditionerConfig,
+            ReplicateOnceComponent, Replicated,
         };
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
@@ -3123,6 +3123,46 @@ pub(crate) mod send {
                     .0,
                 1
             );
+        }
+
+        /// Make sure that ClientToServer components are not replicated to the client
+        #[test]
+        fn test_component_direction() {
+            let mut stepper = BevyStepper::default();
+
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .resource::<ComponentRegistry>()
+                    .direction(ComponentKind::of::<ComponentClientToServer>()),
+                Some(ChannelDirection::ClientToServer)
+            );
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn((Replicate::default(), ComponentClientToServer(1.0)))
+                .id();
+            stepper.frame_step();
+            stepper.frame_step();
+
+            let client_entity = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+
+            // check that the component was not replicated to the server
+            assert!(stepper
+                .client_app
+                .world()
+                .get::<ComponentClientToServer>(client_entity)
+                .is_none());
         }
     }
 }

@@ -148,6 +148,7 @@ pub struct ComponentRegistry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
+    pub direction: ChannelDirection,
     pub component_id: ComponentId,
     pub delta_compression_id: ComponentId,
     pub replicate_once_id: ComponentId,
@@ -565,13 +566,24 @@ mod replication {
     use crate::shared::replication::entity_map::ReceiveEntityMap;
 
     impl ComponentRegistry {
-        pub(crate) fn set_replication_fns<C: Component + PartialEq>(&mut self, world: &mut World) {
+        pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
+            self.replication_map
+                .get(&kind)
+                .map(|metadata| metadata.direction)
+        }
+
+        pub(crate) fn set_replication_fns<C: Component + PartialEq>(
+            &mut self,
+            world: &mut World,
+            direction: ChannelDirection,
+        ) {
             let kind = ComponentKind::of::<C>();
             let write: RawWriteFn = Self::write::<C>;
             let remove: RawRemoveFn = Self::remove::<C>;
             self.replication_map.insert(
                 kind,
                 ReplicationMetadata {
+                    direction,
                     component_id: world.register_component::<C>(),
                     delta_compression_id: world.register_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
@@ -621,7 +633,7 @@ mod replication {
             entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
-            trace!("Writing component {} to entity", std::any::type_name::<C>());
+            debug!("Writing component {} to entity", std::any::type_name::<C>());
             let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
             let entity = entity_world_mut.id();
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
@@ -688,6 +700,7 @@ mod delta {
             self.replication_map.insert(
                 delta_kind,
                 ReplicationMetadata {
+                    direction: self.replication_map.get(&kind).unwrap().direction,
                     // NOTE: we set these to 0 because they are never used for the DeltaMessage component
                     component_id: ComponentId::new(0),
                     delta_compression_id: ComponentId::new(0),
@@ -1066,7 +1079,7 @@ impl AppComponentExt for App {
                 if !registry.is_registered::<C>() {
                     registry.register_component::<C>();
                 }
-                registry.set_replication_fns::<C>(world);
+                registry.set_replication_fns::<C>(world, direction);
                 debug!("register component {}", std::any::type_name::<C>());
             });
         register_component_send::<C>(self, direction);
@@ -1086,7 +1099,7 @@ impl AppComponentExt for App {
                 if !registry.is_registered::<C>() {
                     registry.register_component_custom_serde::<C>(serialize_fns);
                 }
-                registry.set_replication_fns::<C>(world);
+                registry.set_replication_fns::<C>(world, direction);
                 debug!("register component {}", std::any::type_name::<C>());
             });
         register_component_send::<C>(self, direction);

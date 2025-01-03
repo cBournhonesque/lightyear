@@ -369,7 +369,7 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
             *action_state = delayed_action_state.clone();
             // dbg!(input_buffer);
             // dbg!(delayed_tick);
-            debug!(
+            trace!(
                 ?entity,
                 ?delayed_tick,
                 "fetched delayed action state {:?} from input buffer: {}",
@@ -412,7 +412,7 @@ fn buffer_action_state<A: LeafwingUserAction>(
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         input_buffer.set(tick, action_state);
         // dbg!(tick, action_state);
-        debug!(
+        trace!(
             ?entity,
             current_tick = ?tick_manager.tick(),
             delayed_tick = ?tick,
@@ -447,7 +447,7 @@ fn get_non_rollback_action_state<A: LeafwingUserAction>(
         // This is equivalent to considering that the remote player will keep playing the last action they played.
         if let Some(action) = input_buffer.get(tick) {
             *action_state = action.clone();
-            debug!(
+            trace!(
                 ?entity,
                 ?tick,
                 "fetched action state {:?} from input buffer: {}",
@@ -492,7 +492,7 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
         .expect("we should be in rollback");
     for (entity, mut action_state, input_buffer) in player_action_state_query.iter_mut() {
         *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-        debug!(
+        trace!(
             ?entity,
             ?tick,
             pressed = ?action_state.get_pressed(),
@@ -503,7 +503,7 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
     for (entity, mut action_state, input_buffer) in remote_player_query.iter_mut() {
         // TODO: should we reuse the existing ActionState as an optimization?
         *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-        debug!(
+        trace!(
             ?tick,
             ?entity,
             pressed = ?action_state.get_pressed(),
@@ -577,7 +577,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     num_tick = num_tick * input_config.packet_redundancy;
     let mut message = InputMessage::<A>::new(tick);
     for (entity, input_buffer, predicted, pre_predicted) in input_buffer_query.iter() {
-        debug!(
+        trace!(
             ?tick,
             ?entity,
             "Preparing input message with buffer: {:?}",
@@ -590,9 +590,10 @@ fn prepare_input_message<A: LeafwingUserAction>(
         //  maybe if it's pre-predicted, we send the original entity (pre-predicted), and the server will apply the conversion
         //   on their end?
         if pre_predicted.is_some() {
-            debug!(
+            trace!(
                 ?tick,
-                "sending inputs for pre-predicted entity! Local client entity: {:?}", entity
+                "sending inputs for pre-predicted entity! Local client entity: {:?}",
+                entity
             );
             // TODO: not sure if this whole pre-predicted inputs thing is worth it, because the server won't be able to
             //  to receive the inputs until it receives the pre-predicted spawn message.
@@ -617,7 +618,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
                     .remote_entity_map
                     .get_remote(confirmed)
                 {
-                    debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
+                    trace!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
                     // println!(
                     //     "preparing input message using input_buffer: {}",
                     //     input_buffer
@@ -626,12 +627,12 @@ fn prepare_input_message<A: LeafwingUserAction>(
                 }
             } else {
                 // TODO: entity is not predicted or not confirmed? also need to do the conversion, no?
-                debug!("not sending inputs because couldnt find server entity");
+                trace!("not sending inputs because couldnt find server entity");
             }
         }
     }
 
-    debug!(
+    trace!(
         ?tick,
         ?num_tick,
         "sending input message for {:?}: {}",
@@ -672,7 +673,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
         TickEvent::TickSnap { old_tick, new_tick } => {
             if let Some(ref mut global_input_buffer) = global_input_buffer {
                 if let Some(start_tick) = global_input_buffer.start_tick {
-                    trace!(
+                    debug!(
                         "Receive tick snap event {:?}. Updating global input buffer start_tick!",
                         trigger.event()
                     );

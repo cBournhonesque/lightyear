@@ -696,9 +696,11 @@ pub(crate) mod send {
         use crate::client::replication::send::ReplicateToServer;
         use crate::prelude::client::Replicate;
         use crate::prelude::{
-            server, ClientId, DisabledComponents, ReplicateOnceComponent, Replicated, TargetEntity,
+            server, ChannelDirection, ClientId, ComponentRegistry, DisabledComponents,
+            ReplicateOnceComponent, Replicated, TargetEntity,
         };
-        use crate::tests::protocol::ComponentSyncModeFull;
+        use crate::protocol::component::ComponentKind;
+        use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeOnce};
         use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
         #[test]
@@ -1252,6 +1254,49 @@ pub(crate) mod send {
                     .expect("Component missing"),
                 &ComponentSyncModeFull(1.0)
             )
+        }
+
+        /// Make sure that ServerToClient components are not replicated to the server
+        #[test]
+        fn test_component_direction() {
+            let mut stepper = BevyStepper::default();
+
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .resource::<ComponentRegistry>()
+                    .direction(ComponentKind::of::<ComponentSyncModeOnce>()),
+                Some(ChannelDirection::ServerToClient)
+            );
+
+            // spawn an entity on client
+            let client_entity = stepper
+                .client_app
+                .world_mut()
+                .spawn((Replicate::default(), ComponentSyncModeOnce(1.0)))
+                .id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_entity = stepper
+                .server_app
+                .world()
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_entity)
+                .expect("entity was not replicated to client");
+            // check that the component was not replicated to the server
+            assert!(stepper
+                .server_app
+                .world()
+                .get::<ComponentSyncModeOnce>(server_entity)
+                .is_none());
         }
     }
 }
