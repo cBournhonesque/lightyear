@@ -873,7 +873,7 @@ impl Connection {
         // notify the replication sender that some sent messages were received
         self.replication_sender
             .recv_update_acks(component_registry, delta_manager);
-        debug!("Received server packet with tick: {:?}", tick);
+        trace!("Received server packet with tick: {:?}", tick);
         Ok(())
     }
 }

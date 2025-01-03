@@ -131,7 +131,6 @@ impl PrePredictionPlugin {
                         predicted: Some(predicted_entity),
                         interpolated: None,
                         tick,
-                        // tick: Tick(0),
                     })
                     .id();
                 debug!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-predicted: {predicted_entity:?}");
@@ -166,12 +165,11 @@ mod tests {
     #[test]
     fn test_pre_prediction() {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::INFO)
+        //     .with_max_level(tracing::Level::DEBUG)
         //     .init();
         let mut stepper = BevyStepper::default();
 
         // spawn a pre-predicted entity on the client
-
         let predicted_entity = stepper
             .client_app
             .world_mut()
@@ -182,6 +180,7 @@ mod tests {
             ))
             .id();
 
+        // flush to apply pre-predicted related commands
         stepper.flush();
 
         // check that the confirmed entity was spawned
