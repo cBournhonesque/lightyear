@@ -302,7 +302,7 @@ fn prepare_input_message<A: UserAction>(
     //  - buffer an input every frame; and require some redundancy (number of tick per frame)
     //  - or buffer an input only when we are sending, and require more redundancy
     // let message_len = 20 as u16;
-    let mut message = input_manager
+    let message = input_manager
         .input_buffer
         .create_message(tick_manager.tick(), message_len);
     // all inputs are absent
@@ -314,7 +314,7 @@ fn prepare_input_message<A: UserAction>(
             "sending input message: {:?}", message.end_tick
         );
         connection
-            .send_message::<InputChannel, _>(&mut message)
+            .send_message::<InputChannel, _>(&message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             })

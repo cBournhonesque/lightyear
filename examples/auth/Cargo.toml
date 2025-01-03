@@ -13,10 +13,7 @@ publish = false
 
 [features]
 steam = ["lightyear_examples_common/steam"]
-default = [
-    "tokio/net",
-    "lightyear_examples_common/websocket",
-]
+default = ["tokio/net", "lightyear_examples_common/websocket"]
 client = ["lightyear_examples_common/client", "gui"]
 server = ["lightyear_examples_common/server"]
 gui = ["lightyear_examples_common/gui"]

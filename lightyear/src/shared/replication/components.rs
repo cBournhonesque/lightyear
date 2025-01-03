@@ -128,7 +128,7 @@ impl<C> Default for DeltaCompression<C> {
 /// If this component is present, we won't replicate the component
 ///
 /// (By default, all components that are present in the [`ComponentRegistry`](crate::prelude::ComponentRegistry) will be replicated.)
-#[derive(Component, Clone, Debug, PartialEq, Reflect)]
+#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct DisabledComponents {
     /// If `disable_all` is true, all components are disabled for replication. Only the components in `enabled` will be replicated
@@ -137,16 +137,6 @@ pub struct DisabledComponents {
     disable_all: bool,
     /// If `disable_all` is false, all components are enabled for replication. Only the components in `disabled` will not be replicated
     disabled: Vec<ComponentKind>,
-}
-
-impl Default for DisabledComponents {
-    fn default() -> Self {
-        Self {
-            enabled: vec![],
-            disable_all: false,
-            disabled: vec![],
-        }
-    }
 }
 
 impl DisabledComponents {

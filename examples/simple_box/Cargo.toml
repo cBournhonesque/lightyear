@@ -34,7 +34,7 @@ rand.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }
 bevy-inspector-egui = { workspace = true, optional = true }
 bevygap_client_plugin = { workspace = true, optional = true, features = [
-    "matchmaker-tls",
+  "matchmaker-tls",
 ] }
 
 [lints]

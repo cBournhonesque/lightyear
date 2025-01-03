@@ -3280,7 +3280,7 @@ pub(crate) mod commands {
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: true,
                                     add_prediction,
@@ -3304,7 +3304,7 @@ pub(crate) mod commands {
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: false,
                                     add_prediction: false,
@@ -3327,7 +3327,7 @@ pub(crate) mod commands {
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: false,
                                     add_prediction,
@@ -3345,7 +3345,7 @@ pub(crate) mod commands {
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: true,
                                     // TODO: should we compute these again?
@@ -3365,7 +3365,7 @@ pub(crate) mod commands {
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c1,
-                                &mut AuthorityChange {
+                                & AuthorityChange {
                                     entity,
                                     gain_authority: false,
                                     add_prediction,
@@ -3377,7 +3377,7 @@ pub(crate) mod commands {
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c2,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: true,
                                     add_prediction: false,

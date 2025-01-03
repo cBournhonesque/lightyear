@@ -54,11 +54,12 @@ pub(crate) mod receive {
     /// - remove/add Replicated
     ///
     /// - add the entity to the ReplicationReceiver if we lose authority and we were the original spawner of the entity.
+    ///
     /// The reason is that upon losing authority we might want to add Interpolation/Prediction to the entity.
     /// (client C1 spawned entity and authority passes to server).
-    /// We want the entity in the ReplicationReceiver (especially local_entity_to_group) so that the Confirmed tick
-    /// of the entity can keep being updated.
     ///
+    /// We want the entity in the ReplicationReceiver (especially local_entity_to_group) so that the
+    /// Confirmed tick of the entity can keep being updated.
     // TODO: use observer to handle these?
     fn handle_authority_change(
         mut commands: Commands,

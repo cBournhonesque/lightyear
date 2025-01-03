@@ -176,7 +176,7 @@ mod tests {
     /// Check that client sending an event works correctly:
     /// - the event gets buffered to EventWriter on the server
     /// - it works for the Local client in HostServer mode (the server still receives the event)
-    /// TODO: - the server can re-broadcast the event to another client
+    // TODO: - the server can re-broadcast the event to another client
     #[test]
     fn test_client_send_event_buffered() {
         let mut stepper = HostServerStepper::default();
@@ -214,7 +214,7 @@ mod tests {
     /// Check that client sending an event works correctly:
     /// - the event gets triggered
     /// - it works for the Local client in HostServer mode (the server still receives the event)
-    /// TODO: - the server can re-broadcast the event to another client
+    // TODO: - the server can re-broadcast the event to another client
     #[test]
     fn test_client_send_event_triggered() {
         let mut stepper = HostServerStepper::default();
