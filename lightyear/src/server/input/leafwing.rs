@@ -276,13 +276,7 @@ mod tests {
             .remote_entity_map
             .get_local(server_entity)
             .unwrap();
-        assert!(stepper
-            .client_app
-            .world()
-            .entity(client_entity)
-            .get::<ActionState<LeafwingInput1>>()
-            .is_some());
-        // add an InputMap to the client entity
+        // add an InputMap to the client entity, this should trigger the creation of an ActionState
         stepper
             .client_app
             .world_mut()
@@ -292,6 +286,12 @@ mod tests {
                 KeyCode::KeyA,
             )]));
         stepper.frame_step();
+        assert!(stepper
+            .client_app
+            .world()
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .is_some());
         // check that the client entity got an InputBuffer added to it
         assert!(stepper
             .client_app

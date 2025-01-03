@@ -234,7 +234,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ComponentSyncModeOnce>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
-        app.register_component::<ComponentMapEntities>(ChannelDirection::ServerToClient)
+        app.register_component::<ComponentMapEntities>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Simple)
             .add_map_entities();
 

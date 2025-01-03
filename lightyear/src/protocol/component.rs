@@ -700,7 +700,12 @@ mod delta {
             self.replication_map.insert(
                 delta_kind,
                 ReplicationMetadata {
-                    direction: self.replication_map.get(&kind).unwrap().direction,
+                    // Note: the direction should always exist; adding unwrap_or for unit tests
+                    direction: self
+                        .replication_map
+                        .get(&kind)
+                        .map(|m| m.direction)
+                        .unwrap_or(ChannelDirection::Bidirectional),
                     // NOTE: we set these to 0 because they are never used for the DeltaMessage component
                     component_id: ComponentId::new(0),
                     delta_compression_id: ComponentId::new(0),

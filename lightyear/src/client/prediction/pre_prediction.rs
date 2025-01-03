@@ -156,9 +156,7 @@ mod tests {
     use crate::prelude::server;
     use crate::prelude::server::AuthorityPeer;
     use crate::prelude::{client, ClientId};
-    use crate::tests::protocol::{
-        ComponentSyncModeFull, ComponentSyncModeOnce, ComponentSyncModeSimple,
-    };
+    use crate::tests::protocol::{ComponentClientToServer, ComponentSyncModeFull};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
     /// Simple preprediction case
@@ -278,13 +276,13 @@ mod tests {
         let child = stepper
             .client_app
             .world_mut()
-            .spawn(ComponentSyncModeOnce(0.0))
+            .spawn(ComponentSyncModeFull(0.0))
             .id();
         let parent = stepper
             .client_app
             .world_mut()
             .spawn((
-                ComponentSyncModeSimple(0.0),
+                ComponentClientToServer(0.0),
                 client::Replicate::default(),
                 PrePredicted::default(),
             ))
@@ -306,13 +304,13 @@ mod tests {
         let server_parent = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
+            .query_filtered::<Entity, With<ComponentClientToServer>>()
             .get_single(stepper.server_app.world())
             .expect("parent entity was not replicated");
         let server_child = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
+            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
             .get_single(stepper.server_app.world())
             .expect("child entity was not replicated");
         assert_eq!(
