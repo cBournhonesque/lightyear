@@ -647,6 +647,13 @@ impl ReplicationSender {
                     priority,
                 )?
                 .expect("The entity actions channels should always return a message_id");
+            debug!(
+                ?message_id,
+                ?group_id,
+                ?bevy_tick,
+                ?tick,
+                "Send replication action"
+            );
 
             // restore the hashmap that we took out, so that we can reuse the allocated memory
             channel.pending_actions = message.actions;

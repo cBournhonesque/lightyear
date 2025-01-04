@@ -3,7 +3,7 @@
 use bevy::prelude::{Reflect, SystemSet};
 use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::packet::packet::PacketId;
@@ -516,7 +516,6 @@ impl SyncManager {
         let jitter = ping_manager.jitter();
         // recompute the input delay using the new rtt estimate
         self.current_input_delay = prediction_config.input_delay_ticks(rtt, tick_duration);
-        info!("New input delay: {}", self.current_input_delay);
         // recompute the server time estimate (using the rtt we just computed)
         self.update_server_time_estimate(tick_duration, rtt);
 
@@ -542,6 +541,7 @@ impl SyncManager {
                 ?rtt,
                 ?jitter,
                 ?delta_tick,
+                ?self.current_input_delay,
                 predicted_server_receive_time = ?self.predicted_server_receive_time(rtt),
                 client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter),
                 ?client_ideal_time,

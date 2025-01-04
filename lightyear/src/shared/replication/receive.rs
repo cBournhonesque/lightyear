@@ -188,11 +188,14 @@ impl ReplicationReceiver {
     pub(crate) fn cleanup(&mut self, tick: Tick) {
         // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
         for group_channel in self.group_channels.values_mut() {
-            debug!("Checking group channel: {:?}", group_channel);
+            trace!(
+                "Checking group channel for tick cleanup: {:?}",
+                group_channel
+            );
             if let Some(latest_tick) = group_channel.latest_tick {
                 // delta = u16::MAX / 4
                 if tick - latest_tick > (i16::MAX / 2) {
-                    debug!(
+                    trace!(
                     ?tick,
                     ?latest_tick,
                     ?group_channel,
@@ -809,17 +812,16 @@ impl GroupChannel {
         remote_entity_map: &mut RemoteEntityMap,
     ) {
         let group_id = message.group_id;
+        // TODO: store this in ConfirmedHistory?
+        if is_history {
+            return;
+        }
         debug!(
             ?remote_tick,
             ?message,
             "Received replication updates from remote: {:?}",
             remote
         );
-
-        // TODO: store this in ConfirmedHistory?
-        if is_history {
-            return;
-        }
         for (entity, components) in message.updates.into_iter() {
             trace!(?components, remote_entity = ?entity, "Received UpdateComponent");
             let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
