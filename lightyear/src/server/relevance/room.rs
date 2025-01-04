@@ -1131,9 +1131,9 @@ mod tests {
     // C1 and E2 leaves room 2 and joins room 1: visibility gained (and entity spawned)
     #[test]
     fn test_multiple_clients_leave_enter_room() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::DEBUG)
+        //     .init();
         let mut stepper = MultiBevyStepper::default();
         let c1 = ClientId::Netcode(TEST_CLIENT_ID_1);
         let c2 = ClientId::Netcode(TEST_CLIENT_ID_2);
