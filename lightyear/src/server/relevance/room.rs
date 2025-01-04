@@ -72,7 +72,6 @@ impl From<ClientId> for RoomId {
     }
 }
 
-
 #[derive(Resource, Debug, Default)]
 struct VisibilityEvents {
     gained: HashMap<ClientId, Entity>,
@@ -181,6 +180,24 @@ impl RoomManager {
             for room_id in rooms {
                 self.remove_entity_internal(room_id, entity);
             }
+        }
+    }
+
+    /// Remove all clients from a room
+    pub fn remove_clients(&mut self, room_id: RoomId) {
+        if let Some(room) = self.data.rooms.get(&room_id) {
+            room.clients.iter().for_each(|c| {
+                self.remove_client(*c, room_id);
+            });
+        }
+    }
+
+    /// Remove all entities from a room
+    pub fn remove_entities(&mut self, room_id: RoomId) {
+        if let Some(room) = self.data.rooms.get(&room_id) {
+            room.entities.iter().for_each(|e| {
+                self.remove_entity(*e, room_id);
+            });
         }
     }
 
@@ -301,7 +318,6 @@ impl RoomManager {
             .map_or_else(|| false, |room| room.clients.contains(&client_id))
     }
 }
-
 
 pub(super) mod systems {
     use super::*;

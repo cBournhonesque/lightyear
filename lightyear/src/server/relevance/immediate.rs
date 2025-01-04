@@ -218,14 +218,14 @@ pub(super) mod systems {
                 .clients_cache
                 .retain(|client_id, relevance| match relevance {
                     ClientRelevance::Gained => {
-                        info!(
+                        trace!(
                             "Relevance for client {client_id:?} and entity {entity:?} goes from gained to maintained"
                         );
                         *relevance = ClientRelevance::Maintained;
                         true
                     }
                     ClientRelevance::Lost => {
-                        info!("remove client {client_id:?} and entity {entity:?} from relevance cache");
+                        trace!("remove client {client_id:?} and entity {entity:?} from relevance cache");
                         false
                     }
                     ClientRelevance::Maintained => true,
