@@ -205,8 +205,6 @@ impl ServerConnections {
         for server in &mut self.servers {
             server.stop()?;
         }
-        // since is_listening is false, the `receive_packets` function won't be called and
-        // we won't finish the disconnection process (cleaning up the Connections in the ConnectionManager)
         Ok(())
     }
 

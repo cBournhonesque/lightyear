@@ -44,6 +44,7 @@ impl Plugin for ServerNetworkingPlugin {
                     InternalMainSet::<ServerMarker>::EmitEvents.in_set(MainSet::EmitEvents),
                 )
                     .chain()
+                    // we still want to run this while the server is Starting/Stopping
                     .run_if(not(is_stopped)),
             )
             .configure_sets(
@@ -161,12 +162,10 @@ pub(crate) fn receive_packets(
         // disconnects because we received a disconnect message
         for client_id in new_disconnections {
             if netservers.client_server_map.remove(&client_id).is_some() {
-                error!("removing connection from connection manager");
+                debug!("removing connection from connection manager");
                 connection_manager.remove(client_id);
                 // NOTE: we don't despawn the entity right away to let the user react to
                 // the disconnect event
-                // TODO: use observers/component_hooks to react automatically on the client despawn?
-                // world.despawn(client_entity);
             } else {
                 error!("Client disconnected but could not map client_id to the corresponding netserver");
             }
@@ -463,6 +462,10 @@ mod tests {
             .connection(client)
             .is_err());
         // check that the entity was despawned on the client
-        assert!(stepper.client_app.world().get_entity(client_entity).is_err());
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_entity)
+            .is_err());
     }
 }
