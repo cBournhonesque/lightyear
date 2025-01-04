@@ -49,10 +49,37 @@ pub(crate) struct CachedNetworkRelevance {
     pub(crate) clients_cache: HashMap<ClientId, ClientRelevance>,
 }
 
-#[derive(Debug, Default)]
-struct RelevanceEvents {
-    gained: HashMap<ClientId, EntityHashSet>,
-    lost: HashMap<ClientId, EntityHashSet>,
+#[derive(Debug, Default, Reflect)]
+pub(crate) struct RelevanceEvents {
+    pub(crate) gained: HashMap<ClientId, EntityHashSet>,
+    pub(crate) lost: HashMap<ClientId, EntityHashSet>,
+}
+
+impl RelevanceEvents {
+    /// Update the current [`RelevanceEvents`] with the events from another [`RelevanceEvents`]
+    pub(crate) fn update(&mut self, other: &mut Self) {
+        // NOTE: we handle leave room events before join room events so that if an entity leaves room 1 to join room 2
+        //  and the client is in both rooms, the entity does not get despawned
+        other.lost.drain().for_each(|(client_id, entities)| {
+            self.lost.entry(client_id).or_default().extend(entities);
+        });
+        other.gained.drain().for_each(|(client_id, entities)| {
+            self.gained.entry(client_id).or_default().extend(entities);
+        });
+    }
+    pub(crate) fn gain_relevance_internal(&mut self, client: ClientId, entity: Entity) {
+        self.lost.entry(client).and_modify(|set| {
+            set.remove(&entity);
+        });
+        self.gained.entry(client).or_default().insert(entity);
+    }
+
+    pub(crate) fn lose_relevance_internal(&mut self, client: ClientId, entity: Entity) {
+        self.gained.entry(client).and_modify(|set| {
+            set.remove(&entity);
+        });
+        self.lost.entry(client).or_default().insert(entity);
+    }
 }
 
 /// Resource that manages the network relevance of entities for clients
@@ -64,7 +91,7 @@ struct RelevanceEvents {
 /// to update the relevance of an entity for a given client.
 #[derive(Resource, Debug, Default)]
 pub struct RelevanceManager {
-    events: RelevanceEvents,
+    pub(crate) events: RelevanceEvents,
 }
 
 impl RelevanceManager {
@@ -72,19 +99,13 @@ impl RelevanceManager {
     ///
     /// The relevance status gets cached and will be maintained until is it changed.
     pub fn gain_relevance(&mut self, client: ClientId, entity: Entity) -> &mut Self {
-        self.events.lost.entry(client).and_modify(|set| {
-            set.remove(&entity);
-        });
-        self.events.gained.entry(client).or_default().insert(entity);
+        self.events.gain_relevance_internal(client, entity);
         self
     }
 
     /// Lost relevance of an entity for a given client
     pub fn lose_relevance(&mut self, client: ClientId, entity: Entity) -> &mut Self {
-        self.events.gained.entry(client).and_modify(|set| {
-            set.remove(&entity);
-        });
-        self.events.lost.entry(client).or_default().insert(entity);
+        self.events.lose_relevance_internal(client, entity);
         self
     }
 
@@ -136,7 +157,7 @@ pub(super) mod systems {
                     NetworkRelevanceMode::InterestManagement => {
                         // do not overwrite the relevance if it already exists
                         if cached_relevance.is_none() {
-                            debug!("Adding CachedNetworkRelevance component for entity {entity:?}");
+                            trace!("Adding CachedNetworkRelevance component for entity {entity:?}");
                             commands
                                 .entity(entity)
                                 .insert(CachedNetworkRelevance::default());
@@ -229,6 +250,8 @@ pub(crate) struct NetworkRelevancePlugin;
 
 impl Plugin for NetworkRelevancePlugin {
     fn build(&self, app: &mut App) {
+        // REFLECT
+        app.register_type::<CachedNetworkRelevance>();
         // RESOURCES
         app.init_resource::<RelevanceManager>();
         // SETS

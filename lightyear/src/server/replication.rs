@@ -401,7 +401,7 @@ pub(crate) mod send {
                     commands.entity(entity).transfer_authority(*authority_peer);
                 }
                 AuthorityPeer::Server => {
-                    debug!("Adding HasAuthority to {:?}", entity);
+                    trace!("Adding HasAuthority to {:?}", entity);
                     commands.entity(entity).insert(HasAuthority);
                 }
                 _ => {}
