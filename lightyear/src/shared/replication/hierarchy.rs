@@ -628,4 +628,48 @@ mod tests {
             .get_local(server_parent)
             .expect("parent entity was not replicated to client 2");
     }
+
+    /// https://github.com/cBournhonesque/lightyear/issues/547
+    /// Test that when a new child is added to a parent that has ReplicateHierarchy.true
+    /// the child is also replicated to the remote
+    #[test]
+    fn test_propagate_hierarchy_new_child() {
+        let mut stepper = BevyStepper::default();
+        let server_parent = stepper
+            .server_app
+            .world_mut()
+            .spawn(server::Replicate::default())
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_parent = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_parent)
+            .expect("parent entity was not replicated to client");
+
+        // add a child to the entity
+        let server_child = stepper.server_app.world_mut().spawn_empty().id();
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_parent)
+            .add_child(server_child);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that Replicate was propagated to the child, and that the child
+        // was replicated to the client
+        let client_child = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_child)
+            .expect("child entity was not replicated to client");
+    }
 }
