@@ -46,7 +46,9 @@ impl<R> Default for HierarchySendPlugin<R> {
 }
 
 impl<R: ReplicationSend> HierarchySendPlugin<R> {
-    /// If `replicate.replicate_hierarchy` is true, replicate the entire hierarchy of the entity
+    /// If `replicate.replicate_hierarchy` is true, replicate the entire hierarchy of the entity:
+    /// Propagate any changes to the Replicate settings of the root of the hierarchy to all children
+    /// Also add the `ParentSync` component to the children
     fn propagate_replicate(
         mut commands: Commands,
         // query the root parent of the hierarchy
@@ -82,7 +84,6 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             ),
         >,
         children_query: Query<&Children>,
-        child_query: Query<(), (With<ParentSync>, With<Replicating>)>,
     ) {
         for (
             parent_entity,
@@ -102,11 +103,6 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             if replicate_hierarchy.recursive {
                 // iterate through all descendents of the entity
                 for child in children_query.iter_descendants(parent_entity) {
-                    // TODO: or do we want to propagate any change of any component to the children?
-                    // if the child already has ParentSync and Replicating, we don't need to add it again
-                    if child_query.get(child).is_ok() {
-                        continue;
-                    }
                     trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
                     let Some(mut child_commands) = commands.get_entity(child) else {
                         continue;
@@ -277,11 +273,12 @@ mod tests {
     use bevy::hierarchy::{BuildChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
 
-    use crate::prelude::client;
-    use crate::prelude::server::Replicate;
+    use crate::prelude::server::{Replicate, ReplicationTarget};
     use crate::prelude::ReplicationGroup;
+    use crate::prelude::{client, server, ClientId, NetworkTarget};
     use crate::shared::replication::components::ReplicateHierarchy;
     use crate::shared::replication::hierarchy::ParentSync;
+    use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
 
@@ -551,5 +548,79 @@ mod tests {
             .query_filtered::<Entity, With<ComponentSyncModeFull>>()
             .get_single(stepper.server_app.world());
         assert!(server_child.is_err());
+    }
+
+    /// https://github.com/cBournhonesque/lightyear/issues/649
+    /// P1 with child C1
+    /// If you add a new client to the replication target of P1, then both
+    /// P1 and C1 should be replicated to the new client.
+    /// (the issue says that only P1 was replicated)
+    #[test]
+    fn test_new_client_is_added_to_parent() {
+        let mut stepper = MultiBevyStepper::default();
+
+        let c1 = ClientId::Netcode(TEST_CLIENT_ID_1);
+        let c2 = ClientId::Netcode(TEST_CLIENT_ID_2);
+
+        let server_child = stepper.server_app.world_mut().spawn_empty().id();
+        let server_parent = stepper
+            .server_app
+            .world_mut()
+            .spawn(server::Replicate {
+                target: ReplicationTarget {
+                    target: NetworkTarget::Single(c1),
+                },
+                ..default()
+            })
+            .add_child(server_child)
+            .id();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let c1_child = stepper
+            .client_app_1
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_child)
+            .expect("child entity was not replicated to client 1");
+        let c1_parent = stepper
+            .client_app_1
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_parent)
+            .expect("parent entity was not replicated to client 1");
+
+        // change the replication target to include a new client
+        stepper
+            .server_app
+            .world_mut()
+            .get_mut::<ReplicationTarget>(server_parent)
+            .unwrap()
+            .target = NetworkTarget::Only(vec![c1, c2]);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that both parent and child were replicated to the new client
+        let c2_child = stepper
+            .client_app_2
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_child)
+            .expect("child entity was not replicated to client 2");
+        let c2_parent = stepper
+            .client_app_2
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_parent)
+            .expect("parent entity was not replicated to client 2");
     }
 }
