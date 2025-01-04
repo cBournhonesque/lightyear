@@ -345,7 +345,7 @@ fn rebuild_server_connections(world: &mut World) {
 /// - rebuild the server connection manager
 /// - start listening on the server connections
 fn on_start(world: &mut World) {
-    if world.resource::<ServerConnections>().is_listening() {
+    if is_started(world.get::<Res<State<NetworkingState::>>>()) {
         error!("The server is already started. The server can only be started when it is stopped.");
         return;
     }

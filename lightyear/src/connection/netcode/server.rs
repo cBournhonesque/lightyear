@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::Resource;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
@@ -955,7 +955,6 @@ impl<Ctx> NetcodeServer<Ctx> {
         self.on_disconnect(client_id, addr);
         for _ in 0..self.cfg.num_disconnect_packets {
             // self.send_to_client(DisconnectPacket::create(), client_id, io)?;
-
             // we do not use ? here because we want to continue even if the send fails
             let _ = self
                 .send_to_client(DisconnectPacket::create(), client_id, io)
@@ -979,12 +978,14 @@ impl<Ctx> NetcodeServer<Ctx> {
 
     /// Disconnects all clients.
     pub fn disconnect_all(&mut self, io: &mut Io) -> Result<()> {
-        debug!("server disconnecting all clients");
+        debug!("Server preparing to disconnect all clients");
         for id in self.conn_cache.ids() {
             let Some(conn) = self.conn_cache.clients.get_mut(&id) else {
+                warn!("Could not disconnect client {id:?} because the connection was not found");
                 continue;
             };
             if conn.is_connected() {
+                debug!("Server preparing to disconnect client {id:?}");
                 self.disconnect(id, io)?;
             }
         }
@@ -1026,6 +1027,8 @@ pub(crate) mod connection {
     use super::*;
     use crate::connection::server::ConnectionError;
     use core::result::Result;
+    use tracing::info;
+
     #[derive(Default)]
     pub(crate) struct NetcodeServerContext {
         pub(crate) connections: Vec<id::ClientId>,
@@ -1056,6 +1059,7 @@ pub(crate) mod connection {
         fn stop(&mut self) -> Result<(), ConnectionError> {
             if let Some(mut io) = self.io.take() {
                 if let Some(sender) = &mut self.server.cfg.context.sender {
+                    debug!("Notify the io task that we want to stop the server, so that we can stop the io tasks");
                     sender
                         .try_send(ServerIoEvent::ServerDisconnected(
                             crate::transport::error::Error::UserRequest,

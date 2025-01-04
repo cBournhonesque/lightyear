@@ -507,7 +507,7 @@ impl ConnectionManager {
     ) -> Result<(), ClientError> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(packet)?;
-        debug!("Received server packet with tick: {:?}", tick);
+        trace!("Received server packet with tick: {:?}", tick);
         if self
             .sync_manager
             .latest_received_server_tick

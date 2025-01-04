@@ -3,11 +3,13 @@ use crate::client::config::ClientConfig;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::ServerConnections;
 use crate::prelude::client::ComponentSyncMode;
+use crate::prelude::server::NetworkingState;
 use crate::prelude::{
     AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ClientId, ComponentRegistry,
     LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
     PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
 };
+use crate::server::run_conditions::NetworkingStateExt;
 use crate::shared::config::SharedConfig;
 use crate::shared::replication::authority::AuthorityChange;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
@@ -30,6 +32,7 @@ pub struct NetworkIdentity<'w, 's> {
     client: Option<Res<'w, ClientConnection>>,
     client_config: Option<Res<'w, ClientConfig>>,
     server: Option<Res<'w, ServerConnections>>,
+    server_state: Option<Res<'w, State<NetworkingState>>>,
     _marker: std::marker::PhantomData<&'s ()>,
 }
 
@@ -53,12 +56,7 @@ impl FromWorld for Identity {
         let Some(config) = world.get_resource::<ClientConfig>() else {
             return Identity::Server;
         };
-        if matches!(config.shared.mode, Mode::HostServer)
-            && world
-                .get_resource::<ServerConnections>()
-                .as_ref()
-                .map_or(false, |server| server.is_listening())
-        {
+        if matches!(config.shared.mode, Mode::HostServer) && world.is_started() {
             Identity::HostServer
         } else {
             let client_id = world
@@ -86,9 +84,9 @@ impl NetworkIdentity<'_, '_> {
         };
         if matches!(config.shared.mode, Mode::HostServer)
             && self
-                .server
+                .server_state
                 .as_ref()
-                .map_or(false, |server| server.is_listening())
+                .map_or(false, |s| s.get() == &NetworkingState::Started)
         {
             Identity::HostServer
         } else {

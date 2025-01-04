@@ -88,7 +88,8 @@ impl ServerTransportBuilder for WebTransportServerSocketBuilder {
                         Ok(event) = close_rx.recv() => {
                             match event {
                                 ServerIoEvent::ServerDisconnected(e) => {
-                                    debug!("Stopping webtransport io task. Reason: {:?}", e);
+                                    debug!("Stopping all webtransport io tasks. Reason: {:?}", e);
+                                    // drop all tasks so that they can be cleaned up
                                     drop(addr_to_task);
                                     return;
                                 }
