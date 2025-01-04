@@ -193,7 +193,7 @@ pub enum ChannelDirection {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReliableSettings {
-    /// Duration to wait before resending a packet if it has not been acked
+    /// Multiplier of the current RTT estimate, used for delay to wait before resending a packet if it has not been acked.
     pub rtt_resend_factor: f32,
     /// Minimum duration to wait before resending a packet if it has not been acked
     pub rtt_resend_min_delay: Duration,
