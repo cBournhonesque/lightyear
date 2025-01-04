@@ -3,6 +3,7 @@
 
 ## [Unreleased]
 
+- Simplified the examples
 - Removed `DisabledComponent::<C>` in favor of `DisabledComponents` to have more control over
 which components are disabled. In particular, it is now possible to express 'disable all components except these'.
 - Enabled replicating events directly!
