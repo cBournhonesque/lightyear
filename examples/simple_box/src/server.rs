@@ -24,7 +24,10 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, start_server);
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(Update, (send_message, handle_connections));
+        app.add_systems(
+            Update,
+            (send_message, handle_connections, server_start_stop),
+        );
     }
 }
 
@@ -121,6 +124,20 @@ fn movement(
                     client_id
                 )
             }
+        }
+    }
+}
+
+pub(crate) fn server_start_stop(
+    mut commands: Commands,
+    state: Res<State<NetworkingState>>,
+    input: Option<Res<ButtonInput<KeyCode>>>,
+) {
+    if input.is_some_and(|input| input.just_pressed(KeyCode::KeyS)) {
+        if state.get() == &NetworkingState::Stopped {
+            commands.start_server();
+        } else {
+            commands.stop_server();
         }
     }
 }

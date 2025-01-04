@@ -46,7 +46,7 @@
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
-use tracing::{debug, error, trace};
+use tracing::{error, trace};
 
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -309,9 +309,10 @@ fn prepare_input_message<A: UserAction>(
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
-        debug!(
+        trace!(
             ?current_tick,
-            "sending input message: {:?}", message.end_tick
+            "sending input message: {:?}",
+            message.end_tick
         );
         connection
             .send_message::<InputChannel, _>(&message)

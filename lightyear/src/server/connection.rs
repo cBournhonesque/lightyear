@@ -332,6 +332,7 @@ impl ConnectionManager {
         metrics::gauge!("connected_clients").decrement(1.0);
         info!("Client {} disconnected", client_id);
         if let Ok(entity) = self.client_entity(client_id) {
+            debug!("Sending Client DisconnectEvent");
             self.events
                 .add_disconnect_event(DisconnectEvent { client_id, entity });
         }

@@ -122,7 +122,7 @@ fn receive_input_message<A: UserAction>(
                         .remote_to_local,
                 ) {
                     Ok(message) => {
-                        debug!("Received input message: {:?}", message);
+                        trace!("Received input message: {:?}", message);
                         input_buffers
                             .buffers
                             .entry(*client_id)
@@ -161,7 +161,7 @@ fn write_input_event<A: UserAction>(
         .buffers
         .iter_mut()
         .for_each(move |(client_id, (last_input, input_buffer))| {
-            debug!(?input_buffer, ?tick, ?client_id, "input buffer for client");
+            trace!(?input_buffer, ?tick, ?client_id, "input buffer for client");
             let received_input = input_buffer.pop(tick);
             let fallback = received_input.is_none();
 
@@ -176,7 +176,7 @@ fn write_input_event<A: UserAction>(
             };
             if fallback {
                 // TODO: do not log this while clients are syncing..
-                debug!(
+                trace!(
                 ?client_id,
                 ?tick,
                 fallback_input = ?&input,
