@@ -65,10 +65,11 @@ impl Plugin for ServerNetworkingPlugin {
             );
 
         // ON_START
-        app.add_systems(OnEnter(NetworkingState::Starting), on_start);
+        app.add_systems(OnEnter(NetworkingState::Starting), on_starting);
 
         // ON_STOP
-        app.add_systems(OnEnter(NetworkingState::Stopping), on_stop);
+        app.add_systems(OnEnter(NetworkingState::Stopping), on_stopping);
+        app.add_systems(OnEnter(NetworkingState::Stopped), on_stopped);
     }
 
     // This runs after all plugins have run build() and finish()
@@ -85,7 +86,8 @@ impl Plugin for ServerNetworkingPlugin {
 pub(crate) fn receive_packets(
     mut commands: Commands,
     mut connection_manager: ResMut<ConnectionManager>,
-    mut networking_state: ResMut<NextState<NetworkingState>>,
+    networking_state: Res<State<NetworkingState>>,
+    mut next_networking_state: ResMut<NextState<NetworkingState>>,
     mut netservers: ResMut<ServerConnections>,
     mut time_manager: ResMut<TimeManager>,
     tick_manager: Res<TickManager>,
@@ -121,7 +123,7 @@ pub(crate) fn receive_packets(
                             }
                             ServerIoEvent::ServerDisconnected(e) => {
                                 error!("Disconnect server because of io error: {:?}", e);
-                                networking_state.set(NetworkingState::Stopped);
+                                next_networking_state.set(NetworkingState::Stopped);
                             }
                             _ => {}
                         }
@@ -134,9 +136,11 @@ pub(crate) fn receive_packets(
 
         // copy the disconnections here because they get cleared in `netserver.try_update`
         let new_disconnections = netserver.new_disconnections();
-        let _ = netserver
-            .try_update(delta.as_secs_f64())
-            .map_err(|e| error!("Error updating netcode server: {:?}", e));
+        if networking_state.get() != &NetworkingState::Stopping {
+            let _ = netserver
+                .try_update(delta.as_secs_f64())
+                .map_err(|e| error!("Error updating netcode server: {:?}", e));
+        }
         for client_id in netserver.new_connections().iter().copied() {
             netservers.client_server_map.insert(client_id, server_idx);
             // spawn an entity for the client
@@ -349,7 +353,7 @@ fn rebuild_server_connections(world: &mut World) {
 /// - rebuild the server connections resource from the latest `ServerConfig`
 /// - rebuild the server connection manager
 /// - start listening on the server connections
-fn on_start(world: &mut World) {
+fn on_starting(world: &mut World) {
     if is_started_ref(world.get_resource_ref::<State<NetworkingState>>()) {
         error!("The server is already started. The server can only be started when it is stopped.");
         return;
@@ -365,7 +369,7 @@ fn on_start(world: &mut World) {
 }
 
 /// System that runs when we enter the Stopped state
-fn on_stop(
+fn on_stopping(
     mut server_connections: ResMut<ServerConnections>,
     mut server_state: ResMut<NextState<NetworkingState>>,
 ) {
@@ -373,6 +377,10 @@ fn on_stop(
         .stop()
         .inspect_err(|e| error!("Error stopping server connections: {:?}", e));
     server_state.set(NetworkingState::Stopped);
+}
+
+fn on_stopped() {
+    info!("Server is stopped.");
 }
 
 pub trait ServerCommands {
