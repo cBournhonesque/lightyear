@@ -11,6 +11,7 @@ which components are disabled. In particular, it is now possible to express 'dis
   - Replicate an event and buffer it in EventWriter with `send_event`
   - Replicate an event and trigger it with `trigger_event`
 - State is correctly cleaned up when the server is stopped (the ControlledBy and Client entities are correctly despawned)
+- Parent-Child hierarchy is now synced properly to the Predicted/Interpolated entities
 - Fixed how prediction/interpolation interact with authority transfer.
   - For example in the use case where we spawn an entity on Client 1, replicate it to the server, then give the server authority over the entity,
     a Predicted/Interpolated entities will now get spawned correctly on client 1

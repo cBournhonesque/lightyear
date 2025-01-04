@@ -160,6 +160,9 @@ impl Plugin for SharedPlugin {
         app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
         app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
+            // to replicate ParentSync on the predicted/interpolated entities so that they spawn their own hierarchies
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple)
             .add_map_entities();
         app.register_component::<Controlled>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
