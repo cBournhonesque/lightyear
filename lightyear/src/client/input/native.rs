@@ -46,7 +46,7 @@
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
-use tracing::{debug, error, trace};
+use tracing::{error, trace};
 
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;

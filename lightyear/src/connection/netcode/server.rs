@@ -954,7 +954,6 @@ impl<Ctx> NetcodeServer<Ctx> {
         debug!("server disconnecting client {client_id}");
         self.on_disconnect(client_id, addr);
         for _ in 0..self.cfg.num_disconnect_packets {
-            // self.send_to_client(DisconnectPacket::create(), client_id, io)?;
             // we do not use ? here because we want to continue even if the send fails
             let _ = self
                 .send_to_client(DisconnectPacket::create(), client_id, io)
@@ -1027,7 +1026,6 @@ pub(crate) mod connection {
     use super::*;
     use crate::connection::server::ConnectionError;
     use core::result::Result;
-    use tracing::info;
 
     #[derive(Default)]
     pub(crate) struct NetcodeServerContext {

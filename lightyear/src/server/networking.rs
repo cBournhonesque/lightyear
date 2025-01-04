@@ -1,8 +1,8 @@
 //! Defines the server bevy systems and run conditions
 use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
+use crate::prelude::server::is_stopped;
 use crate::prelude::{
-    is_host_server, server::is_started, ChannelRegistry, MainSet, MessageRegistry, TickManager,
-    TimeManager,
+    is_host_server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::serialize::reader::Reader;
@@ -11,6 +11,7 @@ use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::error::ServerError;
 use crate::server::io::ServerIoEvent;
+use crate::server::run_conditions::is_started_ref;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
@@ -32,6 +33,7 @@ impl Plugin for ServerNetworkingPlugin {
         app
             // REFLECTION
             .register_type::<IoConfig>()
+            .register_type::<NetworkingState>()
             // STATE
             .init_state::<NetworkingState>()
             // SYSTEM SETS
@@ -42,7 +44,7 @@ impl Plugin for ServerNetworkingPlugin {
                     InternalMainSet::<ServerMarker>::EmitEvents.in_set(MainSet::EmitEvents),
                 )
                     .chain()
-                    .run_if(is_started),
+                    .run_if(not(is_stopped)),
             )
             .configure_sets(
                 PostUpdate,
@@ -62,10 +64,10 @@ impl Plugin for ServerNetworkingPlugin {
             );
 
         // ON_START
-        app.add_systems(OnEnter(NetworkingState::Started), on_start);
+        app.add_systems(OnEnter(NetworkingState::Starting), on_start);
 
         // ON_STOP
-        app.add_systems(OnEnter(NetworkingState::Stopped), on_stop);
+        app.add_systems(OnEnter(NetworkingState::Stopping), on_stop);
     }
 
     // This runs after all plugins have run build() and finish()
@@ -159,6 +161,7 @@ pub(crate) fn receive_packets(
         // disconnects because we received a disconnect message
         for client_id in new_disconnections {
             if netservers.client_server_map.remove(&client_id).is_some() {
+                error!("removing connection from connection manager");
                 connection_manager.remove(client_id);
                 // NOTE: we don't despawn the entity right away to let the user react to
                 // the disconnect event
@@ -299,11 +302,14 @@ pub(crate) fn send_host_server(
 }
 
 /// Bevy [`State`] representing the networking state of the server.
-#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum NetworkingState {
+    /// 1 frame transition to run the Receive/Events system sets while the server is shutting down
+    Stopping,
     /// The server is not listening. The server plugin is disabled.
     #[default]
     Stopped,
+    Starting,
     // NOTE: there is no need for a `Starting` state because currently the server
     // `start` method is synchronous. Once it returns we know the server is started and ready.
     /// The server is ready to accept incoming connections.
@@ -345,7 +351,7 @@ fn rebuild_server_connections(world: &mut World) {
 /// - rebuild the server connection manager
 /// - start listening on the server connections
 fn on_start(world: &mut World) {
-    if is_started(world.get::<Res<State<NetworkingState::>>>()) {
+    if is_started_ref(world.get_resource_ref::<State<NetworkingState>>()) {
         error!("The server is already started. The server can only be started when it is stopped.");
         return;
     }
@@ -355,14 +361,19 @@ fn on_start(world: &mut World) {
         .resource_mut::<ServerConnections>()
         .start()
         .inspect_err(|e| error!("Error starting server connections: {:?}", e));
+    world.insert_resource(NextState::Pending(NetworkingState::Started));
     info!("Server is started.");
 }
 
 /// System that runs when we enter the Stopped state
-fn on_stop(mut server_connections: ResMut<ServerConnections>) {
+fn on_stop(
+    mut server_connections: ResMut<ServerConnections>,
+    mut server_state: ResMut<NextState<NetworkingState>>,
+) {
     let _ = server_connections
         .stop()
         .inspect_err(|e| error!("Error stopping server connections: {:?}", e));
+    server_state.set(NetworkingState::Stopped);
 }
 
 pub trait ServerCommands {
@@ -373,10 +384,85 @@ pub trait ServerCommands {
 
 impl ServerCommands for Commands<'_, '_> {
     fn start_server(&mut self) {
-        self.insert_resource(NextState::Pending(NetworkingState::Started));
+        self.insert_resource(NextState::Pending(NetworkingState::Starting));
     }
 
     fn stop_server(&mut self) {
-        self.insert_resource(NextState::Pending(NetworkingState::Stopped));
+        self.insert_resource(NextState::Pending(NetworkingState::Stopping));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::server::{ControlledBy, ControlledEntities, ServerCommands};
+    use crate::prelude::{client, server, ClientId, NetworkTarget, ServerConnectionManager};
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+    use bevy::prelude::{default, Entity, With};
+
+    /// Test that when the server stops:
+    /// - Controlled entities are removed
+    /// - Client entities are removed
+    /// - the Connection is removed from the ConnectionManager
+    #[test]
+    fn test_server_cleanup_on_stop() {
+        let mut stepper = BevyStepper::default();
+
+        let client = ClientId::Netcode(TEST_CLIENT_ID);
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(server::Replicate {
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(client),
+                    ..default()
+                },
+                ..default()
+            })
+            .id();
+        let server_client_entity = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<ControlledEntities>>()
+            .get_single(stepper.server_app.world())
+            .unwrap();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let client_entity = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // stop the server
+        stepper.server_app.world_mut().commands().stop_server();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the server-entity was removed, because of the ControlledBy component
+        assert!(stepper
+            .server_app
+            .world()
+            .get_entity(server_entity)
+            .is_err());
+        // check that the Client entity associated with the client was removed
+        assert!(stepper
+            .server_app
+            .world()
+            .get_entity(server_client_entity)
+            .is_err());
+        // check that the ConnectionManager doesn't have the connection anymore
+        assert!(stepper
+            .server_app
+            .world()
+            .resource::<ServerConnectionManager>()
+            .connection(client)
+            .is_err());
+        // check that the entity was despawned on the client
+        assert!(stepper.client_app.world().get_entity(client_entity).is_err());
     }
 }

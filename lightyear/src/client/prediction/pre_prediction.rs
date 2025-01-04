@@ -8,7 +8,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::is_synced;
-use crate::prelude::server::{ServerConfig, ServerConnections};
+use crate::prelude::server::{NetworkingState, ServerConfig};
 use crate::prelude::{
     is_host_server_ref, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
     ShouldBePredicted, TickManager,
@@ -116,7 +116,7 @@ impl PrePredictionPlugin {
                 //  to remove PrePredicted and add Predicted
                 if is_host_server_ref(
                     world.get_resource_ref::<ServerConfig>(),
-                    world.get_resource_ref::<ServerConnections>(),
+                    world.get_resource_ref::<State<NetworkingState>>(),
                 ) {
                     // world.entity_mut(predicted_entity).remove::<PrePredicted>();
                     world.entity_mut(predicted_entity).insert(Predicted {

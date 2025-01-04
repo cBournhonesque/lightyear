@@ -1,8 +1,8 @@
 //! Common run conditions
-use crate::connection::server::ServerConnections;
 use crate::prelude::server::{is_started, ServerConfig};
 use crate::prelude::{Mode, NetworkIdentity};
 use crate::server::networking::NetworkingState;
+use crate::server::run_conditions::is_started_ref;
 use bevy::prelude::{Ref, Res, State};
 
 /// Returns true if the peer is a client
@@ -32,10 +32,10 @@ pub fn is_host_server(
 
 pub fn is_host_server_ref(
     config: Option<Ref<ServerConfig>>,
-    server_state: Option<Res<State<NetworkingState>>>,
+    server_state: Option<Ref<State<NetworkingState>>>,
 ) -> bool {
     config.map_or(false, |config| {
-        matches!(config.shared.mode, Mode::HostServer) && is_started(server_state)
+        matches!(config.shared.mode, Mode::HostServer) && is_started_ref(server_state)
     })
 }
 

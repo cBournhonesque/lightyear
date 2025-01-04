@@ -327,7 +327,7 @@ pub mod prelude {
             },
             ReplicationSet, ServerReplicationSet,
         };
-        pub use crate::server::run_conditions::{is_started, is_stopped, NetworkingStateExt};
+        pub use crate::server::run_conditions::{is_started, is_stopped};
         pub use crate::shared::replication::authority::AuthorityPeer;
     }
 

@@ -9,7 +9,7 @@ use crate::prelude::{
     LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
     PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
 };
-use crate::server::run_conditions::NetworkingStateExt;
+use crate::server::run_conditions::is_started_ref;
 use crate::shared::config::SharedConfig;
 use crate::shared::replication::authority::AuthorityChange;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
@@ -56,7 +56,9 @@ impl FromWorld for Identity {
         let Some(config) = world.get_resource::<ClientConfig>() else {
             return Identity::Server;
         };
-        if matches!(config.shared.mode, Mode::HostServer) && world.is_started() {
+        if matches!(config.shared.mode, Mode::HostServer)
+            && is_started_ref(world.get_resource_ref::<State<NetworkingState>>())
+        {
             Identity::HostServer
         } else {
             let client_id = world
