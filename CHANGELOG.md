@@ -9,6 +9,13 @@ which components are disabled. In particular, it is now possible to express 'dis
   - Add an `Event` to the protocol with `register_event`
   - Replicate an event and buffer it in EventWriter with `send_event`
   - Replicate an event and trigger it with `trigger_event`
+- State is correctly cleaned up when the server is stopped (the ControlledBy and Client entities are correctly despawned)
+- Fixed how prediction/interpolation interact with authority transfer.
+  - For example in the use case where we spawn an entity on Client 1, replicate it to the server, then give the server authority over the entity,
+    a Predicted/Interpolated entities will now get spawned correctly on client 1
+- Fixed some edge cases related to InterestManagement
+- Fixed a bug where ChannelDirection was not respected (a ClientToServer component would still get replicated from the server to the client) 
+
 
 
 ## 0.18.0 - 2024-12-24
