@@ -83,7 +83,6 @@ pub struct ConnectionManager {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_events: HashMap<NetId, Vec<Bytes>>,
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
     pub(crate) writer: Writer,
 
@@ -121,7 +120,6 @@ impl Default for ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            received_events: HashMap::default(),
             received_messages: HashMap::default(),
             writer: Writer::with_capacity(0),
             messages_to_send: Vec::default(),
@@ -175,7 +173,6 @@ impl ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            received_events: HashMap::default(),
             received_messages: HashMap::default(),
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_send: Vec::default(),
@@ -436,14 +433,8 @@ impl ConnectionManager {
                             MessageType::NativeInput => {
                                 todo!()
                             }
-                            MessageType::Normal => {
+                            MessageType::Normal | MessageType::Event => {
                                 self.received_messages
-                                    .entry(net_id)
-                                    .or_default()
-                                    .push(single_data);
-                            }
-                            MessageType::Event => {
-                                self.received_events
                                     .entry(net_id)
                                     .or_default()
                                     .push(single_data);
@@ -483,14 +474,8 @@ impl ConnectionManager {
             MessageType::NativeInput => {
                 todo!()
             }
-            MessageType::Normal => {
+            MessageType::Normal | MessageType::Event => {
                 self.received_messages
-                    .entry(net_id)
-                    .or_default()
-                    .push(single_data);
-            }
-            MessageType::Event => {
-                self.received_events
                     .entry(net_id)
                     .or_default()
                     .push(single_data);

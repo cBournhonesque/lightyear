@@ -21,7 +21,7 @@ pub struct InputPlugin<A: UserAction> {
 pub struct InputBuffers<A> {
     /// The first element stores the last input we have received from the client.
     /// In case we are missing the client input for a tick, we will fallback to using this.
-    buffers: HashMap<ClientId, (Option<A>, InputBuffer<A>)>,
+    pub(crate) buffers: HashMap<ClientId, (Option<A>, InputBuffer<A>)>,
 }
 
 impl<A> Default for InputBuffers<A> {

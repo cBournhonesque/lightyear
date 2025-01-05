@@ -131,7 +131,7 @@ mod game {
         tick_manager: Res<TickManager>,
     ) {
         for input in input_reader.read() {
-            let client_id = input.context();
+            let client_id = input.from();
             if let Some(input) = input.input() {
                 trace!(
                     "Receiving input: {:?} from client: {:?} on tick: {:?}",
@@ -142,7 +142,7 @@ mod game {
                 // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
                 //  entities here
                 for (controlled_by, position) in position_query.iter_mut() {
-                    if controlled_by.targets(client_id) {
+                    if controlled_by.targets(&client_id) {
                         shared_movement_behaviour(position, input);
                     }
                 }
@@ -167,7 +167,7 @@ mod lobby {
         mut commands: Commands,
     ) {
         for lobby_join in events.read() {
-            let client_id = *lobby_join.context();
+            let client_id = lobby_join.from();
             let lobby_id = lobby_join.message().lobby_id;
             info!("Client {client_id:?} joined lobby {lobby_id:?}");
             let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
@@ -194,10 +194,10 @@ mod lobby {
         mut room_manager: ResMut<RoomManager>,
     ) {
         for lobby_join in events.read() {
-            let client_id = lobby_join.context();
+            let client_id = lobby_join.from();
             let lobby_id = lobby_join.message().lobby_id;
-            room_manager.remove_client(*client_id, RoomId(lobby_id as u64));
-            lobbies.remove_client(*client_id);
+            room_manager.remove_client(client_id, RoomId(lobby_id as u64));
+            lobbies.remove_client(client_id);
         }
     }
 
@@ -211,7 +211,7 @@ mod lobby {
         mut commands: Commands,
     ) {
         for event in events.read() {
-            let client_id = event.context();
+            let client_id = event.from();
             let lobby_id = event.message().lobby_id;
             let host = event.message().host;
             let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
@@ -226,16 +226,16 @@ mod lobby {
 
             let room_id = RoomId(lobby_id as u64);
             // the client was not part of the lobby, they are joining in the middle of the game
-            if !lobby.players.contains(client_id) {
-                lobby.players.push(*client_id);
+            if !lobby.players.contains(&client_id) {
+                lobby.players.push(client_id);
                 if host.is_none() {
-                    let entity = spawn_player_entity(&mut commands, *client_id, true);
+                    let entity = spawn_player_entity(&mut commands, client_id, true);
                     room_manager.add_entity(entity, room_id);
-                    room_manager.add_client(*client_id, room_id);
+                    room_manager.add_client(client_id, room_id);
                 }
                 // send the StartGame message to the client who is trying to join the game
                 let _ = connection_manager.send_message::<Channel1, _>(
-                    *client_id,
+                    client_id,
                     &mut StartGame {
                         lobby_id,
                         host: lobby.host,

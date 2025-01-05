@@ -1,77 +1,84 @@
-use std::ops::DerefMut;
-
-use crate::prelude::{server::is_started, Message};
-use crate::protocol::message::{MessageKind, MessageRegistry};
+use crate::prelude::server::is_stopped;
+use crate::protocol::message::MessageRegistry;
 use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
-use crate::server::events::MessageEvent;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
-use bevy::app::{App, PreUpdate};
-use bevy::prelude::{EventWriter, IntoSystemConfigs, Res, ResMut};
+use bevy::app::{App, Plugin, PreUpdate};
+use bevy::prelude::{not, Commands, IntoSystemConfigs, Mut, ResMut, World};
 use tracing::{error, trace};
 
-/// Read the messages received from the clients and emit the MessageEvent event
-fn read_message<M: Message>(
-    message_registry: Res<MessageRegistry>,
-    mut connection_manager: ResMut<ConnectionManager>,
-    mut event: EventWriter<MessageEvent<M>>,
-) {
-    let kind = MessageKind::of::<M>();
-    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
-        error!(
-            "Could not find the network id for the message kind: {:?}",
-            kind
+/// Plugin that adds functionality related to receiving messages from clients
+#[derive(Default)]
+pub struct ServerMessagePlugin;
+
+impl Plugin for ServerMessagePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            PreUpdate,
+            read_messages
+                .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
+                .run_if(not(is_stopped)),
         );
-        return;
-    };
-    // re-borrow to allow split borrows
-    let connection_manager = connection_manager.deref_mut();
-    for (client_id, connection) in connection_manager.connections.iter_mut() {
-        if let Some(message_list) = connection.received_messages.remove(&net) {
-            for (message_bytes, target, channel_kind) in message_list {
-                let mut reader = Reader::from(message_bytes);
-                match message_registry.deserialize::<M>(
-                    &mut reader,
-                    &mut connection
-                        .replication_receiver
-                        .remote_entity_map
-                        .remote_to_local,
-                ) {
-                    Ok(message) => {
-                        // rebroadcast
-                        if target != NetworkTarget::None {
-                            connection.messages_to_rebroadcast.push((
-                                reader.consume(),
-                                target,
-                                channel_kind,
-                            ));
-                        }
-                        event.send(MessageEvent::new(message, *client_id));
-                        trace!("Received message: {:?}", std::any::type_name::<M>());
-                    }
-                    Err(e) => {
-                        error!(
-                            "Could not deserialize message {}: {:?}",
-                            std::any::type_name::<M>(),
-                            e
-                        );
-                    }
-                }
-            }
-        }
     }
 }
 
-/// Register a message that can be sent from client to server
-pub(crate) fn add_server_receive_message_from_client<M: Message>(app: &mut App) {
-    app.add_event::<MessageEvent<M>>();
-    app.add_systems(
-        PreUpdate,
-        read_message::<M>
-            .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
-            .run_if(is_started),
-    );
+/// Read the messages received from the clients and emit the MessageEvent events
+/// Also rebroadcast the messages if needed
+fn read_messages(mut commands: Commands, mut connection_manager: ResMut<ConnectionManager>) {
+    // re-borrow to allow split borrows
+    for (client_id, connection) in connection_manager.connections.iter_mut() {
+        connection
+            .received_messages
+            .iter_mut()
+            .for_each(|(net_id, message_list)| {
+                message_list
+                    .drain(..)
+                    .for_each(|(message_bytes, target, channel_kind)| {
+                        let mut reader = Reader::from(message_bytes);
+                        // make copies to avoid `connection_manager` to be moved inside the closure
+                        let net_id = *net_id;
+                        let client_id = *client_id;
+                        commands.queue(move |world: &mut World| {
+                            // NOTE: removing the resources is a bit risky... however we use the world
+                            // only to get the Events<MessageEvent<M>> so it should be ok
+                            world.resource_scope(|world, registry: Mut<MessageRegistry>| {
+                                world.resource_scope(
+                                    |world, mut manager: Mut<ConnectionManager>| {
+                                            let connection =
+                                                manager.connection_mut(client_id).unwrap();
+                                            match registry.receive_message(
+                                                net_id,
+                                                world,
+                                                client_id,
+                                                &mut reader,
+                                                &mut connection
+                                                    .replication_receiver
+                                                    .remote_entity_map
+                                                    .remote_to_local,
+                                            ) {
+                                                Ok(_) => {
+                                                    // rebroadcast
+                                                    if target != NetworkTarget::None {
+                                                        connection.messages_to_rebroadcast.push((
+                                                            reader.consume(),
+                                                            target,
+                                                            channel_kind,
+                                                        ));
+                                                    }
+                                                    trace!("Received message! NetId: {net_id:?}");
+                                                }
+                                                Err(e) => {
+                                                    error!("Could not deserialize message (NetId: {net_id:?}): {e:?}");
+                                                }
+                                            }
+                                    },
+                                )
+                            });
+                        })
+                    })
+            });
+    }
 }
 
 // impl ServerMessage {

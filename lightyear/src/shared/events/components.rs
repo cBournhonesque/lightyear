@@ -5,25 +5,29 @@ use std::marker::PhantomData;
 use bevy::prelude::{Component, Entity, Event};
 
 use crate::packet::message::Message;
+use crate::prelude::ClientId;
 
 /// This event is emitted whenever we receive a message from the remote
 #[derive(Event, Debug)]
-pub struct MessageEvent<M: Message, Ctx = ()> {
+pub struct MessageEvent<M: Message> {
     pub message: M,
-    pub context: Ctx,
+    // TODO: this is not ideal. Should we have PeerId that is either ClientId or Server?
+    /// The client that sent the message.
+    /// If the server sent the message, we will just put ClientId::Local(0) here
+    pub from: ClientId,
 }
 
-impl<M: Message, Ctx> MessageEvent<M, Ctx> {
-    pub fn new(message: M, context: Ctx) -> Self {
-        Self { message, context }
+impl<M: Message> MessageEvent<M> {
+    pub fn new(message: M, from: ClientId) -> Self {
+        Self { message, from }
     }
 
     pub fn message(&self) -> &M {
         &self.message
     }
 
-    pub fn context(&self) -> &Ctx {
-        &self.context
+    pub fn from(&self) -> ClientId {
+        self.from
     }
 }
 

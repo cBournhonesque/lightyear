@@ -38,7 +38,7 @@ pub(crate) fn movement(
     tick_manager: Res<TickManager>,
 ) {
     for input in input_reader.read() {
-        let client_id = input.context();
+        let client_id = input.from();
         if let Some(input) = input.input() {
             if matches!(input, Inputs::None) {
                 continue;
@@ -51,7 +51,7 @@ pub(crate) fn movement(
             );
 
             for (position, player_id) in position_query.iter_mut() {
-                if player_id.0 == *client_id {
+                if player_id.0 == client_id {
                     // NOTE: be careful to directly pass Mut<PlayerPosition>
                     // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
                     shared_movement_behaviour(position, input);
@@ -67,14 +67,14 @@ fn delete_player(
     query: Query<(Entity, &PlayerId), With<PlayerPosition>>,
 ) {
     for input in input_reader.read() {
-        let client_id = input.context();
+        let client_id = input.from();
         if let Some(input) = input.input() {
             if matches!(input, Inputs::Delete) {
                 debug!("received delete input!");
                 for (entity, player_id) in query.iter() {
                     // NOTE: we could not accept the despawn (server conflict)
                     //  in which case the client would have to rollback to delete
-                    if player_id.0 == *client_id {
+                    if player_id.0 == client_id {
                         // You can try 2 things here:
                         // - either you consider that the client's action is correct, and you despawn the entity. This should get replicated
                         //   to other clients.

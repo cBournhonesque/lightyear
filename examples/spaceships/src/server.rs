@@ -100,7 +100,7 @@ pub(crate) fn replicate_inputs(
     mut input_events: ResMut<Events<MessageEvent<InputMessage<PlayerActions>>>>,
 ) {
     for mut event in input_events.drain() {
-        let client_id = *event.context();
+        let client_id = event.from();
 
         // Optional: do some validation on the inputs to check that there's no cheating
         // Inputs for a specific tick should be write *once*. Don't let players change old inputs.
