@@ -39,11 +39,11 @@ pub(crate) enum MessageType {
     /// This is a message for a [`LeafwingUserAction`](crate::inputs::leafwing::LeafwingUserAction)
     #[cfg(feature = "leafwing")]
     LeafwingInput,
-    /// This is a message for a [`UserAction`](crate::inputs::native::UserAction)
+    /// This is a message for a [`UserAction`]
     NativeInput,
     /// This is not an input message, but a regular [`Message`]
     Normal,
-    /// This message is an [`Event`], which can get triggered or buffered in an EventWriter on the remote world
+    /// This message is an [`Event`](bevy::prelude::Event), which can get triggered or buffered in an EventWriter on the remote world
     Event,
 }
 

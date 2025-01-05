@@ -21,7 +21,7 @@ pub trait EventSend: private::InternalEventSend {
         self.erased_send_event_to_target(event, ChannelKind::of::<C>(), target)
     }
 
-    /// Replicate the `event` to the `target` via channel [`C`] and then trigger the event
+    /// Replicate the `event` to the `target` via channel `C` and then trigger the event
     /// in the remote World
     fn trigger_event_to_target<C: Channel, E: Event + Message>(
         &mut self,
