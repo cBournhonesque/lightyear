@@ -792,11 +792,8 @@ impl Connection {
                                     .or_default()
                                     .push(data);
                             }
-                            MessageType::Normal => {
+                            MessageType::Normal | MessageType::Event => {
                                 self.received_messages.entry(net_id).or_default().push(data);
-                            }
-                            MessageType::Event => {
-                                self.received_events.entry(net_id).or_default().push(data);
                             }
                         }
                     }
@@ -852,11 +849,8 @@ impl Connection {
                     .or_default()
                     .push(data);
             }
-            MessageType::Normal => {
+            MessageType::Normal | MessageType::Event => {
                 self.received_messages.entry(net_id).or_default().push(data);
-            }
-            MessageType::Event => {
-                self.received_events.entry(net_id).or_default().push(data);
             }
         }
         Ok(())

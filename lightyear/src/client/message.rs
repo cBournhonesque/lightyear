@@ -1,18 +1,30 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 
-use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut};
+use bevy::prelude::{App, Commands, IntoSystemConfigs, Mut, Plugin, PreUpdate, ResMut, World};
 use byteorder::WriteBytesExt;
 use bytes::Bytes;
 use tracing::error;
 
 use crate::client::connection::ConnectionManager;
-use crate::client::events::MessageEvent;
-use crate::prelude::{client::is_connected, Message};
-use crate::protocol::message::{MessageKind, MessageRegistry};
+use crate::prelude::{client::is_connected, ClientId};
+use crate::protocol::message::MessageRegistry;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
+
+pub struct ClientMessagePlugin;
+
+impl Plugin for ClientMessagePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            PreUpdate,
+            read_messages
+                .in_set(InternalMainSet::<ClientMarker>::EmitEvents)
+                .run_if(is_connected),
+        );
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientMessage {
@@ -45,48 +57,42 @@ impl ToBytes for ClientMessage {
     }
 }
 
-/// Read the message received from the server and emit the MessageEvent event
-fn read_message<M: Message>(
-    message_registry: Res<MessageRegistry>,
-    mut connection: ResMut<ConnectionManager>,
-    mut event: EventWriter<MessageEvent<M>>,
-) {
-    let kind = MessageKind::of::<M>();
-    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
-        error!(
-            "Could not find the network id for the message kind: {:?}",
-            kind
-        );
-        return;
-    };
-    if let Some(message_list) = connection.received_messages.remove(&net) {
-        for message in message_list {
-            let mut reader = Reader::from(message);
-            // we have to re-decode the net id
-            let Ok(message) = message_registry.deserialize::<M>(
-                &mut reader,
-                &mut connection
-                    .replication_receiver
-                    .remote_entity_map
-                    .remote_to_local,
-            ) else {
-                error!("Could not deserialize message");
-                continue;
-            };
-            event.send(MessageEvent::new(message, ()));
-        }
-    }
-}
-
-/// Register a message that can be sent from server to client
-pub(crate) fn add_client_receive_message_from_server<M: Message>(app: &mut App) {
-    app.add_event::<MessageEvent<M>>();
-    app.add_systems(
-        PreUpdate,
-        read_message::<M>
-            .in_set(InternalMainSet::<ClientMarker>::EmitEvents)
-            .run_if(is_connected),
-    );
+/// Read the messages received from the server and handle them:
+/// - Messages: send a MessageEvent
+/// - Events: send them to EventWriter or trigger them
+fn read_messages(mut commands: Commands, mut connection: ResMut<ConnectionManager>) {
+    connection
+        .received_messages
+        .iter_mut()
+        .for_each(|(net_id, message_list)| {
+            message_list.drain(..).for_each(|message| {
+                let mut reader = Reader::from(message);
+                // make copies to avoid `connection` to be moved inside the closure
+                let net_id = *net_id;
+                commands.queue(move |world: &mut World| {
+                    // NOTE: removing the resources is a bit risky... however we use the world
+                    // only to get the Events<MessageEvent<M>> so it should be ok
+                    world.resource_scope(|world, registry: Mut<MessageRegistry>| {
+                        world.resource_scope(|world, mut manager: Mut<ConnectionManager>| {
+                            let _ = registry
+                                // we have to re-decode the net id
+                                .receive_message(
+                                    net_id,
+                                    world,
+                                    // TODO: include the client that rebroadcasted the message?
+                                    ClientId::Local(0),
+                                    &mut reader,
+                                    &mut manager
+                                        .replication_receiver
+                                        .remote_entity_map
+                                        .remote_to_local,
+                                )
+                                .inspect_err(|e| error!("Could not deserialize message: {:?}", e));
+                        })
+                    });
+                });
+            })
+        });
 }
 
 // impl ClientMessage {

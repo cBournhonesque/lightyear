@@ -5,7 +5,6 @@ use bevy::app::{App, Plugin};
 use crate::client::config::ClientConfig;
 use crate::inputs::native::InputMessage;
 use crate::prelude::{MessageRegistry, UserAction};
-use crate::protocol::message::MessageType;
 use crate::server::config::ServerConfig;
 
 pub struct InputPlugin<A: UserAction> {
@@ -26,7 +25,8 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
     fn finish(&self, app: &mut App) {
         app.world_mut()
             .resource_mut::<MessageRegistry>()
-            .add_message::<InputMessage<A>>(MessageType::NativeInput);
+            .add_message::<InputMessage<A>>();
+        // TODO: add MessageType!
         let is_client = app.world().get_resource::<ClientConfig>().is_some();
         let is_server = app.world().get_resource::<ServerConfig>().is_some();
         if is_client {

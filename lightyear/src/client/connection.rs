@@ -436,14 +436,8 @@ impl ConnectionManager {
                             MessageType::NativeInput => {
                                 todo!()
                             }
-                            MessageType::Normal => {
+                            MessageType::Normal | MessageType::Event => {
                                 self.received_messages
-                                    .entry(net_id)
-                                    .or_default()
-                                    .push(single_data);
-                            }
-                            MessageType::Event => {
-                                self.received_events
                                     .entry(net_id)
                                     .or_default()
                                     .push(single_data);
@@ -483,14 +477,8 @@ impl ConnectionManager {
             MessageType::NativeInput => {
                 todo!()
             }
-            MessageType::Normal => {
+            MessageType::Normal | MessageType::Event => {
                 self.received_messages
-                    .entry(net_id)
-                    .or_default()
-                    .push(single_data);
-            }
-            MessageType::Event => {
-                self.received_events
                     .entry(net_id)
                     .or_default()
                     .push(single_data);

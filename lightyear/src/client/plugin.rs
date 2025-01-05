@@ -14,6 +14,7 @@ use bevy::prelude::*;
 use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use crate::client::events::ClientEventsPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
+use crate::client::message::ClientMessagePlugin;
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::{
@@ -56,6 +57,7 @@ impl PluginGroup for ClientPlugins {
             .add(SetupPlugin {
                 config: self.config,
             })
+            .add(ClientMessagePlugin)
             .add(ClientEventsPlugin)
             .add(ClientNetworkingPlugin)
             .add(ClientDiagnosticsPlugin::default())

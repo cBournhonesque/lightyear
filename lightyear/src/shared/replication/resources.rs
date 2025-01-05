@@ -181,7 +181,6 @@ pub(crate) mod send {
 
 pub(crate) mod receive {
 
-    use crate::protocol::EventContext;
     use crate::shared::events::components::MessageEvent;
     use crate::shared::message::MessageSend;
 
@@ -228,22 +227,22 @@ pub(crate) mod receive {
         if is_bidirectional {
             app.add_systems(
                 PreUpdate,
-                handle_resource_message_bidirectional::<R, S::EventContext>
+                handle_resource_message_bidirectional::<R>
                     .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
             );
         } else {
             app.add_systems(
                 PreUpdate,
-                handle_resource_message::<R, S::EventContext>
+                handle_resource_message::<R>
                     .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
             );
         }
     }
 
-    fn handle_resource_message<R: Resource + Message, Ctx: EventContext>(
+    fn handle_resource_message<R: Resource + Message>(
         mut commands: Commands,
-        mut update_message: ResMut<Events<MessageEvent<R, Ctx>>>,
-        mut remove_message: EventReader<MessageEvent<DespawnResource<R>, Ctx>>,
+        mut update_message: ResMut<Events<MessageEvent<R>>>,
+        mut remove_message: EventReader<MessageEvent<DespawnResource<R>>>,
         mut resource: Option<ResMut<R>>,
     ) {
         for message in update_message.drain() {
@@ -262,10 +261,10 @@ pub(crate) mod receive {
         }
     }
 
-    fn handle_resource_message_bidirectional<R: Resource + Message, Ctx: EventContext>(
+    fn handle_resource_message_bidirectional<R: Resource + Message>(
         mut commands: Commands,
-        mut update_message: ResMut<Events<MessageEvent<R, Ctx>>>,
-        mut remove_message: EventReader<MessageEvent<DespawnResource<R>, Ctx>>,
+        mut update_message: ResMut<Events<MessageEvent<R>>>,
+        mut remove_message: EventReader<MessageEvent<DespawnResource<R>>>,
         mut resource: Option<ResMut<R>>,
     ) {
         for message in update_message.drain() {
