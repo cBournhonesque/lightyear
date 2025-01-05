@@ -4,7 +4,7 @@ members = [
   "lightyear",
   "macros",
   # internal
-  "benches",
+  "benches/*",
   "examples/*",
 ]
 default-members = ["lightyear"]

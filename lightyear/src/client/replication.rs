@@ -654,7 +654,7 @@ pub(crate) mod send {
         Ok(())
     }
 
-    /// Send component remove
+    /// Send component remove message when a component gets removed
     pub(crate) fn send_component_removed<C: Component>(
         trigger: Trigger<OnRemove, C>,
         registry: Res<ComponentRegistry>,
