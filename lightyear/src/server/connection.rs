@@ -515,7 +515,6 @@ pub struct Connection {
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_events: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     pub(crate) received_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
@@ -573,7 +572,6 @@ impl Connection {
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             events: ConnectionEvents::default(),
-            received_events: HashMap::default(),
             received_messages: HashMap::default(),
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]

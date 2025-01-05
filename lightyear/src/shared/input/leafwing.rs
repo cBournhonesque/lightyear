@@ -27,6 +27,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
 
     // we build this in `finish` to be sure that the MessageRegistry, ClientConfig, ServerConfig exists
     fn finish(&self, app: &mut App) {
+        // TODO: this creates a receive_message fn for InputMessage that is never use as we have
+        //  custom handling of LeafwingInputMessage
         // leafwing messages have special handling so we register them as LeafwingInput
         // we still use `add_message_internal` because we want to emit events contain the message
         // so the user can inspect them and re-broadcast them to other players

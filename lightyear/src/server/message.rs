@@ -1,11 +1,11 @@
-use crate::prelude::server::is_started;
+use crate::prelude::server::is_stopped;
 use crate::protocol::message::MessageRegistry;
 use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::app::{App, Plugin, PreUpdate};
-use bevy::prelude::{Commands, IntoSystemConfigs, Mut, ResMut, World};
+use bevy::prelude::{not, Commands, IntoSystemConfigs, Mut, ResMut, World};
 use tracing::{error, trace};
 
 /// Plugin that adds functionality related to receiving messages from clients
@@ -18,7 +18,7 @@ impl Plugin for ServerMessagePlugin {
             PreUpdate,
             read_messages
                 .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
-                .run_if(is_started),
+                .run_if(not(is_stopped)),
         );
     }
 }
