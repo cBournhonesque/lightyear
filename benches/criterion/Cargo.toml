@@ -33,7 +33,6 @@ divan = "0.1.14"
 name = "replication_profiling"
 path = "replication_profiling.rs"
 
-
 [[bench]]
 name = "replication"
 path = "replication.rs"
