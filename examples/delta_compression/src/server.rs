@@ -102,7 +102,7 @@ fn movement(
     tick_manager: Res<TickManager>,
 ) {
     for input in input_reader.read() {
-        let client_id = input.context();
+        let client_id = input.from();
         if let Some(input) = input.input() {
             trace!(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
@@ -111,7 +111,7 @@ fn movement(
                 tick_manager.tick()
             );
 
-            if let Some(player) = entity_map.0.get(client_id) {
+            if let Some(player) = entity_map.0.get(&client_id) {
                 if let Ok(position) = position_query.get_mut(*player) {
                     shared::shared_movement_behaviour(position, input);
                 }

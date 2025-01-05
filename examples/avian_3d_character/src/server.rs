@@ -101,7 +101,7 @@ pub(crate) fn replicate_inputs(
     mut input_events: ResMut<Events<MessageEvent<InputMessage<CharacterAction>>>>,
 ) {
     for mut event in input_events.drain() {
-        let client_id = *event.context();
+        let client_id = event.from();
         // Rebroadcast the input to other clients.
         connection
             .send_message_to_target::<InputChannel, _>(

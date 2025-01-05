@@ -60,7 +60,7 @@ pub(crate) fn movement(
     tick_manager: Res<TickManager>,
 ) {
     for input in input_reader.read() {
-        let client_id = input.context();
+        let client_id = input.from();
         if let Some(input) = input.input() {
             debug!(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
@@ -71,7 +71,7 @@ pub(crate) fn movement(
             // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
             //  entities here
             for (controlled_by, position) in position_query.iter_mut() {
-                if controlled_by.targets(client_id) {
+                if controlled_by.targets(&client_id) {
                     shared::shared_movement_behaviour(position, input);
                 }
             }
