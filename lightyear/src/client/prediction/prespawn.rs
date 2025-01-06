@@ -212,6 +212,13 @@ impl PreSpawnedPlayerObjectPlugin {
                         .id()
                 };
 
+            // update the predicted entity mapping
+            manager
+                .predicted_entity_map
+                .get_mut()
+                .confirmed_to_predicted
+                .insert(confirmed_entity, predicted_entity);
+
             // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawnedPlayerObject
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
