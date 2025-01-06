@@ -1,10 +1,9 @@
-use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
+use bevy::prelude::{Added, Commands, Entity, Query, Res};
 use tracing::trace;
 
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
 use crate::prelude::TickManager;
 use crate::shared::replication::components::ShouldBeInterpolated;
@@ -14,7 +13,6 @@ pub(crate) fn spawn_interpolated_entity(
     tick_manager: Res<TickManager>,
     config: Res<ClientConfig>,
     connection: Res<ConnectionManager>,
-    mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
 ) {
@@ -24,13 +22,6 @@ pub(crate) fn spawn_interpolated_entity(
             continue;
         }
         let interpolated = commands.spawn(Interpolated { confirmed_entity }).id();
-
-        // update the entity mapping
-        manager
-            .interpolated_entity_map
-            .get_mut()
-            .confirmed_to_interpolated
-            .insert(confirmed_entity, interpolated);
 
         // add Confirmed to the confirmed entity
         // safety: we know the entity exists

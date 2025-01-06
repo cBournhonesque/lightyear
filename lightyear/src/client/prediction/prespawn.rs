@@ -1,4 +1,5 @@
 //! Handles spawning entities that are predicted
+
 use bevy::ecs::component::{Components, StorageType};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -380,7 +381,7 @@ impl Component for PreSpawnedPlayerObject {
                 prespawned_obj.user_salt,
             );
             // update component with the computed hash
-            trace!(
+            debug!(
                 ?entity,
                 ?tick,
                 hash = ?hash,
@@ -486,7 +487,7 @@ mod tests {
     use crate::client::prediction::resource::PredictionManager;
     use bevy::prelude::{default, Entity, With};
 
-    use crate::prelude::client::Confirmed;
+    use crate::prelude::client::{Confirmed, Predicted};
     use crate::prelude::server::{Replicate, SyncTarget};
     use crate::prelude::*;
     use crate::tests::protocol::*;
@@ -554,13 +555,94 @@ mod tests {
     }
 
     /// Client and server run the same system to prespawn an entity
-    /// The pre-spawn somehow fails on the client.
-    /// The server should spawn the entity, it gets spawned to the client.
-    /// The client spawns a Predicted version of the entity.
+    /// Server's should take over authority over the entity
+    ///
+    #[test]
+    fn test_prespawn_success() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::DEBUG)
+        //     .init();
+        let mut stepper = BevyStepper::default();
+
+        let client_prespawn = stepper
+            .client_app
+            .world_mut()
+            .spawn(PreSpawnedPlayerObject::new(1))
+            .id();
+        let server_prespawn = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                PreSpawnedPlayerObject::new(1),
+                Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        ..default()
+                    },
+                    ..default()
+                },
+            ))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // thanks to pre-spawning, a Confirmed entity has been spawned on the client
+        // that Confirmed entity is replicate from server_prespawn
+        // and has client_prespawn as predicted entity
+        let predicted = stepper
+            .client_app
+            .world()
+            .get::<Predicted>(client_prespawn)
+            .unwrap();
+        let confirmed = predicted.confirmed_entity.unwrap();
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Confirmed>(confirmed)
+                .unwrap()
+                .predicted
+                .unwrap(),
+            client_prespawn
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .resource::<ClientConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_prespawn)
+                .unwrap(),
+            confirmed
+        );
+        // The PreSpawnPlayerObject component has been removed on the client
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<PreSpawnedPlayerObject>(client_prespawn)
+            .is_none());
+
+        // if the Confirmed entity is depsawned, the Predicted entity should also be despawned
+        stepper.client_app.world_mut().despawn(confirmed);
+        stepper.frame_step();
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_prespawn)
+            .is_err());
+    }
+
+    /// Client and server run the same system to prespawn an entity
+    /// The pre-spawn somehow fails on the client (no matching hash)
+    /// The server entity should just get normally Predicted on the client
+    ///
+    /// If the Confirmed entity is despawned, the Predicted entity should be despawned
     #[test]
     fn test_prespawn_client_missing() {
         let mut stepper = BevyStepper::default();
 
+        // spawn extra entities to check that EntityMapping works correctly with pre-spawning
         let server_entity = stepper
             .server_app
             .world_mut()
@@ -640,5 +722,14 @@ mod tests {
                 .0,
             client_predicted
         );
+
+        // If we despawn the confirmed entity, the predicted entity should also be despawned
+        stepper.client_app.world_mut().despawn(client_confirmed_2);
+        stepper.frame_step();
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_predicted_2)
+            .is_err());
     }
 }

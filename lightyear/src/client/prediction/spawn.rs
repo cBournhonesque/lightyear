@@ -1,10 +1,9 @@
 //! Logic to handle spawning Predicted entities
-use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
+use bevy::prelude::{Added, Commands, Entity, Query, Res};
 use tracing::debug;
 
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
-use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::prelude::{ShouldBePredicted, TickManager};
 
@@ -15,7 +14,6 @@ use crate::prelude::{ShouldBePredicted, TickManager};
 pub(crate) fn spawn_predicted_entity(
     tick_manager: Res<TickManager>,
     connection: Res<ConnectionManager>,
-    mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
 
     // TODO: instead of listening to the ComponentInsertEvent, should we just directly query on Added<ShouldBePredicted>?
@@ -50,13 +48,6 @@ pub(crate) fn spawn_predicted_entity(
         {
             metrics::counter!("spawn_predicted_entity").increment(1);
         }
-
-        // update the predicted entity mapping
-        manager
-            .predicted_entity_map
-            .get_mut()
-            .confirmed_to_predicted
-            .insert(confirmed_entity, predicted_entity);
 
         // add Confirmed to the confirmed entity
         // safety: we know the entity exists
