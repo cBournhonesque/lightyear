@@ -45,7 +45,10 @@ pub(crate) struct AuthorityChange {
 
 impl MapEntities for AuthorityChange {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.entity = entity_mapper.map_entity(self.entity);
+        let mapped = entity_mapper.map_entity(self.entity);
+        if mapped != Entity::PLACEHOLDER {
+            self.entity = mapped;
+        }
     }
 }
 
