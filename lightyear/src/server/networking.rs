@@ -83,65 +83,6 @@ impl Plugin for ServerNetworkingPlugin {
     }
 }
 
-// /// Handle disconnections
-// /// - from IO: the io task failed (webtransport connection closed, etc.)
-// /// - from the NetServer: connection timed out or received a DisconnectPacket
-// pub(crate) fn handle_disconnections(
-//     mut connection_manager: ResMut<ConnectionManager>,
-//     mut netservers: ResMut<ServerConnections>,
-//     mut next_networking_state: ResMut<NextState<NetworkingState>>,
-// ) {
-//     // reborrow trick to enable split borrows
-//     let netservers = &mut *netservers;
-//     for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
-//         // disconnections from io: the io for a given client failed or the server task io failed
-//         if let Some(io) = netserver.io_mut() {
-//             if let Some(receiver) = &mut io.context.event_receiver {
-//                 match receiver.try_recv() {
-//                     Ok(event) => {
-//                         match event {
-//                             // if the io task for any connection failed, disconnect the client in netcode
-//                             ServerIoEvent::ClientDisconnected(client_addr) => {
-//                                 debug!(
-//                                     "Received server io event: client {client_addr:?} disconnected"
-//                                 );
-//                                 // only Netcode has io task failures
-//                                 #[allow(irrefutable_let_patterns)]
-//                                 if let ServerConnection::Netcode(server) = netserver {
-//                                     error!(
-//                                         "Disconnecting client {client_addr:?} because of io error"
-//                                     );
-//                                     let _ = server.disconnect_by_addr(client_addr);
-//                                 }
-//                             }
-//                             ServerIoEvent::ServerDisconnected(e) => {
-//                                 error!("Disconnect server because of io error: {:?}", e);
-//                                 next_networking_state.set(NetworkingState::Stopped);
-//                             }
-//                             _ => {}
-//                         }
-//                     }
-//                     Err(TryRecvError::Empty) => {}
-//                     Err(TryRecvError::Closed) => {}
-//                 }
-//             }
-//         }
-//
-//         // TODO: handle disconnections in a separate system that listens to ServerDisconnect events
-//         //  to avoid duplicate logic for host-server in client/networking.rs
-//         // disconnections from the NetServer. The NetServer has received a DisconnectMessage or some
-//         // signal that a client is disconnected
-//         let new_disconnections = netserver.new_disconnections();
-//         new_disconnections.into_iter().for_each(|client_id| {
-//             debug!("removing connection from connection manager");
-//             netservers.client_server_map.remove(&client_id);
-//             connection_manager.remove(client_id);
-//             // NOTE: we don't despawn the Client entity right away to let the user react to
-//             // the disconnect event
-//         });
-//     }
-// }
-
 pub(crate) fn receive_packets(
     mut commands: Commands,
     mut connection_manager: ResMut<ConnectionManager>,
@@ -198,10 +139,6 @@ pub(crate) fn receive_packets(
             }
         }
 
-        // copy the disconnections here because they get cleared in `netserver.try_update`
-        // TODO: how come we have this one-frame delay? don't we want to look at the disconnections right after netserver.try_update()?
-        //  and how come we don't get an error in send, since the disconnection removes the client from the
-        //  netcode server's connection cache?
         if networking_state.get() != &NetworkingState::Stopping {
             let _ = netserver
                 .try_update(delta.as_secs_f64())
