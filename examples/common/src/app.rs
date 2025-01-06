@@ -450,7 +450,8 @@ fn window_plugin() -> WindowPlugin {
 fn log_plugin() -> LogPlugin {
     LogPlugin {
         level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,bevy_time=warn".to_string(),
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,bevy_time=warn,lightyear=debug"
+            .to_string(),
         ..default()
     }
 }

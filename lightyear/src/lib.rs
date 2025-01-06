@@ -301,9 +301,7 @@ pub mod prelude {
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         pub use wtransport::tls::Identity;
 
-        pub use crate::connection::server::{
-            IoConfig, NetConfig, NetServer, ServerConnection, ServerConnections,
-        };
+        pub use crate::connection::server::{IoConfig, NetConfig, NetServer, ServerConnection};
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::{SocketConfig, SteamConfig};
         pub use crate::server::clients::ControlledEntities;
