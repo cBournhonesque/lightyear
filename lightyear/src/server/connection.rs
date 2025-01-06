@@ -328,15 +328,16 @@ impl ConnectionManager {
     ///
     /// Emits a server [`DisconnectEvent`].
     pub(crate) fn remove(&mut self, client_id: ClientId) {
-        #[cfg(feature = "metrics")]
-        metrics::gauge!("connected_clients").decrement(1.0);
-        info!("Client {} disconnected", client_id);
         if let Ok(entity) = self.client_entity(client_id) {
             debug!("Sending Client DisconnectEvent");
             self.events
                 .add_disconnect_event(DisconnectEvent { client_id, entity });
         }
-        self.connections.remove(&client_id);
+        if self.connections.remove(&client_id).is_some() {
+            #[cfg(feature = "metrics")]
+            metrics::gauge!("connected_clients").decrement(1.0);
+            info!("Client {} disconnected", client_id);
+        };
     }
 
     pub(crate) fn buffer_message_bytes(

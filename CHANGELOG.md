@@ -6,6 +6,7 @@
 - Simplified the examples
 - Removed `DisabledComponent::<C>` in favor of `DisabledComponents` to have more control over
 which components are disabled. In particular, it is now possible to express 'disable all components except these'.
+- Made the `ServerConnections` resource private. You can now use `commands.disconnect(client_id)` to disconnect a client.
 - Enabled replicating events directly!
   - Add an `Event` to the protocol with `register_event`
   - Replicate an event and buffer it in EventWriter with `send_event`

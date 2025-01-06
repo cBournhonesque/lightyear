@@ -35,20 +35,20 @@ impl<M: Message> MessageEvent<M> {
 /// Event emitted on server every time we receive an event
 pub struct InputEvent<I: crate::inputs::native::UserAction, Ctx = ()> {
     input: Option<I>,
-    context: Ctx,
+    from: Ctx,
 }
 
-impl<I: crate::inputs::native::UserAction, Ctx> InputEvent<I, Ctx> {
-    pub fn new(input: Option<I>, context: Ctx) -> Self {
-        Self { input, context }
+impl<I: crate::inputs::native::UserAction, Ctx: Copy> InputEvent<I, Ctx> {
+    pub fn new(input: Option<I>, from: Ctx) -> Self {
+        Self { input, from }
     }
 
     pub fn input(&self) -> &Option<I> {
         &self.input
     }
 
-    pub fn context(&self) -> &Ctx {
-        &self.context
+    pub fn from(&self) -> Ctx {
+        self.from
     }
 }
 

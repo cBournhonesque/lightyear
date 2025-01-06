@@ -2,7 +2,7 @@
 use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::server::is_stopped;
 use crate::prelude::{
-    is_host_server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
+    is_host_server, ChannelRegistry, ClientId, MainSet, MessageRegistry, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::serialize::reader::Reader;
@@ -107,8 +107,6 @@ pub(crate) fn receive_packets(
     // reborrow trick to enable split borrows
     let netservers = &mut *netservers;
     for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
-        // TODO: maybe run this before receive, like for clients?
-        let mut to_disconnect = vec![];
         if let Some(io) = netserver.io_mut() {
             if let Some(receiver) = &mut io.context.event_receiver {
                 match receiver.try_recv() {
@@ -119,7 +117,14 @@ pub(crate) fn receive_packets(
                                 debug!(
                                     "Received server io event: client {client_addr:?} disconnected"
                                 );
-                                to_disconnect.push(client_addr);
+                                // only netcode can have io failures
+                                #[allow(irrefutable_let_patterns)]
+                                if let ServerConnection::Netcode(server) = netserver {
+                                    error!(
+                                        "Disconnecting client {client_addr:?} because of io error"
+                                    );
+                                    let _ = server.disconnect_by_addr(client_addr);
+                                }
                             }
                             ServerIoEvent::ServerDisconnected(e) => {
                                 error!("Disconnect server because of io error: {:?}", e);
@@ -134,13 +139,12 @@ pub(crate) fn receive_packets(
             }
         }
 
-        // copy the disconnections here because they get cleared in `netserver.try_update`
-        let new_disconnections = netserver.new_disconnections();
         if networking_state.get() != &NetworkingState::Stopping {
             let _ = netserver
                 .try_update(delta.as_secs_f64())
                 .map_err(|e| error!("Error updating netcode server: {:?}", e));
         }
+        let new_disconnections = netserver.new_disconnections();
         for client_id in netserver.new_connections().iter().copied() {
             netservers.client_server_map.insert(client_id, server_idx);
             // spawn an entity for the client
@@ -150,17 +154,6 @@ pub(crate) fn receive_packets(
             connection_manager.add(client_id, client_entity);
         }
 
-        // handle disconnections
-        // disconnections because the io task was closed
-        if !to_disconnect.is_empty() {
-            to_disconnect.into_iter().for_each(|addr| {
-                #[allow(irrefutable_let_patterns)]
-                if let ServerConnection::Netcode(server) = netserver {
-                    error!("Disconnecting client {addr:?} because of io error");
-                    let _ = server.disconnect_by_addr(addr);
-                }
-            })
-        }
         // TODO: handle disconnections in a separate system that listens to ServerDisconnect events
         //  to avoid duplicate logic for host-server in client/networking.rs
         // disconnects because we received a disconnect message
@@ -267,6 +260,8 @@ pub(crate) fn send(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 info_span!("send_packets_to_client", client_id = ?client_id).entered();
+            // TODO: because we are removing the ClientConnection from netservers.client_server_map immediately
+            //  we get a log here that says that the netserver_idx cannot be found when we try to disconnect
             let netserver_idx = *netservers
                 .client_server_map
                 .get(client_id)
@@ -384,9 +379,14 @@ fn on_stopped() {
 }
 
 pub trait ServerCommands {
+    /// Start the server: start tasks that are listening for incoming connections
     fn start_server(&mut self);
 
+    /// Stop the server: disconnect all clients and stop listening for connections
     fn stop_server(&mut self);
+
+    /// Disconnect a given client
+    fn disconnect(&mut self, client_id: ClientId);
 }
 
 impl ServerCommands for Commands<'_, '_> {
@@ -396,6 +396,27 @@ impl ServerCommands for Commands<'_, '_> {
 
     fn stop_server(&mut self) {
         self.insert_resource(NextState::Pending(NetworkingState::Stopping));
+    }
+
+    fn disconnect(&mut self, client_id: ClientId) {
+        self.queue(move |world: &mut World| {
+            if let Some(mut connections) = world.get_resource_mut::<ServerConnections>() {
+                // remove the client from the client-server map
+                // call disconnect on the NetServer
+                //  - for netcode:
+                //    - remove the connection from the list of connections
+                //    - send disconnect packets
+                //    - add the client_id to the list of disconnections
+                connections.disconnect(client_id).unwrap_or_else(|e| {
+                    error!("Error disconnecting client: {:?}", e);
+                });
+            }
+            if let Some(mut connection_manager) = world.get_resource_mut::<ConnectionManager>() {
+                // remove the Connection from the ConnectionManager
+                // send a ClientDisconnected event
+                connection_manager.remove(client_id);
+            }
+        });
     }
 }
 

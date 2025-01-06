@@ -172,15 +172,15 @@ type ServerConnectionIdx = usize;
 /// On the server we allow the use of multiple types of ServerConnection at the same time
 /// This resource holds the list of all the [`ServerConnection`]s, and maps client ids to the index of the server connection in the list
 #[derive(Resource)]
-pub struct ServerConnections {
+pub(crate) struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub servers: Vec<ServerConnection>,
+    pub(crate) servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
 }
 
 impl ServerConnections {
-    pub fn new(config: Vec<NetConfig>) -> Self {
+    pub(crate) fn new(config: Vec<NetConfig>) -> Self {
         let mut servers = vec![];
         for config in config {
             let server = config.build_server();
@@ -193,7 +193,7 @@ impl ServerConnections {
     }
 
     /// Start listening for client connections on all internal servers
-    pub fn start(&mut self) -> Result<(), ConnectionError> {
+    pub(crate) fn start(&mut self) -> Result<(), ConnectionError> {
         for server in &mut self.servers {
             server.start()?;
         }
@@ -201,7 +201,7 @@ impl ServerConnections {
     }
 
     /// Stop listening for client connections on all internal servers
-    pub fn stop(&mut self) -> Result<(), ConnectionError> {
+    pub(crate) fn stop(&mut self) -> Result<(), ConnectionError> {
         for server in &mut self.servers {
             server.stop()?;
         }
@@ -209,14 +209,13 @@ impl ServerConnections {
     }
 
     /// Disconnect a specific client
-    pub fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError> {
-        self.client_server_map.get(&client_id).map_or(
+    pub(crate) fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError> {
+        // we can remove the client_id from the client_server_map here
+        // because we send the disconnect packets immediately in Netcode::disconnect
+        self.client_server_map.remove(&client_id).map_or(
             Err(ConnectionError::ConnectionNotFound),
-            |&server_idx| {
+            |server_idx| {
                 self.servers[server_idx].disconnect(client_id)?;
-                // we are not removing the client_id from the client_server_map here
-                // because we still need it there to be able to send disconnect packets
-                // the client_id gets removed in the server's receive_packets function
                 Ok(())
             },
         )
