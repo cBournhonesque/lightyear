@@ -2,13 +2,12 @@ use bevy::ecs::system::EntityCommands;
 use bevy::ecs::world::Command;
 use bevy::prelude::{
     Commands, Component, DespawnRecursiveExt, Entity, OnRemove, Query, Reflect, ReflectComponent,
-    Res, ResMut, Trigger, With, Without, World,
+    Res, Trigger, With, Without, World,
 };
 use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
-use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::prelude::{ComponentRegistry, Mode, ShouldBePredicted, TickManager};
 use crate::shared::tick_manager::Tick;
@@ -18,7 +17,6 @@ use crate::shared::tick_manager::Tick;
 
 /// This command must be used to despawn the predicted or confirmed entity.
 /// - If the entity is predicted, it can still be re-created if we realize during a rollback that it should not have been despawned.
-/// - If the entity is confirmed, we despawn both the predicted and confirmed entities
 pub struct PredictionDespawnCommand {
     entity: Entity,
 }
@@ -41,8 +39,6 @@ impl Command for PredictionDespawnCommand {
             world.despawn(self.entity);
         }
 
-        let mut predicted_entity_to_despawn: Option<Entity> = None;
-
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
             if entity.get::<Predicted>().is_some() || entity.get::<ShouldBePredicted>().is_some() {
                 // if this is a predicted or pre-predicted entity, do not despawn the entity immediately but instead
@@ -59,19 +55,10 @@ impl Command for PredictionDespawnCommand {
             } else if let Some(confirmed) = entity.get::<Confirmed>() {
                 // TODO: actually we should never despawn directly on the client a Confirmed entity
                 //  it should only get despawned when replicating!
-
-                // if this is a confirmed entity
-                // despawn both predicted and confirmed
-                if let Some(predicted) = confirmed.predicted {
-                    predicted_entity_to_despawn = Some(predicted);
-                }
                 entity.despawn();
             } else {
                 error!("This command should only be called for predicted entities!");
             }
-        }
-        if let Some(entity) = predicted_entity_to_despawn {
-            world.despawn(entity);
         }
     }
 }
@@ -89,15 +76,10 @@ impl PredictionDespawnCommandsExt for EntityCommands<'_> {
 /// Despawn predicted entities when the confirmed entity gets despawned
 pub(crate) fn despawn_confirmed(
     trigger: Trigger<OnRemove, Confirmed>,
-    mut manager: ResMut<PredictionManager>,
+    query: Query<&Confirmed>,
     mut commands: Commands,
 ) {
-    if let Some(predicted) = manager
-        .predicted_entity_map
-        .get_mut()
-        .confirmed_to_predicted
-        .remove(&trigger.entity())
-    {
+    if let Some(predicted) = query.get(trigger.entity()).unwrap().predicted {
         if let Some(entity_mut) = commands.get_entity(predicted) {
             entity_mut.despawn_recursive();
         }
