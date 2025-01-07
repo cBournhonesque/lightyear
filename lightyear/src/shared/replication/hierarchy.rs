@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::prelude::server::ControlledBy;
 use crate::prelude::{
-    MainSet, NetworkRelevanceMode, PrePredicted, Replicated, Replicating, ReplicationGroup,
+    NetworkRelevanceMode, PrePredicted, Replicated, Replicating, ReplicationGroup,
 };
 use crate::server::replication::send::ReplicationTarget;
 use crate::server::replication::send::SyncTarget;
@@ -263,10 +263,7 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
                 // we want update_parent to run in the same frame that ParentSync is propagated
                 // to the predicted/interpolated entities
                 .after(PredictionSet::SpawnHistory)
-                .after(InterpolationSet::SpawnHistory)
-                // NOTE: we're putting this in MainSet::Receive so that users can order
-                // their systems after this
-                .in_set(MainSet::Receive),
+                .after(InterpolationSet::SpawnHistory),
         );
     }
 }
