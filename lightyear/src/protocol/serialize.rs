@@ -337,7 +337,15 @@ mod tests {
             registry.deserialize::<AuthorityChange>(&mut reader, &mut ReceiveEntityMap::default())
         }
         .unwrap();
-        assert_eq!(new_message, message);
+        assert_eq!(
+            new_message,
+            AuthorityChange {
+                entity: Entity::PLACEHOLDER,
+                gain_authority: true,
+                add_prediction: false,
+                add_interpolation: false,
+            }
+        );
     }
 
     /// Test serializing/deserializing using the ErasedSerializeFns and applying entity mapping
