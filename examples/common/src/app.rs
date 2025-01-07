@@ -11,6 +11,7 @@ use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
+use bevy::diagnostic::{DiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::state::app::StatesPlugin;
 use bevy::DefaultPlugins;
 use clap::{Parser, ValueEnum};
@@ -477,7 +478,13 @@ fn new_gui_app(add_inspector: bool) -> App {
 
 fn new_headless_app() -> App {
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, log_plugin(), StatesPlugin, HierarchyPlugin));
+    app.add_plugins((
+        MinimalPlugins,
+        log_plugin(),
+        StatesPlugin,
+        HierarchyPlugin,
+        DiagnosticsPlugin,
+    ));
     app
 }
 
