@@ -61,6 +61,7 @@ pub(crate) fn compute_hash(
 pub(crate) fn handle_pre_predicted(
     trigger: Trigger<OnAdd, PrePredicted>,
     mut commands: Commands,
+    mut manager: ResMut<ServerConnectionManager>,
     // add `With<Replicated>` bound for host-server mode; so that we don't trigger this system
     // for local client entities
     q: Query<(Entity, &PrePredicted, &Replicated)>,
@@ -71,20 +72,17 @@ pub(crate) fn handle_pre_predicted(
             replicated.from
         );
         let sending_client = replicated.from.unwrap();
+        let confirmed_entity = pre_predicted.confirmed_entity.unwrap();
+        // update the mapping so that when we send updates, the server entity gets mapped
+        // to the client's confirmed entity
+        manager
+            .connection_mut(sending_client)
+            .unwrap()
+            .replication_receiver
+            .remote_entity_map
+            .insert(confirmed_entity, local_entity);
         commands
             .entity(local_entity)
             .transfer_authority(AuthorityPeer::Server);
-        let confirmed_entity = pre_predicted.confirmed_entity.unwrap();
-        commands.queue(move |world: &mut World| {
-            // update the mapping so that when we send updates, the server entity gets mapped
-            // to the client's confirmed entity
-            world
-                .resource_mut::<ServerConnectionManager>()
-                .connection_mut(sending_client)
-                .unwrap()
-                .replication_receiver
-                .remote_entity_map
-                .insert(confirmed_entity, local_entity)
-        })
     }
 }
