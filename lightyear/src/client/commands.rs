@@ -1,10 +1,12 @@
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::Commands;
 use std::ops::{Deref, DerefMut};
 
+#[derive(SystemParam)]
 pub struct ClientCommands<'w, 's>(Commands<'w, 's>);
 
-impl Deref for ClientCommands<'_, '_> {
-    type Target = Commands<'_, '_>;
+impl<'w, 's> Deref for ClientCommands<'w, 's> {
+    type Target = Commands<'w, 's>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -16,12 +18,12 @@ impl DerefMut for ClientCommands<'_, '_> {
     }
 }
 
-pub trait ClientCommandExt {
-    fn client(self) -> ClientCommands;
+pub trait GetClientCommandsExt<'w, 's> {
+    fn client(self) -> ClientCommands<'w, 's>;
 }
 
-impl ClientCommandExt for Commands {
-    fn client(self) -> ClientCommands {
+impl<'w, 's> GetClientCommandsExt<'w, 's> for Commands<'w, 's> {
+    fn client(self) -> ClientCommands<'w, 's> {
         ClientCommands(self)
     }
 }

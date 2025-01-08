@@ -12,10 +12,10 @@ use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig, NetConfig,
-    PredictionConfig, SyncConfig,
+    Authentication, ClientCommandsExt, ClientConfig, ClientTransport, InterpolationConfig,
+    NetConfig, PredictionConfig, SyncConfig,
 };
-use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
+use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;

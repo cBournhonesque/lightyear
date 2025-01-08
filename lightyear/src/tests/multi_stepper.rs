@@ -1,5 +1,5 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
-use crate::client::networking::ClientCommands;
+use crate::client::networking::ClientCommandsExt;
 use bevy::core::TaskPoolThreadAssignmentPolicy;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::{
@@ -17,7 +17,7 @@ use crate::prelude::client::{
     Authentication, ClientConfig, ClientConnection, ClientTransport, InterpolationConfig,
     NetClient, NetConfig, PredictionConfig, SyncConfig,
 };
-use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
+use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::tests::protocol::*;
 use crate::tests::stepper::BevyStepper;

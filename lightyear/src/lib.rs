@@ -54,8 +54,8 @@ Lightyear provides various commands and resources that can you can use to intera
 
 ### Connecting/Disconnecting
 
-On the client, you can initiate the connection by using the [`connect_client`](prelude::client::ClientCommands::connect_client) Command.
-You can also disconnect with the [`disconnect_client`](prelude::client::ClientCommands::disconnect_client) Command.
+On the client, you can initiate the connection by using the [`connect_client`](prelude::client::ClientCommandsExt::connect_client) Command.
+You can also disconnect with the [`disconnect_client`](prelude::client::ClientCommandsExt::disconnect_client) Command.
 
 On the server, you can start listening for connections by using the [`start_server`](prelude::server::ServerCommands::start_server) Command.
 You can stop the server using the [`stop_server`](prelude::server::ServerCommands::stop_server) Command.
@@ -257,6 +257,7 @@ pub mod prelude {
     pub use rename::*;
 
     pub mod client {
+        pub use crate::client::commands::{ClientCommands, GetClientCommandsExt};
         pub use crate::client::components::{
             ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
         };
@@ -279,7 +280,8 @@ pub mod prelude {
         };
         pub use crate::client::io::config::ClientTransport;
         pub use crate::client::io::Io;
-        pub use crate::client::networking::{ClientCommands, NetworkingState};
+        pub use crate::client::message::ClientMessageExt;
+        pub use crate::client::networking::{ClientCommandsExt, NetworkingState};
         pub use crate::client::plugin::ClientPlugins;
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::despawn::PredictionDespawnCommandsExt;
@@ -305,6 +307,7 @@ pub mod prelude {
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::{SocketConfig, SteamConfig};
         pub use crate::server::clients::ControlledEntities;
+        pub use crate::server::commands::{GetServerCommandsExt, ServerCommands};
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
         pub use crate::server::connection::ConnectionManager;
         pub use crate::server::error::ServerError;
@@ -314,7 +317,8 @@ pub mod prelude {
         };
         pub use crate::server::io::config::ServerTransport;
         pub use crate::server::io::Io;
-        pub use crate::server::networking::{NetworkingState, ServerCommands};
+        pub use crate::server::message::ServerMessageExt;
+        pub use crate::server::networking::{NetworkingState, ServerCommandsExt};
         pub use crate::server::plugin::ServerPlugins;
         pub use crate::server::relevance::immediate::RelevanceManager;
         pub use crate::server::relevance::room::{RoomId, RoomManager};

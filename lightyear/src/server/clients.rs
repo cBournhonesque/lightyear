@@ -169,7 +169,7 @@ impl Plugin for ClientsMetadataPlugin {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::networking::ClientCommands;
+    use crate::client::networking::ClientCommandsExt;
     use crate::prelude::server::{ConnectionManager, ControlledBy, Replicate};
     use crate::prelude::{client, ClientId, NetworkTarget, Replicated};
     use crate::server::clients::ControlledEntities;

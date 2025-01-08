@@ -24,7 +24,6 @@ use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
-use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;

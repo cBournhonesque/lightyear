@@ -378,7 +378,7 @@ fn on_stopped() {
     info!("Server is stopped.");
 }
 
-pub trait ServerCommands {
+pub trait ServerCommandsExt {
     /// Start the server: start tasks that are listening for incoming connections
     fn start_server(&mut self);
 
@@ -389,7 +389,7 @@ pub trait ServerCommands {
     fn disconnect(&mut self, client_id: ClientId);
 }
 
-impl ServerCommands for Commands<'_, '_> {
+impl ServerCommandsExt for Commands<'_, '_> {
     fn start_server(&mut self) {
         self.insert_resource(NextState::Pending(NetworkingState::Starting));
     }
@@ -422,7 +422,7 @@ impl ServerCommands for Commands<'_, '_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::server::{ControlledBy, ControlledEntities, ServerCommands};
+    use crate::prelude::server::{ControlledBy, ControlledEntities, ServerCommandsExt};
     use crate::prelude::{client, server, ClientId, NetworkTarget, ServerConnectionManager};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::{default, Entity, With};

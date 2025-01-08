@@ -15,7 +15,6 @@ use crate::channel::senders::ChannelSend;
 use crate::client::config::ClientConfig;
 use crate::client::error::ClientError;
 use crate::client::sync::SyncConfig;
-use crate::connection::client::ConnectionError;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};

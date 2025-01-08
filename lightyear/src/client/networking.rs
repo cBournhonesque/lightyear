@@ -507,7 +507,7 @@ fn connect(world: &mut World) {
     }
 }
 
-pub trait ClientCommands {
+pub trait ClientCommandsExt {
     /// Start the connection process
     fn connect_client(&mut self);
 
@@ -515,7 +515,7 @@ pub trait ClientCommands {
     fn disconnect_client(&mut self);
 }
 
-impl ClientCommands for Commands<'_, '_> {
+impl ClientCommandsExt for Commands<'_, '_> {
     fn connect_client(&mut self) {
         self.insert_resource(NextState::Pending(NetworkingState::Connecting));
     }
@@ -558,7 +558,7 @@ mod tests {
 
     use crate::{
         client::config::ClientConfig,
-        prelude::{client::ClientCommands, server::*, SharedConfig, TickConfig},
+        prelude::{client::ClientCommandsExt, server::*, SharedConfig, TickConfig},
         tests::host_server_stepper::HostServerStepper,
     };
 

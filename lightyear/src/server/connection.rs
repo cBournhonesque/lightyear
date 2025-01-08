@@ -43,7 +43,6 @@ use crate::server::relevance::error::RelevanceError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::private::InternalEventSend;
 use crate::shared::events::EventSend;
-use crate::shared::message::{private::InternalMessageSend, MessageSend};
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::components::ReplicationGroupId;
@@ -1197,34 +1196,6 @@ impl InternalEventSend for ConnectionManager {
                 &mut self.writer,
                 None,
             )?;
-            let message_bytes = self.writer.split();
-            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
-        }
-        Ok(())
-    }
-}
-
-impl MessageSend for ConnectionManager {}
-
-impl InternalMessageSend for ConnectionManager {
-    type Error = ServerError;
-
-    /// Serialize the message and buffer it to be sent in each `Connection`.
-    ///
-    /// - If the message is not `MapEntities`, we can serialize it once and reuse the same bytes
-    ///   for all `Connections`.
-    /// - If it is `MapEntities`, we need to map it in each connection.
-    fn erased_send_message_to_target<M: Message>(
-        &mut self,
-        message: &M,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ServerError> {
-        if self.message_registry.is_map_entities::<M>() {
-            self.buffer_map_entities_message(message, channel_kind, target)?;
-        } else {
-            self.message_registry
-                .serialize(message, &mut self.writer, None)?;
             let message_bytes = self.writer.split();
             self.buffer_message_bytes(message_bytes, channel_kind, target)?;
         }

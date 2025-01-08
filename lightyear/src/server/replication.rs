@@ -3173,6 +3173,7 @@ pub(crate) mod commands {
     use crate::prelude::{
         ClientId, PrePredicted, Replicated, Replicating, ReplicationGroup, ServerConnectionManager,
     };
+    use crate::server::commands::GetServerCommandsExt;
     use crate::server::message::ServerMessageExt;
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{InitialReplicated, ReplicationGroupId};
@@ -3277,7 +3278,7 @@ pub(crate) mod commands {
                             .entity_mut(entity)
                             .insert((AuthorityPeer::Client(c), Replicated { from: Some(c) }));
                         let (add_prediction, add_interpolation) = compute_sync_target(world, c);
-                        world.commands().send_message_to_client::<AuthorityChannel, _>(&AuthorityChange {
+                        world.commands().server().send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: true,
                             add_prediction,
@@ -3295,7 +3296,7 @@ pub(crate) mod commands {
                             .entity_mut(entity)
                             .remove::<Replicated>()
                             .insert(AuthorityPeer::None);
-                        world.commands().send_message_to_client::<AuthorityChannel, _>(&AuthorityChange {
+                        world.commands().server().send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: false,
                             add_prediction: false,
@@ -3310,7 +3311,7 @@ pub(crate) mod commands {
                             .insert((HasAuthority, AuthorityPeer::Server));
 
                         spawn_and_update_send_tick(world, c);
-                        world.commands().send_message_to_client::<AuthorityChannel, _>(&AuthorityChange {
+                        world.commands().server().send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: false,
                             add_prediction,
@@ -3322,7 +3323,7 @@ pub(crate) mod commands {
                             .entity_mut(entity)
                             .remove::<HasAuthority>()
                             .insert((AuthorityPeer::Client(c), Replicated { from: Some(c) }));
-                        world.commands().send_message_to_client::<AuthorityChannel, _>(&AuthorityChange {
+                        world.commands().server().send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: true,
                             // TODO: should we compute these again?
@@ -3336,13 +3337,13 @@ pub(crate) mod commands {
                             .insert((AuthorityPeer::Client(c2), Replicated { from: Some(c2) }));
                         let (add_prediction, add_interpolation) = compute_sync_target(world, c1);
                         spawn_and_update_send_tick(world, c1);
-                        world.commands().send_message_to_client::<AuthorityChannel, _>(&AuthorityChange {
+                        world.commands().server().send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: false,
                             add_prediction,
                             add_interpolation,
                         }, c1);
-                        world.commands().send_message_to_client::<AuthorityChannel, _>(&AuthorityChange {
+                        world.commands().server().send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: true,
                             add_prediction: false,

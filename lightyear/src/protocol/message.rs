@@ -9,6 +9,7 @@ use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::ToBytes;
+use crate::server::commands::ServerCommands;
 use crate::server::input::native::InputBuffers;
 use crate::shared::events::components::MessageEvent;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
@@ -160,6 +161,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     client::ConnectionManager,
+                    client::ClientCommands,
                 >(app);
             }
             if is_server {
@@ -174,6 +176,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     server::ConnectionManager,
+                    ServerCommands,
                 >(app);
             }
             if is_client {
@@ -188,6 +191,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     server::ConnectionManager,
+                    ServerCommands,
                 >(app);
                 crate::shared::replication::resources::receive::add_resource_receive_systems::<
                     R,
@@ -198,6 +202,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     client::ConnectionManager,
+                    client::ClientCommands,
                 >(app);
                 crate::shared::replication::resources::receive::add_resource_receive_systems::<
                     R,

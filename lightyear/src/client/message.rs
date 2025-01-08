@@ -2,9 +2,6 @@
 
 use crate::client::commands::ClientCommands;
 use crate::client::connection::ConnectionManager;
-use crate::client::error::ClientError;
-use crate::connection::client::ConnectionError;
-use crate::packet::message_manager::MessageManager;
 use crate::prelude::{client::is_connected, Channel, ChannelKind, ClientId, Message};
 use crate::protocol::message::MessageRegistry;
 use crate::serialize::reader::Reader;
@@ -112,40 +109,72 @@ pub trait ClientMessageExt: crate::shared::message::private::InternalMessageSend
     }
 }
 
-impl crate::shared::message::private::InternalMessageSend for ClientCommands {
+impl ClientMessageExt for ClientCommands<'_, '_> {}
+
+impl crate::shared::message::private::InternalMessageSend for ClientCommands<'_, '_> {
     fn erased_send_message_to_target<M: Message>(
         &mut self,
         message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) {
-        self.queue(|world: &mut World| {
+        // TODO: HANDLE ERRORS
+        self.queue(move |world: &mut World| {
             // TODO: fetch the entity that contains the Transport/Writer/MessageManager
             let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
-                return Err(ConnectionError::NotFound.into());
+                return;
             };
-            let Some(registry) = world.get_resource::<MessageRegistry>() else {
-                return Err(ConnectionError::NotFound.into());
-            };
-            // write the target first
-            // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-            target.to_bytes(&mut manager.writer)?;
-            // then write the message
-            registry.serialize(
-                message,
-                &mut manager.writer,
-                Some(
-                    &mut manager
-                        .replication_receiver
-                        .remote_entity_map
-                        .local_to_remote,
-                ),
-            )?;
-            let message_bytes = manager.writer.split();
-            // TODO: emit logs/metrics about the message being buffered?
-            manager.messages_to_send.push((message_bytes, channel_kind));
-            Ok(())
+            world.resource_scope(|world, registry: Mut<MessageRegistry>| {
+                let Some(registry) = world.get_resource::<MessageRegistry>() else {
+                    return;
+                };
+                // write the target first
+                // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
+
+                let _ = target.to_bytes(&mut manager.writer);
+                // then write the message
+                let _ = registry.serialize(
+                    message,
+                    &mut manager.writer,
+                    Some(
+                        &mut manager
+                            .replication_receiver
+                            .remote_entity_map
+                            .local_to_remote,
+                    ),
+                );
+                let message_bytes = manager.writer.split();
+                // TODO: emit logs/metrics about the message being buffered?
+                manager.messages_to_send.push((message_bytes, channel_kind));
+            });
         });
+        // self.queue(|world: &mut World| {
+        //     // TODO: fetch the entity that contains the Transport/Writer/MessageManager
+        //     let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
+        //         return Err(ConnectionError::NotFound.into());
+        //     };
+        //     let Some(registry) = world.get_resource::<MessageRegistry>() else {
+        //         return Err(ConnectionError::NotFound.into());
+        //     };
+        //     // write the target first
+        //     // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
+        //     target.to_bytes(&mut manager.writer)?;
+        //     // then write the message
+        //     registry.serialize(
+        //         message,
+        //         &mut manager.writer,
+        //         Some(
+        //             &mut manager
+        //                 .replication_receiver
+        //                 .remote_entity_map
+        //                 .local_to_remote,
+        //         ),
+        //     )?;
+        //     let message_bytes = manager.writer.split();
+        //     // TODO: emit logs/metrics about the message being buffered?
+        //     manager.messages_to_send.push((message_bytes, channel_kind));
+        //     Ok(())
+        // });
     }
 }
 
@@ -253,6 +282,7 @@ impl crate::shared::message::private::InternalMessageSend for ClientCommands {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::client::*;
     use crate::serialize::writer::Writer;
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, StringMessage};
@@ -301,9 +331,9 @@ mod tests {
         stepper
             .server_app
             .world_mut()
-            .resource_mut::<ConnectionManager>()
-            .send_message::<Channel1, StringMessage>(&StringMessage("a".to_string()))
-            .unwrap();
+            .commands()
+            .client()
+            .send_message::<Channel1, StringMessage>(&StringMessage("a".to_string()));
         stepper.frame_step();
         stepper.frame_step();
 

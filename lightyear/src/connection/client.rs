@@ -3,7 +3,7 @@ use std::str::FromStr;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use std::sync::Arc;
 
-use bevy::prelude::{Component, Reflect, Resource};
+use bevy::prelude::{Reflect, Resource};
 use enum_dispatch::enum_dispatch;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use parking_lot::RwLock;
@@ -35,13 +35,13 @@ pub enum ConnectionState {
 pub trait NetClient: Send + Sync {
     /// Connect to server.
     ///
-    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommands) to initiate the connection process, as it
+    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommandsExt) to initiate the connection process, as it
     /// also handles State transitions + additional stuff.
     fn connect(&mut self) -> Result<(), ConnectionError>;
 
     /// Disconnect from the server
     ///
-    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommands) to initiate the disconnection process, as it
+    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommandsExt) to initiate the disconnection process, as it
     /// also handles State transitions + additional stuff.
     fn disconnect(&mut self) -> Result<(), ConnectionError>;
 
