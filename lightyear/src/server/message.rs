@@ -109,17 +109,6 @@ impl ServerMessageExt for ServerCommands<'_, '_> {
                 return;
                 // return Err(ConnectionError::NotFound.into());
             };
-            let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
-                return;
-                // return Err(ConnectionError::NotFound.into());
-            };
-            let Some(registry) = world.get_resource::<MessageRegistry>() else {
-                return;
-                // return Err(ConnectionError::NotFound.into());
-            };
-            // let room = room_manager
-            //     .get_room(room_id)
-            //     .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
             let Ok(room) = room_manager
                 .get_room(room_id)
                 .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())
@@ -128,18 +117,36 @@ impl ServerMessageExt for ServerCommands<'_, '_> {
             };
             let target = NetworkTarget::Only(room.clients.iter().copied().collect());
 
-            // TODO: HANDLE ERRORS
-            if registry.is_map_entities::<M>() {
-                let _ =
-                    manager.buffer_map_entities_message(message, ChannelKind::of::<C>(), target);
-                // manager.buffer_map_entities_message(message, ChannelKind::of::<C>(), target)?;
-            } else {
-                let _ = registry.serialize(message, &mut manager.writer, None);
-                // registry.serialize(message, &mut manager.writer, None)?;
-                let message_bytes = manager.writer.split();
-                let _ = manager.buffer_message_bytes(message_bytes, ChannelKind::of::<C>(), target);
-                // manager.buffer_message_bytes(message_bytes, ChannelKind::of::<C>(), target)?;
-            }
+            let Some(manager) = world.get_resource::<ConnectionManager>() else {
+                return;
+                // return Err(ConnectionError::NotFound.into());
+            };
+            world.resource_scope(|world: &mut World, mut manager: Mut<ConnectionManager>| {
+                let Some(registry) = world.get_resource::<MessageRegistry>() else {
+                    return;
+                    // return Err(ConnectionError::NotFound.into());
+                };
+                // let room = room_manager
+                //     .get_room(room_id)
+                //     .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
+
+                // TODO: HANDLE ERRORS
+                if registry.is_map_entities::<M>() {
+                    let _ = manager.buffer_map_entities_message(
+                        message,
+                        ChannelKind::of::<C>(),
+                        target,
+                    );
+                    // manager.buffer_map_entities_message(message, ChannelKind::of::<C>(), target)?;
+                } else {
+                    let _ = registry.serialize(message, &mut manager.writer, None);
+                    // registry.serialize(message, &mut manager.writer, None)?;
+                    let message_bytes = manager.writer.split();
+                    let _ =
+                        manager.buffer_message_bytes(message_bytes, ChannelKind::of::<C>(), target);
+                    // manager.buffer_message_bytes(message_bytes, ChannelKind::of::<C>(), target)?;
+                }
+            });
         });
     }
 }

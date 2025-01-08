@@ -1,8 +1,11 @@
-use std::ops::{Add, Mul};
+use std::ops::{Add, DerefMut, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
+use bevy::ecs::system::{StaticSystemParam, SystemParam};
+use bevy::prelude::{
+    default, Component, Entity, EntityMapper, Event, PostUpdate, Reflect, Resource,
+};
 use bevy::utils::HashSet;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;

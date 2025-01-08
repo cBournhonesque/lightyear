@@ -78,7 +78,6 @@ impl<R> Default for DespawnResource<R> {
 pub(crate) mod send {
     use super::*;
     use bevy::ecs::system::{StaticSystemParam, SystemParam};
-    use std::ops::DerefMut;
 
     use crate::connection::client::{ClientConnection, NetClient};
     use crate::shared::message::private::InternalMessageSend;
@@ -102,15 +101,13 @@ pub(crate) mod send {
     }
 
     pub(crate) fn add_resource_send_systems<
-        'w,
-        's,
         R: Resource + Message,
         S: ReplicationSend,
         C: InternalMessageSend + SystemParam + 'static,
     >(
         app: &mut App,
     ) where
-        <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
+        for<'w, 's> <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
     {
         app.add_systems(
             PostUpdate,
@@ -123,11 +120,11 @@ pub(crate) mod send {
     }
 
     /// Send a message indicating that the resource was removed
-    fn send_resource_removal<'w, 's, R: Resource + Message, C: SystemParam + 'static>(
+    fn send_resource_removal<R: Resource + Message, C: SystemParam + 'static>(
         mut commands: StaticSystemParam<C>,
         replication_resource: Option<Res<ReplicateResourceMetadata<R>>>,
     ) where
-        <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
+        for<'w, 's> <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
     {
         if let Some(replication_resource) = replication_resource {
             let _ = commands.erased_send_message_to_target::<DespawnResource<R>>(
@@ -140,8 +137,6 @@ pub(crate) mod send {
 
     /// Send a message when the resource is updated
     fn send_resource_update<
-        'w,
-        's,
         R: Resource + Message,
         S: ReplicationSend,
         C: InternalMessageSend + SystemParam + 'static,
@@ -153,7 +148,7 @@ pub(crate) mod send {
         mut resource: Option<ResMut<R>>,
         local_client_connection: Option<Res<ClientConnection>>,
     ) where
-        <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
+        for<'w, 's> <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
     {
         // send the resource to newly connected clients
         let new_clients = connection_manager.new_connected_clients();

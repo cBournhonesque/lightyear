@@ -121,10 +121,12 @@ impl crate::shared::message::private::InternalMessageSend for ClientCommands<'_,
         // TODO: HANDLE ERRORS
         self.queue(move |world: &mut World| {
             // TODO: fetch the entity that contains the Transport/Writer/MessageManager
-            let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
+            let Some(manager) = world.get_resource::<ConnectionManager>() else {
                 return;
             };
-            world.resource_scope(|world, registry: Mut<MessageRegistry>| {
+            world.resource_scope(|world, mut manager: Mut<ConnectionManager>| {
+                // reborrow to enable split borrows
+                let manager = &mut *manager;
                 let Some(registry) = world.get_resource::<MessageRegistry>() else {
                     return;
                 };
