@@ -128,7 +128,7 @@ pub(crate) mod send {
     {
         if let Some(replication_resource) = replication_resource {
             let _ = commands.erased_send_message_to_target::<DespawnResource<R>>(
-                &DespawnResource::default(),
+                DespawnResource::default(),
                 replication_resource.channel,
                 replication_resource.target.clone(),
             );
@@ -159,6 +159,7 @@ pub(crate) mod send {
                         "sending resource replication update to new clients: {:?}",
                         std::any::type_name::<R>()
                     );
+                    // TODO: need to serialize now to send raw bytes
                     let _ = commands.erased_send_message_to_target(
                         resource.as_mut(),
                         replication_resource.channel,
@@ -181,6 +182,7 @@ pub(crate) mod send {
                     if let Some(local_client) = local_client_connection.as_ref() {
                         target.exclude(&NetworkTarget::Single(local_client.client.id()));
                     }
+                    // TODO: need to serialize now to send raw bytes
                     let _ = commands.erased_send_message_to_target(
                         resource.as_mut(),
                         replication_resource.channel,

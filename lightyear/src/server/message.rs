@@ -85,16 +85,16 @@ fn read_messages(mut commands: Commands, mut connection_manager: ResMut<Connecti
 }
 
 pub trait ServerMessageExt: crate::shared::message::private::InternalMessageSend {
-    fn send_message<C: Channel, M: Message>(&mut self, message: &M, client_id: ClientId) {
+    fn send_message<C: Channel, M: Message>(&mut self, message: M, client_id: ClientId) {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
     }
 
     /// Send a message to all clients in a room
-    fn send_message_to_room<C: Channel, M: Message>(&mut self, message: &M, room_id: RoomId);
+    fn send_message_to_room<C: Channel, M: Message>(&mut self, message: M, room_id: RoomId);
 
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: M,
         target: NetworkTarget,
     ) {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
@@ -102,7 +102,7 @@ pub trait ServerMessageExt: crate::shared::message::private::InternalMessageSend
 }
 
 impl ServerMessageExt for ServerCommands<'_, '_> {
-    fn send_message_to_room<C: Channel, M: Message>(&mut self, message: &M, room_id: RoomId) {
+    fn send_message_to_room<C: Channel, M: Message>(&mut self, message: M, room_id: RoomId) {
         // TODO: avoid code duplication by creating Command structs which can be combined
         self.queue(move |world: &mut World| {
             let Some(room_manager) = world.get_resource::<RoomManager>() else {
@@ -133,13 +133,13 @@ impl ServerMessageExt for ServerCommands<'_, '_> {
                 // TODO: HANDLE ERRORS
                 if registry.is_map_entities::<M>() {
                     let _ = manager.buffer_map_entities_message(
-                        message,
+                        &message,
                         ChannelKind::of::<C>(),
                         target,
                     );
                     // manager.buffer_map_entities_message(message, ChannelKind::of::<C>(), target)?;
                 } else {
-                    let _ = registry.serialize(message, &mut manager.writer, None);
+                    let _ = registry.serialize(&message, &mut manager.writer, None);
                     // registry.serialize(message, &mut manager.writer, None)?;
                     let message_bytes = manager.writer.split();
                     let _ =
@@ -154,7 +154,7 @@ impl ServerMessageExt for ServerCommands<'_, '_> {
 impl crate::shared::message::private::InternalMessageSend for ServerCommands<'_, '_> {
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) {
@@ -170,9 +170,9 @@ impl crate::shared::message::private::InternalMessageSend for ServerCommands<'_,
                     // return Err(ConnectionError::NotFound.into());
                 };
                 if registry.is_map_entities::<M>() {
-                    let _ = manager.buffer_map_entities_message(message, channel_kind, target);
+                    let _ = manager.buffer_map_entities_message(&message, channel_kind, target);
                 } else {
-                    let _ = registry.serialize(message, &mut manager.writer, None);
+                    let _ = registry.serialize(&message, &mut manager.writer, None);
                     let message_bytes = manager.writer.split();
                     let _ = manager.buffer_message_bytes(message_bytes, channel_kind, target);
                 }
@@ -347,7 +347,7 @@ mod tests {
             .commands()
             .server()
             .send_message_to_target::<Channel1, StringMessage>(
-                &StringMessage("a".to_string()),
+                StringMessage("a".to_string()),
                 NetworkTarget::All,
             );
         stepper.frame_step();

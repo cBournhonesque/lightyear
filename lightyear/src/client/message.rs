@@ -96,13 +96,13 @@ fn read_messages(mut commands: Commands, mut connection: ResMut<ConnectionManage
 }
 
 pub trait ClientMessageExt: crate::shared::message::private::InternalMessageSend {
-    fn send_message<C: Channel, M: Message>(&mut self, message: &M) {
+    fn send_message<C: Channel, M: Message>(&mut self, message: M) {
         self.send_message_to_target::<C, M>(message, NetworkTarget::None)
     }
 
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: &M,
+        message: M,
         target: NetworkTarget,
     ) {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
@@ -114,7 +114,7 @@ impl ClientMessageExt for ClientCommands<'_, '_> {}
 impl crate::shared::message::private::InternalMessageSend for ClientCommands<'_, '_> {
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: &M,
+        message: M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
     ) {
@@ -136,7 +136,7 @@ impl crate::shared::message::private::InternalMessageSend for ClientCommands<'_,
                 let _ = target.to_bytes(&mut manager.writer);
                 // then write the message
                 let _ = registry.serialize(
-                    message,
+                    &message,
                     &mut manager.writer,
                     Some(
                         &mut manager
@@ -177,6 +177,38 @@ impl crate::shared::message::private::InternalMessageSend for ClientCommands<'_,
         //     manager.messages_to_send.push((message_bytes, channel_kind));
         //     Ok(())
         // });
+    }
+
+    fn erased_send_bytes_to_target(
+        &mut self,
+        bytes: Bytes,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) {
+        self.queue(move |world: &mut World| {
+            // TODO: fetch the entity that contains the Transport/Writer/MessageManager
+            let Some(manager) = world.get_resource::<ConnectionManager>() else {
+                return;
+            };
+            world.resource_scope(|world, mut manager: Mut<ConnectionManager>| {
+                // reborrow to enable split borrows
+                let manager = &mut *manager;
+                let Some(registry) = world.get_resource::<MessageRegistry>() else {
+                    return;
+                };
+                // write the target first
+                // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
+                let _ = target.to_bytes(&mut manager.writer);
+                let target_bytes = manager.writer.split();
+                let mut target_bytes = target_bytes.try_into_mut().unwrap();
+                // TODO: THIS DOES A COPY!!
+                target_bytes.extend_from_slice(&bytes);
+                // TODO: emit logs/metrics about the message being buffered?
+                manager
+                    .messages_to_send
+                    .push((target_bytes.freeze(), channel_kind));
+            });
+        });
     }
 }
 
@@ -335,7 +367,7 @@ mod tests {
             .world_mut()
             .commands()
             .client()
-            .send_message::<Channel1, StringMessage>(&StringMessage("a".to_string()));
+            .send_message::<Channel1, StringMessage>(StringMessage("a".to_string()));
         stepper.frame_step();
         stepper.frame_step();
 

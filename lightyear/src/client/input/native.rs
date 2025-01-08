@@ -317,7 +317,7 @@ fn prepare_input_message<A: UserAction>(
             "sending input message: {:?}",
             message.end_tick
         );
-        commands.send_message::<InputChannel, _>(&message);
+        commands.send_message::<InputChannel, _>(message);
     }
     // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
     // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
