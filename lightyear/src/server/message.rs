@@ -1,7 +1,9 @@
-use crate::prelude::server::is_stopped;
+use crate::prelude::server::{is_stopped, RoomId, RoomManager, ServerError};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message};
 use crate::protocol::message::MessageRegistry;
 use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
+use crate::server::relevance::error::RelevanceError;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::app::{App, Plugin, PreUpdate};
@@ -78,6 +80,84 @@ fn read_messages(mut commands: Commands, mut connection_manager: ResMut<Connecti
                         })
                     })
             });
+    }
+}
+
+pub trait ServerMessageExt: crate::shared::message::private::InternalMessageSend {
+    fn send_message_to_client<C: Channel, M: Message>(&mut self, message: &M, client_id: ClientId) {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
+    }
+
+    /// Send a message to all clients in a room
+    fn send_message_to_room<C: Channel, M: Message>(&mut self, message: &M, room_id: RoomId);
+
+    fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        target: NetworkTarget,
+    ) {
+        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
+    }
+}
+
+impl ServerMessageExt for Commands {
+    fn send_message_to_room<C: Channel, M: Message>(&mut self, message: &M, room_id: RoomId) {
+        // TODO: avoid code duplication by creating Command structs which can be combined
+        self.queue(|world: &mut World| {
+            world.commands().
+            let Some(room_manager) = world.get_resource::<RoomManager>() else {
+                return;
+                // return Err(ConnectionError::NotFound.into());
+            };
+            let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
+                return;
+                // return Err(ConnectionError::NotFound.into());
+            };
+            let Some(registry) = world.get_resource::<MessageRegistry>() else {
+                return;
+                // return Err(ConnectionError::NotFound.into());
+            };
+            let room = room_manager
+                .get_room(room_id)
+                .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
+            let target = NetworkTarget::Only(room.clients.iter().copied().collect());
+
+            if registry.is_map_entities::<M>() {
+                manager.buffer_map_entities_message(message, ChannelKind::of::<C>(), target)?;
+            } else {
+                registry.serialize(message, &mut manager.writer, None)?;
+                let message_bytes = manager.writer.split();
+                manager.buffer_message_bytes(message_bytes, ChannelKind::of::<C>(), target)?;
+            }
+        });
+    }
+}
+
+impl crate::shared::message::private::InternalMessageSend for Commands {
+    fn erased_send_message_to_target<M: Message>(
+        &mut self,
+        message: &M,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) {
+        self.queue(|world: &mut World| {
+            // TODO: fetch the entity that contains the Transport/Writer/MessageManager
+            let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
+                return;
+                // return Err(ConnectionError::NotFound.into());
+            };
+            let Some(registry) = world.get_resource::<MessageRegistry>() else {
+                return;
+                // return Err(ConnectionError::NotFound.into());
+            };
+            if registry.is_map_entities::<M>() {
+                manager.buffer_map_entities_message(message, channel_kind, target)?;
+            } else {
+                registry.serialize(message, &mut manager.writer, None)?;
+                let message_bytes = manager.writer.split();
+                manager.buffer_message_bytes(message_bytes, channel_kind, target)?;
+            }
+        });
     }
 }
 

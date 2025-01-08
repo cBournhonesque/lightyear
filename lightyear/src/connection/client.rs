@@ -3,7 +3,7 @@ use std::str::FromStr;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use std::sync::Arc;
 
-use bevy::prelude::{Reflect, Resource};
+use bevy::prelude::{Component, Reflect, Resource};
 use enum_dispatch::enum_dispatch;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use parking_lot::RwLock;
@@ -133,6 +133,22 @@ impl Default for NetConfig {
 }
 
 impl NetConfig {
+    // pub fn build_io(self) -> Result<Io, crate::transport::error::Error> {
+    //     match self {
+    //         NetConfig::Netcode {
+    //             auth,
+    //             config,
+    //             io: io_config,
+    //         } => io_config.connect(),
+    //         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    //         NetConfig::Steam { .. } => {
+    //             // TODO: create steam IO
+    //             IoConfig::from_transport(ClientTransport::Dummy).connect()
+    //         }
+    //         NetConfig::Local { .. } => IoConfig::from_transport(ClientTransport::Dummy).connect(),
+    //     }
+    // }
+
     pub fn build_client(self) -> ClientConnection {
         match self {
             NetConfig::Netcode {

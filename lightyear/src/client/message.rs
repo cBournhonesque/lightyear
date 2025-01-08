@@ -1,17 +1,20 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 
-use bevy::prelude::{App, Commands, IntoSystemConfigs, Mut, Plugin, PreUpdate, ResMut, World};
-use byteorder::WriteBytesExt;
-use bytes::Bytes;
-use tracing::error;
-
+use crate::client::commands::ClientCommands;
 use crate::client::connection::ConnectionManager;
-use crate::prelude::{client::is_connected, ClientId};
+use crate::client::error::ClientError;
+use crate::connection::client::ConnectionError;
+use crate::packet::message_manager::MessageManager;
+use crate::prelude::{client::is_connected, Channel, ChannelKind, ClientId, Message};
 use crate::protocol::message::MessageRegistry;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
+use bevy::prelude::{App, Commands, IntoSystemConfigs, Mut, Plugin, PreUpdate, ResMut, World};
+use byteorder::WriteBytesExt;
+use bytes::Bytes;
+use tracing::error;
 
 pub struct ClientMessagePlugin;
 
@@ -93,6 +96,57 @@ fn read_messages(mut commands: Commands, mut connection: ResMut<ConnectionManage
                 });
             })
         });
+}
+
+pub trait ClientMessageExt: crate::shared::message::private::InternalMessageSend {
+    fn send_message<C: Channel, M: Message>(&mut self, message: &M) {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::None)
+    }
+
+    fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        target: NetworkTarget,
+    ) {
+        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
+    }
+}
+
+impl crate::shared::message::private::InternalMessageSend for ClientCommands {
+    fn erased_send_message_to_target<M: Message>(
+        &mut self,
+        message: &M,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) {
+        self.queue(|world: &mut World| {
+            // TODO: fetch the entity that contains the Transport/Writer/MessageManager
+            let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
+                return Err(ConnectionError::NotFound.into());
+            };
+            let Some(registry) = world.get_resource::<MessageRegistry>() else {
+                return Err(ConnectionError::NotFound.into());
+            };
+            // write the target first
+            // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
+            target.to_bytes(&mut manager.writer)?;
+            // then write the message
+            registry.serialize(
+                message,
+                &mut manager.writer,
+                Some(
+                    &mut manager
+                        .replication_receiver
+                        .remote_entity_map
+                        .local_to_remote,
+                ),
+            )?;
+            let message_bytes = manager.writer.split();
+            // TODO: emit logs/metrics about the message being buffered?
+            manager.messages_to_send.push((message_bytes, channel_kind));
+            Ok(())
+        });
+    }
 }
 
 // impl ClientMessage {

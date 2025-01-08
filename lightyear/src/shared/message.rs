@@ -10,20 +10,19 @@ pub trait MessageSend: private::InternalMessageSend {
         &mut self,
         message: &M,
         target: NetworkTarget,
-    ) -> Result<(), Self::Error> {
+    ) {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
     }
 }
 
 pub(crate) mod private {
     use super::*;
-    pub trait InternalMessageSend: Resource {
-        type Error: Error;
+    pub trait InternalMessageSend {
         fn erased_send_message_to_target<M: Message>(
             &mut self,
             message: &M,
             channel_kind: ChannelKind,
             target: NetworkTarget,
-        ) -> Result<(), Self::Error>;
+        );
     }
 }

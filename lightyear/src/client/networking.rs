@@ -464,12 +464,6 @@ fn rebuild_client_connection(world: &mut World) {
         &client_config,
     );
     world.insert_resource(connection_manager);
-
-    // drop the previous client connection to make sure we release any resources before creating the new one
-    world.remove_resource::<ClientConnection>();
-    // insert the new client connection
-    let client_connection = client_config.net.build_client();
-    world.insert_resource(client_connection);
 }
 
 // TODO: the design where the user has to call world.connect_client() is better because the user can handle the Error however they want!

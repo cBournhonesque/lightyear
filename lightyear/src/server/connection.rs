@@ -140,29 +140,6 @@ impl ConnectionManager {
         Ok(())
     }
 
-    /// Send a message to all clients in a room
-    pub fn send_message_to_room<C: Channel, M: Message>(
-        &mut self,
-        message: &M,
-        room_id: RoomId,
-        room_manager: &RoomManager,
-    ) -> Result<(), ServerError> {
-        let room = room_manager
-            .get_room(room_id)
-            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
-        let target = NetworkTarget::Only(room.clients.iter().copied().collect());
-        self.send_message_to_target::<C, M>(message, target)
-    }
-
-    /// Queues up a message to be sent to a client
-    pub fn send_message<C: Channel, M: Message>(
-        &mut self,
-        client_id: ClientId,
-        message: &M,
-    ) -> Result<(), ServerError> {
-        self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
-    }
-
     /// Send an event to all clients in a room
     pub fn send_event_to_room<C: Channel, E: Event + Message>(
         &mut self,
@@ -365,7 +342,7 @@ impl ConnectionManager {
     /// Buffer a `MapEntities` message to remote clients.
     /// We cannot serialize the message once, we need to instead map the message for each client
     /// using the `EntityMap` of that connection.
-    fn buffer_map_entities_message<M: Message>(
+    pub(crate) fn buffer_map_entities_message<M: Message>(
         &mut self,
         message: &M,
         channel: ChannelKind,
