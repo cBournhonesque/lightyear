@@ -90,7 +90,6 @@ impl PrePredictionPlugin {
                 .as_ref()
                 .unwrap()
         };
-        let confirmed = trigger.entity();
         // PrePredicted was replicated from the server:
         // When we receive an update from the server that confirms a pre-predicted entity,
         // we will add the Predicted component

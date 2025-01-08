@@ -590,6 +590,13 @@ fn prepare_input_message<A: LeafwingUserAction>(
         //  maybe if it's pre-predicted, we send the original entity (pre-predicted), and the server will apply the conversion
         //   on their end?
         if pre_predicted.is_some() {
+            // wait until the client receives the PrePredicted entity confirmation to send inputs
+            // otherwise we get failed entity_map logs
+            // TODO: the problem is that we wait until we have received the server answer. Ideally we would like
+            //  to wait until the server has received the PrePredicted entity
+            if predicted.is_none() {
+                continue;
+            }
             trace!(
                 ?tick,
                 "sending inputs for pre-predicted entity! Local client entity: {:?}",
