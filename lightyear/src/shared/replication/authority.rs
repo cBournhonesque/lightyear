@@ -51,6 +51,7 @@ impl MapEntities for AuthorityChange {
 
 #[cfg(test)]
 mod tests {
+    use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::prelude::client::{Confirmed, ConfirmedHistory};
     use crate::prelude::server::{Replicate, SyncTarget};
     use crate::prelude::{client, server, ClientId, NetworkTarget, Replicated};
@@ -1013,9 +1014,14 @@ mod tests {
                 .0,
             2.0
         );
+        assert!(stepper
+            .client_app_1
+            .world()
+            .get::<PredictionHistory<ComponentSyncModeFull>>(predicted_1)
+            .is_some());
         assert_eq!(
             stepper
-                .client_app_2
+                .client_app_1
                 .world()
                 .get::<ComponentSyncModeFull>(predicted_1)
                 .unwrap()

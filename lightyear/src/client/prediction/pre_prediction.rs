@@ -152,6 +152,7 @@ impl PrePredictionPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::prelude::server;
     use crate::prelude::server::AuthorityPeer;
     use crate::prelude::{client, ClientId};
@@ -159,6 +160,7 @@ mod tests {
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
     /// Simple preprediction case
+    /// Also check that the PredictionHistory is correctly added to the PrePredicted entity
     #[test]
     fn test_pre_prediction() {
         // tracing_subscriber::FmtSubscriber::builder()
@@ -260,6 +262,11 @@ mod tests {
                 .0,
             2.0
         );
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<PredictionHistory<ComponentSyncModeFull>>(predicted_entity)
+            .is_some());
     }
 
     // TODO: test that pre-predicted works in host-server mode
