@@ -11,7 +11,7 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
-use tracing::{debug, error, trace, trace_span};
+use tracing::{debug, error, trace, trace_span, warn};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
@@ -150,7 +150,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
             continue;
         };
         let Ok(mut predicted_history) = predicted_query.get_mut(p) else {
-            debug!(
+            warn!(
                 "Predicted entity {:?} was not found when checking rollback for {:?}",
                 confirmed.predicted,
                 std::any::type_name::<C>()
@@ -164,7 +164,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
         // get the tick that the confirmed entity is at
         let tick = confirmed.tick;
         if tick > current_tick {
-            debug!(
+            warn!(
                 "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
                 confirmed_entity,
                 tick,
