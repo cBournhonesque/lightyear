@@ -150,7 +150,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
             continue;
         };
         let Ok(mut predicted_history) = predicted_query.get_mut(p) else {
-            warn!(
+            debug!(
                 "Predicted entity {:?} was not found when checking rollback for {:?}",
                 confirmed.predicted,
                 std::any::type_name::<C>()
@@ -164,7 +164,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
         // get the tick that the confirmed entity is at
         let tick = confirmed.tick;
         if tick > current_tick {
-            warn!(
+            debug!(
                 "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
                 confirmed_entity,
                 tick,
