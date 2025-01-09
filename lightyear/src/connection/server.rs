@@ -5,6 +5,7 @@ use enum_dispatch::enum_dispatch;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::connection::id::ClientId;
@@ -220,6 +221,14 @@ impl ServerConnections {
             },
         )
     }
+
+    /// Returns the client's `SocketAddr` if available
+    pub fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr> {
+        self.client_server_map
+            .get(&client_id)
+            .map(|server_idx| self.servers[*server_idx].io().map(|io| io.local_addr()))
+            .flatten()
+    }
 }
 
 /// Errors related to the server connection
@@ -251,6 +260,7 @@ mod tests {
     use crate::connection::server::{NetServer, ServerConnections};
     use crate::prelude::ClientId;
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+    use crate::transport::LOCAL_SOCKET;
 
     // Check that the server can successfully disconnect a client
     // and that there aren't any excessive logs afterwards
@@ -279,6 +289,20 @@ mod tests {
                 .servers[0]
                 .connected_client_ids(),
             vec![]
+        );
+    }
+
+    #[test]
+    fn test_server_get_client_addr() {
+        let mut stepper = BevyStepper::default();
+        assert_eq!(
+            stepper
+                .server_app
+                .world_mut()
+                .resource_mut::<ServerConnections>()
+                .client_addr(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap(),
+            LOCAL_SOCKET
         );
     }
 }
