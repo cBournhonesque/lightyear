@@ -1,14 +1,14 @@
 use crate::prelude::server::{is_stopped, RoomId, RoomManager, ServerError};
-use crate::prelude::{Channel, ChannelKind, ClientId, Message};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, ServerConnectionManager};
 use crate::protocol::message::MessageRegistry;
 use crate::serialize::reader::Reader;
-use crate::server::commands::ServerCommands;
 use crate::server::connection::ConnectionManager;
 use crate::server::relevance::error::RelevanceError;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::app::{App, Plugin, PreUpdate};
-use bevy::prelude::{not, Commands, IntoSystemConfigs, Mut, ResMut, World};
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::{not, Commands, IntoSystemConfigs, Mut, Res, ResMut, World};
 use tracing::{error, trace};
 
 /// Plugin that adds functionality related to receiving messages from clients
@@ -84,121 +84,178 @@ fn read_messages(mut commands: Commands, mut connection_manager: ResMut<Connecti
     }
 }
 
+#[derive(SystemParam)]
+pub struct MessageSender<'w> {
+    manager: ResMut<'w, ServerConnectionManager>,
+    message_registry: Res<'w, MessageRegistry>,
+}
+
 pub trait ServerMessageExt: crate::shared::message::private::InternalMessageSend {
-    fn send_message<C: Channel, M: Message>(&mut self, message: M, client_id: ClientId) {
+    fn send_message<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        client_id: ClientId,
+    ) -> Result<(), Self::Error> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
     }
 
     /// Send a message to all clients in a room
-    fn send_message_to_room<C: Channel, M: Message>(&mut self, message: M, room_id: RoomId);
+    fn send_message_to_room<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        room_id: RoomId,
+        room_manager: &RoomManager,
+    ) -> Result<(), Self::Error>;
 
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: M,
+        message: &M,
         target: NetworkTarget,
-    ) {
+    ) -> Result<(), Self::Error> {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
     }
 }
 
-impl ServerMessageExt for ServerCommands<'_, '_> {
-    fn send_message_to_room<C: Channel, M: Message>(&mut self, message: M, room_id: RoomId) {
-        // TODO: avoid code duplication by creating Command structs which can be combined
-        self.queue(move |world: &mut World| {
-            let Some(room_manager) = world.get_resource::<RoomManager>() else {
-                return;
-                // return Err(ConnectionError::NotFound.into());
-            };
-            let Ok(room) = room_manager
-                .get_room(room_id)
-                .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())
-            else {
-                return;
-            };
-            let target = NetworkTarget::Only(room.clients.iter().copied().collect());
-
-            let Some(manager) = world.get_resource::<ConnectionManager>() else {
-                return;
-                // return Err(ConnectionError::NotFound.into());
-            };
-            world.resource_scope(|world: &mut World, mut manager: Mut<ConnectionManager>| {
-                let Some(registry) = world.get_resource::<MessageRegistry>() else {
-                    return;
-                    // return Err(ConnectionError::NotFound.into());
-                };
-                // let room = room_manager
-                //     .get_room(room_id)
-                //     .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
-
-                // TODO: HANDLE ERRORS
-                if registry.is_map_entities::<M>() {
-                    let _ = manager.buffer_map_entities_message(
-                        &message,
-                        ChannelKind::of::<C>(),
-                        target,
-                    );
-                    // manager.buffer_map_entities_message(message, ChannelKind::of::<C>(), target)?;
-                } else {
-                    let _ = registry.serialize(&message, &mut manager.writer, None);
-                    // registry.serialize(message, &mut manager.writer, None)?;
-                    let message_bytes = manager.writer.split();
-                    let _ =
-                        manager.buffer_message_bytes(message_bytes, ChannelKind::of::<C>(), target);
-                    // manager.buffer_message_bytes(message_bytes, ChannelKind::of::<C>(), target)?;
-                }
-            });
-        });
+impl ServerMessageExt for MessageSender<'_> {
+    fn send_message_to_room<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        room_id: RoomId,
+        room_manager: &RoomManager,
+    ) -> Result<(), Self::Error> {
+        let room = room_manager
+            .get_room(room_id)
+            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
+        let target = NetworkTarget::Only(room.clients.iter().copied().collect());
+        self.send_message_to_target::<C, M>(message, target)
     }
 }
 
-impl crate::shared::message::private::InternalMessageSend for ServerCommands<'_, '_> {
+impl crate::shared::message::private::InternalMessageSend for MessageSender<'_> {
+    type Error = ServerError;
+
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: M,
+        message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
-    ) {
-        self.queue(move |world: &mut World| {
-            // TODO: fetch the entity that contains the Transport/Writer/MessageManager
-            let Some(manager) = world.get_resource::<ConnectionManager>() else {
-                return;
-                // return Err(ConnectionError::NotFound.into());
-            };
-            world.resource_scope(|world, mut manager: Mut<ConnectionManager>| {
-                let Some(registry) = world.get_resource::<MessageRegistry>() else {
-                    return;
-                    // return Err(ConnectionError::NotFound.into());
-                };
-                if registry.is_map_entities::<M>() {
-                    let _ = manager.buffer_map_entities_message(&message, channel_kind, target);
-                } else {
-                    let _ = registry.serialize(&message, &mut manager.writer, None);
-                    let message_bytes = manager.writer.split();
-                    let _ = manager.buffer_message_bytes(message_bytes, channel_kind, target);
-                }
-            });
-        });
-        // TODO: handle errors
-        // self.queue(|world: &mut World| {
-        //     // TODO: fetch the entity that contains the Transport/Writer/MessageManager
-        //     let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
-        //         return;
-        //         // return Err(ConnectionError::NotFound.into());
-        //     };
-        //     let Some(registry) = world.get_resource::<MessageRegistry>() else {
-        //         return;
-        //         // return Err(ConnectionError::NotFound.into());
-        //     };
-        //     if registry.is_map_entities::<M>() {
-        //         manager.buffer_map_entities_message(message, channel_kind, target)?;
-        //     } else {
-        //         registry.serialize(message, &mut manager.writer, None)?;
-        //         let message_bytes = manager.writer.split();
-        //         manager.buffer_message_bytes(message_bytes, channel_kind, target)?;
-        //     }
-        // });
+    ) -> Result<(), ServerError> {
+        if self.message_registry.is_map_entities::<M>() {
+            self.manager
+                .buffer_map_entities_message(message, channel_kind, target)?;
+        } else {
+            self.message_registry
+                .serialize(message, &mut self.manager.writer, None)?;
+            let message_bytes = self.manager.writer.split();
+            self.manager
+                .buffer_message_bytes(message_bytes, channel_kind, target)?;
+        }
+        Ok(())
     }
 }
+
+// impl ServerMessageExt for ServerCommands<'_, '_> {
+//     fn send_message_to_room<C: Channel, M: Message>(
+//         &mut self,
+//         message: M,
+//         room_id: RoomId,
+//     ) -> Result<(), ServerError> {
+//         // TODO: avoid code duplication by creating Command structs which can be combined
+//         self.queue(move |world: &mut World| {
+//             let Some(room_manager) = world.get_resource::<RoomManager>() else {
+//                 return;
+//                 // return Err(ConnectionError::NotFound.into());
+//             };
+//             let Ok(room) = room_manager
+//                 .get_room(room_id)
+//                 .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())
+//             else {
+//                 return;
+//             };
+//             let target = NetworkTarget::Only(room.clients.iter().copied().collect());
+//
+//             let Some(manager) = world.get_resource::<ConnectionManager>() else {
+//                 return;
+//                 // return Err(ConnectionError::NotFound.into());
+//             };
+//             world.resource_scope(|world: &mut World, mut manager: Mut<ConnectionManager>| {
+//                 let Some(registry) = world.get_resource::<MessageRegistry>() else {
+//                     return;
+//                     // return Err(ConnectionError::NotFound.into());
+//                 };
+//                 // let room = room_manager
+//                 //     .get_room(room_id)
+//                 //     .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
+//
+//                 // TODO: HANDLE ERRORS
+//                 if registry.is_map_entities::<M>() {
+//                     let _ = manager.buffer_map_entities_message(
+//                         &message,
+//                         ChannelKind::of::<C>(),
+//                         target,
+//                     );
+//                     // manager.buffer_map_entities_message(message, ChannelKind::of::<C>(), target)?;
+//                 } else {
+//                     let _ = registry.serialize(&message, &mut manager.writer, None);
+//                     // registry.serialize(message, &mut manager.writer, None)?;
+//                     let message_bytes = manager.writer.split();
+//                     let _ =
+//                         manager.buffer_message_bytes(message_bytes, ChannelKind::of::<C>(), target);
+//                     // manager.buffer_message_bytes(message_bytes, ChannelKind::of::<C>(), target)?;
+//                 }
+//             });
+//         });
+//     }
+// }
+
+// impl crate::shared::message::private::InternalMessageSend for ServerCommands<'_, '_> {
+//     fn erased_send_message_to_target<M: Message>(
+//         &mut self,
+//         message: M,
+//         channel_kind: ChannelKind,
+//         target: NetworkTarget,
+//     ) {
+//         self.queue(move |world: &mut World| {
+//             // TODO: fetch the entity that contains the Transport/Writer/MessageManager
+//             let Some(manager) = world.get_resource::<ConnectionManager>() else {
+//                 return;
+//                 // return Err(ConnectionError::NotFound.into());
+//             };
+//             world.resource_scope(|world, mut manager: Mut<ConnectionManager>| {
+//                 let Some(registry) = world.get_resource::<MessageRegistry>() else {
+//                     return;
+//                     // return Err(ConnectionError::NotFound.into());
+//                 };
+//                 if registry.is_map_entities::<M>() {
+//                     let _ = manager.buffer_map_entities_message(&message, channel_kind, target);
+//                 } else {
+//                     let _ = registry.serialize(&message, &mut manager.writer, None);
+//                     let message_bytes = manager.writer.split();
+//                     let _ = manager.buffer_message_bytes(message_bytes, channel_kind, target);
+//                 }
+//             });
+//         });
+//         // TODO: handle errors
+//         // self.queue(|world: &mut World| {
+//         //     // TODO: fetch the entity that contains the Transport/Writer/MessageManager
+//         //     let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
+//         //         return;
+//         //         // return Err(ConnectionError::NotFound.into());
+//         //     };
+//         //     let Some(registry) = world.get_resource::<MessageRegistry>() else {
+//         //         return;
+//         //         // return Err(ConnectionError::NotFound.into());
+//         //     };
+//         //     if registry.is_map_entities::<M>() {
+//         //         manager.buffer_map_entities_message(message, channel_kind, target)?;
+//         //     } else {
+//         //         registry.serialize(message, &mut manager.writer, None)?;
+//         //         let message_bytes = manager.writer.split();
+//         //         manager.buffer_message_bytes(message_bytes, channel_kind, target)?;
+//         //     }
+//         // });
+//     }
+// }
 
 // impl ServerMessage {
 //     pub(crate) fn emit_send_logs(&self, channel_name: &str) {
@@ -307,11 +364,13 @@ impl crate::shared::message::private::InternalMessageSend for ServerCommands<'_,
 #[cfg(test)]
 mod tests {
     use crate::prelude::server::*;
-    use crate::prelude::NetworkTarget;
+    use crate::prelude::{NetworkTarget, ServerMessageSender};
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, StringMessage};
     use bevy::app::Update;
+    use bevy::ecs::system::SystemState;
     use bevy::prelude::{EventReader, ResMut, Resource};
+    use std::error::Error;
 
     #[derive(Resource, Default)]
     struct Counter(usize);
@@ -329,7 +388,7 @@ mod tests {
 
     /// In host-server mode, the server is sending a message to the local client
     #[test]
-    fn server_send_message_to_local_client() {
+    fn server_send_message_to_local_client() -> Result<(), Box<dyn Error>> {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_max_level(tracing::Level::ERROR)
         //     .init();
@@ -341,15 +400,12 @@ mod tests {
         stepper.client_app.add_systems(Update, count_messages);
 
         // send a message from the host-server server to all clients
-        stepper
-            .server_app
-            .world_mut()
-            .commands()
-            .server()
-            .send_message_to_target::<Channel1, StringMessage>(
-                StringMessage("a".to_string()),
-                NetworkTarget::All,
-            );
+        let mut sender = SystemState::<ServerMessageSender>::new(stepper.server_app.world_mut())
+            .get_mut(stepper.server_app.world_mut());
+        sender.send_message_to_target::<Channel1, StringMessage>(
+            &StringMessage("a".to_string()),
+            NetworkTarget::All,
+        )?;
         stepper.frame_step();
         stepper.frame_step();
         stepper.frame_step();
@@ -360,5 +416,6 @@ mod tests {
 
         // verify that the other client received the message
         assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
+        Ok(())
     }
 }

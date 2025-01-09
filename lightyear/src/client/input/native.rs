@@ -60,8 +60,9 @@ use crate::connection::client::NetClient;
 use crate::connection::client::NetClientDispatch;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
-use crate::prelude::client::ClientCommands;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, Tick, TickManager};
+use crate::prelude::{
+    is_host_server, ChannelKind, ChannelRegistry, ClientMessageSender, Tick, TickManager,
+};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
@@ -269,7 +270,7 @@ fn receive_tick_events<A: UserAction>(
 
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<A: UserAction>(
-    mut commands: ClientCommands,
+    mut sender: ClientMessageSender,
     connection: Option<Res<ConnectionManager>>,
     channel_registry: Res<ChannelRegistry>,
     mut input_manager: ResMut<InputManager<A>>,
@@ -317,7 +318,11 @@ fn prepare_input_message<A: UserAction>(
             "sending input message: {:?}",
             message.end_tick
         );
-        commands.send_message::<InputChannel, _>(message);
+        sender
+            .send_message::<InputChannel, _>(&message)
+            .unwrap_or_else(|err| {
+                error!("Error while sending input message: {:?}", err);
+            });
     }
     // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
     // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?

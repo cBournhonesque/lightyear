@@ -3172,12 +3172,12 @@ pub(crate) mod commands {
     use crate::prelude::server::{ReplicationTarget, SyncTarget};
     use crate::prelude::{
         ClientId, PrePredicted, Replicated, Replicating, ReplicationGroup, ServerConnectionManager,
+        ServerMessageSender,
     };
-    use crate::server::commands::GetServerCommandsExt;
     use crate::server::message::ServerMessageExt;
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{InitialReplicated, ReplicationGroupId};
-    use bevy::ecs::system::EntityCommands;
+    use bevy::ecs::system::{EntityCommands, SystemState};
     use bevy::prelude::{Entity, World};
 
     pub trait AuthorityCommandExt {
@@ -3187,6 +3187,7 @@ pub(crate) mod commands {
 
     impl AuthorityCommandExt for EntityCommands<'_> {
         fn transfer_authority(&mut self, new_owner: AuthorityPeer) {
+            // TODO: handle errors
             self.queue(move |entity: Entity, world: &mut World| {
                 let bevy_tick = world.change_tick();
                 // check who the current owner is
@@ -3278,7 +3279,8 @@ pub(crate) mod commands {
                             .entity_mut(entity)
                             .insert((AuthorityPeer::Client(c), Replicated { from: Some(c) }));
                         let (add_prediction, add_interpolation) = compute_sync_target(world, c);
-                        world.commands().server().send_message::<AuthorityChannel, _>(AuthorityChange {
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: true,
                             add_prediction,
@@ -3296,7 +3298,8 @@ pub(crate) mod commands {
                             .entity_mut(entity)
                             .remove::<Replicated>()
                             .insert(AuthorityPeer::None);
-                        world.commands().server().send_message::<AuthorityChannel, _>(AuthorityChange {
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: false,
                             add_prediction: false,
@@ -3311,7 +3314,8 @@ pub(crate) mod commands {
                             .insert((HasAuthority, AuthorityPeer::Server));
 
                         spawn_and_update_send_tick(world, c);
-                        world.commands().server().send_message::<AuthorityChannel, _>(AuthorityChange {
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: false,
                             add_prediction,
@@ -3323,7 +3327,8 @@ pub(crate) mod commands {
                             .entity_mut(entity)
                             .remove::<HasAuthority>()
                             .insert((AuthorityPeer::Client(c), Replicated { from: Some(c) }));
-                        world.commands().server().send_message::<AuthorityChannel, _>(AuthorityChange {
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: true,
                             // TODO: should we compute these again?
@@ -3337,13 +3342,14 @@ pub(crate) mod commands {
                             .insert((AuthorityPeer::Client(c2), Replicated { from: Some(c2) }));
                         let (add_prediction, add_interpolation) = compute_sync_target(world, c1);
                         spawn_and_update_send_tick(world, c1);
-                        world.commands().server().send_message::<AuthorityChannel, _>(AuthorityChange {
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: false,
                             add_prediction,
                             add_interpolation,
                         }, c1);
-                        world.commands().server().send_message::<AuthorityChannel, _>(AuthorityChange {
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
                             entity,
                             gain_authority: true,
                             add_prediction: false,

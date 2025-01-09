@@ -243,6 +243,8 @@ pub mod prelude {
 
         pub use crate::client::connection::ConnectionManager as ClientConnectionManager;
 
+        pub use crate::client::message::MessageSender as ClientMessageSender;
+
         pub use crate::server::events::ComponentInsertEvent as ServerComponentInsertEvent;
         pub use crate::server::events::ComponentRemoveEvent as ServerComponentRemoveEvent;
         pub use crate::server::events::ComponentUpdateEvent as ServerComponentUpdateEvent;
@@ -253,6 +255,8 @@ pub mod prelude {
         pub use crate::server::events::MessageEvent as ServerMessageEvent;
 
         pub use crate::server::connection::ConnectionManager as ServerConnectionManager;
+
+        pub use crate::server::message::MessageSender as ServerMessageSender;
     }
     pub use rename::*;
 

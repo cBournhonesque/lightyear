@@ -128,7 +128,7 @@ pub(crate) mod send {
     {
         if let Some(replication_resource) = replication_resource {
             let _ = commands.erased_send_message_to_target::<DespawnResource<R>>(
-                DespawnResource::default(),
+                &DespawnResource::default(),
                 replication_resource.channel,
                 replication_resource.target.clone(),
             );
@@ -144,8 +144,7 @@ pub(crate) mod send {
         mut commands: StaticSystemParam<C>,
         connection_manager: Res<S>,
         replication_resource: Option<Res<ReplicateResourceMetadata<R>>>,
-        // TODO: support Res<R> by separating MapEntities from non-map-entities?
-        mut resource: Option<ResMut<R>>,
+        resource: Option<Res<R>>,
         local_client_connection: Option<Res<ClientConnection>>,
     ) where
         for<'w, 's> <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
@@ -153,7 +152,7 @@ pub(crate) mod send {
         // send the resource to newly connected clients
         let new_clients = connection_manager.new_connected_clients();
         if !new_clients.is_empty() {
-            if let Some(resource) = resource.as_mut() {
+            if let Some(resource) = resource.as_ref() {
                 if let Some(replication_resource) = replication_resource.as_ref() {
                     trace!(
                         "sending resource replication update to new clients: {:?}",
@@ -161,14 +160,14 @@ pub(crate) mod send {
                     );
                     // TODO: need to serialize now to send raw bytes
                     let _ = commands.erased_send_message_to_target(
-                        resource.as_mut(),
+                        resource.as_ref(),
                         replication_resource.channel,
                         NetworkTarget::Only(new_clients.clone()),
                     );
                 }
             }
         }
-        if let Some(resource) = resource.as_mut() {
+        if let Some(resource) = resource.as_ref() {
             if resource.is_changed() {
                 if let Some(replication_resource) = replication_resource {
                     trace!(
@@ -184,7 +183,7 @@ pub(crate) mod send {
                     }
                     // TODO: need to serialize now to send raw bytes
                     let _ = commands.erased_send_message_to_target(
-                        resource.as_mut(),
+                        resource.as_ref(),
                         replication_resource.channel,
                         target,
                     );

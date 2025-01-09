@@ -2,14 +2,13 @@ use crate::client::config::ClientConfig;
 use crate::inputs::native::InputMessage;
 use crate::packet::message::Message;
 use crate::prelude::server::ServerConfig;
-use crate::prelude::{client, server, ClientId};
+use crate::prelude::{client, server, ClientId, ClientMessageSender, ServerMessageSender};
 use crate::prelude::{ChannelDirection, UserAction};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::ToBytes;
-use crate::server::commands::ServerCommands;
 use crate::server::input::native::InputBuffers;
 use crate::shared::events::components::MessageEvent;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
@@ -161,7 +160,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     client::ConnectionManager,
-                    client::ClientCommands,
+                    ClientMessageSender,
                 >(app);
             }
             if is_server {
@@ -176,7 +175,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     server::ConnectionManager,
-                    ServerCommands,
+                    ServerMessageSender,
                 >(app);
             }
             if is_client {
@@ -191,7 +190,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     server::ConnectionManager,
-                    ServerCommands,
+                    ServerMessageSender,
                 >(app);
                 crate::shared::replication::resources::receive::add_resource_receive_systems::<
                     R,
@@ -202,7 +201,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     client::ConnectionManager,
-                    client::ClientCommands,
+                    ClientMessageSender,
                 >(app);
                 crate::shared::replication::resources::receive::add_resource_receive_systems::<
                     R,

@@ -1,14 +1,15 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
-
-use crate::client::commands::ClientCommands;
 use crate::client::connection::ConnectionManager;
 use crate::prelude::{client::is_connected, Channel, ChannelKind, ClientId, Message};
+use bevy::ecs::system::SystemParam;
+
+use crate::client::error::ClientError;
 use crate::protocol::message::MessageRegistry;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
-use bevy::prelude::{App, Commands, IntoSystemConfigs, Mut, Plugin, PreUpdate, ResMut, World};
+use bevy::prelude::{App, Commands, IntoSystemConfigs, Mut, Plugin, PreUpdate, Res, ResMut, World};
 use byteorder::WriteBytesExt;
 use bytes::Bytes;
 use tracing::error;
@@ -95,232 +96,140 @@ fn read_messages(mut commands: Commands, mut connection: ResMut<ConnectionManage
         });
 }
 
+#[derive(SystemParam)]
+pub struct MessageSender<'w> {
+    manager: ResMut<'w, ConnectionManager>,
+    message_registry: Res<'w, MessageRegistry>,
+}
+
 pub trait ClientMessageExt: crate::shared::message::private::InternalMessageSend {
-    fn send_message<C: Channel, M: Message>(&mut self, message: M) {
+    fn send_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<(), Self::Error> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::None)
     }
 
     fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: M,
+        message: &M,
         target: NetworkTarget,
-    ) {
+    ) -> Result<(), Self::Error> {
         self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
     }
 }
 
-impl ClientMessageExt for ClientCommands<'_, '_> {}
+impl ClientMessageExt for MessageSender<'_> {}
 
-impl crate::shared::message::private::InternalMessageSend for ClientCommands<'_, '_> {
+impl crate::shared::message::private::InternalMessageSend for MessageSender<'_> {
+    type Error = ClientError;
+
     fn erased_send_message_to_target<M: Message>(
         &mut self,
-        message: M,
+        message: &M,
         channel_kind: ChannelKind,
         target: NetworkTarget,
-    ) {
-        // TODO: HANDLE ERRORS
-        self.queue(move |world: &mut World| {
-            // TODO: fetch the entity that contains the Transport/Writer/MessageManager
-            let Some(manager) = world.get_resource::<ConnectionManager>() else {
-                return;
-            };
-            world.resource_scope(|world, mut manager: Mut<ConnectionManager>| {
-                // reborrow to enable split borrows
-                let manager = &mut *manager;
-                let Some(registry) = world.get_resource::<MessageRegistry>() else {
-                    return;
-                };
-                // write the target first
-                // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-
-                let _ = target.to_bytes(&mut manager.writer);
-                // then write the message
-                let _ = registry.serialize(
-                    &message,
-                    &mut manager.writer,
-                    Some(
-                        &mut manager
-                            .replication_receiver
-                            .remote_entity_map
-                            .local_to_remote,
-                    ),
-                );
-                let message_bytes = manager.writer.split();
-                // TODO: emit logs/metrics about the message being buffered?
-                manager.messages_to_send.push((message_bytes, channel_kind));
-            });
-        });
-        // self.queue(|world: &mut World| {
-        //     // TODO: fetch the entity that contains the Transport/Writer/MessageManager
-        //     let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
-        //         return Err(ConnectionError::NotFound.into());
-        //     };
-        //     let Some(registry) = world.get_resource::<MessageRegistry>() else {
-        //         return Err(ConnectionError::NotFound.into());
-        //     };
-        //     // write the target first
-        //     // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-        //     target.to_bytes(&mut manager.writer)?;
-        //     // then write the message
-        //     registry.serialize(
-        //         message,
-        //         &mut manager.writer,
-        //         Some(
-        //             &mut manager
-        //                 .replication_receiver
-        //                 .remote_entity_map
-        //                 .local_to_remote,
-        //         ),
-        //     )?;
-        //     let message_bytes = manager.writer.split();
-        //     // TODO: emit logs/metrics about the message being buffered?
-        //     manager.messages_to_send.push((message_bytes, channel_kind));
-        //     Ok(())
-        // });
-    }
-
-    fn erased_send_bytes_to_target(
-        &mut self,
-        bytes: Bytes,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) {
-        self.queue(move |world: &mut World| {
-            // TODO: fetch the entity that contains the Transport/Writer/MessageManager
-            let Some(manager) = world.get_resource::<ConnectionManager>() else {
-                return;
-            };
-            world.resource_scope(|world, mut manager: Mut<ConnectionManager>| {
-                // reborrow to enable split borrows
-                let manager = &mut *manager;
-                let Some(registry) = world.get_resource::<MessageRegistry>() else {
-                    return;
-                };
-                // write the target first
-                // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-                let _ = target.to_bytes(&mut manager.writer);
-                let target_bytes = manager.writer.split();
-                let mut target_bytes = target_bytes.try_into_mut().unwrap();
-                // TODO: THIS DOES A COPY!!
-                target_bytes.extend_from_slice(&bytes);
-                // TODO: emit logs/metrics about the message being buffered?
-                manager
-                    .messages_to_send
-                    .push((target_bytes.freeze(), channel_kind));
-            });
-        });
+    ) -> Result<(), ClientError> {
+        let manager = &mut *self.manager;
+        // write the target first
+        // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
+        target.to_bytes(&mut manager.writer)?;
+        // then write the message
+        self.message_registry.serialize(
+            message,
+            &mut manager.writer,
+            Some(
+                &mut manager
+                    .replication_receiver
+                    .remote_entity_map
+                    .local_to_remote,
+            ),
+        )?;
+        let message_bytes = manager.writer.split();
+        // TODO: emit logs/metrics about the message being buffered?
+        manager.messages_to_send.push((message_bytes, channel_kind));
+        Ok(())
     }
 }
 
-// impl ClientMessage {
-//     pub(crate) fn emit_send_logs(&self, channel_name: &str) {
-//         match self {
-//             ClientMessage::Message(message, _) => {
-//                 let message_name = message.name();
-//                 trace!(channel = ?channel_name, message = ?message_name, kind = ?message.kind(), "Sending message");
-//                 #[cfg(metrics)]
-//                 metrics::counter!("send_message", "channel" => channel_name, "message" => message_name).increment(1);
-//             }
-//             ClientMessage::Replication(message) => {
-//                 let _span = info_span!("send replication message", channel = ?channel_name, group_id = ?message.group_id);
-//                 #[cfg(metrics)]
-//                 metrics::counter!("send_replication_actions").increment(1);
-//                 match &message.data {
-//                     ReplicationMessageData::Actions(m) => {
-//                         for (entity, actions) in &m.actions {
-//                             let _span = info_span!("send replication actions", ?entity);
-//                             if actions.spawn {
-//                                 trace!("Send entity spawn");
-//                                 #[cfg(metrics)]
-//                                 metrics::counter!("send_entity_spawn").increment(1);
-//                             }
-//                             if actions.despawn {
-//                                 trace!("Send entity despawn");
-//                                 #[cfg(metrics)]
-//                                 metrics::counter!("send_entity_despawn").increment(1);
-//                             }
-//                             if !actions.insert.is_empty() {
-//                                 let components = actions
-//                                     .insert
-//                                     .iter()
-//                                     .map(|c| c.into())
-//                                     .collect::<Vec<P::ComponentKinds>>();
-//                                 trace!(?components, "Sending component insert");
-//                                 #[cfg(metrics)]
-//                                 {
-//                                     for component in components {
-//                                         metrics::counter!("send_component_insert", "component" => kind).increment(1);
-//                                     }
-//                                 }
-//                             }
-//                             if !actions.remove.is_empty() {
-//                                 trace!(?actions.remove, "Sending component remove");
-//                                 #[cfg(metrics)]
-//                                 {
-//                                     for kind in actions.remove {
-//                                         metrics::counter!("send_component_remove", "component" => kind).increment(1);
-//                                     }
-//                                 }
-//                             }
-//                             if !actions.updates.is_empty() {
-//                                 let components = actions
-//                                     .updates
-//                                     .iter()
-//                                     .map(|c| c.into())
-//                                     .collect::<Vec<P::ComponentKinds>>();
-//                                 trace!(?components, "Sending component update");
-//                                 #[cfg(metrics)]
-//                                 {
-//                                     for component in components {
-//                                         metrics::counter!("send_component_update", "component" => kind).increment(1);
-//                                     }
-//                                 }
-//                             }
-//                         }
-//                     }
-//                     ReplicationMessageData::Updates(m) => {
-//                         for (entity, updates) in &m.updates {
-//                             let _span = info_span!("send replication updates", ?entity);
-//                             let components = updates
-//                                 .iter()
-//                                 .map(|c| c.into())
-//                                 .collect::<Vec<P::ComponentKinds>>();
-//                             trace!(?components, "Sending component update");
-//                             #[cfg(metrics)]
-//                             {
-//                                 for component in components {
-//                                     metrics::counter!("send_component_update", "component" => kind)
-//                                         .increment(1);
-//                                 }
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//             ClientMessage::Sync(message) => match message {
-//                 SyncMessage::Ping(_) => {
-//                     trace!(channel = ?channel_name, "Sending ping");
-//                     #[cfg(metrics)]
-//                     metrics::counter!("send_ping", "channel" => channel_name).increment(1);
-//                 }
-//                 SyncMessage::Pong(_) => {
-//                     trace!(channel = ?channel_name, "Sending pong");
-//                     #[cfg(metrics)]
-//                     metrics::counter!("send_pong", "channel" => channel_name).increment(1);
-//                 }
-//             },
-//         }
+// impl ClientMessageExt for ClientCommands<'_, '_> {}
+//
+// impl crate::shared::message::private::InternalMessageSend for ClientCommands<'_, '_> {
+//     fn erased_send_message_to_target<M: Message>(
+//         &mut self,
+//         message: M,
+//         channel_kind: ChannelKind,
+//         target: NetworkTarget,
+//     ) {
+//         // TODO: HANDLE ERRORS
+//         self.queue(move |world: &mut World| {
+//             // TODO: fetch the entity that contains the Transport/Writer/MessageManager
+//             let Some(manager) = world.get_resource::<ConnectionManager>() else {
+//                 return;
+//             };
+//             world.resource_scope(|world, mut manager: Mut<ConnectionManager>| {
+//                 // reborrow to enable split borrows
+//                 let manager = &mut *manager;
+//                 let Some(registry) = world.get_resource::<MessageRegistry>() else {
+//                     return;
+//                 };
+//                 // write the target first
+//                 // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
+//
+//                 let _ = target.to_bytes(&mut manager.writer);
+//                 // then write the message
+//                 let _ = registry.serialize(
+//                     &message,
+//                     &mut manager.writer,
+//                     Some(
+//                         &mut manager
+//                             .replication_receiver
+//                             .remote_entity_map
+//                             .local_to_remote,
+//                     ),
+//                 );
+//                 let message_bytes = manager.writer.split();
+//                 // TODO: emit logs/metrics about the message being buffered?
+//                 manager.messages_to_send.push((message_bytes, channel_kind));
+//             });
+//         });
+//         // self.queue(|world: &mut World| {
+//         //     // TODO: fetch the entity that contains the Transport/Writer/MessageManager
+//         //     let Some(mut manager) = world.get_resource_mut::<ConnectionManager>() else {
+//         //         return Err(ConnectionError::NotFound.into());
+//         //     };
+//         //     let Some(registry) = world.get_resource::<MessageRegistry>() else {
+//         //         return Err(ConnectionError::NotFound.into());
+//         //     };
+//         //     // write the target first
+//         //     // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
+//         //     target.to_bytes(&mut manager.writer)?;
+//         //     // then write the message
+//         //     registry.serialize(
+//         //         message,
+//         //         &mut manager.writer,
+//         //         Some(
+//         //             &mut manager
+//         //                 .replication_receiver
+//         //                 .remote_entity_map
+//         //                 .local_to_remote,
+//         //         ),
+//         //     )?;
+//         //     let message_bytes = manager.writer.split();
+//         //     // TODO: emit logs/metrics about the message being buffered?
+//         //     manager.messages_to_send.push((message_bytes, channel_kind));
+//         //     Ok(())
+//         // });
 //     }
 // }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::client::*;
+    use crate::prelude::ClientMessageSender;
     use crate::serialize::writer::Writer;
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, StringMessage};
+    use bevy::ecs::system::SystemState;
     use bevy::prelude::{EventReader, Resource, Update};
+    use std::error::Error;
 
     #[test]
     fn client_message_serde() {
@@ -352,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn client_send_message_as_host_server_client() {
+    fn client_send_message_as_host_server_client() -> Result<(), Box<dyn Error>> {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_max_level(tracing::Level::ERROR)
         //     .init();
@@ -362,16 +271,14 @@ mod tests {
         stepper.server_app.add_systems(Update, count_messages);
 
         // send a message from the local client to the server
-        stepper
-            .server_app
-            .world_mut()
-            .commands()
-            .client()
-            .send_message::<Channel1, StringMessage>(StringMessage("a".to_string()));
+        let mut sender = SystemState::<ClientMessageSender>::new(stepper.server_app.world_mut())
+            .get_mut(stepper.server_app.world_mut());
+        sender.send_message::<Channel1, StringMessage>(&StringMessage("a".to_string()))?;
         stepper.frame_step();
         stepper.frame_step();
 
         // verify that the server received the message
         assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+        Ok(())
     }
 }
