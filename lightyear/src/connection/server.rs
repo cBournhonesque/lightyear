@@ -173,7 +173,7 @@ type ServerConnectionIdx = usize;
 /// On the server we allow the use of multiple types of ServerConnection at the same time
 /// This resource holds the list of all the [`ServerConnection`]s, and maps client ids to the index of the server connection in the list
 #[derive(Resource)]
-pub(crate) struct ServerConnections {
+pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
     pub(crate) servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
