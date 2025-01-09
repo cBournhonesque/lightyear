@@ -92,6 +92,8 @@ fn handle_new_character(
             info!("Adding InputMap to controlled and predicted entity {entity:?}");
             commands.entity(entity).insert(
                 InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
+                    .with(CharacterAction::Jump, GamepadButton::South)
+                    .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
                     .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
             );
         } else {
