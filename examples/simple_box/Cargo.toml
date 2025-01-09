@@ -23,7 +23,7 @@ bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
 bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
 
 [dependencies]
-lightyear_examples_common = { workspace = true, features = ["websocket"] }
+lightyear_examples_common.workspace = true
 lightyear.workspace = true
 serde.workspace = true
 anyhow.workspace = true

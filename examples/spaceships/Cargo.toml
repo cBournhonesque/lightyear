@@ -20,7 +20,7 @@ bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
 steam = ["lightyear_examples_common/steam"]
 
 [dependencies]
-lightyear_examples_common = { workspace = true, features = ["websocket"] }
+lightyear_examples_common.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }
 leafwing-input-manager = { workspace = true, features = ["keyboard", "mouse"] }
 avian2d = { workspace = true, features = [

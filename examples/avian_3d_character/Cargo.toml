@@ -17,7 +17,7 @@ bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
 steam = ["lightyear_examples_common/steam"]
 
 [dependencies]
-lightyear_examples_common = { workspace = true, features = ["websocket"] }
+lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = [
   "leafwing",
   "avian3d",
