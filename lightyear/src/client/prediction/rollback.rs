@@ -11,7 +11,7 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
-use tracing::{debug, error, trace, trace_span, warn};
+use tracing::{debug, error, trace, trace_span};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
@@ -262,7 +262,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             continue;
         };
 
-        // 1. Get the predicted entity, and it's history
+        // 1. Get the predicted entity, and its history
         let Ok((predicted_component, mut predicted_history, mut correction)) =
             predicted_query.get_mut(predicted_entity)
         else {
