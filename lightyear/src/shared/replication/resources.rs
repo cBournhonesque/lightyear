@@ -77,9 +77,10 @@ impl<R> Default for DespawnResource<R> {
 
 pub(crate) mod send {
     use super::*;
+    use bevy::ecs::system::{StaticSystemParam, SystemParam};
 
     use crate::connection::client::{ClientConnection, NetClient};
-    use crate::shared::message::MessageSend;
+    use crate::shared::message::private::InternalMessageSend;
     use bevy::prelude::resource_removed;
     use tracing::trace;
 
@@ -101,27 +102,32 @@ pub(crate) mod send {
 
     pub(crate) fn add_resource_send_systems<
         R: Resource + Message,
-        S: MessageSend + ReplicationSend,
+        S: ReplicationSend,
+        C: InternalMessageSend + SystemParam + 'static,
     >(
         app: &mut App,
-    ) {
+    ) where
+        for<'w, 's> <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
+    {
         app.add_systems(
             PostUpdate,
             (
-                send_resource_removal::<R, S>.run_if(resource_removed::<R>),
-                send_resource_update::<R, S>,
+                send_resource_removal::<R, C>.run_if(resource_removed::<R>),
+                send_resource_update::<R, S, C>,
             )
                 .in_set(InternalReplicationSet::<S::SetMarker>::BufferResourceUpdates),
         );
     }
 
     /// Send a message indicating that the resource was removed
-    fn send_resource_removal<R: Resource + Message, S: MessageSend>(
-        mut connection_manager: ResMut<S>,
+    fn send_resource_removal<R: Resource + Message, C: SystemParam + 'static>(
+        mut commands: StaticSystemParam<C>,
         replication_resource: Option<Res<ReplicateResourceMetadata<R>>>,
-    ) {
+    ) where
+        for<'w, 's> <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
+    {
         if let Some(replication_resource) = replication_resource {
-            let _ = connection_manager.erased_send_message_to_target::<DespawnResource<R>>(
+            let _ = commands.erased_send_message_to_target::<DespawnResource<R>>(
                 &DespawnResource::default(),
                 replication_resource.channel,
                 replication_resource.target.clone(),
@@ -130,31 +136,38 @@ pub(crate) mod send {
     }
 
     /// Send a message when the resource is updated
-    fn send_resource_update<R: Resource + Message, S: MessageSend + ReplicationSend>(
-        mut connection_manager: ResMut<S>,
+    fn send_resource_update<
+        R: Resource + Message,
+        S: ReplicationSend,
+        C: InternalMessageSend + SystemParam + 'static,
+    >(
+        mut commands: StaticSystemParam<C>,
+        connection_manager: Res<S>,
         replication_resource: Option<Res<ReplicateResourceMetadata<R>>>,
-        // TODO: support Res<R> by separating MapEntities from non-map-entities?
-        mut resource: Option<ResMut<R>>,
+        resource: Option<Res<R>>,
         local_client_connection: Option<Res<ClientConnection>>,
-    ) {
+    ) where
+        for<'w, 's> <C as SystemParam>::Item<'w, 's>: InternalMessageSend,
+    {
         // send the resource to newly connected clients
         let new_clients = connection_manager.new_connected_clients();
         if !new_clients.is_empty() {
-            if let Some(resource) = resource.as_mut() {
+            if let Some(resource) = resource.as_ref() {
                 if let Some(replication_resource) = replication_resource.as_ref() {
                     trace!(
                         "sending resource replication update to new clients: {:?}",
                         std::any::type_name::<R>()
                     );
-                    let _ = connection_manager.erased_send_message_to_target(
-                        resource.as_mut(),
+                    // TODO: need to serialize now to send raw bytes
+                    let _ = commands.erased_send_message_to_target(
+                        resource.as_ref(),
                         replication_resource.channel,
                         NetworkTarget::Only(new_clients.clone()),
                     );
                 }
             }
         }
-        if let Some(resource) = resource.as_mut() {
+        if let Some(resource) = resource.as_ref() {
             if resource.is_changed() {
                 if let Some(replication_resource) = replication_resource {
                     trace!(
@@ -168,8 +181,9 @@ pub(crate) mod send {
                     if let Some(local_client) = local_client_connection.as_ref() {
                         target.exclude(&NetworkTarget::Single(local_client.client.id()));
                     }
-                    let _ = connection_manager.erased_send_message_to_target(
-                        resource.as_mut(),
+                    // TODO: need to serialize now to send raw bytes
+                    let _ = commands.erased_send_message_to_target(
+                        resource.as_ref(),
                         replication_resource.channel,
                         target,
                     );
@@ -182,7 +196,6 @@ pub(crate) mod send {
 pub(crate) mod receive {
 
     use crate::shared::events::components::MessageEvent;
-    use crate::shared::message::MessageSend;
 
     use crate::shared::replication::ReplicationPeer;
     use bevy::prelude::{DetectChangesMut, EventReader, Events};
@@ -215,10 +228,7 @@ pub(crate) mod receive {
         }
     }
 
-    pub(crate) fn add_resource_receive_systems<
-        R: Resource + Message,
-        S: MessageSend + ReplicationSend,
-    >(
+    pub(crate) fn add_resource_receive_systems<R: Resource + Message, S: ReplicationSend>(
         app: &mut App,
         is_bidirectional: bool,
     ) {

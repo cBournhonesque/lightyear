@@ -2,7 +2,7 @@ use crate::client::config::ClientConfig;
 use crate::inputs::native::InputMessage;
 use crate::packet::message::Message;
 use crate::prelude::server::ServerConfig;
-use crate::prelude::{client, server, ClientId};
+use crate::prelude::{client, server, ClientId, ClientMessageSender, ServerMessageSender};
 use crate::prelude::{ChannelDirection, UserAction};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
@@ -160,6 +160,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     client::ConnectionManager,
+                    ClientMessageSender,
                 >(app);
             }
             if is_server {
@@ -174,6 +175,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     server::ConnectionManager,
+                    ServerMessageSender,
                 >(app);
             }
             if is_client {
@@ -188,6 +190,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     server::ConnectionManager,
+                    ServerMessageSender,
                 >(app);
                 crate::shared::replication::resources::receive::add_resource_receive_systems::<
                     R,
@@ -198,6 +201,7 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
                 crate::shared::replication::resources::send::add_resource_send_systems::<
                     R,
                     client::ConnectionManager,
+                    ClientMessageSender,
                 >(app);
                 crate::shared::replication::resources::receive::add_resource_receive_systems::<
                     R,

@@ -35,13 +35,13 @@ pub enum ConnectionState {
 pub trait NetClient: Send + Sync {
     /// Connect to server.
     ///
-    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommands) to initiate the connection process, as it
+    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommandsExt) to initiate the connection process, as it
     /// also handles State transitions + additional stuff.
     fn connect(&mut self) -> Result<(), ConnectionError>;
 
     /// Disconnect from the server
     ///
-    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommands) to initiate the disconnection process, as it
+    /// Users should use [`ClientCommands`](crate::client::networking::ClientCommandsExt) to initiate the disconnection process, as it
     /// also handles State transitions + additional stuff.
     fn disconnect(&mut self) -> Result<(), ConnectionError>;
 
@@ -133,6 +133,22 @@ impl Default for NetConfig {
 }
 
 impl NetConfig {
+    // pub fn build_io(self) -> Result<Io, crate::transport::error::Error> {
+    //     match self {
+    //         NetConfig::Netcode {
+    //             auth,
+    //             config,
+    //             io: io_config,
+    //         } => io_config.connect(),
+    //         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    //         NetConfig::Steam { .. } => {
+    //             // TODO: create steam IO
+    //             IoConfig::from_transport(ClientTransport::Dummy).connect()
+    //         }
+    //         NetConfig::Local { .. } => IoConfig::from_transport(ClientTransport::Dummy).connect(),
+    //     }
+    // }
+
     pub fn build_client(self) -> ClientConnection {
         match self {
             NetConfig::Netcode {

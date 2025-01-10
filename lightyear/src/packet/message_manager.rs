@@ -1,3 +1,4 @@
+use bevy::prelude::Component;
 use byteorder::ReadBytesExt;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
@@ -38,7 +39,7 @@ pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
-#[derive(Debug)]
+#[derive(Component, Debug)]
 pub struct MessageManager {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketBuilder,

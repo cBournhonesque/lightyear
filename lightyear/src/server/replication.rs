@@ -3172,10 +3172,12 @@ pub(crate) mod commands {
     use crate::prelude::server::{ReplicationTarget, SyncTarget};
     use crate::prelude::{
         ClientId, PrePredicted, Replicated, Replicating, ReplicationGroup, ServerConnectionManager,
+        ServerMessageSender,
     };
+    use crate::server::message::ServerMessageExt;
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{InitialReplicated, ReplicationGroupId};
-    use bevy::ecs::system::EntityCommands;
+    use bevy::ecs::system::{EntityCommands, SystemState};
     use bevy::prelude::{Entity, World};
 
     pub trait AuthorityCommandExt {
@@ -3185,6 +3187,7 @@ pub(crate) mod commands {
 
     impl AuthorityCommandExt for EntityCommands<'_> {
         fn transfer_authority(&mut self, new_owner: AuthorityPeer) {
+            // TODO: handle errors
             self.queue(move |entity: Entity, world: &mut World| {
                 let bevy_tick = world.change_tick();
                 // check who the current owner is
@@ -3276,18 +3279,13 @@ pub(crate) mod commands {
                             .entity_mut(entity)
                             .insert((AuthorityPeer::Client(c), Replicated { from: Some(c) }));
                         let (add_prediction, add_interpolation) = compute_sync_target(world, c);
-                        world
-                            .resource_mut::<ServerConnectionManager>()
-                            .send_message::<AuthorityChannel, _>(
-                                c,
-                                &AuthorityChange {
-                                    entity,
-                                    gain_authority: true,
-                                    add_prediction,
-                                    add_interpolation,
-                                },
-                            )
-                            .expect("could not send message");
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
+                            entity,
+                            gain_authority: true,
+                            add_prediction,
+                            add_interpolation,
+                        }, c);
                     }
                     (AuthorityPeer::Server, AuthorityPeer::None) => {
                         world
@@ -3300,18 +3298,13 @@ pub(crate) mod commands {
                             .entity_mut(entity)
                             .remove::<Replicated>()
                             .insert(AuthorityPeer::None);
-                        world
-                            .resource_mut::<ServerConnectionManager>()
-                            .send_message::<AuthorityChannel, _>(
-                                c,
-                                &AuthorityChange {
-                                    entity,
-                                    gain_authority: false,
-                                    add_prediction: false,
-                                    add_interpolation: false,
-                                },
-                            )
-                            .expect("could not send message");
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
+                            entity,
+                            gain_authority: false,
+                            add_prediction: false,
+                            add_interpolation: false,
+                        }, c);
                     }
                     (AuthorityPeer::Client(c), AuthorityPeer::Server) => {
                         let (add_prediction, add_interpolation) = compute_sync_target(world, c);
@@ -3321,39 +3314,27 @@ pub(crate) mod commands {
                             .insert((HasAuthority, AuthorityPeer::Server));
 
                         spawn_and_update_send_tick(world, c);
-
-                        // now that it has authority, by updating the
-                        world
-                            .resource_mut::<ServerConnectionManager>()
-                            .send_message::<AuthorityChannel, _>(
-                                c,
-                                &AuthorityChange {
-                                    entity,
-                                    gain_authority: false,
-                                    add_prediction,
-                                    add_interpolation,
-                                },
-                            )
-                            .expect("could not send message");
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
+                            entity,
+                            gain_authority: false,
+                            add_prediction,
+                            add_interpolation,
+                        }, c);
                     }
                     (AuthorityPeer::Server, AuthorityPeer::Client(c)) => {
                         world
                             .entity_mut(entity)
                             .remove::<HasAuthority>()
                             .insert((AuthorityPeer::Client(c), Replicated { from: Some(c) }));
-                        world
-                            .resource_mut::<ServerConnectionManager>()
-                            .send_message::<AuthorityChannel, _>(
-                                c,
-                                &AuthorityChange {
-                                    entity,
-                                    gain_authority: true,
-                                    // TODO: should we compute these again?
-                                    add_prediction: false,
-                                    add_interpolation: false,
-                                },
-                            )
-                            .expect("could not send message");
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
+                            entity,
+                            gain_authority: true,
+                            // TODO: should we compute these again?
+                            add_prediction: false,
+                            add_interpolation: false,
+                        }, c);
                     }
                     (AuthorityPeer::Client(c1), AuthorityPeer::Client(c2)) => {
                         world
@@ -3361,30 +3342,19 @@ pub(crate) mod commands {
                             .insert((AuthorityPeer::Client(c2), Replicated { from: Some(c2) }));
                         let (add_prediction, add_interpolation) = compute_sync_target(world, c1);
                         spawn_and_update_send_tick(world, c1);
-                        world
-                            .resource_mut::<ServerConnectionManager>()
-                            .send_message::<AuthorityChannel, _>(
-                                c1,
-                                & AuthorityChange {
-                                    entity,
-                                    gain_authority: false,
-                                    add_prediction,
-                                    add_interpolation,
-                                },
-                            )
-                            .expect("could not send message");
-                        world
-                            .resource_mut::<ServerConnectionManager>()
-                            .send_message::<AuthorityChannel, _>(
-                                c2,
-                                &AuthorityChange {
-                                    entity,
-                                    gain_authority: true,
-                                    add_prediction: false,
-                                    add_interpolation: false,
-                                },
-                            )
-                            .expect("could not send message");
+                        let mut sender = SystemState::<ServerMessageSender>::new(world).get_mut(world);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
+                            entity,
+                            gain_authority: false,
+                            add_prediction,
+                            add_interpolation,
+                        }, c1);
+                        let _ = sender.send_message::<AuthorityChannel, _>(&AuthorityChange {
+                            entity,
+                            gain_authority: true,
+                            add_prediction: false,
+                            add_interpolation: false,
+                        }, c1);
                     }
                     _ => unreachable!(),
                 }

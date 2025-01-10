@@ -43,7 +43,6 @@ use crate::server::relevance::error::RelevanceError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::private::InternalEventSend;
 use crate::shared::events::EventSend;
-use crate::shared::message::{private::InternalMessageSend, MessageSend};
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::components::ReplicationGroupId;
@@ -138,29 +137,6 @@ impl ConnectionManager {
             .local_to_remote;
         message.map_entities(mapper);
         Ok(())
-    }
-
-    /// Send a message to all clients in a room
-    pub fn send_message_to_room<C: Channel, M: Message>(
-        &mut self,
-        message: &M,
-        room_id: RoomId,
-        room_manager: &RoomManager,
-    ) -> Result<(), ServerError> {
-        let room = room_manager
-            .get_room(room_id)
-            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
-        let target = NetworkTarget::Only(room.clients.iter().copied().collect());
-        self.send_message_to_target::<C, M>(message, target)
-    }
-
-    /// Queues up a message to be sent to a client
-    pub fn send_message<C: Channel, M: Message>(
-        &mut self,
-        client_id: ClientId,
-        message: &M,
-    ) -> Result<(), ServerError> {
-        self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
     }
 
     /// Send an event to all clients in a room
@@ -365,7 +341,7 @@ impl ConnectionManager {
     /// Buffer a `MapEntities` message to remote clients.
     /// We cannot serialize the message once, we need to instead map the message for each client
     /// using the `EntityMap` of that connection.
-    fn buffer_map_entities_message<M: Message>(
+    pub(crate) fn buffer_map_entities_message<M: Message>(
         &mut self,
         message: &M,
         channel: ChannelKind,
@@ -1220,34 +1196,6 @@ impl InternalEventSend for ConnectionManager {
                 &mut self.writer,
                 None,
             )?;
-            let message_bytes = self.writer.split();
-            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
-        }
-        Ok(())
-    }
-}
-
-impl MessageSend for ConnectionManager {}
-
-impl InternalMessageSend for ConnectionManager {
-    type Error = ServerError;
-
-    /// Serialize the message and buffer it to be sent in each `Connection`.
-    ///
-    /// - If the message is not `MapEntities`, we can serialize it once and reuse the same bytes
-    ///   for all `Connections`.
-    /// - If it is `MapEntities`, we need to map it in each connection.
-    fn erased_send_message_to_target<M: Message>(
-        &mut self,
-        message: &M,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ServerError> {
-        if self.message_registry.is_map_entities::<M>() {
-            self.buffer_map_entities_message(message, channel_kind, target)?;
-        } else {
-            self.message_registry
-                .serialize(message, &mut self.writer, None)?;
             let message_bytes = self.writer.split();
             self.buffer_message_bytes(message_bytes, channel_kind, target)?;
         }

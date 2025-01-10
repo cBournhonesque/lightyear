@@ -46,11 +46,12 @@
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
-use tracing::{error, trace};
+use tracing::trace;
 
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
+use crate::client::message::ClientMessageExt;
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::run_conditions::is_synced;
@@ -59,7 +60,9 @@ use crate::connection::client::NetClient;
 use crate::connection::client::NetClientDispatch;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, Tick, TickManager};
+use crate::prelude::{
+    is_host_server, ChannelKind, ChannelRegistry, ClientMessageSender, Tick, TickManager,
+};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
@@ -267,13 +270,14 @@ fn receive_tick_events<A: UserAction>(
 
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<A: UserAction>(
-    connection: Option<ResMut<ConnectionManager>>,
+    mut sender: ClientMessageSender,
+    connection: Option<Res<ConnectionManager>>,
     channel_registry: Res<ChannelRegistry>,
     mut input_manager: ResMut<InputManager<A>>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
 ) {
-    let Some(mut connection) = connection else {
+    let Some(connection) = connection else {
         return;
     };
 
@@ -314,11 +318,11 @@ fn prepare_input_message<A: UserAction>(
             "sending input message: {:?}",
             message.end_tick
         );
-        connection
+        sender
             .send_message::<InputChannel, _>(&message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
-            })
+            });
     }
     // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
     // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
