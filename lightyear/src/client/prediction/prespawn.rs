@@ -483,16 +483,16 @@ impl Component for PreSpawnedPlayerObject {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
+    use crate::client::prediction::history::HistoryState;
+    use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
-    use bevy::prelude::{default, Entity, With};
-
     use crate::prelude::client::{Confirmed, Predicted};
     use crate::prelude::server::{Replicate, SyncTarget};
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use crate::utils::ready_buffer::ItemWithReadyKey;
+    use bevy::prelude::{default, Entity, With};
 
     #[test]
     fn test_compute_hash() {
@@ -544,13 +544,11 @@ mod tests {
                 .entity(entity_1)
                 .get::<PredictionHistory<ComponentSyncModeFull>>()
                 .unwrap()
-                .buffer
-                .heap
                 .peek(),
-            Some(&ItemWithReadyKey {
-                key: current_tick,
-                item: ComponentState::Updated(ComponentSyncModeFull(1.0)),
-            })
+            Some(&(
+                current_tick,
+                HistoryState::Updated(ComponentSyncModeFull(1.0)),
+            ))
         );
     }
 

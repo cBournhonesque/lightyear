@@ -269,10 +269,10 @@ pub(crate) fn remove_despawn_marker(
 //         let mut history = PredictionHistory::<Component1>::default();
 //         history
 //             .buffer
-//             .add_item(Tick(0), ComponentState::Updated(Component1(0.0)));
+//             .add_item(Tick(0), HistoryState::Updated(Component1(0.0)));
 //         history
 //             .buffer
-//             .add_item(Tick(1), ComponentState::Updated(Component1(1.0)));
+//             .add_item(Tick(1), HistoryState::Updated(Component1(1.0)));
 //         assert_eq!(
 //             stepper
 //                 .client_app
@@ -315,9 +315,9 @@ pub(crate) fn remove_despawn_marker(
 //         for i in 0..5 {
 //             history
 //                 .buffer
-//                 .add_item(Tick(i), ComponentState::Updated(Component1(i as f32)));
+//                 .add_item(Tick(i), HistoryState::Updated(Component1(i as f32)));
 //         }
-//         history.buffer.add_item(Tick(5), ComponentState::Removed);
+//         history.buffer.add_item(Tick(5), HistoryState::Removed);
 //         assert_eq!(
 //             stepper
 //                 .client_app
@@ -353,7 +353,7 @@ pub(crate) fn remove_despawn_marker(
 //         for i in 3..7 {
 //             history
 //                 .buffer
-//                 .add_item(Tick(i), ComponentState::Updated(Component1(i as f32 - 2.0)));
+//                 .add_item(Tick(i), HistoryState::Updated(Component1(i as f32 - 2.0)));
 //         }
 //         assert_eq!(
 //             stepper
@@ -450,7 +450,7 @@ pub(crate) fn remove_despawn_marker(
 //         let mut history = PredictionHistory::<Component1>::default();
 //         history
 //             .buffer
-//             .add_item(Tick(1), ComponentState::Updated(Component1(1.0)));
+//             .add_item(Tick(1), HistoryState::Updated(Component1(1.0)));
 //         assert_eq!(
 //             stepper
 //                 .client_app

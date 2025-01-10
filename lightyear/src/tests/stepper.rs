@@ -1,24 +1,23 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::ecs::system::RunSystemOnce;
-use bevy::input::InputPlugin;
-use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
-use bevy::state::app::StatesPlugin;
-use bevy::time::TimeUpdateStrategy;
-use bevy::utils::Duration;
-use bevy::MinimalPlugins;
-
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
     Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig, NetConfig,
-    PredictionConfig, SyncConfig,
+    NetworkingState, PredictionConfig, SyncConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
+use bevy::ecs::system::RunSystemOnce;
+use bevy::input::InputPlugin;
+use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, State, Time, World};
+use bevy::state::app::StatesPlugin;
+use bevy::time::TimeUpdateStrategy;
+use bevy::utils::Duration;
+use bevy::MinimalPlugins;
 
 pub const TEST_CLIENT_ID: u64 = 111;
 
@@ -33,15 +32,7 @@ pub struct BevyStepper {
 
 impl Default for BevyStepper {
     fn default() -> Self {
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let client_config = ClientConfig::default();
-
-        let mut stepper = Self::new(shared_config, client_config, frame_duration);
+        let mut stepper = Self::default_no_init();
         stepper.init();
         stepper
     }
@@ -162,6 +153,18 @@ impl BevyStepper {
         }
     }
 
+    pub(crate) fn default_no_init() -> Self {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let client_config = ClientConfig::default();
+
+        Self::new(shared_config, client_config, frame_duration)
+    }
+
     pub(crate) fn interpolation_tick(&mut self) -> Tick {
         self.client_app.world_mut().resource_scope(
             |world: &mut World, manager: Mut<client::ConnectionManager>| {
@@ -210,9 +213,6 @@ impl BevyStepper {
         self.client_app.cleanup();
         self.server_app.finish();
         self.server_app.cleanup();
-    }
-    pub(crate) fn init(&mut self) {
-        self.build();
         let _ = self
             .server_app
             .world_mut()
@@ -221,8 +221,31 @@ impl BevyStepper {
             .client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
+    }
+    pub(crate) fn init(&mut self) {
+        self.build();
+        self.wait_for_connection();
+        self.wait_for_sync();
+    }
 
-        // Advance the world to let the connection process complete
+    // Advance the world until client is connected
+    pub(crate) fn wait_for_connection(&mut self) {
+        for _ in 0..100 {
+            if matches!(
+                self.client_app
+                    .world()
+                    .resource::<State<NetworkingState>>()
+                    .get(),
+                NetworkingState::Connected
+            ) {
+                break;
+            }
+            self.frame_step();
+        }
+    }
+
+    // Advance the world until the client is synced
+    pub(crate) fn wait_for_sync(&mut self) {
         for _ in 0..100 {
             if self
                 .client_app

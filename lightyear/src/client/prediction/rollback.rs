@@ -18,12 +18,12 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::diagnostics::PredictionMetrics;
-use crate::client::prediction::predicted_history::ComponentState;
+use crate::client::prediction::history::HistoryState;
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, Tick, TickManager};
 
 use super::predicted_history::PredictionHistory;
-use super::resource_history::{ResourceHistory, ResourceState};
+use super::resource_history::ResourceHistory;
 use super::Predicted;
 
 /// Resource that indicates whether we are in a rollback state or not
@@ -183,14 +183,14 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 // TODO: history-value should not be empty here; should we panic if it is?
                 // confirm does not exist. rollback if history value is not Removed
                 None => history_value.map_or(false, |history_value| {
-                    history_value != ComponentState::Removed
+                    history_value != HistoryState::Removed
                 }),
                 // confirm exist. rollback if history value is different
                 Some(c) => history_value.map_or(true, |history_value| match history_value {
-                    ComponentState::Updated(history_value) => {
+                    HistoryState::Updated(history_value) => {
                         component_registry.should_rollback(&history_value, c)
                     }
-                    ComponentState::Removed => true,
+                    HistoryState::Removed => true,
                 }),
             };
             if should_rollback {
@@ -199,8 +199,9 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, current_tick
                    );
-                // we already rolled-back the state for the entity's latest_tick
-                // after this we will start right away with a physics update, so we need to start taking the inputs from the next tick
+                // in `prepare_rollback`, we will reset the state to what the server sends us for the confirmed.tick
+                // The server sends the packet in PostUpdate after the confirmed.tick is done.
+                // When we do rollback we need to start reading inputs from the tick after that!
                 rollback.set_rollback_tick(tick + 1);
             }
         } else {
@@ -285,9 +286,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         match confirmed_component {
             // confirm does not exist, remove on predicted
             None => {
-                predicted_history
-                    .buffer
-                    .push(rollback_tick, ComponentState::Removed);
+                predicted_history.add_remove(rollback_tick);
                 entity_mut.remove::<C>();
             }
             // confirm exist, update or insert on predicted
@@ -297,10 +296,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     &mut rollbacked_predicted_component,
                     component_registry.as_ref(),
                 );
-                predicted_history.buffer.push(
-                    rollback_tick,
-                    ComponentState::Updated(rollbacked_predicted_component.clone()),
-                );
+                predicted_history.add_update(rollback_tick, rollbacked_predicted_component.clone());
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted Full component to predicted");
@@ -344,6 +340,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                             }
                         }
 
+                        info!(
+                            "Update predicted component {:?} to match confirmed value",
+                            std::any::type_name::<C>()
+                        );
                         // update the component to the corrected value
                         *predicted_component = rollbacked_predicted_component.clone();
                     }
@@ -428,14 +428,14 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
 
         // 1. restore the component to the historical value
         match predicted_history.pop_until_tick(rollback_tick) {
-            None | Some(ComponentState::Removed) => {
+            None | Some(HistoryState::Removed) => {
                 if predicted_component.is_some() {
                     debug!(?prespawned_entity, ?kind, "Component for prespawned entity didn't exist at time of rollback, removing it");
                     // the component didn't exist at the time, remove it!
                     commands.entity(prespawned_entity).remove::<C>();
                 }
             }
-            Some(ComponentState::Updated(c)) => {
+            Some(HistoryState::Updated(c)) => {
                 // the component existed at the time, restore it!
                 if let Some(mut predicted_component) = predicted_component {
                     // update the component to the corrected value
@@ -497,14 +497,14 @@ pub(crate) fn prepare_rollback_non_networked<C: Component + PartialEq + Clone>(
     for (entity, component, mut history) in predicted_query.iter_mut() {
         // 1. restore the component to the historical value
         match history.pop_until_tick(rollback_tick) {
-            None | Some(ComponentState::Removed) => {
+            None | Some(HistoryState::Removed) => {
                 if component.is_some() {
                     debug!(?entity, ?kind, "Non-networked component for predicted entity didn't exist at time of rollback, removing it");
                     // the component didn't exist at the time, remove it!
                     commands.entity(entity).remove::<C>();
                 }
             }
-            Some(ComponentState::Updated(c)) => {
+            Some(HistoryState::Updated(c)) => {
                 // the component existed at the time, restore it!
                 if let Some(mut component) = component {
                     // update the component to the corrected value
@@ -547,9 +547,9 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
 
     // 1. restore the resource to the historical value
     match history.pop_until_tick(rollback_tick) {
-        None | Some(ResourceState::Removed) => {
+        None | Some(HistoryState::Removed) => {
             if resource.is_some() {
-                debug!(
+                info!(
                     ?kind,
                     "Resource didn't exist at time of rollback, removing it"
                 );
@@ -557,7 +557,7 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
                 commands.remove_resource::<R>();
             }
         }
-        Some(ResourceState::Updated(r)) => {
+        Some(HistoryState::Updated(r)) => {
             // the resource existed at the time, restore it!
             if let Some(mut resource) = resource {
                 // update the resource to the corrected value
@@ -622,11 +622,12 @@ pub(crate) fn run_rollback(world: &mut World) {
         .get_rollback_tick()
         .expect("we should be in rollback");
 
-    // NOTE: careful! we restored the state to the end of tick `confirmed` = `current_rollback_tick - 1`
+    // NOTE: careful! we restored the state to the end of tick `confirmed.tick`
+    //  and we know that `current_rollback_tick` = `confirmed.tick + 1`
     //  we want to run fixed-update to be at the end of `current_tick`, so we need to run
-    // `current_tick - (current_rollback_tick - 1)` ticks
+    // `current_tick - confirmed.tick` = `current_tick - (current_rollback_tick - 1)` ticks
     // (we set `current_rollback_tick` to `confirmed + 1` so that on the FixedUpdate rollback run, we fetch the input for
-    // `confirmed + 1`
+    // `confirmed.tick + 1)`
     let num_rollback_ticks = current_tick + 1 - current_rollback_tick;
     debug!(
         "Rollback between {:?} and {:?}",
@@ -641,6 +642,11 @@ pub(crate) fn run_rollback(world: &mut World) {
     let current_fixed_time = *world.resource::<Time<Fixed>>();
     *world.resource_mut::<Time<Fixed>>() =
         rollback_fixed_time(&current_fixed_time, num_rollback_ticks);
+
+    // TODO: should we handle Time<Physics> and Time<Subsets> in any way?
+    //  we might need to rollback them if the physics time is paused
+    //  otherwise setting Time<()> to Time<Fixed> should be enough
+    //  as Time<Physics> uses Time<()>'s delta
 
     // Run the fixed update schedule (which should contain ALL
     // predicted/rollback components and resources). This is similar to what

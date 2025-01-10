@@ -1,11 +1,3 @@
-use bevy::prelude::{
-    not, App, Component, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin, PostUpdate, PreUpdate, Res, Resource, SystemSet,
-};
-use bevy::reflect::Reflect;
-use bevy::transform::TransformSystem;
-use std::time::Duration;
-
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
@@ -17,24 +9,35 @@ use crate::client::prediction::despawn::{
 use crate::client::prediction::predicted_history::{
     add_non_networked_component_history, add_prespawned_component_history,
     apply_component_removal_confirmed, apply_component_removal_predicted,
-    update_prediction_history,
+    handle_tick_event_prediction_history, update_prediction_history,
 };
 use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{client::is_synced, is_host_server, PreSpawnedPlayerObject};
+use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
+use bevy::prelude::{
+    not, App, Component, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
+    Plugin, PostUpdate, PreUpdate, Res, Resource, SystemSet,
+};
+use bevy::reflect::Reflect;
+use bevy::transform::TransformSystem;
+use bevy::utils::Duration;
 
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::{add_component_history, apply_confirmed_update};
-use super::resource_history::{update_resource_history, ResourceHistory};
+use super::resource_history::{
+    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
+};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
     prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
 };
 use super::spawn::spawn_predicted_entity;
+
+use crate::prelude::client::is_connected;
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Reflect)]
@@ -245,7 +248,11 @@ pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app:
 /// by lightyear so that it can be used accurately within systems within the
 /// `FixedMain` schedule during a rollback.
 pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
+    // TODO: add these registrations if the type is reflect
+    // app.register_type::<HistoryState<R>>();
+    // app.register_type::<ResourceHistory<R>>();
     app.insert_resource(ResourceHistory::<R>::default());
+    app.add_observer(handle_tick_event_resource_history::<R>);
     app.add_systems(
         PreUpdate,
         prepare_rollback_resource::<R>.in_set(PredictionSet::PrepareRollback),
@@ -266,7 +273,11 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
     );
     match prediction_mode {
         ComponentSyncMode::Full => {
+            // TODO: register type if C is reflect
+            // app.register_type::<HistoryState<C>>();
+            // app.register_type::<PredictionHistory<C>>();
             app.add_observer(apply_component_removal_predicted::<C>);
+            app.add_observer(handle_tick_event_prediction_history::<C>);
             app.add_systems(
                 PreUpdate,
                 // restore to the corrected state (as the visual state might be interpolating
@@ -331,8 +342,11 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // we only run prediction:
         // - if we're not in host-server mode
-        // - after the client is synced
-        let should_prediction_run = not(is_host_server).and(is_synced);
+        // - after the client is connected
+        // NOTE: we need to run the prediction systems even if we're not synced, because we want
+        //  our HistoryBuffer to contain values for components/resources that were updated before syncing
+        //  is done.
+        let should_prediction_run = not(is_host_server).and(is_connected);
 
         // REFLECTION
         app.register_type::<Predicted>()

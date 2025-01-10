@@ -3,7 +3,7 @@
 use bevy::prelude::{Reflect, SystemSet};
 use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::packet::packet::PacketId;
@@ -536,7 +536,7 @@ impl SyncManager {
         let delta_tick = client_ideal_tick - tick_manager.tick();
         // Update client ticks
         if rtt != Duration::default() {
-            debug!(
+            info!(
                 buffer_len = ?ping_manager.sync_stats.len(),
                 ?rtt,
                 ?jitter,

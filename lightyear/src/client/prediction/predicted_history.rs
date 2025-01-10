@@ -9,85 +9,14 @@ use bevy::prelude::{
 use tracing::{debug, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::prediction::history::HistoryBuffer;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
-use crate::shared::tick_manager::Tick;
-use crate::utils::ready_buffer::ReadyBuffer;
+use crate::shared::tick_manager::{Tick, TickEvent};
 
-/// Stores a past update for a component
-#[derive(Debug, PartialEq, Clone)]
-pub(crate) enum ComponentState<C> {
-    /// the component just got removed
-    Removed,
-    /// the component got updated
-    Updated(C),
-}
-
-/// To know if we need to do rollback, we need to compare the predicted entity's history with the server's state updates
-#[derive(Component, Debug)]
-pub(crate) struct PredictionHistory<C> {
-    // TODO: add a max size for the buffer
-    // We want to avoid using a SequenceBuffer for optimization (we don't want to store a copy of the component for each history tick)
-    // We can afford to use a ReadyBuffer because we will get server updates with monotonically increasing ticks
-    // therefore we can get rid of the old ticks before the server update
-
-    // We will only store the history for the ticks where the component got updated
-    pub buffer: ReadyBuffer<Tick, ComponentState<C>>,
-}
-
-impl<C: PartialEq> Default for PredictionHistory<C> {
-    fn default() -> Self {
-        Self {
-            buffer: ReadyBuffer::new(),
-        }
-    }
-}
-
-impl<C: PartialEq> PartialEq for PredictionHistory<C> {
-    fn eq(&self, other: &Self) -> bool {
-        let mut self_history: Vec<_> = self.buffer.heap.iter().collect();
-        let mut other_history: Vec<_> = other.buffer.heap.iter().collect();
-        self_history.sort_by_key(|item| item.key);
-        other_history.sort_by_key(|item| item.key);
-        self_history.eq(&other_history)
-    }
-}
-
-impl<C: PartialEq + Clone> PredictionHistory<C> {
-    /// Reset the history for this component
-    pub(crate) fn clear(&mut self) {
-        self.buffer = ReadyBuffer::new();
-    }
-
-    /// Add to the buffer that we received an update for the component at the given tick
-    pub(crate) fn add_update(&mut self, tick: Tick, component: C) {
-        self.buffer.push(tick, ComponentState::Updated(component));
-    }
-
-    /// Add to the buffer that the component got removed at the given tick
-    pub(crate) fn add_remove(&mut self, tick: Tick) {
-        self.buffer.push(tick, ComponentState::Removed);
-    }
-
-    // TODO: check if this logic is necessary/correct?
-    /// Clear the history of values strictly older than the specified tick,
-    /// and return the most recent value that is older or equal to the specified tick.
-    /// NOTE: That value is written back into the buffer
-    ///
-    /// CAREFUL:
-    /// the component history will only contain the ticks where the component got updated, and otherwise
-    /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
-    /// get the values for the future ticks
-    pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<ComponentState<C>> {
-        self.buffer.pop_until(&tick).map(|(tick, state)| {
-            // TODO: this clone is pretty bad and avoidable. Probably switch to a sequence buffer?
-            self.buffer.push(tick, state.clone());
-            state
-        })
-    }
-}
+pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
 
 // TODO: should this be handled with observers? to avoid running a system
 //  for something that happens relatively rarely
@@ -270,6 +199,24 @@ pub(crate) fn update_prediction_history<T: Component + PartialEq + Clone>(
     }
 }
 
+/// If there is a TickEvent and the client tick suddenly changes, we need
+/// to update the ticks in the history buffer.
+///
+/// The history buffer ticks are only relevant relative to the current client tick.
+/// (i.e. X ticks in the past compared to the current tick)
+pub(crate) fn handle_tick_event_prediction_history<C: Component>(
+    trigger: Trigger<TickEvent>,
+    mut query: Query<&mut PredictionHistory<C>>,
+) {
+    match *trigger.event() {
+        TickEvent::TickSnap { old_tick, new_tick } => {
+            for mut history in query.iter_mut() {
+                history.update_ticks(new_tick - old_tick);
+            }
+        }
+    }
+}
+
 /// If a component is removed on the Predicted entity, and the ComponentSyncMode == FULL
 /// Add the removal to the history (for potential rollbacks)
 pub(crate) fn apply_component_removal_predicted<C: Component + PartialEq + Clone>(
@@ -342,59 +289,11 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::prediction::history::HistoryState;
     use crate::prelude::client::RollbackState;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
-    use crate::utils::ready_buffer::ItemWithReadyKey;
     use bevy::ecs::system::RunSystemOnce;
-
-    /// Test adding and removing updates to the component history
-    #[test]
-    fn test_component_history() {
-        let mut component_history = PredictionHistory::<ComponentSyncModeFull>::default();
-
-        // check when we try to access a value when the buffer is empty
-        assert_eq!(component_history.pop_until_tick(Tick(0)), None);
-
-        // check when we try to access an exact tick
-        component_history.add_update(Tick(1), ComponentSyncModeFull(1.0));
-        component_history.add_update(Tick(2), ComponentSyncModeFull(2.0));
-        assert_eq!(
-            component_history.pop_until_tick(Tick(2)),
-            Some(ComponentState::Updated(ComponentSyncModeFull(2.0)))
-        );
-        // check that we cleared older ticks, and that the most recent value still remains
-        assert_eq!(component_history.buffer.len(), 1);
-        assert!(component_history.buffer.has_item(&Tick(2)));
-
-        // check when we try to access a value in-between ticks
-        component_history.add_update(Tick(4), ComponentSyncModeFull(4.0));
-        // we retrieve the most recent value older or equal to Tick(3)
-        assert_eq!(
-            component_history.pop_until_tick(Tick(3)),
-            Some(ComponentState::Updated(ComponentSyncModeFull(2.0)))
-        );
-        assert_eq!(component_history.buffer.len(), 2);
-        // check that the most recent value got added back to the buffer at the popped tick
-        assert_eq!(
-            component_history.buffer.heap.peek(),
-            Some(&ItemWithReadyKey {
-                key: Tick(2),
-                item: ComponentState::Updated(ComponentSyncModeFull(2.0))
-            })
-        );
-        assert!(component_history.buffer.has_item(&Tick(4)));
-
-        // check that nothing happens when we try to access a value before any ticks
-        assert_eq!(component_history.pop_until_tick(Tick(0)), None);
-        assert_eq!(component_history.buffer.len(), 2);
-
-        component_history.add_remove(Tick(5));
-        assert_eq!(component_history.buffer.len(), 3);
-
-        component_history.clear();
-        assert_eq!(component_history.buffer.len(), 0);
-    }
 
     /// Test adding the component history to the predicted entity
     /// 1. Add the history for ComponentSyncMode::Full that was added to the confirmed entity
@@ -446,7 +345,7 @@ mod tests {
                 .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(ComponentState::Updated(ComponentSyncModeFull(1.0))),
+            Some(HistoryState::Updated(ComponentSyncModeFull(1.0))),
             "Expected component value to be added to prediction history"
         );
         assert_eq!(
@@ -476,7 +375,7 @@ mod tests {
                 .get_mut::<PredictionHistory<ComponentSyncModeFull2>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(ComponentState::Updated(ComponentSyncModeFull2(1.0))),
+            Some(HistoryState::Updated(ComponentSyncModeFull2(1.0))),
             "Expected component value to be added to prediction history"
         );
         assert_eq!(
@@ -642,7 +541,7 @@ mod tests {
                 .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(ComponentState::Updated(ComponentSyncModeFull(2.0))),
+            Some(HistoryState::Updated(ComponentSyncModeFull(2.0))),
             "Expected component value to be updated in prediction history"
         );
 
@@ -689,7 +588,7 @@ mod tests {
                 .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(ComponentState::Removed),
+            Some(HistoryState::Removed),
             "Expected component value to be removed in prediction history"
         );
 
@@ -736,7 +635,7 @@ mod tests {
                 .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(rollback_tick),
-            Some(ComponentState::Updated(ComponentSyncModeFull(3.0))),
+            Some(HistoryState::Updated(ComponentSyncModeFull(3.0))),
             "Expected component value to be updated in prediction history"
         );
 
@@ -758,7 +657,7 @@ mod tests {
                 .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(rollback_tick),
-            Some(ComponentState::Removed),
+            Some(HistoryState::Removed),
             "Expected component value to be removed from prediction history"
         );
     }
