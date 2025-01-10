@@ -4,8 +4,9 @@ use crate::shared::replication::delta::Diffable;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian2d::math::Scalar;
 use avian2d::prelude::*;
-use bevy::prelude::IntoSystemSetConfigs;
+use bevy::prelude::TransformSystem::TransformPropagate;
 use bevy::prelude::{App, FixedPostUpdate, Plugin};
+use bevy::prelude::{IntoSystemSetConfigs, PostUpdate};
 use tracing::trace;
 
 pub(crate) struct Avian2dPlugin;
@@ -37,6 +38,17 @@ impl Plugin for Avian2dPlugin {
                 InterpolationSet::UpdateVisualInterpolationState,
             )
                 .after(PhysicsSet::Sync),
+        );
+        // if the sync happens in PostUpdate (because the visual interpolated Position/Rotation are updated every frame in
+        // PostUpdate), and we want to sync them every frame because some entities (text, etc.) might depend on Transform
+        app.configure_sets(
+            PostUpdate,
+            (
+                InterpolationSet::VisualInterpolation,
+                PhysicsSet::Sync,
+                TransformPropagate,
+            )
+                .chain(),
         );
     }
 }
