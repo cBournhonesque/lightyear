@@ -5,7 +5,8 @@ use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian3d::math::Scalar;
 use avian3d::prelude::*;
 use bevy::app::{App, FixedPostUpdate, Plugin};
-use bevy::prelude::IntoSystemSetConfigs;
+use bevy::prelude::TransformSystem::TransformPropagate;
+use bevy::prelude::{IntoSystemSetConfigs, PostUpdate};
 use tracing::trace;
 
 pub(crate) struct Avian3dPlugin;
@@ -36,6 +37,17 @@ impl Plugin for Avian3dPlugin {
                 InterpolationSet::UpdateVisualInterpolationState,
             )
                 .after(PhysicsSet::Sync),
+        );
+        // if the sync happens in PostUpdate (because the visual interpolated Position/Rotation are updated every frame in
+        // PostUpdate), and we want to sync them every frame because some entities (text, etc.) might depend on Transform
+        app.configure_sets(
+            PostUpdate,
+            (
+                InterpolationSet::VisualInterpolation,
+                PhysicsSet::Sync,
+                TransformPropagate,
+            )
+                .chain(),
         );
     }
 }
