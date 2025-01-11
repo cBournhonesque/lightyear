@@ -398,9 +398,11 @@ impl Plugin for PredictionPlugin {
                     .after(PreSpawnedPlayerObjectSet::Spawn)
                     .in_set(PredictionSet::SpawnPrediction),
                 run_rollback.in_set(PredictionSet::Rollback),
+                #[cfg(feature = "metrics")]
                 no_rollback
                     .after(PredictionSet::CheckRollback)
-                    .in_set(PredictionSet::All),
+                    .in_set(PredictionSet::All)
+                    .run_if(not(is_in_rollback)),
             ),
         );
         app.add_observer(despawn_confirmed);

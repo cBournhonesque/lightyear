@@ -92,13 +92,13 @@ fn init(mut commands: Commands) {
         Position::new(Vec3::new(1.0, 1.0, 0.0)),
         block_replicate_component.clone(),
     ));
-    // commands.spawn((
-    //     Name::new("Block"),
-    //     BlockPhysicsBundle::default(),
-    //     BlockMarker,
-    //     Position::new(Vec3::new(-1.0, 1.0, 0.0)),
-    //     block_replicate_component.clone(),
-    // ));
+    commands.spawn((
+        Name::new("Block"),
+        BlockPhysicsBundle::default(),
+        BlockMarker,
+        Position::new(Vec3::new(-1.0, 1.0, 0.0)),
+        block_replicate_component.clone(),
+    ));
 }
 
 pub(crate) fn replicate_inputs(
@@ -167,19 +167,19 @@ pub(crate) fn handle_connections(
 
         // Spawn the character with ActionState. The client will add their own
         // InputMap.
-        // let character = commands
-        //     .spawn((
-        //         Name::new("Character"),
-        //         ActionState::<CharacterAction>::default(),
-        //         Position(Vec3::new(x, 3.0, z)),
-        //         replicate,
-        //         CharacterPhysicsBundle::default(),
-        //         ColorComponent(color.into()),
-        //         CharacterMarker,
-        //     ))
-        //     .id();
-        //
-        // info!("Created entity {character:?} for client {client_id:?}");
-        // num_characters += 1;
+        let character = commands
+            .spawn((
+                Name::new("Character"),
+                ActionState::<CharacterAction>::default(),
+                Position(Vec3::new(x, 3.0, z)),
+                replicate,
+                CharacterPhysicsBundle::default(),
+                ColorComponent(color.into()),
+                CharacterMarker,
+            ))
+            .id();
+
+        info!("Created entity {character:?} for client {client_id:?}");
+        num_characters += 1;
     }
 }

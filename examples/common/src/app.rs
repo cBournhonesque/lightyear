@@ -469,9 +469,9 @@ fn new_gui_app(add_inspector: bool) -> App {
             .set(log_plugin())
             .set(window_plugin()),
     );
-    // if add_inspector {
-    //     app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
-    // }
+    if add_inspector {
+        app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
+    }
     app
 }
 

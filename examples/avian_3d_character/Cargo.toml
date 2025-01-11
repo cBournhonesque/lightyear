@@ -20,18 +20,21 @@ visualizer = ["lightyear_examples_common/visualizer", "gui"]
 [dependencies]
 lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = [
-    "leafwing",
-    "avian3d",
-    "websocket",
+  "leafwing",
+  "avian3d",
+  "websocket",
 ] }
-leafwing-input-manager = { workspace = true, default-features = false, features = ["keyboard", "gamepad"] }
+leafwing-input-manager = { workspace = true, default-features = false, features = [
+  "keyboard",
+  "gamepad",
+] }
 
 avian3d = { workspace = true, features = [
-    "3d",
-    "f32",
-    "parry-f32",
-    "parallel",
-    "serialize",
+  "3d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
 ] }
 anyhow.workspace = true
 tracing.workspace = true
@@ -41,7 +44,7 @@ bevy.workspace = true
 rand.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }
 bevygap_client_plugin = { workspace = true, optional = true, features = [
-    "matchmaker-tls",
+  "matchmaker-tls",
 ] }
 
 [target."cfg(target_family = \"wasm\")".dependencies]

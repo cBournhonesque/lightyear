@@ -690,12 +690,10 @@ pub(crate) fn run_rollback(world: &mut World) {
     rollback.set_non_rollback();
 }
 
+#[cfg(feature = "metrics")]
 pub(crate) fn no_rollback() {
-    #[cfg(feature = "metrics")]
-    {
-        metrics::gauge!("prediction::rollbacks::event").set(0);
-        metrics::gauge!("prediction::rollbacks::ticks").set(0);
-    }
+    metrics::gauge!("prediction::rollbacks::event").set(0);
+    metrics::gauge!("prediction::rollbacks::ticks").set(0);
 }
 
 pub(crate) fn increment_rollback_tick(rollback: Res<Rollback>) {
