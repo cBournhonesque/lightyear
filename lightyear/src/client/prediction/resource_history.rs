@@ -1,78 +1,28 @@
 //! There's a lot of overlap with `client::prediction_history` because resources are components in ECS so rollback is going to look similar.
+use crate::prelude::TickManager;
 use bevy::prelude::*;
 
-use crate::{
-    prelude::{Tick, TickManager},
-    utils::ready_buffer::ReadyBuffer,
-};
-
 use super::rollback::Rollback;
+use crate::client::prediction::history::{HistoryBuffer, HistoryState};
+use crate::shared::tick_manager::TickEvent;
 
-/// Stores a past update for a resource
-#[derive(Debug, PartialEq, Clone)]
-pub(crate) enum ResourceState<R> {
-    /// the resource just got removed
-    Removed,
-    /// the resource got updated
-    Updated(R),
-}
+pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 
-/// To know if we need to do rollback, we need to compare the resource's history with the server's state updates
-#[derive(Resource, Debug)]
-pub(crate) struct ResourceHistory<R> {
-    // We will only store the history for the ticks where the resource got updated
-    pub buffer: ReadyBuffer<Tick, ResourceState<R>>,
-}
-
-impl<R> Default for ResourceHistory<R> {
-    fn default() -> Self {
-        Self {
-            buffer: ReadyBuffer::new(),
+/// If there is a TickEvent and the client tick suddenly changes, we need
+/// to update the ticks in the history buffer.
+///
+/// The history buffer ticks are only relevant relative to the current client tick.
+/// (i.e. X ticks in the past compared to the current tick)
+pub(crate) fn handle_tick_event_resource_history<R: Resource>(
+    trigger: Trigger<TickEvent>,
+    res: Option<ResMut<ResourceHistory<R>>>,
+) {
+    match *trigger.event() {
+        TickEvent::TickSnap { old_tick, new_tick } => {
+            if let Some(mut history) = res {
+                history.update_ticks(new_tick - old_tick)
+            }
         }
-    }
-}
-
-impl<R> PartialEq for ResourceHistory<R> {
-    fn eq(&self, other: &Self) -> bool {
-        let mut self_history: Vec<_> = self.buffer.heap.iter().collect();
-        let mut other_history: Vec<_> = other.buffer.heap.iter().collect();
-        self_history.sort_by_key(|item| item.key);
-        other_history.sort_by_key(|item| item.key);
-        self_history.eq(&other_history)
-    }
-}
-
-impl<R: Clone> ResourceHistory<R> {
-    /// Reset the history for this resource
-    pub(crate) fn clear(&mut self) {
-        self.buffer = ReadyBuffer::new();
-    }
-
-    /// Add to the buffer that we received an update for the resource at the given tick
-    pub(crate) fn add_update(&mut self, tick: Tick, resource: R) {
-        self.buffer.push(tick, ResourceState::Updated(resource));
-    }
-
-    /// Add to the buffer that the resource got removed at the given tick
-    pub(crate) fn add_remove(&mut self, tick: Tick) {
-        self.buffer.push(tick, ResourceState::Removed);
-    }
-
-    // TODO: check if this logic is necessary/correct?
-    /// Clear the history of values strictly older than the specified tick,
-    /// and return the most recent value that is older or equal to the specified tick.
-    /// NOTE: That value is written back into the buffer
-    ///
-    /// CAREFUL:
-    /// the resource history will only contain the ticks where the resource got updated, and otherwise
-    /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
-    /// get the values for the future ticks
-    pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<ResourceState<R>> {
-        self.buffer.pop_until(&tick).map(|(tick, state)| {
-            // TODO: this clone is pretty bad and avoidable. Probably switch to a sequence buffer?
-            self.buffer.push(tick, state.clone());
-            state
-        })
     }
 }
 
@@ -92,8 +42,8 @@ pub(crate) fn update_resource_history<R: Resource + Clone>(
         }
     // resource does not exist, it might have been just removed
     } else {
-        match history.buffer.peek_max_item() {
-            Some((_, ResourceState::Removed)) => (),
+        match history.peek() {
+            Some((_, HistoryState::Removed)) => (),
             // if there is no latest item or the latest item isn't a removal then the resource just got removed.
             _ => history.add_remove(tick),
         }
@@ -105,60 +55,12 @@ mod tests {
     use super::*;
     use crate::prelude::client::RollbackState;
     use crate::prelude::AppComponentExt;
+    use crate::prelude::Tick;
     use crate::tests::stepper::BevyStepper;
-    use crate::utils::ready_buffer::ItemWithReadyKey;
     use bevy::ecs::system::RunSystemOnce;
 
     #[derive(Resource, Clone, PartialEq, Debug)]
     struct TestResource(f32);
-
-    /// Test adding and removing updates to the resource history
-    #[test]
-    fn test_resource_history() {
-        let mut resource_history = ResourceHistory::<TestResource>::default();
-
-        // check when we try to access a value when the buffer is empty
-        assert_eq!(resource_history.pop_until_tick(Tick(0)), None);
-
-        // check when we try to access an exact tick
-        resource_history.add_update(Tick(1), TestResource(1.0));
-        resource_history.add_update(Tick(2), TestResource(2.0));
-        assert_eq!(
-            resource_history.pop_until_tick(Tick(2)),
-            Some(ResourceState::Updated(TestResource(2.0)))
-        );
-        // check that we cleared older ticks, and that the most recent value still remains
-        assert_eq!(resource_history.buffer.len(), 1);
-        assert!(resource_history.buffer.has_item(&Tick(2)));
-
-        // check when we try to access a value in-between ticks
-        resource_history.add_update(Tick(4), TestResource(4.0));
-        // we retrieve the most recent value older or equal to Tick(3)
-        assert_eq!(
-            resource_history.pop_until_tick(Tick(3)),
-            Some(ResourceState::Updated(TestResource(2.0)))
-        );
-        assert_eq!(resource_history.buffer.len(), 2);
-        // check that the most recent value got added back to the buffer at the popped tick
-        assert_eq!(
-            resource_history.buffer.heap.peek(),
-            Some(&ItemWithReadyKey {
-                key: Tick(2),
-                item: ResourceState::Updated(TestResource(2.0))
-            })
-        );
-        assert!(resource_history.buffer.has_item(&Tick(4)));
-
-        // check that nothing happens when we try to access a value before any ticks
-        assert_eq!(resource_history.pop_until_tick(Tick(0)), None);
-        assert_eq!(resource_history.buffer.len(), 2);
-
-        resource_history.add_remove(Tick(5));
-        assert_eq!(resource_history.buffer.len(), 3);
-
-        resource_history.clear();
-        assert_eq!(resource_history.buffer.len(), 0);
-    }
 
     /// Test that the history gets updated correctly
     /// 1. Updating the TestResource resource
@@ -190,7 +92,7 @@ mod tests {
                 .get_resource_mut::<ResourceHistory<TestResource>>()
                 .expect("Expected resource history to be added")
                 .pop_until_tick(tick),
-            Some(ResourceState::Updated(TestResource(2.0))),
+            Some(HistoryState::Updated(TestResource(2.0))),
             "Expected resource value to be updated in resource history"
         );
 
@@ -208,7 +110,7 @@ mod tests {
                 .get_resource_mut::<ResourceHistory<TestResource>>()
                 .expect("Expected resource history to be added")
                 .pop_until_tick(tick),
-            Some(ResourceState::Removed),
+            Some(HistoryState::Removed),
             "Expected resource value to be removed in resource history"
         );
 
@@ -235,7 +137,7 @@ mod tests {
                 .get_resource_mut::<ResourceHistory<TestResource>>()
                 .expect("Expected resource history to be added")
                 .pop_until_tick(rollback_tick),
-            Some(ResourceState::Updated(TestResource(3.0))),
+            Some(HistoryState::Updated(TestResource(3.0))),
             "Expected resource value to be updated in resource history"
         );
 
@@ -255,8 +157,71 @@ mod tests {
                 .get_resource_mut::<ResourceHistory<TestResource>>()
                 .expect("Expected resource history to be added")
                 .pop_until_tick(rollback_tick),
-            Some(ResourceState::Removed),
+            Some(HistoryState::Removed),
             "Expected resource value to be removed from resource history"
         );
+    }
+
+    /// Test that the initial resource rollback works correctly even with client sync.
+    /// Case:
+    /// - spawn R on the client
+    /// - client sync
+    /// - rollback is triggered
+    /// Check that the resource is NOT removed, because it existed before the sync.
+    ///
+    /// This is a regression test for a bug where the resource was removed during rollback.
+    /// Since prediction plugins only run after `is_sync`, the resource wasn't inserted in the history buffer
+    /// and was removed during rollback.
+    #[test]
+    fn test_initial_rollback() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::DEBUG)
+        //     .init();
+        let mut stepper = BevyStepper::default_no_init();
+        stepper.client_app.add_resource_rollback::<TestResource>();
+        stepper.build();
+        stepper.wait_for_connection();
+
+        // insert resource before sync
+        stepper
+            .client_app
+            .world_mut()
+            .insert_resource(TestResource(1.0));
+        stepper.frame_step();
+        info!(
+            "Just added: {:?}",
+            stepper
+                .client_app
+                .world()
+                .resource::<ResourceHistory<TestResource>>()
+        );
+        let client_tick = stepper.client_tick();
+
+        // sync
+        stepper.wait_for_sync();
+        info!(
+            "{:?}",
+            stepper
+                .client_app
+                .world()
+                .resource::<ResourceHistory<TestResource>>()
+        );
+
+        // Initiate rollback
+        let rollback_tick = stepper.server_tick() + 1;
+        stepper
+            .client_app
+            .world_mut()
+            .insert_resource(Rollback::new(RollbackState::ShouldRollback {
+                current_tick: rollback_tick,
+            }));
+        stepper.frame_step();
+
+        // Check that the resource still exists
+        assert!(stepper
+            .client_app
+            .world_mut()
+            .get_resource::<TestResource>()
+            .is_some());
     }
 }

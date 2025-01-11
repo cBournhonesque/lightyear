@@ -7,6 +7,7 @@ use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
 use avian3d::prelude::*;
+use bevy::prelude::TransformSystem::TransformPropagate;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
@@ -100,11 +101,52 @@ impl Plugin for SharedPlugin {
             ..default()
         });
 
-        // We change SyncPlugin to PostUpdate, because we want the visually
-        // interpreted values synced to transform every time, not just when
-        // Fixed schedule runs.
+        app.add_systems(
+            FixedPostUpdate,
+            after_physics_log.after(PhysicsSet::StepSimulation),
+        );
+
+        // // We change SyncPlugin to PostUpdate, because we want the visually
+        // // interpreted values synced to transform every time, not just when
+        // // Fixed schedule runs.
+        // app.add_plugins(PhysicsPlugins::default().build());
         app.add_plugins(PhysicsPlugins::default().build().disable::<SyncPlugin>())
             .add_plugins(SyncPlugin::new(PostUpdate));
+        app.configure_sets(PostUpdate, (PhysicsSet::Sync, TransformPropagate).chain());
+    }
+}
+
+pub(crate) fn after_physics_log(
+    tick_manager: Res<TickManager>,
+    rollback: Option<Res<Rollback>>,
+    // collisions: Option<Res<Collisions>>,
+    players: Query<
+        (
+            Entity,
+            &Position,
+            &Rotation,
+            &LinearVelocity,
+            &AngularVelocity,
+        ),
+        (Without<Confirmed>, With<CharacterMarker>),
+    >,
+) {
+    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
+    });
+    // info!(?tick, ?collisions, "collisions");
+    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
+    for (entity, position, rotation, lv, av) in players.iter() {
+        debug!(
+            ?is_rollback,
+            ?tick,
+            ?entity,
+            ?position,
+            ?rotation,
+            ?lv,
+            ?av,
+            "Player after physics update"
+        );
     }
 }
 

@@ -1,5 +1,6 @@
 //! Implement lightyear traits for some common bevy types
 use crate::prelude::client::{InterpolationSet, PredictionSet};
+use crate::prelude::AppComponentExt;
 use crate::shared::replication::delta::Diffable;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian2d::math::Scalar;
@@ -39,8 +40,9 @@ impl Plugin for Avian2dPlugin {
             )
                 .after(PhysicsSet::Sync),
         );
-        // if the sync happens in PostUpdate (because the visual interpolated Position/Rotation are updated every frame in
-        // PostUpdate), and we want to sync them every frame because some entities (text, etc.) might depend on Transform
+        // if the Avian Sync happens in PostUpdate (because the visual interpolated Position/Rotation are updated
+        // every frame in PostUpdate), and we want to sync them every frame because some entities (text, etc.)
+        // might depend on Transform
         app.configure_sets(
             PostUpdate,
             (
@@ -50,6 +52,10 @@ impl Plugin for Avian2dPlugin {
             )
                 .chain(),
         );
+
+        // Add rollback for some non-replicated resources
+        app.add_resource_rollback::<Collisions>();
+        app.add_rollback::<CollidingEntities>();
     }
 }
 

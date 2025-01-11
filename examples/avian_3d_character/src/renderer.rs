@@ -1,17 +1,17 @@
-use avian3d::prelude::*;
-use bevy::prelude::*;
-use lightyear::{
-    client::prediction::diagnostics::PredictionDiagnosticsPlugin,
-    prelude::{client::*, *},
-    transport::io::IoDiagnosticsPlugin,
-};
-
 use crate::{
     protocol::{BlockMarker, CharacterMarker, ColorComponent, FloorMarker},
     shared::{
         BLOCK_HEIGHT, BLOCK_WIDTH, CHARACTER_CAPSULE_HEIGHT, CHARACTER_CAPSULE_RADIUS,
         FLOOR_HEIGHT, FLOOR_WIDTH,
     },
+};
+use avian3d::prelude::*;
+use bevy::prelude::*;
+use lightyear::prelude::server::ReplicationTarget;
+use lightyear::{
+    client::prediction::diagnostics::PredictionDiagnosticsPlugin,
+    prelude::{client::*, *},
+    transport::io::IoDiagnosticsPlugin,
 };
 
 pub struct ExampleRendererPlugin;
@@ -96,7 +96,13 @@ fn add_visual_interpolation_components<T: Component>(
 /// want to see the predicted character and not the confirmed character.
 fn add_character_cosmetics(
     mut commands: Commands,
-    character_query: Query<(Entity, &ColorComponent), (Added<Predicted>, With<CharacterMarker>)>,
+    character_query: Query<
+        (Entity, &ColorComponent),
+        (
+            Or<(Added<Predicted>, Added<ReplicationTarget>)>,
+            With<CharacterMarker>,
+        ),
+    >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -134,7 +140,13 @@ fn add_floor_cosmetics(
 /// see the predicted block and not the confirmed block.
 fn add_block_cosmetics(
     mut commands: Commands,
-    floor_query: Query<Entity, (Added<Predicted>, With<BlockMarker>)>,
+    floor_query: Query<
+        Entity,
+        (
+            Or<(Added<Predicted>, Added<ReplicationTarget>)>,
+            With<BlockMarker>,
+        ),
+    >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
