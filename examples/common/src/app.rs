@@ -19,7 +19,6 @@ use lightyear::prelude::client::ClientConfig;
 use lightyear::prelude::*;
 use lightyear::prelude::{client, server};
 use lightyear::server::config::ServerConfig;
-use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 use serde::{Deserialize, Serialize};
 
@@ -470,9 +469,9 @@ fn new_gui_app(add_inspector: bool) -> App {
             .set(log_plugin())
             .set(window_plugin()),
     );
-    if add_inspector {
-        app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
-    }
+    // if add_inspector {
+    //     app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
+    // }
     app
 }
 

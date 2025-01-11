@@ -3,7 +3,7 @@
 use bevy::prelude::{Reflect, SystemSet};
 use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::packet::packet::PacketId;
@@ -448,6 +448,10 @@ impl SyncManager {
         )
         .unwrap();
 
+        #[cfg(feature = "metrics")]
+        {
+            metrics::gauge!("sync::prediction_time::error_ms").set(error.num_milliseconds() as f64);
+        }
         if error > max_error_margin_time || error < -max_error_margin_time {
             debug!(
                 ?rtt,

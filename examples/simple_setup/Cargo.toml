@@ -13,13 +13,14 @@ publish = false
 
 [features]
 gui = [
-  "bevy/bevy_render",
-  "bevy/bevy_core_pipeline",
-  "bevy/bevy_winit",
-  "bevy/bevy_window",
+    "bevy/bevy_render",
+    "bevy/bevy_core_pipeline",
+    "bevy/bevy_winit",
+    "bevy/bevy_window",
 ]
 client = ["gui"]
 server = []
+visualizer = ["lightyear/visualizer", "gui"]
 
 [dependencies]
 lightyear = { workspace = true, features = ["steam", "websocket", "leafwing"] }

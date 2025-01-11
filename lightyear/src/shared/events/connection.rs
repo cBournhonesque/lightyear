@@ -82,7 +82,7 @@ impl ConnectionEvents {
         trace!(?entity, "Received entity spawn");
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("entity_spawn").increment(1);
+            metrics::counter!("replication::receive::entity::spawn").increment(1);
         }
         self.spawns.push(entity);
         self.empty = false;
@@ -92,7 +92,7 @@ impl ConnectionEvents {
         trace!(?entity, "Received entity despawn");
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("entity_despawn").increment(1);
+            metrics::counter!("replication::receive::entity::despawn").increment(1);
         }
         self.despawns.push(entity);
         self.empty = false;
@@ -105,10 +105,6 @@ impl ConnectionEvents {
         tick: Tick,
     ) {
         trace!(?entity, ?kind, "Received insert component");
-        #[cfg(feature = "metrics")]
-        {
-            metrics::counter!("component_insert", "kind" => kind.to_string()).increment(1);
-        }
         self.component_inserts.entry(kind).or_default().push(entity);
         // .push((entity, tick));
         self.empty = false;
@@ -121,10 +117,6 @@ impl ConnectionEvents {
         tick: Tick,
     ) {
         trace!(?entity, ?kind, "Received remove component");
-        #[cfg(feature = "metrics")]
-        {
-            metrics::counter!("component_remove", "kind" => kind.to_string()).increment(1);
-        }
         self.component_removes.entry(kind).or_default().push(entity);
         // .push((entity, tick));
         self.empty = false;
@@ -138,10 +130,6 @@ impl ConnectionEvents {
         tick: Tick,
     ) {
         trace!(?entity, ?kind, "Received update component");
-        #[cfg(feature = "metrics")]
-        {
-            metrics::counter!("component_update", "kind" => kind.to_string()).increment(1);
-        }
         // self.components_with_updates.insert(component.clone());
         // self.component_updates
         //     .entry(entity)

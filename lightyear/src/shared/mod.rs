@@ -4,8 +4,6 @@ pub mod config;
 
 pub mod events;
 
-pub mod log;
-
 pub mod ping;
 
 pub mod plugin;

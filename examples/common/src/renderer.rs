@@ -52,7 +52,7 @@ impl Plugin for ExampleRendererPlugin {
             );
             app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
 
-            app.add_systems(Update, update_buttom_text);
+            app.add_systems(Update, update_button_text);
             app.add_observer(on_update_status_message);
         }
 
@@ -161,7 +161,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
         });
 }
 
-pub(crate) fn update_buttom_text(
+pub(crate) fn update_button_text(
     state: Res<State<NetworkingState>>,
     mut text_query: Query<&mut Text, With<Button>>,
 ) {

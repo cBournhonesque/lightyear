@@ -269,6 +269,10 @@ pub(crate) fn sync_update(
         // TODO: how to adjust this for replication groups that have a custom send_interval?
         config.shared.server_replication_send_interval,
     ) {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("sync::resync_event").increment(1);
+        }
         debug!("Triggering TickSync event: {tick_event:?}");
         commands.trigger(tick_event);
     }

@@ -317,6 +317,10 @@ impl ReplicationSender {
     /// Returns true if we should send a message
     // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("replication::send::entity_spawn").increment(1);
+        }
         self.group_with_actions.insert(group_id);
         self.group_channels
             .entry(group_id)
@@ -348,6 +352,10 @@ impl ReplicationSender {
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("replication::send::entity_despawn").increment(1);
+        }
         self.group_with_actions.insert(group_id);
         self.group_channels
             .entry(group_id)
@@ -368,6 +376,10 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         component: Bytes,
     ) {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("replication::send::component_insert").increment(1);
+        }
         self.group_with_actions.insert(group_id);
         self.group_channels
             .entry(group_id)
@@ -386,6 +398,10 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         kind: ComponentNetId,
     ) {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("replication::send::component_remove").increment(1);
+        }
         self.group_with_actions.insert(group_id);
         self.group_channels
             .entry(group_id)
@@ -404,6 +420,10 @@ impl ReplicationSender {
         group_id: ReplicationGroupId,
         raw_data: Bytes,
     ) {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("replication::send::component_update").increment(1);
+        }
         self.group_with_updates.insert(group_id);
         self.group_channels
             .entry(group_id)
@@ -429,6 +449,10 @@ impl ReplicationSender {
         tick: Tick,
         remote_entity_map: &mut RemoteEntityMap,
     ) -> Result<(), ReplicationError> {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("replication::send::component_update_delta").increment(1);
+        }
         let group_channel = self.group_channels.entry(group_id).or_default();
         // Get the latest acked tick for this entity/component
         let raw_data = group_channel

@@ -218,6 +218,7 @@ impl MessageManager {
         let packets =
             self.packet_manager
                 .build_packets(current_tick, single_data, fragment_data)?;
+
         // for packet in packets.iter() {
         //     trace!(?packet, "packet to send");
         // }

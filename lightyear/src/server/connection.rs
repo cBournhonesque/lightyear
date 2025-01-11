@@ -302,7 +302,7 @@ impl ConnectionManager {
     pub(crate) fn add(&mut self, client_id: ClientId, client_entity: Entity) {
         if let Entry::Vacant(e) = self.connections.entry(client_id) {
             #[cfg(feature = "metrics")]
-            metrics::gauge!("connected_clients").increment(1.0);
+            metrics::gauge!("server::connected_clients").increment(1.0);
 
             info!("New connection from id: {}", client_id);
             let connection = Connection::new(
@@ -335,7 +335,7 @@ impl ConnectionManager {
         }
         if self.connections.remove(&client_id).is_some() {
             #[cfg(feature = "metrics")]
-            metrics::gauge!("connected_clients").decrement(1.0);
+            metrics::gauge!("server::connected_clients").decrement(1.0);
             info!("Client {} disconnected", client_id);
         };
     }

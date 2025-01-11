@@ -4,6 +4,7 @@
 ## [Unreleased]
 
 - Simplified the examples
+- Added the `visualizer` feature to get a egui dashboard showing a plot of various lightyear metrics
 - Removed `DisabledComponent::<C>` in favor of `DisabledComponents` to have more control over
 which components are disabled. In particular, it is now possible to express 'disable all components except these'.
 - Made the `ServerConnections` resource private. You can now use `commands.disconnect(client_id)` to disconnect a client.
