@@ -119,6 +119,7 @@ impl Plugin for SharedPlugin {
 pub(crate) fn after_physics_log(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
+    // collisions: Option<Res<Collisions>>,
     players: Query<
         (
             Entity,
@@ -133,6 +134,7 @@ pub(crate) fn after_physics_log(
     let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
         tick_manager.tick_or_rollback_tick(r.as_ref())
     });
+    // info!(?tick, ?collisions, "collisions");
     let is_rollback = rollback.map_or(false, |r| r.is_rollback());
     for (entity, position, rotation, lv, av) in players.iter() {
         info!(
