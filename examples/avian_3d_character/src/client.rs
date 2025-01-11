@@ -103,7 +103,7 @@ fn handle_new_character(
         info!(?entity, ?client_id, "Adding physics to character");
         commands
             .entity(entity)
-            .insert((CharacterPhysicsBundle::default(),));
+            .insert(CharacterPhysicsBundle::default());
     }
 }
 

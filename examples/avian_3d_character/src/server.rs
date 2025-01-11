@@ -65,7 +65,12 @@ fn init(mut commands: Commands) {
         FloorMarker,
         Position::new(Vec3::ZERO),
         // Floors don't need to be predicted since they will never move.
-        Replicate::default(),
+        // We put it in the same replication group to avoid having the players be replicated before the floor
+        // and falling infinitely
+        Replicate {
+            group: REPLICATION_GROUP,
+            ..default()
+        },
     ));
 
     // Blocks need to be predicted because their position, rotation, velocity
@@ -80,20 +85,20 @@ fn init(mut commands: Commands) {
         group: REPLICATION_GROUP,
         ..default()
     };
-    commands.spawn((
-        Name::new("Block"),
-        BlockPhysicsBundle::default(),
-        BlockMarker,
-        Position::new(Vec3::new(1.0, 1.0, 0.0)),
-        block_replicate_component.clone(),
-    ));
-    commands.spawn((
-        Name::new("Block"),
-        BlockPhysicsBundle::default(),
-        BlockMarker,
-        Position::new(Vec3::new(-1.0, 1.0, 0.0)),
-        block_replicate_component.clone(),
-    ));
+    // commands.spawn((
+    //     Name::new("Block"),
+    //     BlockPhysicsBundle::default(),
+    //     BlockMarker,
+    //     Position::new(Vec3::new(1.0, 1.0, 0.0)),
+    //     block_replicate_component.clone(),
+    // ));
+    // commands.spawn((
+    //     Name::new("Block"),
+    //     BlockPhysicsBundle::default(),
+    //     BlockMarker,
+    //     Position::new(Vec3::new(-1.0, 1.0, 0.0)),
+    //     block_replicate_component.clone(),
+    // ));
 }
 
 pub(crate) fn replicate_inputs(

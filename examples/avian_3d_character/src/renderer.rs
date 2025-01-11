@@ -71,13 +71,18 @@ fn init(mut commands: Commands) {
 /// interpolation.
 fn add_visual_interpolation_components<T: Component>(
     trigger: Trigger<OnAdd, T>,
-    query: Query<Entity, (With<T>, Without<Confirmed>, Without<FloorMarker>)>,
+    // TODO: how to guarantee that Predicted has been added before the component gets added?
+    query: Query<Entity, (With<T>, With<Predicted>, Without<FloorMarker>)>,
     mut commands: Commands,
 ) {
     if !query.contains(trigger.entity()) {
         return;
     }
-    debug!("Adding visual interp component to {:?}", trigger.entity());
+    debug!(
+        "Adding visual interp component for {:?} to {:?}",
+        std::any::type_name::<T>(),
+        trigger.entity()
+    );
     commands
         .entity(trigger.entity())
         .insert(VisualInterpolateStatus::<T> {
