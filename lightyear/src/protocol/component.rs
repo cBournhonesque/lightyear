@@ -640,10 +640,28 @@ mod replication {
             if let Some(mut c) = entity_world_mut.get_mut::<C>() {
                 // only apply the update if the component is different, to not trigger change detection
                 if c.as_ref() != &component {
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("replication::receive::component::update").increment(1);
+                        metrics::counter!(format!(
+                            "replication::receive::component::{}::update",
+                            std::any::type_name::<C>()
+                        ))
+                        .increment(1);
+                    }
                     events.push_update_component(entity, net_id, tick);
                     *c = component;
                 }
             } else {
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("replication::receive::component::insert").increment(1);
+                    metrics::counter!(format!(
+                        "replication::receive::component::{}::insert",
+                        std::any::type_name::<C>()
+                    ))
+                    .increment(1);
+                }
                 events.push_insert_component(entity, net_id, tick);
                 entity_world_mut.insert(component);
             }
@@ -667,6 +685,15 @@ mod replication {
         }
 
         pub(crate) fn remove<C: Component>(&self, entity_world_mut: &mut EntityWorldMut) {
+            #[cfg(feature = "metrics")]
+            {
+                metrics::counter!("replication::receive::component::remove").increment(1);
+                metrics::counter!(format!(
+                    "replication::receive::component::{}::remove",
+                    std::any::type_name::<C>()
+                ))
+                .increment(1);
+            }
             entity_world_mut.remove::<C>();
         }
     }

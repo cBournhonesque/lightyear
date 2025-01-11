@@ -18,6 +18,7 @@ tls = ["dep:bevygap_client_plugin"]
 bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
 bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
 steam = ["lightyear_examples_common/steam"]
+visualizer = ["lightyear_examples_common/visualizer", "gui"]
 
 [dependencies]
 lightyear_examples_common.workspace = true

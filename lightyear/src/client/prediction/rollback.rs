@@ -194,7 +194,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 }),
             };
             if should_rollback {
-                debug!(
+                info!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, current_tick
@@ -629,6 +629,12 @@ pub(crate) fn run_rollback(world: &mut World) {
         "Rollback between {:?} and {:?}",
         current_rollback_tick, current_tick
     );
+    #[cfg(feature = "metrics")]
+    {
+        metrics::counter!("prediction::rollbacks::count").increment(1);
+        metrics::gauge!("prediction::rollbacks::event").set(1);
+        metrics::gauge!("prediction::rollbacks::ticks").set(num_rollback_ticks);
+    }
 
     // Keep track of the generic time resource so it can be restored after the
     // rollback.
@@ -682,6 +688,12 @@ pub(crate) fn run_rollback(world: &mut World) {
     // revert the state of Rollback for the next frame
     let rollback = world.get_resource_mut::<Rollback>().unwrap();
     rollback.set_non_rollback();
+}
+
+#[cfg(feature = "metrics")]
+pub(crate) fn no_rollback() {
+    metrics::gauge!("prediction::rollbacks::event").set(0);
+    metrics::gauge!("prediction::rollbacks::ticks").set(0);
 }
 
 pub(crate) fn increment_rollback_tick(rollback: Res<Rollback>) {

@@ -19,7 +19,6 @@ use lightyear::prelude::client::ClientConfig;
 use lightyear::prelude::*;
 use lightyear::prelude::{client, server};
 use lightyear::server::config::ServerConfig;
-use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 use serde::{Deserialize, Serialize};
 

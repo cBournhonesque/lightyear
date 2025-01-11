@@ -181,6 +181,18 @@ pub(crate) fn receive_packets(
     let connection_manager = &mut *connection_manager;
     for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
         while let Some((payload, client_id)) = netserver.recv() {
+            #[cfg(feature = "metrics")]
+            {
+                // TODO: convert into packets/bytes per second
+                let packets = 1.0 as u64;
+                let bytes = payload.len() as u64;
+                metrics::counter!(format!("transport::{:?}::receive::packets", client_id))
+                    .increment(packets);
+                metrics::counter!(format!("transport::{:?}::receive::bytes", client_id))
+                    .increment(bytes);
+                metrics::counter!("transport::receive::packets").increment(packets);
+                metrics::counter!("transport::receive::bytes").increment(bytes);
+            }
             // Note: the client_id might not be present in the connection_manager if we receive
             // packets from a client
             // TODO: use connection to apply on BOTH message manager and replication manager
@@ -271,6 +283,17 @@ pub(crate) fn send(
                 .get_mut(netserver_idx)
                 .ok_or(ServerError::ServerConnectionNotFound)?;
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
+                #[cfg(feature = "metrics")]
+                {
+                    let packets = 1.0 as u64;
+                    let bytes = packet_byte.len() as u64;
+                    metrics::counter!(format!("transport::{:?}::send::packets", client_id))
+                        .increment(packets);
+                    metrics::counter!(format!("transport::{:?}::send::bytes", client_id))
+                        .increment(bytes);
+                    metrics::counter!("transport::send::packets").increment(packets);
+                    metrics::counter!("transport::send::kb").increment(bytes);
+                }
                 netserver.send(packet_byte.as_slice(), *client_id)?;
             }
             Ok(())

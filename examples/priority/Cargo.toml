@@ -19,6 +19,7 @@ server = ["lightyear_examples_common/server"]
 gui = ["lightyear_examples_common/gui"]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 steam = ["lightyear_examples_common/steam"]
+visualizer = ["lightyear_examples_common/visualizer", "gui"]
 
 [dependencies]
 lightyear_examples_common.workspace = true

@@ -19,10 +19,11 @@ big_messages = []
 trace = []
 metrics = [
   "dep:metrics",
-  "metrics-util",
-  "metrics-tracing-context",
-  "metrics-exporter-prometheus",
+  "dep:metrics-util",
+  "dep:metrics-tracing-context",
+  "dep:metrics-exporter-prometheus",
 ]
+visualizer = ["dep:bevy_metrics_dashboard", "metrics"]
 mock_time = ["dep:mock_instant"]
 webtransport = [
   "dep:wtransport",
@@ -98,6 +99,10 @@ metrics = { workspace = true, optional = true }
 metrics-util = { workspace = true, optional = true }
 metrics-tracing-context = { workspace = true, optional = true }
 metrics-exporter-prometheus = { workspace = true, optional = true }
+
+# debug ui
+bevy_egui = { workspace = true, optional = true }
+bevy_metrics_dashboard = { workspace = true, optional = true }
 
 # bevy
 bevy.workspace = true

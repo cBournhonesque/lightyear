@@ -383,6 +383,15 @@ impl ConnectionManager {
                     //     .unwrap_or("unknown");
                     // let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
+                    // TODO: put metric somewhere else?
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("message::received").increment(1);
+                        // metrics::counter!("message::received", "channel" => channel.name.to_string()).increment(1);
+                        metrics::counter!(format!("message::received::{}", channel.name))
+                            .increment(1);
+                    }
+
                     trace!(?channel_kind, ?tick, ?single_data, "Received message");
                     let mut reader = Reader::from(single_data);
                     if *channel_kind == ChannelKind::of::<PingChannel>() {

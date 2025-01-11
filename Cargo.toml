@@ -59,6 +59,7 @@ thiserror = "2.0.3"
 seahash = "4.1.0"
 zstd = "0.13.1"
 
+
 # serialization
 
 bincode = { version = "2.0.0-rc.3", features = ["serde"] }
@@ -192,18 +193,22 @@ avian3d = { version = "0.2", default-features = false }
 
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.28", default-features = false, features = [
+# TODO: switch to the released version once inspector upgrades to bevy_egui 0.32
+bevy-inspector-egui = { git = "https://github.com/blip-radar/bevy-inspector-egui.git", branch = "egui-0.30", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.31", default-features = false, features = [
+bevy_egui = { version = "0.32", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",
 ] }
-egui_extras = "=0.29"
+# TODO: switch to the released version once dashboard upgrades to bevy 0.15
+bevy_metrics_dashboard = { git = "https://github.com/cBournhonesque/bevy_metrics_dashboard.git", branch = "cb/0.15" }
+egui_extras = "0.30"
+
 
 # bevygap for deploying on Edgegap
 bevygap_server_plugin = { version = "0.3.1" }

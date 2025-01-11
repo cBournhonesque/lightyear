@@ -121,6 +121,15 @@ impl Plugin for SharedPlugin {
         app.add_plugins(crate::utils::avian2d::Avian2dPlugin);
         #[cfg(feature = "avian3d")]
         app.add_plugins(crate::utils::avian3d::Avian3dPlugin);
+        #[cfg(feature = "visualizer")]
+        {
+            if !app.is_plugin_added::<bevy_metrics_dashboard::bevy_egui::EguiPlugin>() {
+                app.add_plugins(bevy_metrics_dashboard::bevy_egui::EguiPlugin);
+            }
+            app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
+                .add_plugins(bevy_metrics_dashboard::DashboardPlugin);
+            app.add_systems(Startup, spawn_metrics_visualizer);
+        }
 
         // RESOURCES
         // the SharedPlugin is called after the ClientConfig is inserted
@@ -174,4 +183,11 @@ impl Plugin for SharedPlugin {
         // check that the protocol was built correctly
         app.world().resource::<ComponentRegistry>().check();
     }
+}
+
+#[cfg(feature = "visualizer")]
+fn spawn_metrics_visualizer(mut commands: Commands) {
+    commands.spawn(bevy_metrics_dashboard::DashboardWindow::new(
+        "Metrics Dashboard",
+    ));
 }

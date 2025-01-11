@@ -20,6 +20,7 @@ gui = [
 ]
 client = ["gui"]
 server = []
+visualizer = ["lightyear/visualizer", "gui"]
 
 [dependencies]
 lightyear = { workspace = true, features = ["steam", "websocket", "leafwing"] }

@@ -21,6 +21,7 @@ use crate::prelude::ChannelKind;
 /// A ChannelContainer is a struct that implements the [`Channel`] trait
 #[derive(Debug)]
 pub struct ChannelContainer {
+    pub name: &'static str,
     pub setting: ChannelSettings,
     pub(crate) receiver: ChannelReceiver,
     pub(crate) sender: ChannelSender,
@@ -50,7 +51,10 @@ pub struct ChannelContainer {
 /// ```
 pub trait Channel: 'static {
     fn get_builder(settings: ChannelSettings) -> ChannelBuilder {
-        ChannelBuilder { settings }
+        ChannelBuilder {
+            name: Self::name(),
+            settings,
+        }
     }
 
     fn name() -> &'static str;
@@ -66,17 +70,18 @@ pub trait Channel: 'static {
 #[doc(hidden)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelBuilder {
+    pub name: &'static str,
     pub settings: ChannelSettings,
 }
 
 impl ChannelBuilder {
     pub fn build(&self) -> ChannelContainer {
-        ChannelContainer::new(self.settings.clone())
+        ChannelContainer::new(self.name, self.settings.clone())
     }
 }
 
 impl ChannelContainer {
-    pub fn new(settings: ChannelSettings) -> Self {
+    pub fn new(name: &'static str, settings: ChannelSettings) -> Self {
         let receiver: ChannelReceiver;
         let sender: ChannelSender;
         let settings_clone = settings.clone();
@@ -107,6 +112,7 @@ impl ChannelContainer {
             }
         }
         Self {
+            name,
             setting: settings_clone,
             receiver,
             sender,

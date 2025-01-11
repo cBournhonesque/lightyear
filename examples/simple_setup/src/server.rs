@@ -11,7 +11,6 @@ use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::log::add_log_layer;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use crate::shared::{shared_config, SharedPlugin, SERVER_ADDR, SERVER_REPLICATION_INTERVAL};

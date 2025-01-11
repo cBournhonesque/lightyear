@@ -85,20 +85,20 @@ fn init(mut commands: Commands) {
         group: REPLICATION_GROUP,
         ..default()
     };
-    // commands.spawn((
-    //     Name::new("Block"),
-    //     BlockPhysicsBundle::default(),
-    //     BlockMarker,
-    //     Position::new(Vec3::new(1.0, 1.0, 0.0)),
-    //     block_replicate_component.clone(),
-    // ));
-    // commands.spawn((
-    //     Name::new("Block"),
-    //     BlockPhysicsBundle::default(),
-    //     BlockMarker,
-    //     Position::new(Vec3::new(-1.0, 1.0, 0.0)),
-    //     block_replicate_component.clone(),
-    // ));
+    commands.spawn((
+        Name::new("Block"),
+        BlockPhysicsBundle::default(),
+        BlockMarker,
+        Position::new(Vec3::new(1.0, 1.0, 0.0)),
+        block_replicate_component.clone(),
+    ));
+    commands.spawn((
+        Name::new("Block"),
+        BlockPhysicsBundle::default(),
+        BlockMarker,
+        Position::new(Vec3::new(-1.0, 1.0, 0.0)),
+        block_replicate_component.clone(),
+    ));
 }
 
 pub(crate) fn replicate_inputs(

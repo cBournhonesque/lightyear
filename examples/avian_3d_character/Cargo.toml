@@ -15,6 +15,7 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
 bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
 steam = ["lightyear_examples_common/steam"]
+visualizer = ["lightyear_examples_common/visualizer", "gui"]
 
 [dependencies]
 lightyear_examples_common.workspace = true
@@ -23,7 +24,10 @@ lightyear = { workspace = true, features = [
   "avian3d",
   "websocket",
 ] }
-leafwing-input-manager = { workspace = true, default-features = false, features = ["keyboard", "gamepad"] }
+leafwing-input-manager = { workspace = true, default-features = false, features = [
+  "keyboard",
+  "gamepad",
+] }
 
 avian3d = { workspace = true, features = [
   "3d",

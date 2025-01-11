@@ -52,8 +52,8 @@ impl Plugin for Avian3dPlugin {
         );
 
         // Add rollback for some non-replicated resources
-        app.add_resource_rollback::<Collisions>();
-        app.add_rollback::<CollidingEntities>();
+        // app.add_resource_rollback::<Collisions>();
+        // app.add_rollback::<CollidingEntities>();
     }
 }
 

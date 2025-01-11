@@ -46,7 +46,7 @@ pub(crate) fn spawn_predicted_entity(
         );
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("spawn_predicted_entity").increment(1);
+            metrics::counter!("prediction::pre_predicted_spawn").increment(1);
         }
 
         // add Confirmed to the confirmed entity
