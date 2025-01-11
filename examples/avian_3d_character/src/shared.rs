@@ -100,19 +100,29 @@ impl Plugin for SharedPlugin {
             position_to_transform: true,
             ..default()
         });
+        // disable sleeping
+        app.insert_resource(SleepingThreshold {
+            linear: -0.01,
+            angular: -0.01,
+        });
 
         app.add_systems(
             FixedPostUpdate,
             after_physics_log.after(PhysicsSet::StepSimulation),
         );
 
-        // // We change SyncPlugin to PostUpdate, because we want the visually
-        // // interpreted values synced to transform every time, not just when
-        // // Fixed schedule runs.
-        // app.add_plugins(PhysicsPlugins::default().build());
-        app.add_plugins(PhysicsPlugins::default().build().disable::<SyncPlugin>())
-            .add_plugins(SyncPlugin::new(PostUpdate));
-        app.configure_sets(PostUpdate, (PhysicsSet::Sync, TransformPropagate).chain());
+        // We change SyncPlugin to PostUpdate, because we want the visually
+        // interpreted values synced to transform every time, not just when
+        // Fixed schedule runs.
+        app.add_plugins(
+            PhysicsPlugins::default()
+                .build()
+                .disable::<SyncPlugin>()
+                .disable::<PhysicsInterpolationPlugin>(), // disable Sleeping plugin as it can mess up physics rollbacks
+                                                          // TODO: disabling sleeping plugin causes the player to fall through the floor
+                                                          // .disable::<SleepingPlugin>(),
+        )
+        .add_plugins(SyncPlugin::new(PostUpdate));
     }
 }
 
@@ -120,7 +130,7 @@ pub(crate) fn after_physics_log(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
     // collisions: Option<Res<Collisions>>,
-    players: Query<
+    blocks: Query<
         (
             Entity,
             &Position,
@@ -128,7 +138,7 @@ pub(crate) fn after_physics_log(
             &LinearVelocity,
             &AngularVelocity,
         ),
-        (Without<Confirmed>, With<CharacterMarker>),
+        (Without<Confirmed>, With<BlockMarker>),
     >,
 ) {
     let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
@@ -136,7 +146,7 @@ pub(crate) fn after_physics_log(
     });
     // info!(?tick, ?collisions, "collisions");
     let is_rollback = rollback.map_or(false, |r| r.is_rollback());
-    for (entity, position, rotation, lv, av) in players.iter() {
+    for (entity, position, rotation, lv, av) in blocks.iter() {
         debug!(
             ?is_rollback,
             ?tick,
@@ -145,7 +155,7 @@ pub(crate) fn after_physics_log(
             ?rotation,
             ?lv,
             ?av,
-            "Player after physics update"
+            "Block after physics update"
         );
     }
 }

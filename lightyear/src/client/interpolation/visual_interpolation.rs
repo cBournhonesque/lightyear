@@ -37,7 +37,7 @@ use bevy::transform::TransformSystem::TransformPropagate;
 
 use crate::client::components::SyncComponent;
 use crate::prelude::client::{InterpolationSet, PredictionSet};
-use crate::prelude::{ComponentRegistry, TickManager, TimeManager};
+use crate::prelude::{ComponentRegistry, MainSet, TickManager, TimeManager};
 
 pub struct VisualInterpolationPlugin<C: SyncComponent> {
     _marker: std::marker::PhantomData<C>,
@@ -69,7 +69,10 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
         );
         app.configure_sets(
             PostUpdate,
-            InterpolationSet::VisualInterpolation.before(TransformPropagate),
+            InterpolationSet::VisualInterpolation
+                .before(TransformPropagate)
+                // we don't want the visual interpolation value to be the one replicated!
+                .after(MainSet::Send),
         );
 
         // SYSTEMS
