@@ -194,7 +194,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 }),
             };
             if should_rollback {
-                info!(
+                debug!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, current_tick
@@ -340,10 +340,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                             }
                         }
 
-                        info!(
-                            "Update predicted component {:?} to match confirmed value",
-                            std::any::type_name::<C>()
-                        );
                         // update the component to the corrected value
                         *predicted_component = rollbacked_predicted_component.clone();
                     }
@@ -549,7 +545,7 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
     match history.pop_until_tick(rollback_tick) {
         None | Some(HistoryState::Removed) => {
             if resource.is_some() {
-                info!(
+                debug!(
                     ?kind,
                     "Resource didn't exist at time of rollback, removing it"
                 );

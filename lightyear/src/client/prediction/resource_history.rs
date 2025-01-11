@@ -38,10 +38,6 @@ pub(crate) fn update_resource_history<R: Resource + Clone>(
 
     if let Some(resource) = resource {
         if resource.is_changed() {
-            info!(
-                "Resource {:?} changed, adding to history",
-                std::any::type_name::<R>()
-            );
             history.add_update(tick, resource.clone());
         }
     // resource does not exist, it might have been just removed
