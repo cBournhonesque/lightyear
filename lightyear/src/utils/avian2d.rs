@@ -40,9 +40,14 @@ impl Plugin for Avian2dPlugin {
             )
                 .after(PhysicsSet::Sync),
         );
+<<<<<<< HEAD
         // if the Avian Sync happens in PostUpdate (because the visual interpolated Position/Rotation are updated
         // every frame in PostUpdate), and we want to sync them every frame because some entities (text, etc.)
         // might depend on Transform
+=======
+        // if the sync happens in PostUpdate (because the visual interpolated Position/Rotation are updated every frame in
+        // PostUpdate), and we want to sync them every frame because some entities (text, etc.) might depend on Transform
+>>>>>>> main
         app.configure_sets(
             PostUpdate,
             (
@@ -52,10 +57,13 @@ impl Plugin for Avian2dPlugin {
             )
                 .chain(),
         );
+<<<<<<< HEAD
 
         // Add rollback for some non-replicated resources
         app.add_resource_rollback::<Collisions>();
         app.add_rollback::<CollidingEntities>();
+=======
+>>>>>>> main
     }
 }
 
