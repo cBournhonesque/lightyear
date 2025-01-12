@@ -81,6 +81,9 @@ pub trait NetServer: Send + Sync {
 
     fn new_disconnections(&self) -> Vec<ClientId>;
 
+    /// Returns the client's `SocketAddr` if available
+    fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr>;
+
     fn io(&self) -> Option<&Io>;
 
     fn io_mut(&mut self) -> Option<&mut Io>;
@@ -226,7 +229,7 @@ impl ServerConnections {
     pub fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr> {
         self.client_server_map
             .get(&client_id)
-            .and_then(|server_idx| self.servers[*server_idx].io().map(|io| io.local_addr()))
+            .and_then(|server_idx| self.servers[*server_idx].client_addr(client_id))
     }
 }
 

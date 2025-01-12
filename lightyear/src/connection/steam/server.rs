@@ -296,6 +296,10 @@ impl NetServer for Server {
         self.new_disconnections.clone()
     }
 
+    fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr> {
+        None
+    }
+
     fn io(&self) -> Option<&Io> {
         None
     }
