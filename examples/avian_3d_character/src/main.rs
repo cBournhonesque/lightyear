@@ -4,7 +4,7 @@
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear::prelude::client::PredictionConfig;
-use lightyear_examples_common::app::{Apps, Cli};
+use lightyear_examples_common::app::{Apps, Cli, Mode};
 use lightyear_examples_common::settings::Settings;
 use serde::{Deserialize, Serialize};
 

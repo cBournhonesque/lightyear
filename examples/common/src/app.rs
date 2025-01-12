@@ -14,7 +14,7 @@ use bevy::prelude::*;
 use bevy::diagnostic::{DiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::state::app::StatesPlugin;
 use bevy::DefaultPlugins;
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use lightyear::prelude::client::ClientConfig;
 use lightyear::prelude::*;
 use lightyear::prelude::{client, server};
@@ -33,37 +33,52 @@ use crate::server_renderer::ExampleServerRendererPlugin;
 use bevy::window::PresentMode;
 
 /// CLI options to create an [`App`]
-#[derive(Parser, PartialEq, Debug)]
+#[derive(Parser, Debug)]
+#[command(version, about)]
 pub struct Cli {
-    /// The client id to use when connecting to a server
-    #[cfg(feature = "client")]
-    #[arg(short, long, default_value = None)]
-    client_id: Option<u64>,
-    /// What mode should the app run in?
-    #[arg(short, long, default_value = "separate")]
-    mode: Mode,
-    /// When running in Server mode, do we want to enable the GUI?
-    #[cfg(feature = "gui")]
-    #[arg(short, long, action)]
-    pub gui: bool,
+    #[command(subcommand)]
+    mode: Option<Mode>,
 }
 
-#[derive(ValueEnum, Clone, Default, Debug, PartialEq)]
+#[derive(Subcommand, Debug)]
 pub enum Mode {
-    /// Only run the client plugins
-    Client,
-    /// Only run the server plugins
+    #[cfg(feature = "client")]
+    /// Runs the app in client mode
+    Client {
+        #[arg(short, long, default_value = None)]
+        client_id: Option<u64>,
+    },
+    #[cfg(feature = "server")]
+    /// Runs the app in server mode
     Server,
     #[cfg(all(feature = "client", feature = "server"))]
-    #[default]
-    /// We will create two bevy Apps: a client app and a server app.
+    /// Creates two bevy apps: a client app and a server app.
     /// Data gets passed between the two via channels.
-    Separate,
+    Separate {
+        #[arg(short, long, default_value = None)]
+        client_id: Option<u64>,
+    },
     #[cfg(all(feature = "client", feature = "server"))]
-    /// Run the app in headless mode
-    /// We have the client and the server running inside the same app.
-    /// The server will also act as a client. (i.e. one client acts as the 'host')
-    HostServer,
+    /// Run the app in host-server mode.
+    /// The client and the server will run inside the same app. The peer acts both as a client and a server.
+    HostServer {
+        #[arg(short, long, default_value = None)]
+        client_id: Option<u64>,
+    },
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        cfg_if::cfg_if! {
+            if #[cfg(all(feature = "client", feature = "server"))] {
+                return Mode::HostServer { client_id: None };
+            } else if #[cfg(feature = "server")] {
+                return Mode::Server;
+            } else {
+                return Mode::Client { client_id: None };
+            }
+        }
+    }
 }
 
 /// App that is Send.
@@ -93,8 +108,6 @@ pub fn cli() -> Cli {
             Cli {
                 client_id: Some(client_id),
                 mode: Mode::Client,
-                #[cfg(feature = "gui")]
-                gui: false,
             }
         } else {
             Cli::parse()
@@ -130,9 +143,9 @@ impl Apps {
     pub fn new(settings: Settings, cli: Cli, name: String) -> Self {
         match cli.mode {
             #[cfg(all(feature = "client", feature = "server"))]
-            Mode::HostServer => {
+            Some(Mode::HostServer { client_id }) => {
                 let client_net_config = client::NetConfig::Local {
-                    id: cli.client_id.unwrap_or(settings.client.client_id),
+                    id: client_id.unwrap_or(settings.client.client_id),
                 };
                 let (mut app, client_config, server_config) =
                     combined_app(settings, vec![], client_net_config);
@@ -144,7 +157,7 @@ impl Apps {
                 }
             }
             #[cfg(all(feature = "client", feature = "server"))]
-            Mode::Separate => {
+            Some(Mode::Separate { client_id }) => {
                 // we will communicate between the client and server apps via channels
                 let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
                 let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
@@ -155,7 +168,7 @@ impl Apps {
 
                 // create client app
                 let net_config = build_client_netcode_config(
-                    cli.client_id.unwrap_or(settings.client.client_id),
+                    client_id.unwrap_or(settings.client.client_id),
                     // when communicating via channels, we need to use the address `LOCAL_SOCKET` for the server
                     LOCAL_SOCKET,
                     settings.client.conditioner.as_ref(),
@@ -170,8 +183,7 @@ impl Apps {
                     // even if we communicate via channels, we need to provide a socket address for the client
                     channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
                 }];
-                let (server_app, server_config) =
-                    server_app(settings, false, extra_transport_configs);
+                let (server_app, server_config) = server_app(settings, extra_transport_configs);
                 Apps::ClientAndServer {
                     client_app,
                     client_config,
@@ -180,34 +192,39 @@ impl Apps {
                 }
             }
             #[cfg(feature = "client")]
-            Mode::Client => {
+            Some(Mode::Client { client_id }) => {
                 let server_addr = SocketAddr::new(
                     settings.client.server_addr.into(),
                     settings.client.server_port,
                 );
                 // use the cli-provided client id if it exists, otherwise use the settings client id
-                let client_id = cli.client_id.unwrap_or(settings.client.client_id);
+                let client_id = client_id.unwrap_or(settings.client.client_id);
                 let net_config = get_client_net_config(&settings, client_id);
                 let (mut app, config) = client_app(settings, net_config);
                 app.add_plugins(ExampleClientRendererPlugin::new(name));
                 Apps::Client { app, config }
             }
             #[cfg(feature = "server")]
-            Mode::Server => {
+            Some(Mode::Server) => {
                 #[allow(unused_mut)]
-                let (mut app, config) = server_app(
-                    settings,
-                    #[cfg(feature = "gui")]
-                    cli.gui,
-                    vec![],
-                );
+                let (mut app, config) = server_app(settings, vec![]);
                 // we keep gui a parameter so that we can easily disable server gui even with all default features
                 // enabled
                 #[cfg(feature = "gui")]
-                if cli.gui {
-                    app.add_plugins(ExampleServerRendererPlugin::new(name));
-                }
+                app.add_plugins(ExampleServerRendererPlugin::new(name));
                 Apps::Server { app, config }
+            }
+            None => {
+                cfg_if::cfg_if! {
+                    if #[cfg(all(feature = "client", feature = "server"))] {
+                        let mode = Mode::HostServer { client_id: None };
+                    } else if #[cfg(feature = "server")] {
+                        let mode = Mode::Server;
+                    } else {
+                        let mode = Mode::Client { client_id: None };
+                    }
+                };
+                Apps::new(settings, Cli { mode: Some(mode) }, name)
             }
         }
     }
@@ -516,18 +533,13 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
 #[cfg(feature = "server")]
 fn server_app(
     settings: Settings,
-    #[cfg(feature = "gui")] gui: bool,
     extra_transport_configs: Vec<server::ServerTransport>,
 ) -> (App, ServerConfig) {
     #[cfg(feature = "gui")]
-    let app = if gui {
-        new_gui_app(settings.server.inspector)
-    } else {
-        new_headless_app()
-    };
+    let app = new_gui_app(settings.server.inspector);
     #[cfg(not(feature = "gui"))]
     let app = new_headless_app();
-    info!("server_app. gui={}", cfg!(feature = "gui") && gui);
+    info!("server_app. gui={}", cfg!(feature = "gui"));
     // configure the network configuration
     let mut net_configs = get_server_net_configs(&settings);
     let extra_net_configs = extra_transport_configs.into_iter().map(|c| {
