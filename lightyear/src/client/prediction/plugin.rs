@@ -32,9 +32,8 @@ use super::resource_history::{
     handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
 use super::rollback::{
-    check_rollback, increment_rollback_tick, no_rollback, prepare_rollback,
-    prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource,
-    run_rollback, Rollback, RollbackState,
+    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
+    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
 };
 use super::spawn::spawn_predicted_entity;
 
@@ -399,7 +398,7 @@ impl Plugin for PredictionPlugin {
                     .in_set(PredictionSet::SpawnPrediction),
                 run_rollback.in_set(PredictionSet::Rollback),
                 #[cfg(feature = "metrics")]
-                no_rollback
+                super::rollback::no_rollback
                     .after(PredictionSet::CheckRollback)
                     .in_set(PredictionSet::All)
                     .run_if(not(is_in_rollback)),

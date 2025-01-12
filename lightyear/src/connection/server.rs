@@ -226,8 +226,7 @@ impl ServerConnections {
     pub fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr> {
         self.client_server_map
             .get(&client_id)
-            .map(|server_idx| self.servers[*server_idx].io().map(|io| io.local_addr()))
-            .flatten()
+            .and_then(|server_idx| self.servers[*server_idx].io().map(|io| io.local_addr()))
     }
 }
 

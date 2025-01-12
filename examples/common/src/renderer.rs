@@ -3,8 +3,8 @@ use bevy::picking::prelude::{Click, Pointer};
 use bevy::prelude::*;
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
-use lightyear::prelude::{client::*, *};
-
+use lightyear::prelude::client::*;
+use lightyear::prelude::MainSet;
 // TODO split into server/client renderer plugins?
 
 pub struct ExampleRendererPlugin {
@@ -161,6 +161,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
         });
 }
 
+#[cfg(feature = "client")]
 pub(crate) fn update_button_text(
     state: Res<State<NetworkingState>>,
     mut text_query: Query<&mut Text, With<Button>>,

@@ -474,7 +474,7 @@ mod prediction {
             let kind = ComponentKind::of::<C>();
             self.prediction_map
                 .get(&kind)
-                .map_or(false, |metadata| metadata.correction.is_some())
+                .is_some_and(|metadata| metadata.correction.is_some())
         }
 
         /// Returns true if we should do a rollback

@@ -795,7 +795,7 @@ impl GroupChannel {
             // we are the server receiving an update from a client
             Some(c) => entity_mut
                 .get::<AuthorityPeer>()
-                .map_or(false, |authority| *authority == AuthorityPeer::Client(c)),
+                .is_some_and(|authority| *authority == AuthorityPeer::Client(c)),
             None => entity_mut.get::<HasAuthority>().is_none(),
         }
     }

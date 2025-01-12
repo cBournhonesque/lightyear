@@ -1,6 +1,5 @@
 //! Implement lightyear traits for some common bevy types
 use crate::prelude::client::{InterpolationSet, PredictionSet};
-use crate::prelude::AppComponentExt;
 use crate::shared::replication::delta::Diffable;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian3d::math::Scalar;

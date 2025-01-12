@@ -40,11 +40,9 @@ pub(crate) fn get_settings() -> Settings {
             client_id: 0,
             client_port: 0, // 0 means that the OS will assign a random port
             server_addr: Ipv4Addr::LOCALHOST,
-            server_port: 5000, // change the port depending on the transport used
-            transport: ClientTransports::WebTransport {
-                #[cfg(target_family = "wasm")]
-                certificate_digest: include_str!("../../certificates/digest.txt").to_string(),
-            },
+            // we use UDP because the host-servers also use UDP
+            server_port: 5001, // change the port depending on the transport used
+            transport: ClientTransports::Udp,
             conditioner: None,
         },
         shared: SharedSettings {

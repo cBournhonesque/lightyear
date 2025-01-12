@@ -54,10 +54,10 @@ fn main() {
     apps.add_lightyear_plugins();
     apps.add_user_shared_plugin(SharedPlugin);
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(crate::client::ExampleClientPlugin { settings });
-    apps.add_user_server_plugin(crate::server::ExampleServerPlugin);
+    apps.add_user_client_plugin(client::ExampleClientPlugin { settings });
+    apps.add_user_server_plugin(server::ExampleServerPlugin);
     #[cfg(feature = "gui")]
-    apps.add_user_renderer_plugin(crate::renderer::ExampleRendererPlugin);
+    apps.add_user_renderer_plugin(renderer::ExampleRendererPlugin);
 
     // run the app
     apps.run();

@@ -167,6 +167,7 @@ mod tests {
     /// - spawn R on the client
     /// - client sync
     /// - rollback is triggered
+    ///
     /// Check that the resource is NOT removed, because it existed before the sync.
     ///
     /// This is a regression test for a bug where the resource was removed during rollback.
