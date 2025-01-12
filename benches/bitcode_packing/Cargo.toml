@@ -16,8 +16,3 @@ rand.workspace = true
 
 [lints]
 workspace = true
-
-[[bench]]
-name = "bitcode_packing"
-path = "src/main.rs"
-harness = false
