@@ -88,7 +88,7 @@ impl NetworkIdentity<'_, '_> {
             && self
                 .server_state
                 .as_ref()
-                .map_or(false, |s| s.get() == &NetworkingState::Started)
+                .is_some_and(|s| s.get() == &NetworkingState::Started)
         {
             Identity::HostServer
         } else {

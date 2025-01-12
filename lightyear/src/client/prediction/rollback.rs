@@ -182,9 +182,8 @@ pub(crate) fn check_rollback<C: SyncComponent>(
             let should_rollback = match confirmed_component {
                 // TODO: history-value should not be empty here; should we panic if it is?
                 // confirm does not exist. rollback if history value is not Removed
-                None => history_value.map_or(false, |history_value| {
-                    history_value != HistoryState::Removed
-                }),
+                None => history_value
+                    .is_some_and(|history_value| history_value != HistoryState::Removed),
                 // confirm exist. rollback if history value is different
                 Some(c) => history_value.map_or(true, |history_value| match history_value {
                     HistoryState::Updated(history_value) => {

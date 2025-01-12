@@ -121,7 +121,7 @@ impl ChannelRegistry {
 
     /// Returns true if the net_id corresponds to a channel that is used for replication
     pub(crate) fn is_replication_channel(&self, net_id: NetId) -> bool {
-        self.kind_map.kind(net_id).map_or(false, |kind| {
+        self.kind_map.kind(net_id).is_some_and(|kind| {
             *kind == ChannelKind::of::<EntityUpdatesChannel>()
                 || *kind == ChannelKind::of::<EntityActionsChannel>()
         })
@@ -129,9 +129,9 @@ impl ChannelRegistry {
 
     /// Returns true if the net_id corresponds to a channel that is used for replicating updates
     pub(crate) fn is_replication_update_channel(&self, net_id: NetId) -> bool {
-        self.kind_map.kind(net_id).map_or(false, |kind| {
-            *kind == ChannelKind::of::<EntityUpdatesChannel>()
-        })
+        self.kind_map
+            .kind(net_id)
+            .is_some_and(|kind| *kind == ChannelKind::of::<EntityUpdatesChannel>())
     }
 
     /// Build all the channels in the registry

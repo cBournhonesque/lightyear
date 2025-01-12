@@ -451,9 +451,10 @@ mod lobby {
                     // start the server
                     commands.start_server();
                 } else {
+                    info!("The game is hosted by another client. Connecting to the host...");
                     // update the client config to connect to the game host
                     match &mut config.net {
-                        NetConfig::Netcode { auth, .. } => match auth {
+                        NetConfig::Netcode { auth, config, io } => match auth {
                             Authentication::Manual { server_addr, .. } => {
                                 *server_addr = SocketAddr::new(
                                     settings.client.server_addr.into(),

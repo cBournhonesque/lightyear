@@ -25,7 +25,7 @@ pub fn is_host_server(
     config: Option<Res<ServerConfig>>,
     server_state: Option<Res<State<NetworkingState>>>,
 ) -> bool {
-    config.map_or(false, |config| {
+    config.is_some_and(|config| {
         matches!(config.shared.mode, Mode::HostServer) && is_started(server_state)
     })
 }
@@ -34,7 +34,7 @@ pub fn is_host_server_ref(
     config: Option<Ref<ServerConfig>>,
     server_state: Option<Ref<State<NetworkingState>>>,
 ) -> bool {
-    config.map_or(false, |config| {
+    config.is_some_and(|config| {
         matches!(config.shared.mode, Mode::HostServer) && is_started_ref(server_state)
     })
 }
