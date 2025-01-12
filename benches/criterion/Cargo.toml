@@ -31,19 +31,15 @@ divan = "0.1.14"
 
 [[bin]]
 name = "replication_profiling"
-path = "replication_profiling.rs"
+path = "src/replication_profiling.rs"
 
 [[bench]]
 name = "replication"
-path = "replication.rs"
+path = "src/replication.rs"
 harness = false
 
 [[bench]]
 name = "message"
-path = "message.rs"
+path = "src/message.rs"
 harness = false
 
-[[bench]]
-name = "bitcode_packing"
-path = "bitcode_packing.rs"
-harness = false
