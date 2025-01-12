@@ -1126,6 +1126,13 @@ pub(crate) mod connection {
             self.server.cfg.context.disconnections.clone()
         }
 
+        fn client_addr(&self, client_id: crate::prelude::ClientId) -> Option<SocketAddr> {
+            match client_id {
+                id::ClientId::Netcode(id) => self.server.client_addr(id),
+                _ => None,
+            }
+        }
+
         fn io(&self) -> Option<&Io> {
             self.io.as_ref()
         }
