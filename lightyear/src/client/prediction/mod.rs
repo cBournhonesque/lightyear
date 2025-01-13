@@ -64,7 +64,7 @@ impl Component for Predicted {
                             .predicted_entity_map
                             .get_mut()
                             .confirmed_to_predicted
-                            .insert(confirmed, predicted);
+                            .remove(&confirmed);
                     };
                 }
             },
