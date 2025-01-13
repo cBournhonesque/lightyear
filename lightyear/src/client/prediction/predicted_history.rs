@@ -6,7 +6,7 @@ use bevy::prelude::{
     Added, Commands, Component, DetectChanges, Entity, OnRemove, Or, Query, Ref, Res, Trigger,
     With, Without,
 };
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::history::HistoryBuffer;
@@ -96,11 +96,11 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                         match component_registry.prediction_mode::<C>() {
                             ComponentSyncMode::Full => {
                                 debug!("Adding history for {:?}", std::any::type_name::<C>());
-                                // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
+                                // insert history, no need to add any value to it because we run the UpdateHistory system set after the SpawnHistory
+                                // it will be quickly filled by a rollback (since it starts empty before the current client tick)
                                 // or will it? because the component just got spawned anyway..
                                 // TODO: then there's no need to add the component here, since it's going to get added during rollback anyway?
-                                let mut history = PredictionHistory::<C>::default();
-                                history.add_update(tick, confirmed_component.deref().clone());
+                                let history = PredictionHistory::<C>::default();
                                 predicted_entity_mut.insert((new_component, history));
                             }
                             ComponentSyncMode::Simple => {
@@ -135,7 +135,7 @@ pub(crate) fn add_prespawned_component_history<C: SyncComponent>(
     mut commands: Commands,
     tick_manager: Res<TickManager>,
     prespawned_query: Query<
-        (Entity, Option<Ref<C>>),
+        (Entity, Ref<C>),
         (
             Without<PredictionHistory<C>>,
             Without<Confirmed>,
@@ -144,13 +144,20 @@ pub(crate) fn add_prespawned_component_history<C: SyncComponent>(
         ),
     >,
 ) {
+    let tick = tick_manager.tick();
     // add component history for pre-spawned entities right away
     for (predicted_entity, predicted_component) in prespawned_query.iter() {
+        trace!(
+            ?tick,
+            "Potentially adding prediction history for component {:?} for pre-spawned entity {:?}",
+            std::any::type_name::<C>(),
+            predicted_entity
+        );
         add_history::<C>(
             component_registry.as_ref(),
-            tick_manager.tick(),
+            tick,
             predicted_entity,
-            &predicted_component,
+            &Some(predicted_component),
             &mut commands,
         );
     }
@@ -170,9 +177,9 @@ fn add_history<C: SyncComponent>(
             // component got added on predicted side, add history
             if predicted_component.is_added() {
                 debug!(?kind, ?tick, ?predicted_entity, "Adding prediction history");
-                // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
-                let mut history = PredictionHistory::<C>::default();
-                history.add_update(tick, predicted_component.deref().clone());
+                // insert history component
+                // no need to add any value to it because we run the UpdateHistory system set after the SpawnHistory
+                let history = PredictionHistory::<C>::default();
                 commands.entity(predicted_entity).insert(history);
             }
         }

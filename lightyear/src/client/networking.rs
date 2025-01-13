@@ -284,7 +284,7 @@ pub(crate) fn sync_update(
             &connection.ping_manager,
             &config.prediction,
         ) {
-            debug!("Triggering TickSync event: {tick_event:?}");
+            info!("Triggering TickSync event: {tick_event:?}");
             commands.trigger(tick_event);
         }
         let relative_speed = time_manager.get_relative_speed();
