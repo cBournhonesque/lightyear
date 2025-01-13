@@ -112,11 +112,13 @@ impl<R: Clone> HistoryBuffer<R> {
         // because that is the value at tick `tick`
         self.buffer.drain(0..(partition - 1));
         let res = self.buffer.pop_front().map(|(_, state)| state);
-        // re-add the value at tick `tick` to the buffer, to make sure that we have a value for ticks
-        // (tick + 1)..(self.buffer[partition].0)
 
+        // if there is a value, re-add the value at tick `tick` to the buffer, to make sure that we have a value for ticks
+        // (tick + 1)..(self.buffer[partition].0)
         match res.as_ref() {
-            None | Some(HistoryState::Removed) => {
+            None => {}
+            Some(HistoryState::Removed) => {
+                // TODO: is this necessary? we treat None and Removed the same way anyway
                 self.buffer.push_front((tick, HistoryState::Removed))
             }
             Some(r) => self.buffer.push_front((tick, r.clone())),

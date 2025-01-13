@@ -273,6 +273,25 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
     );
     match prediction_mode {
         ComponentSyncMode::Full => {
+            #[cfg(feature = "metrics")]
+            {
+                metrics::describe_counter!(format!(
+                    "prediction::rollbacks::causes::{}::missing_on_confirmed",
+                    std::any::type_name::<C>()
+                ), metrics::Unit::Count, "Component present in the prediction history but missing on the confirmed entity");
+                metrics::describe_counter!(format!(
+                    "prediction::rollbacks::causes::{}::value_mismatch",
+                    std::any::type_name::<C>()
+                ), metrics::Unit::Count, "Component present in the prediction history but with a different value than on the confirmed entity");
+                metrics::describe_counter!(format!(
+                    "prediction::rollbacks::causes::{}::missing_on_predicted",
+                    std::any::type_name::<C>()
+                ), metrics::Unit::Count, "Component present in the confirmed entity but missing in the prediction history");
+                metrics::describe_counter!(format!(
+                    "prediction::rollbacks::causes::{}::removed_on_predicted",
+                    std::any::type_name::<C>()
+                ), metrics::Unit::Count, "Component present in the confirmed entity but removed in the prediction history");
+            }
             // TODO: register type if C is reflect
             // app.register_type::<HistoryState<C>>();
             // app.register_type::<PredictionHistory<C>>();

@@ -157,6 +157,12 @@ pub(crate) fn check_rollback<C: SyncComponent>(
             );
             continue;
         };
+        #[cfg(feature = "metrics")]
+        metrics::gauge!(format!(
+            "prediction::rollbacks::history::{:?}::num_values",
+            std::any::type_name::<C>()
+        ))
+        .set(predicted_history.buffer.len() as f64);
 
         // 2. We will compare the predicted history and the confirmed entity at the current confirmed entity tick
         // - Confirmed contains the server state at the tick
@@ -176,21 +182,70 @@ pub(crate) fn check_rollback<C: SyncComponent>(
         // 3.a We are still not sure if we should do rollback. Compare history against confirmed
         // We rollback if there's no history (newly added predicted entity, or if there is a mismatch)
         if !rollback.is_rollback() {
+            // info!(
+            //     ?tick,
+            //     ?current_tick,
+            //     "History before popping until tick. {:?}",
+            //     predicted_history
+            // );
             let history_value = predicted_history.pop_until_tick(tick);
             let predicted_exist = history_value.is_some();
             let confirmed_exist = confirmed_component.is_some();
             let should_rollback = match confirmed_component {
                 // TODO: history-value should not be empty here; should we panic if it is?
                 // confirm does not exist. rollback if history value is not Removed
-                None => history_value
-                    .is_some_and(|history_value| history_value != HistoryState::Removed),
-                // confirm exist. rollback if history value is different
-                Some(c) => history_value.map_or(true, |history_value| match history_value {
-                    HistoryState::Updated(history_value) => {
-                        component_registry.should_rollback(&history_value, c)
+                None => {
+                    let should = history_value
+                        .is_some_and(|history_value| history_value != HistoryState::Removed);
+                    if should {
+                        #[cfg(feature = "metrics")]
+                        metrics::counter!(format!(
+                            "prediction::rollbacks::causes::{}::missing_on_confirmed",
+                            std::any::type_name::<C>()
+                        ))
+                        .increment(1)
                     }
-                    HistoryState::Removed => true,
-                }),
+                    should
+                }
+                // confirm exist. rollback if history value is different
+                Some(c) => history_value.map_or_else(
+                    || {
+                        // info!(
+                        //     ?tick, ?current_tick,
+                        //     "Component {} present on confirmed but missing on predicted! History: {:?}", std::any::type_name::<C>(), predicted_history
+                        // );
+                        #[cfg(feature = "metrics")]
+                        metrics::counter!(format!(
+                            "prediction::rollbacks::causes::{}::missing_on_predicted",
+                            std::any::type_name::<C>()
+                        ))
+                        .increment(1);
+                        true
+                    },
+                    |history_value| match history_value {
+                        HistoryState::Updated(history_value) => {
+                            let should = component_registry.should_rollback(&history_value, c);
+                            if should {
+                                #[cfg(feature = "metrics")]
+                                metrics::counter!(format!(
+                                    "prediction::rollbacks::causes::{}::value_mismatch",
+                                    std::any::type_name::<C>()
+                                ))
+                                .increment(1);
+                            }
+                            should
+                        }
+                        HistoryState::Removed => {
+                            #[cfg(feature = "metrics")]
+                            metrics::counter!(format!(
+                                "prediction::rollbacks::causes::{}::removed_on_predicted",
+                                std::any::type_name::<C>()
+                            ))
+                            .increment(1);
+                            true
+                        }
+                    },
+                ),
             };
             if should_rollback {
                 debug!(
