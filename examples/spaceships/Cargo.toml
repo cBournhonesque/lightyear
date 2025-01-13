@@ -2,8 +2,8 @@
 name = "spaceships"
 version.workspace = true
 authors = [
-    "Charles Bournhonesque <charlesbour@gmail.com>",
-    "Richard Jones <rj@metabrew.com>",
+  "Charles Bournhonesque <charlesbour@gmail.com>",
+  "Richard Jones <rj@metabrew.com>",
 ]
 edition.workspace = true
 publish = false
@@ -26,11 +26,11 @@ lightyear_examples_common.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }
 leafwing-input-manager = { workspace = true, features = ["keyboard", "mouse"] }
 avian2d = { workspace = true, features = [
-    "2d",
-    "f32",
-    "parry-f32",
-    "parallel",
-    "serialize",
+  "2d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
 ] }
 lightyear = { workspace = true, features = ["leafwing", "avian2d"] }
 serde.workspace = true
@@ -40,7 +40,7 @@ tracing-subscriber.workspace = true
 bevy.workspace = true
 rand.workspace = true
 bevygap_client_plugin = { workspace = true, optional = true, features = [
-    "matchmaker-tls",
+  "matchmaker-tls",
 ] }
 
 [lints]
