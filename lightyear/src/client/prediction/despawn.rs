@@ -9,7 +9,9 @@ use tracing::{debug, error, trace};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;
-use crate::prelude::{ComponentRegistry, Mode, ShouldBePredicted, TickManager};
+use crate::prelude::{
+    ComponentRegistry, Mode, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
+};
 use crate::shared::tick_manager::Tick;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
@@ -25,8 +27,7 @@ pub struct PredictionDespawnCommand {
 #[reflect(Component)]
 pub(crate) struct PredictionDespawnMarker {
     // TODO: do we need this?
-    // TODO: it's pub just for integration tests right now
-    pub(crate) death_tick: Tick,
+    death_tick: Tick,
 }
 
 impl Command for PredictionDespawnCommand {
@@ -40,6 +41,14 @@ impl Command for PredictionDespawnCommand {
         }
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
+            if entity.get::<PreSpawnedPlayerObject>().is_some() {
+                // if this is a pre-spawned entity, we can despawn it immediately
+                // - if the entity was spawned/despawned within a server replication interval, then the server
+                //   wouldn't even send a spawn, so we did the right thing
+                // - if the server sends the entity afterwards, the matching will fail and we will just spawn a new predicted entity
+                entity.despawn_recursive();
+                return;
+            }
             if entity.get::<Predicted>().is_some() || entity.get::<ShouldBePredicted>().is_some() {
                 // if this is a predicted or pre-predicted entity, do not despawn the entity immediately but instead
                 // add a PredictionDespawn component to it to mark that it should be despawned as soon
