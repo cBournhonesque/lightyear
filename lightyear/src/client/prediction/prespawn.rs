@@ -486,6 +486,7 @@ mod tests {
     use crate::client::prediction::history::HistoryState;
     use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
+    use crate::prelude::client::PredictionDespawnCommandsExt;
     use crate::prelude::client::{Confirmed, Predicted};
     use crate::prelude::server::{Replicate, SyncTarget};
     use crate::prelude::*;
@@ -621,7 +622,7 @@ mod tests {
             .get::<PreSpawnedPlayerObject>(client_prespawn)
             .is_none());
 
-        // if the Confirmed entity is depsawned, the Predicted entity should also be despawned
+        // if the Confirmed entity is despawned, the Predicted entity should also be despawned
         stepper.client_app.world_mut().despawn(confirmed);
         stepper.frame_step();
         assert!(stepper
@@ -728,6 +729,35 @@ mod tests {
             .client_app
             .world()
             .get_entity(client_predicted_2)
+            .is_err());
+    }
+
+    /// Client spawns a PreSpawned entity and tries to despawn it locally
+    /// before it gets matched to a server entity.
+    /// The entity should just be despawned completely on the client?
+    /// Then when the server entity arrives, it acts as if there's no match and spawns a new
+    /// predicted entity for it
+    #[test]
+    fn test_prespawn_local_despawn() {
+        let mut stepper = BevyStepper::default();
+
+        let client_prespawn = stepper
+            .client_app
+            .world_mut()
+            .spawn(PreSpawnedPlayerObject::new(1))
+            .id();
+        stepper.frame_step();
+        stepper
+            .client_app
+            .world_mut()
+            .commands()
+            .entity(client_prespawn)
+            .prediction_despawn();
+        stepper.frame_step();
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_prespawn)
             .is_err());
     }
 }
