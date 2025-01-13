@@ -185,6 +185,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
             // info!(
             //     ?tick,
             //     ?current_tick,
+            //     ?p,
             //     "History before popping until tick. {:?}",
             //     predicted_history
             // );
@@ -210,10 +211,6 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 // confirm exist. rollback if history value is different
                 Some(c) => history_value.map_or_else(
                     || {
-                        // info!(
-                        //     ?tick, ?current_tick,
-                        //     "Component {} present on confirmed but missing on predicted! History: {:?}", std::any::type_name::<C>(), predicted_history
-                        // );
                         #[cfg(feature = "metrics")]
                         metrics::counter!(format!(
                             "prediction::rollbacks::causes::{}::missing_on_predicted",
@@ -250,9 +247,9 @@ pub(crate) fn check_rollback<C: SyncComponent>(
             if should_rollback {
                 debug!(
                    ?predicted_exist, ?confirmed_exist,
-                   "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
-                   confirmed_entity, tick, kind, current_tick
-                   );
+                   "Rollback check: mismatch for component between predicted {:?} and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
+                   p, confirmed_entity, tick, kind, current_tick
+                );
                 // in `prepare_rollback`, we will reset the state to what the server sends us for the confirmed.tick
                 // The server sends the packet in PostUpdate after the confirmed.tick is done.
                 // When we do rollback we need to start reading inputs from the tick after that!

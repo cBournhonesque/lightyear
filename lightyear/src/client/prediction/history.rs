@@ -2,6 +2,8 @@ use crate::prelude::Tick;
 use bevy::prelude::{Component, Reflect, Resource};
 use bevy::prelude::{ReflectComponent, ReflectResource};
 use std::collections::VecDeque;
+use std::fmt::Debug;
+use tracing::{error, info};
 
 /// Stores a past value in the history buffer
 #[derive(Debug, PartialEq, Clone, Default, Reflect)]
@@ -66,7 +68,19 @@ impl<R> HistoryBuffer<R> {
     }
 
     /// Add a value to the history buffer
+    /// The tick must be strictly more recent than the most recent update in the buffer
     pub(crate) fn add(&mut self, tick: Tick, value: Option<R>) {
+        if let Some(last_tick) = self.peek().map(|(tick, _)| tick) {
+            assert!(
+                tick >= *last_tick,
+                "Tick must be more recent than the last update in the buffer"
+            );
+            if *last_tick == tick {
+                error!("Adding update to history buffer for tick: {:?} but it already had a value for that tick!", tick);
+                // in this case, let's pop back the update to replace it with the new value
+                self.buffer.pop_back();
+            }
+        }
         self.buffer.push_back((
             tick,
             match value {
@@ -97,8 +111,9 @@ impl<R: Clone> HistoryBuffer<R> {
     /// the history will only contain the ticks where the value got updated, and otherwise
     /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
     /// get the values for the future ticks.
-    /// (i.e. if the buffer contains values at tick 4 and 8. If we pop_until_tick(6),
-    /// we still need to include for tick 4 in the buffer, so that if we call pop_until_tick(7) we still have the correct value
+    /// (i.e. if the buffer contains values at tick 4 and 8. If we pop_until_tick(6), we cannot delete the value for tick 4
+    /// because we still need in case we call pop_until_tick(7). What we'll do is remove the value for tick 4 and re-insert it
+    /// for tick 6)
     pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<HistoryState<R>> {
         // self.buffer[partition] is the first element where the buffer_tick > tick
         let partition = self
@@ -137,36 +152,36 @@ mod tests {
     /// Test adding and removing updates to the resource history
     #[test]
     fn test_add_remove_history() {
-        let mut resource_history = HistoryBuffer::<TestValue>::default();
+        let mut history = HistoryBuffer::<TestValue>::default();
 
         // check when we try to access a value when the buffer is empty
-        assert_eq!(resource_history.pop_until_tick(Tick(0)), None);
+        assert_eq!(history.pop_until_tick(Tick(0)), None);
 
         // check when we try to access an exact tick
-        resource_history.add_update(Tick(1), TestValue(1.0));
-        resource_history.add_update(Tick(2), TestValue(2.0));
+        history.add_update(Tick(1), TestValue(1.0));
+        history.add_update(Tick(2), TestValue(2.0));
         assert_eq!(
-            resource_history.pop_until_tick(Tick(2)),
+            history.pop_until_tick(Tick(2)),
             Some(HistoryState::Updated(TestValue(2.0)))
         );
         // check that we cleared older ticks, and that the most recent value still remains
-        assert_eq!(resource_history.buffer.len(), 1);
+        assert_eq!(history.buffer.len(), 1);
         assert_eq!(
-            resource_history.buffer,
+            history.buffer,
             VecDeque::from(vec![(Tick(2), HistoryState::Updated(TestValue(2.0)))])
         );
 
         // check when we try to access a value in-between ticks
-        resource_history.add_update(Tick(4), TestValue(4.0));
+        history.add_update(Tick(4), TestValue(4.0));
         // we retrieve the most recent value older or equal to Tick(3)
         assert_eq!(
-            resource_history.pop_until_tick(Tick(3)),
+            history.pop_until_tick(Tick(3)),
             Some(HistoryState::Updated(TestValue(2.0)))
         );
-        assert_eq!(resource_history.buffer.len(), 2);
+        assert_eq!(history.buffer.len(), 2);
         // check that the most recent value got added back to the buffer at the popped tick
         assert_eq!(
-            resource_history.buffer,
+            history.buffer,
             VecDeque::from(vec![
                 (Tick(3), HistoryState::Updated(TestValue(2.0))),
                 (Tick(4), HistoryState::Updated(TestValue(4.0)))
@@ -174,17 +189,14 @@ mod tests {
         );
 
         // check that nothing happens when we try to access a value before any ticks
-        assert_eq!(resource_history.pop_until_tick(Tick(0)), None);
-        assert_eq!(resource_history.buffer.len(), 2);
+        assert_eq!(history.pop_until_tick(Tick(0)), None);
+        assert_eq!(history.buffer.len(), 2);
 
-        resource_history.add_remove(Tick(5));
-        assert_eq!(resource_history.buffer.len(), 3);
-        assert_eq!(
-            resource_history.peek(),
-            Some(&(Tick(5), HistoryState::Removed))
-        );
+        history.add_remove(Tick(5));
+        assert_eq!(history.buffer.len(), 3);
+        assert_eq!(history.peek(), Some(&(Tick(5), HistoryState::Removed)));
 
-        resource_history.clear();
-        assert_eq!(resource_history.buffer.len(), 0);
+        history.clear();
+        assert_eq!(history.buffer.len(), 0);
     }
 }
