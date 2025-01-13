@@ -36,7 +36,7 @@ impl Command for PredictionDespawnCommand {
 
         // if we are in host server mode, there is no rollback so we can despawn the entity immediately
         if world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
-            world.despawn(self.entity);
+            world.entity_mut(self.entity).despawn_recursive();
         }
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
@@ -55,7 +55,7 @@ impl Command for PredictionDespawnCommand {
             } else if let Some(confirmed) = entity.get::<Confirmed>() {
                 // TODO: actually we should never despawn directly on the client a Confirmed entity
                 //  it should only get despawned when replicating!
-                entity.despawn();
+                entity.despawn_recursive();
             } else {
                 error!("This command should only be called for predicted entities!");
             }
