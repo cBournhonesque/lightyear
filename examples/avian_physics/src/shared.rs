@@ -24,13 +24,6 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        app.add_plugins(LogDiagnosticsPlugin {
-            filter: Some(vec![
-                IoDiagnosticsPlugin::BYTES_IN,
-                IoDiagnosticsPlugin::BYTES_OUT,
-            ]),
-            ..default()
-        });
         // bundles
         app.add_systems(Startup, init);
 

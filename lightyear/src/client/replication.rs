@@ -69,6 +69,7 @@ pub(crate) mod receive {
         for message_event in messages.drain() {
             let message = message_event.message;
             let entity = message.entity;
+            debug!("Received authority change for entity {entity:?}");
             if entities.get(entity).is_some() {
                 if message.gain_authority {
                     commands.queue(move |world: &mut World| {

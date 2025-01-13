@@ -118,7 +118,9 @@ pub(crate) fn replicate_players(
 ) {
     for (entity, replicated) in query.iter() {
         let client_id = replicated.client_id();
-        info!("received player spawn event from client {client_id:?}");
+        info!(
+            "Received player spawn event from client {client_id:?}. Replicating back to all clients"
+        );
 
         // for all player entities we have received, add a Replicate component so that we can start replicating it
         // to other clients

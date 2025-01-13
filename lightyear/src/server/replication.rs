@@ -667,14 +667,14 @@ pub(crate) mod send {
         let _ = connection_manager
             .connected_targets(target)
             .try_for_each(|client_id| {
-                // TODO: we don't want to convert because this is a spawn! we need to provide the local entity
-                //  so that the receiver can do the mapping
-                // // convert the entity to a network entity
-                // let entity = sender
-                //     .connection_mut(client_id)?
-                //     .replication_receiver
-                //     .remote_entity_map
-                //     .to_remote(entity);
+                // convert the entity to a network entity (possibly mapped)
+                // this can happen in the case of PrePrediction where the spawned entity has been pre-mapped
+                // to the client's confirmed entity!
+                let entity = connection_manager
+                    .connection_mut(client_id)?
+                    .replication_receiver
+                    .remote_entity_map
+                    .to_remote(entity);
 
                 // let the client know that this entity is controlled by them
                 if controlled_by.is_some_and(|c| c.targets(&client_id)) {
@@ -3199,6 +3199,9 @@ pub(crate) mod commands {
                         });
 
                 let compute_sync_target = |world: &World, c: ClientId| {
+                    if world.get::<PrePredicted>(entity).is_some() {
+                        return (false, false)
+                    }
                     let initial_replicated = world.get::<InitialReplicated>(entity);
                     let sync_target = world.get::<SyncTarget>(entity);
                     // if the entity was originally spawned by a client C1,

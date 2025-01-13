@@ -67,10 +67,6 @@ pub(crate) fn handle_pre_predicted(
     q: Query<(Entity, &PrePredicted, &Replicated)>,
 ) {
     if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.entity()) {
-        debug!(
-            "Received PrePredicted entity from client: {:?}. Transferring authority to server",
-            replicated.from
-        );
         let sending_client = replicated.from.unwrap();
         let confirmed_entity = pre_predicted.confirmed_entity.unwrap();
         // update the mapping so that when we send updates, the server entity gets mapped
@@ -81,6 +77,12 @@ pub(crate) fn handle_pre_predicted(
             .replication_receiver
             .remote_entity_map
             .insert(confirmed_entity, local_entity);
+        debug!(
+            ?confirmed_entity,
+            ?local_entity,
+            "Received PrePredicted entity from client: {:?}. Transferring authority to server",
+            replicated.from
+        );
         commands
             .entity(local_entity)
             .transfer_authority(AuthorityPeer::Server);
