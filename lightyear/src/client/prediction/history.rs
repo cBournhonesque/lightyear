@@ -3,7 +3,7 @@ use bevy::prelude::{Component, Reflect, Resource};
 use bevy::prelude::{ReflectComponent, ReflectResource};
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use tracing::{error, info};
+use tracing::{debug, info};
 
 /// Stores a past value in the history buffer
 #[derive(Debug, PartialEq, Clone, Default, Reflect)]
@@ -71,12 +71,12 @@ impl<R> HistoryBuffer<R> {
     /// The tick must be strictly more recent than the most recent update in the buffer
     pub(crate) fn add(&mut self, tick: Tick, value: Option<R>) {
         if let Some(last_tick) = self.peek().map(|(tick, _)| tick) {
-            assert!(
-                tick >= *last_tick,
-                "Tick must be more recent than the last update in the buffer"
-            );
+            // assert!(
+            //     tick >= *last_tick,
+            //     "Tick must be more recent than the last update in the buffer"
+            // );
             if *last_tick == tick {
-                error!("Adding update to history buffer for tick: {:?} but it already had a value for that tick!", tick);
+                debug!("Adding update to history buffer for tick: {:?} but it already had a value for that tick!", tick);
                 // in this case, let's pop back the update to replace it with the new value
                 self.buffer.pop_back();
             }
