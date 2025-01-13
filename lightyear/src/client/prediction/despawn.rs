@@ -176,7 +176,10 @@ mod tests {
     use crate::prelude::{client, server, NetworkTarget};
     use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeSimple};
     use crate::tests::stepper::BevyStepper;
-    use bevy::prelude::default;
+    use bevy::prelude::{default, Component};
+
+    #[derive(Component, Debug, PartialEq)]
+    struct TestComponent(usize);
 
     /// Test that if a predicted entity gets despawned erroneously
     /// The rollback re-adds the predicted entity.
@@ -217,6 +220,12 @@ mod tests {
             .get::<Confirmed>()
             .expect("Confirmed component missing");
         let predicted_entity = confirmed.predicted.unwrap();
+        // try adding a non-protocol component (which could be some rendering component)
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted_entity)
+            .insert(TestComponent(1));
 
         // despawn the predicted entity locally
         stepper
@@ -226,7 +235,13 @@ mod tests {
             .entity(predicted_entity)
             .prediction_despawn();
         stepper.frame_step();
+        // TODO: this does not work!
         // make sure that all components have been removed
+        // assert!(stepper
+        //     .client_app
+        //     .world()
+        //     .get::<TestComponent>(predicted_entity)
+        //     .is_none());
         assert!(stepper
             .client_app
             .world()
@@ -262,7 +277,16 @@ mod tests {
                 .unwrap(),
             &ComponentSyncModeFull(2.0)
         );
+        // TODO: NON-REGISTERED COMPONENTS DO NOT WORK!
         // the non-Full components should also get restored
+        // assert_eq!(
+        //     stepper
+        //         .client_app
+        //         .world()
+        //         .get::<TestComponent>(predicted_entity)
+        //         .unwrap(),
+        //     &TestComponent(1)
+        // );
         assert_eq!(
             stepper
                 .client_app
