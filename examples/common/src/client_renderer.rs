@@ -1,18 +1,16 @@
-#[cfg(feature = "client")]
 use bevy::picking::prelude::{Click, Pointer};
 use bevy::prelude::*;
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::MainSet;
-// TODO split into server/client renderer plugins?
 
-pub struct ExampleRendererPlugin {
+pub struct ExampleClientRendererPlugin {
     /// The name of the example, which must also match the edgegap application name.
     pub name: String,
 }
 
-impl ExampleRendererPlugin {
+impl ExampleClientRendererPlugin {
     pub fn new(name: String) -> Self {
         Self { name }
     }
@@ -21,43 +19,35 @@ impl ExampleRendererPlugin {
 #[derive(Resource)]
 struct GameName(String);
 
-impl Plugin for ExampleRendererPlugin {
+impl Plugin for ExampleClientRendererPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(GameName(self.name.clone()));
         app.insert_resource(ClearColor::default());
         // TODO common shortcuts for enabling the egui world inspector etc.
         // TODO handle bevygap ui things.
-        // TODO for clients, provide a "connect" button?
-        #[cfg(feature = "gui")]
         app.add_systems(Startup, set_window_title);
 
-        #[cfg(feature = "client")]
+        #[cfg(feature = "bevygap_client")]
         {
-            #[cfg(feature = "bevygap_client")]
-            {
-                let bevygap_client_config = BevygapClientConfig {
-                    matchmaker_url: crate::settings::get_matchmaker_url(),
-                    game_name: self.name.clone(),
-                    game_version: "1".to_string(),
-                    ..default()
-                };
-                info!("{bevygap_client_config:?}");
-                app.insert_resource(bevygap_client_config);
-            }
-
-            spawn_connect_button(app);
-            app.add_systems(
-                PreUpdate,
-                (handle_connection, handle_disconnection).after(MainSet::Receive),
-            );
-            app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
-
-            app.add_systems(Update, update_button_text);
-            app.add_observer(on_update_status_message);
+            let bevygap_client_config = BevygapClientConfig {
+                matchmaker_url: crate::settings::get_matchmaker_url(),
+                game_name: self.name.clone(),
+                game_version: "1".to_string(),
+                ..default()
+            };
+            info!("{bevygap_client_config:?}");
+            app.insert_resource(bevygap_client_config);
         }
 
-        #[cfg(all(feature = "server", not(feature = "client")))]
-        app.add_systems(Startup, spawn_server_text);
+        spawn_connect_button(app);
+        app.add_systems(
+            PreUpdate,
+            (handle_connection, handle_disconnection).after(MainSet::Receive),
+        );
+        app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+
+        app.add_systems(Update, update_button_text);
+        app.add_observer(on_update_status_message);
     }
 }
 
@@ -66,25 +56,9 @@ fn set_window_title(mut window: Query<&mut Window>, game_name: Res<GameName>) {
     window.title = format!("Lightyear Example: {}", game_name.0);
 }
 
-/// Spawns a text element that displays "Server"
-#[cfg(all(feature = "server", not(feature = "client")))]
-fn spawn_server_text(mut commands: Commands) {
-    commands.spawn((
-        Text("Server".to_string()),
-        TextFont::from_font_size(30.0),
-        TextColor(Color::WHITE.with_alpha(0.5)),
-        Node {
-            align_self: AlignSelf::End,
-            ..default()
-        },
-    ));
-}
-
-#[cfg(feature = "client")]
 #[derive(Event, Debug)]
 pub struct UpdateStatusMessage(pub String);
 
-#[cfg(feature = "client")]
 fn on_update_status_message(
     trigger: Trigger<UpdateStatusMessage>,
     mut q: Query<&mut Text, With<StatusMessageMarker>>,
@@ -94,11 +68,9 @@ fn on_update_status_message(
     }
 }
 
-#[cfg(feature = "client")]
 #[derive(Component)]
 struct StatusMessageMarker;
 
-#[cfg(feature = "client")]
 /// Create a button that allow you to connect/disconnect to a server
 pub(crate) fn spawn_connect_button(app: &mut App) {
     app.world_mut()
@@ -161,7 +133,6 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
         });
 }
 
-#[cfg(feature = "client")]
 pub(crate) fn update_button_text(
     state: Res<State<NetworkingState>>,
     mut text_query: Query<&mut Text, With<Button>>,
@@ -186,7 +157,6 @@ pub(crate) fn update_button_text(
 #[derive(Component)]
 pub struct ClientIdText;
 
-#[cfg(feature = "client")]
 /// Listen for events to know when the client is connected, and spawn a text entity
 /// to display the client id
 pub(crate) fn handle_connection(
@@ -203,7 +173,6 @@ pub(crate) fn handle_connection(
     }
 }
 
-#[cfg(feature = "client")]
 /// Listen for events to know when the client is disconnected, and print out the reason
 /// of the disconnection
 pub(crate) fn handle_disconnection(
@@ -223,7 +192,6 @@ pub(crate) fn handle_disconnection(
 
 /// Remove the debug text when the client disconnect
 /// (Replicated entities are automatically despawned by lightyear on disconnection)
-#[cfg(feature = "client")]
 fn on_disconnect(mut commands: Commands, debug_text: Query<Entity, With<ClientIdText>>) {
     for entity in debug_text.iter() {
         commands.entity(entity).despawn_recursive();

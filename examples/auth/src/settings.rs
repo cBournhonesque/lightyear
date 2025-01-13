@@ -35,6 +35,7 @@ pub(crate) fn get_settings() -> MySettings {
                         },
                     },
                     ServerTransports::Udp { local_port: 5001 },
+                    #[cfg(feature = "websocket")]
                     ServerTransports::WebSocket { local_port: 5002 },
                     #[cfg(feature = "steam")]
                     ServerTransports::Steam {

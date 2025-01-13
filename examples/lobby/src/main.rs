@@ -13,8 +13,8 @@
 use crate::settings::get_settings;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
-use lightyear::prelude::{Deserialize, Mode, Serialize};
-use lightyear_examples_common::app::{Apps, Cli, ServerMode};
+use lightyear::prelude::{Deserialize, Serialize};
+use lightyear_examples_common::app::{Apps, Cli, Mode};
 use lightyear_examples_common::settings::{ServerTransports, Settings};
 
 #[cfg(feature = "client")]
@@ -36,14 +36,15 @@ fn main() {
     // in this example, every client will actually launch in host-server mode
     // the reason is that we want every client to be able to be the 'host' of a lobby
     // so every client needs to have the ServerPlugins included in the app
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "client")] {
-            cli.mode = ServerMode::HostServer;
+    match cli.mode {
+        Some(Mode::Client { client_id }) => {
+            cli.mode = Some(Mode::HostServer { client_id });
             // when the client acts as host, we will use port UDP:5050 for the transport
             settings.server.transport = vec![ServerTransports::Udp {
                 local_port: HOST_SERVER_PORT,
             }];
         }
+        _ => {}
     }
 
     // build the bevy app (this adds common plugins such as the DefaultPlugins)

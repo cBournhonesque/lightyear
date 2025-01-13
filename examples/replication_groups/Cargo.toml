@@ -13,7 +13,8 @@ publish = false
 
 
 [features]
-default = ["lightyear_examples_common/websocket"]
+default = ["client", "server", "gui", "lightyear_examples_common/default"]
+websocket = ["lightyear_examples_common/websocket"]
 client = ["lightyear_examples_common/client", "gui"]
 server = ["lightyear_examples_common/server"]
 gui = ["lightyear_examples_common/gui"]

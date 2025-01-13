@@ -18,7 +18,7 @@ use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::server::AuthorityPeer;
 use lightyear::prelude::*;
-use lightyear_examples_common::renderer::ClientIdText;
+use lightyear_examples_common::client_renderer::ClientIdText;
 
 pub struct ExampleClientPlugin;
 

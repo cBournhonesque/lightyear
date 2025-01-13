@@ -60,7 +60,7 @@ fn on_server_metadata_changed(metadata: ResMut<ServerMetadata>, mut commands: Co
         return;
     }
     let msg = format!("{} in {}", metadata.fqdn, metadata.location);
-    commands.trigger(crate::renderer::UpdateStatusMessage(msg));
+    commands.trigger(crate::client_renderer::UpdateStatusMessage(msg));
 }
 
 #[cfg(feature = "bevygap_server")]
@@ -91,5 +91,5 @@ fn on_bevygap_state_change(
         BevygapClientState::Finished => "Finished connection setup.".to_string(),
         BevygapClientState::Error(code, msg) => format!("ERR {code}: {msg}"),
     };
-    commands.trigger(crate::renderer::UpdateStatusMessage(msg));
+    commands.trigger(crate::client_renderer::UpdateStatusMessage(msg));
 }
