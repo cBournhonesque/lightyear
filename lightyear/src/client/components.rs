@@ -26,8 +26,8 @@ pub struct Confirmed {
     pub tick: Tick,
 }
 
-pub trait SyncComponent: Component + Clone + PartialEq + Message + Debug {}
-impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message + Debug {}
+pub trait SyncComponent: Component + Clone + PartialEq + Message {}
+impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message {}
 
 /// Function that will interpolate between two values
 pub trait LerpFn<C> {
