@@ -12,7 +12,7 @@ use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
 
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::ReplicationTarget;
+use lightyear::prelude::server::{DespawnReplicationCommandExt, ReplicationTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
@@ -295,11 +295,10 @@ pub(crate) fn lifetime_despawner(
             // if ttl.origin_tick.wrapping_add(ttl.lifetime) > *tick_manager.tick() {
             if identity.is_server() {
                 // info!("Despawning {e:?} without replication");
-                // commands.entity(e).despawn_without_replication(); // CRASH ?
-                commands.entity(e).remove::<server::Replicate>().despawn();
+                commands.entity(e).despawn();
             } else {
                 // info!("Despawning:lifetime {e:?}");
-                commands.entity(e).despawn_recursive();
+                commands.entity(e).prediction_despawn();
             }
         }
     }
@@ -356,12 +355,9 @@ pub(crate) fn process_collisions(
         if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity1) {
             // despawn the bullet
             if identity.is_server() {
-                commands
-                    .entity(contacts.entity1)
-                    .remove::<server::Replicate>()
-                    .despawn();
+                commands.entity(contacts.entity1).despawn();
             } else {
-                commands.entity(contacts.entity1).despawn_recursive();
+                commands.entity(contacts.entity1).prediction_despawn();
             }
             let victim_client_id = player_q
                 .get(contacts.entity2)
@@ -377,12 +373,9 @@ pub(crate) fn process_collisions(
         }
         if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity2) {
             if identity.is_server() {
-                commands
-                    .entity(contacts.entity2)
-                    .remove::<server::Replicate>()
-                    .despawn();
+                commands.entity(contacts.entity2).despawn();
             } else {
-                commands.entity(contacts.entity2).despawn_recursive();
+                commands.entity(contacts.entity2).prediction_despawn();
             }
             let victim_client_id = player_q
                 .get(contacts.entity1)
