@@ -11,13 +11,15 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/41a6d102-77a1-4a44-89
 
 ## Running the example
 
-- Run the server: `cargo run --features=server`
-- Run client with id 1: `cargo run --features=client -- -c 1`
-- Run client with id 2: `cargo run --features=client -- -c 2` (etc.)
-- Run the client and server in two separate bevy Apps: `cargo run --features=server,client`
-- Run the server with a gui: `cargo run --features=server,gui`
-- Run the client and server in "HostServer" mode, where the server is also a client (there is only one App): `cargo run --features=server,client -- -m=host-server`
+- Run the server with a gui: `cargo run server`
+- Run client with id 1: `cargo run client -c 1`
+- Run client with id 2: `cargo run client -c 2`
+- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`
+- Run the server without a gui: `cargo run --no-default-features --features=server`
+- Run the client and server in "HostServer" mode, where the server is also a client (there is only one App): `cargo run host-server`
 
+You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
+For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server`.
 You can modify the file `assets/settings.ron` to modify some networking settings.
 
 ### Testing in wasm with webtransport

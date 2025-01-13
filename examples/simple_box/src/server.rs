@@ -24,10 +24,9 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, start_server);
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(
-            Update,
-            (send_message, handle_connections, server_start_stop),
-        );
+        app.add_systems(Update, (send_message, handle_connections));
+        #[cfg(not(feature = "client"))]
+        app.add_systems(Update, server_start_stop);
     }
 }
 
@@ -128,6 +127,8 @@ fn movement(
     }
 }
 
+// only run this in dedicated server mode
+#[cfg(not(feature = "client"))]
 pub(crate) fn server_start_stop(
     mut commands: Commands,
     state: Res<State<NetworkingState>>,

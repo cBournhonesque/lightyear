@@ -37,7 +37,7 @@ use bevy::window::PresentMode;
 #[command(version, about)]
 pub struct Cli {
     #[command(subcommand)]
-    mode: Option<Mode>,
+    pub mode: Option<Mode>,
 }
 
 #[derive(Subcommand, Debug)]
