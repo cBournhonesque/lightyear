@@ -620,10 +620,9 @@ impl GroupChannel {
                         // (e.g client spawned an entity and then transfer the authority to the server.
                         //  The server will then send a spawn message)
                         if world.get_entity(local_entity).is_ok() {
-                            warn!(
-                                ?remote_entity,
+                            debug!(
                                 ?local_entity,
-                                "Received spawn for an entity that already exists. This might be because of an authority transfer."
+                                "Received spawn for entity {local_entity:?} that already exists. This might be because of an authority transfer or pre-prediction."
                             );
                             // we still need to update the local entity to group mapping on the receiver
                             self.local_entities.insert(local_entity);
@@ -666,7 +665,6 @@ impl GroupChannel {
 
                     remote_entity_map.insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", remote_entity_map);
-
                     debug!("Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}", local_entity.id());
                     events.push_spawn(local_entity.id());
                 }

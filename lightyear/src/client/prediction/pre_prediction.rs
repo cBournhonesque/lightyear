@@ -52,7 +52,7 @@ impl Plugin for PrePredictionPlugin {
 }
 
 impl PrePredictionPlugin {
-    /// For pre-spawned entities, we want to stop replicating as soon as the initial spawn message has been sent to the
+    /// For pre-predicted entities, we want to stop replicating as soon as the initial spawn message has been sent to the
     /// server (to save bandwidth).
     /// The server will refuse those other updates anyway because it will take authority over the entity.
     /// Therefore we will remove the `Replicate` component right after the first time we've sent a replicating message to the
@@ -95,7 +95,7 @@ impl PrePredictionPlugin {
         // we will add the Predicted component
         if let Some(&predicted) = predicted_map.confirmed_to_predicted.get(&trigger.entity()) {
             let confirmed = trigger.entity();
-            info!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
+            debug!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
             commands.queue(move |world: &mut World| {
                 world
                     .entity_mut(predicted)

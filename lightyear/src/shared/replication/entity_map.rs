@@ -2,7 +2,7 @@
 use bevy::ecs::entity::{EntityHashMap, EntityMapper};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
-use tracing::error;
+use tracing::{error, trace};
 
 const MARKED: u64 = 1 << 62;
 
@@ -28,6 +28,7 @@ impl EntityMapper for SendEntityMap {
         // if we have the entity in our mapping, map it and mark it as mapped
         // so that on the receive side we don't map it again
         if let Some(mapped) = self.0.get(&entity) {
+            trace!("Mapping entity {entity:?} to {mapped:?} in SendEntityMap!");
             RemoteEntityMap::mark_mapped(*mapped)
         } else {
             // otherwise just send the entity as is, and the receiver will map it
@@ -93,6 +94,7 @@ impl RemoteEntityMap {
     pub(crate) fn get_local(&self, remote_entity: Entity) -> Option<Entity> {
         let unmapped = Self::mark_unmapped(remote_entity);
         if Self::is_mapped(remote_entity) {
+            trace!("Received entity {unmapped:?} was already mapped, returning it as is");
             // the remote_entity is actually local, because it has already been mapped!
             // just remove the mapping bit
             return Some(unmapped);
