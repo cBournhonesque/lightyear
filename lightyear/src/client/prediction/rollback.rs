@@ -540,7 +540,6 @@ pub(crate) fn prepare_rollback_non_networked<C: Component + PartialEq + Clone>(
 
     // 0. If the entity didn't exist at the rollback tick, despawn it
     // TODO? or is it handled for us?
-
     for (entity, component, mut history) in predicted_query.iter_mut() {
         // 1. restore the component to the historical value
         match history.pop_until_tick(rollback_tick) {
@@ -1334,7 +1333,7 @@ mod integration_tests {
     /// - the rollback removes the component from the predicted entity
     #[test]
     fn test_added_predicted_component_rollback() {
-        let (mut stepper, confirmed, predicted) = setup(true);
+        let (mut stepper, confirmed, predicted) = setup(false);
 
         // add a new component to Predicted
         stepper
@@ -1342,26 +1341,35 @@ mod integration_tests {
             .world_mut()
             .entity_mut(predicted)
             .insert(ComponentSyncModeFull(1.0));
+
         stepper.frame_step();
 
-        // create a rollback situation (confirmed doesn't have a component that predicted has)
-        let tick = stepper.client_tick();
-        received_confirmed_update(&mut stepper, confirmed, tick - 1);
+        // the prediction history is updated with this tick
+        let rollback_tick = stepper.client_tick();
+        stepper.frame_step();
 
         // add a non-networked component as well, which should be removed on the rollback
+        // since it did not exist at the rollback tick
         stepper
             .client_app
             .world_mut()
             .entity_mut(predicted)
             .insert(ComponentRollback(1.0));
+
+        // create a rollback situation to a tick where
+        // - confirmed_component missing
+        // - predicted component exists in history
+        received_confirmed_update(&mut stepper, confirmed, rollback_tick);
         stepper.frame_step();
 
-        // check that rollback happened: the component got removed from predicted
+        // check that rollback happened:
+        // the registered component got removed from predicted since it was not present on confirmed
         assert!(stepper
             .client_app
             .world()
             .get::<ComponentSyncModeFull>(predicted)
             .is_none());
+        // the non-networked component got removed from predicted as it wasn't present in the history
         assert!(stepper
             .client_app
             .world()

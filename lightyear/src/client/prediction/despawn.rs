@@ -169,13 +169,12 @@ pub(crate) fn remove_despawn_marker(
 mod tests {
     use crate::client::prediction::despawn::PredictionDespawnMarker;
     use crate::client::prediction::resource::PredictionManager;
-    use crate::client::prediction::rollback::RollbackEvent;
     use crate::prelude::client::{Confirmed, PredictionDespawnCommandsExt};
     use crate::prelude::server::SyncTarget;
     use crate::prelude::{client, server, NetworkTarget};
     use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeSimple};
     use crate::tests::stepper::BevyStepper;
-    use bevy::prelude::{default, Component, Trigger};
+    use bevy::prelude::{default, Component};
 
     #[derive(Component, Debug, PartialEq)]
     struct TestComponent(usize);

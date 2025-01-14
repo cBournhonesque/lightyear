@@ -224,6 +224,18 @@ fn update_action_state<A: LeafwingUserAction>(
             // we keep the current value in the InputBuffer so that if future messages are lost, we can still
             // fallback on the last known value
             input_buffer.pop(tick - 1);
+
+            #[cfg(feature = "metrics")]
+            {
+                // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
+                // so that we can handle lost messages
+                metrics::gauge!(format!(
+                    "inputs::{}::{}::buffer_size",
+                    std::any::type_name::<A>(),
+                    entity
+                ))
+                .set(input_buffer.len() as f64);
+            }
         }
     }
 }

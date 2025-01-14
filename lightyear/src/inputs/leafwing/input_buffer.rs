@@ -91,6 +91,11 @@ impl<A: LeafwingUserAction> Default for InputBuffer<A> {
 }
 
 impl<T: LeafwingUserAction> InputBuffer<T> {
+    /// Number of elements in the buffer
+    pub(crate) fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
     // Note: we expect this to be set every tick?
     //  i.e. there should be an ActionState for every tick, even if the action is None
     /// Set the ActionState for the given tick in the InputBuffer

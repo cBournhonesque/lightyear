@@ -498,15 +498,15 @@ mod tests {
     use crate::client::prediction::history::HistoryState;
     use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
-    use crate::client::prediction::rollback::RollbackEvent;
-    use crate::prelude::client::PredictionDespawnCommandsExt;
+    use crate::prelude::client::{is_in_rollback, PredictionDespawnCommandsExt, PredictionSet};
     use crate::prelude::client::{Confirmed, Predicted};
     use crate::prelude::server::{Replicate, SyncTarget};
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use crate::utils::ready_buffer::ItemWithReadyKey;
-    use bevy::prelude::{default, Entity, Trigger, With};
+    use bevy::app::PreUpdate;
+    use bevy::prelude::{default, Entity, IntoSystemConfigs, With};
 
     #[test]
     fn test_compute_hash() {
@@ -798,7 +798,7 @@ mod tests {
             .is_err());
     }
 
-    fn panic_on_rollback(_: Trigger<RollbackEvent>) {
+    fn panic_on_rollback() {
         panic!("rollback triggered");
     }
 
@@ -809,7 +809,12 @@ mod tests {
     #[test]
     fn test_prespawn_local_despawn_match() {
         let mut stepper = BevyStepper::default();
-        stepper.client_app.add_observer(panic_on_rollback);
+        stepper.client_app.add_systems(
+            PreUpdate,
+            panic_on_rollback
+                .run_if(is_in_rollback)
+                .in_set(PredictionSet::PrepareRollback),
+        );
 
         let client_tick = stepper.client_tick().0 as usize;
         let server_tick = stepper.server_tick().0 as usize;
