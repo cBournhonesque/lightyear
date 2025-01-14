@@ -204,12 +204,11 @@ pub(crate) fn shoot_bullet(
             error!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
 
             for delta in &[-0.2, 0.2] {
-                // for delta in &[0.0] {
+                let salt: u64 = if delta < &0.0 { 0 } else { 1 };
                 let ball = BallBundle::new(
                     transform.translation.truncate(),
                     transform.rotation.to_euler(EulerRot::XYZ).2 + delta,
                     color.0,
-                    false,
                 );
                 // on the server, replicate the bullet
                 if identity.is_server() {
@@ -220,7 +219,12 @@ pub(crate) fn shoot_bullet(
                         //  it does this by matching with the client entity that has the same hash
                         //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
                         //  unless you set the hash manually before PostUpdate to a value of your choice
-                        PreSpawnedPlayerObject::default(),
+                        //
+                        // the default hashing algorithm uses the tick and component list. in order to disambiguate
+                        // between the two bullets, we add additional information to the hash.
+                        // NOTE: if you don't add the salt, the 'left' bullet on the server might get matched with the
+                        // 'right' bullet on the client, and vice versa. This is not critical, but it will cause a rollback
+                        PreSpawnedPlayerObject::default_with_salt(salt),
                         Replicate {
                             sync: SyncTarget {
                                 // the bullet is predicted for the client who shot it
@@ -237,7 +241,7 @@ pub(crate) fn shoot_bullet(
                     // on the client, just spawn the ball
                     // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    commands.spawn((ball, PreSpawnedPlayerObject::default()));
+                    commands.spawn((ball, PreSpawnedPlayerObject::default_with_salt(salt)));
                 }
             }
         }

@@ -65,12 +65,7 @@ pub(crate) struct BallBundle {
 }
 
 impl BallBundle {
-    pub(crate) fn new(
-        position: Vec2,
-        rotation_radians: f32,
-        color: Color,
-        predicted: bool,
-    ) -> Self {
+    pub(crate) fn new(position: Vec2, rotation_radians: f32, color: Color) -> Self {
         let mut transform = Transform::from_xyz(position.x, position.y, 0.0);
         transform.rotate_z(rotation_radians);
         Self {
