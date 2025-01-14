@@ -5,8 +5,8 @@ use bevy::app::FixedMain;
 use bevy::ecs::entity::EntityHashSet;
 use bevy::ecs::reflect::ReflectResource;
 use bevy::prelude::{
-    Commands, Component, DespawnRecursiveExt, DetectChanges, Entity, Event, Query, Ref, Res,
-    ResMut, Resource, With, Without, World,
+    Commands, Component, DespawnRecursiveExt, DetectChanges, Entity, Query, Ref, Res, ResMut,
+    Resource, With, Without, World,
 };
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
@@ -53,10 +53,6 @@ pub enum RollbackState {
         current_tick: Tick,
     },
 }
-
-/// Event emitted when a rollback is triggered
-#[derive(Event)]
-pub struct RollbackEvent;
 
 impl Rollback {
     pub(crate) fn new(state: RollbackState) -> Self {
@@ -267,11 +263,6 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                    );
         }
     }
-}
-
-/// Trigger a rollback event in case we do a rollback
-pub(crate) fn trigger_rollback_event(mut commands: Commands) {
-    commands.trigger(RollbackEvent);
 }
 
 /// If there is a mismatch, prepare rollback for all components

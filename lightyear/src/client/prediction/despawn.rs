@@ -8,7 +8,6 @@ use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
-use crate::client::prediction::rollback::RollbackEvent;
 use crate::client::prediction::Predicted;
 use crate::prelude::{
     ComponentRegistry, Mode, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
@@ -134,7 +133,6 @@ pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
 ///
 /// Remember to reinstate components if SyncComponent != Full
 pub(crate) fn restore_components_if_despawn_rolled_back<C: SyncComponent>(
-    trigger: Trigger<RollbackEvent>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut RemovedCache<C>), Without<C>>,
 ) {

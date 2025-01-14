@@ -824,6 +824,8 @@ mod tests {
 
         // we want to advance by the tick difference, so that the server prespawned is spawned on the same
         // tick as the client prespawned
+        // (i.e. entity is spawned on tick client_tick = X on client, and spawned on tick server_tick = X on server, so that
+        // the Histories match)
         for tick in server_tick + 1..client_tick {
             stepper.frame_step();
         }
