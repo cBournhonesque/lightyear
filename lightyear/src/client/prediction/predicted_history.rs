@@ -37,8 +37,8 @@ pub(crate) fn add_non_networked_component_history<C: Component + PartialEq + Clo
 ) {
     let tick = tick_manager.tick();
     for (entity, predicted_component) in predicted_entities.iter() {
-        let mut history = PredictionHistory::<C>::default();
-        history.add_update(tick, predicted_component.clone());
+        // TODO: should we add a value to the history for this tick?
+        let history = PredictionHistory::<C>::default();
         commands.entity(entity).insert(history);
     }
 }
@@ -69,6 +69,8 @@ pub(crate) fn add_component_history<C: SyncComponent>(
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(predicted_entity) = confirmed.predicted {
             if let Ok(predicted_component) = predicted_components.get(predicted_entity) {
+                // TODO: do we want to add a value to the history for this tick? in particular if the component was added during the Update schedule
+                //   the value will correspond to the previous tick!
                 // if component got added on predicted side, add history
                 add_history::<C>(
                     component_registry.as_ref(),
@@ -96,10 +98,8 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                         match component_registry.prediction_mode::<C>() {
                             ComponentSyncMode::Full => {
                                 debug!("Adding history for {:?}", std::any::type_name::<C>());
-                                // insert history, no need to add any value to it because we run the UpdateHistory system set after the SpawnHistory
-                                // it will be quickly filled by a rollback (since it starts empty before the current client tick)
-                                // or will it? because the component just got spawned anyway..
-                                // TODO: then there's no need to add the component here, since it's going to get added during rollback anyway?
+                                // insert history, no need to add any value to it
+                                // because it will be filled by rollback anyway
                                 let history = PredictionHistory::<C>::default();
                                 predicted_entity_mut.insert((new_component, history));
                             }
@@ -128,7 +128,11 @@ pub(crate) fn add_component_history<C: SyncComponent>(
 }
 
 /// Add the history for prespawned entities.
-/// This must run on FixedUpdate (for entities spawned on FixedUpdate) and PreUpdate (for entities spawned on Update)
+///
+/// This must run on FixedPostUpdate (for entities spawned on FixedUpdate).
+/// We do not handle entities created in Update.
+///
+/// The history will be updated with a component value in UpdateHistory so there's no need to add a value here.
 #[allow(clippy::type_complexity)]
 pub(crate) fn add_prespawned_component_history<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
@@ -232,7 +236,6 @@ pub(crate) fn apply_component_removal_predicted<C: Component + PartialEq + Clone
     rollback: Res<Rollback>,
     mut predicted_query: Query<&mut PredictionHistory<C>>,
 ) {
-    // TODO: do not run this if component-sync-mode != FULL
     // if the component was removed from the Predicted entity, add the Removal to the history
     if let Ok(mut history) = predicted_query.get_mut(trigger.entity()) {
         // tick for which we will record the history (either the current client tick or the current rollback tick)
@@ -311,7 +314,6 @@ mod tests {
     #[test]
     fn test_add_component_history() {
         let mut stepper = BevyStepper::default();
-
         let tick = stepper.client_tick();
         let confirmed = stepper
             .client_app
@@ -328,7 +330,6 @@ mod tests {
                 confirmed_entity: Some(confirmed),
             })
             .id();
-
         stepper
             .client_app
             .world_mut()
@@ -344,6 +345,7 @@ mod tests {
             .entity_mut(confirmed)
             .insert(ComponentSyncModeFull(1.0));
         stepper.frame_step();
+        let tick = stepper.client_tick();
         assert_eq!(
             stepper
                 .client_app
@@ -367,13 +369,13 @@ mod tests {
         );
 
         // 2. Add the history for ComponentSyncMode::Full that was added to the predicted entity
-        let tick = stepper.client_tick();
         stepper
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .insert(ComponentSyncModeFull2(1.0));
+            .insert(ComponentSyncModeFull2(2.0));
         stepper.frame_step();
+        let tick = stepper.client_tick();
         assert_eq!(
             stepper
                 .client_app
@@ -382,7 +384,7 @@ mod tests {
                 .get_mut::<PredictionHistory<ComponentSyncModeFull2>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(HistoryState::Updated(ComponentSyncModeFull2(1.0))),
+            Some(HistoryState::Updated(ComponentSyncModeFull2(2.0))),
             "Expected component value to be added to prediction history"
         );
         assert_eq!(
@@ -392,12 +394,11 @@ mod tests {
                 .entity(predicted)
                 .get::<ComponentSyncModeFull2>()
                 .expect("Expected component to be added to predicted entity"),
-            &ComponentSyncModeFull2(1.0),
+            &ComponentSyncModeFull2(2.0),
             "Expected component to be added to predicted entity"
         );
 
         // 3. Don't add the history for ComponentSyncMode::Simple
-        let tick = stepper.client_tick();
         stepper
             .client_app
             .world_mut()
@@ -425,7 +426,6 @@ mod tests {
         );
 
         // 4. Don't add the history for ComponentSyncMode::Once
-        let tick = stepper.client_tick();
         stepper
             .client_app
             .world_mut()
@@ -435,7 +435,8 @@ mod tests {
         assert!(
             stepper
                 .client_app
-                .world()                .entity(predicted)
+                .world()
+                .entity(predicted)
                 .get::<PredictionHistory<ComponentSyncModeOnce>>()
                 .is_none(),
             "Expected component value to not be added to prediction history for ComponentSyncMode::Once"
@@ -452,7 +453,6 @@ mod tests {
         );
 
         // 5. Component with MapEntities get mapped from Confirmed to Predicted
-        let tick = stepper.client_tick();
         stepper
             .client_app
             .world_mut()

@@ -520,6 +520,10 @@ impl SyncManager {
         let jitter = ping_manager.jitter();
         // recompute the input delay using the new rtt estimate
         self.current_input_delay = prediction_config.input_delay_ticks(rtt, tick_duration);
+        #[cfg(feature = "metrics")]
+        {
+            metrics::gauge!("inputs::input_delay_ticks").set(self.current_input_delay as f64);
+        }
         // recompute the server time estimate (using the rtt we just computed)
         self.update_server_time_estimate(tick_duration, rtt);
 

@@ -104,7 +104,6 @@ impl<A: LeafwingUserAction> Default for MessageBuffer<A> {
 impl<A> Default for LeafwingInputConfig<A> {
     fn default() -> Self {
         LeafwingInputConfig {
-            // input_delay_ticks: 0,
             packet_redundancy: 4,
             _marker: PhantomData,
         }
@@ -397,12 +396,7 @@ fn buffer_action_state<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
-    // TODO: if the input delay changes, this could override a previous tick's input in the InputBuffer
-    //  or leave gaps
-    let input_delay_ticks = config.prediction.input_delay_ticks(
-        connection_manager.ping_manager.rtt(),
-        config.shared.tick.tick_duration,
-    ) as i16;
+    let input_delay_ticks = connection_manager.input_delay_ticks() as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         input_buffer.set(tick, action_state);
@@ -414,6 +408,15 @@ fn buffer_action_state<A: LeafwingUserAction>(
             "set action state in input buffer: {}",
             input_buffer.as_ref()
         );
+        #[cfg(feature = "metrics")]
+        {
+            metrics::gauge!(format!(
+                "inputs::{}::{}::buffer_size",
+                std::any::type_name::<A>(),
+                entity
+            ))
+            .set(input_buffer.len() as f64);
+        }
     }
     // if let Some(action_state) = global_action_state {
     //     global_input_buffer.set(tick, action_state.as_ref());
@@ -548,10 +551,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
-    let input_delay_ticks = config.prediction.input_delay_ticks(
-        connection.ping_manager.rtt(),
-        config.shared.tick.tick_duration,
-    ) as i16;
+    let input_delay_ticks = connection.input_delay_ticks() as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?tick, "prepare_input_message");
@@ -771,6 +771,15 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                                 start,
                                                 diffs,
                                             );
+                                            #[cfg(feature = "metrics")]
+                                            {
+                                                metrics::gauge!(format!(
+                                                    "inputs::{}::remote_player::{}::buffer_size",
+                                                    std::any::type_name::<A>(),
+                                                    entity
+                                                ))
+                                                .set(input_buffer.len() as f64);
+                                            }
                                         } else {
                                             // add the ActionState or InputBuffer if they are missing
                                             let mut input_buffer = InputBuffer::<A>::default();
