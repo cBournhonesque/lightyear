@@ -240,6 +240,7 @@ pub mod prelude {
         pub use crate::client::events::EntityDespawnEvent as ClientEntityDespawnEvent;
         pub use crate::client::events::EntitySpawnEvent as ClientEntitySpawnEvent;
         pub use crate::client::events::MessageEvent as ClientMessageEvent;
+        pub use crate::client::replication::send::Replicate as ClientReplicate;
 
         pub use crate::client::connection::ConnectionManager as ClientConnectionManager;
 
@@ -253,6 +254,8 @@ pub mod prelude {
         pub use crate::server::events::MessageEvent as ServerMessageEvent;
 
         pub use crate::server::connection::ConnectionManager as ServerConnectionManager;
+
+        pub use crate::server::replication::send::Replicate as ServerReplicate;
     }
     pub use rename::*;
 
