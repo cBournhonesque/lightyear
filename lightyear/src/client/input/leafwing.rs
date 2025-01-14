@@ -36,6 +36,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use bevy::prelude::*;
+use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use tracing::{error, trace};
 
@@ -210,14 +211,6 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             ),
         );
 
-        // NOTE: we do not tick the ActionState during FixedUpdate
-        // This means that an ActionState can stay 'JustPressed' for multiple ticks, if we have multiple tick within a single frame.
-        // You have 2 options:
-        // - handle `JustPressed` actions in the Update schedule, where they can only happen once
-        // - `consume` the action when you read it, so that it can only happen once
-
-        // The ActionState that we have here is the ActionState for the current_tick.
-        // It has been directly updated by the leafwing input manager using the user's inputs.
         app.add_systems(
             FixedPreUpdate,
             (
@@ -242,11 +235,13 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
             // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
             (
-                get_delayed_action_state::<A>.run_if(
-                    is_input_delay
-                        .and(should_run.clone())
-                        .and(not(is_in_rollback)),
-                ),
+                get_delayed_action_state::<A>
+                    .run_if(
+                        is_input_delay
+                            .and(should_run.clone())
+                            .and(not(is_in_rollback)),
+                    )
+                    .before(InputManagerSystem::Tick),
                 prepare_input_message::<A>
                     .in_set(InputSystemSet::PrepareInputMessage)
                     // no need to prepare messages to send if in rollback
