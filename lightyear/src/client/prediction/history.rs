@@ -3,7 +3,7 @@ use bevy::prelude::{Component, Reflect, Resource};
 use bevy::prelude::{ReflectComponent, ReflectResource};
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Stores a past value in the history buffer
 #[derive(Debug, PartialEq, Clone, Default, Reflect)]

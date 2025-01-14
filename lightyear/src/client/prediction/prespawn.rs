@@ -486,6 +486,7 @@ mod tests {
     use crate::client::prediction::history::HistoryState;
     use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
+    use crate::client::prediction::rollback::RollbackEvent;
     use crate::prelude::client::PredictionDespawnCommandsExt;
     use crate::prelude::client::{Confirmed, Predicted};
     use crate::prelude::server::{Replicate, SyncTarget};
@@ -493,7 +494,7 @@ mod tests {
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use crate::utils::ready_buffer::ItemWithReadyKey;
-    use bevy::prelude::{default, Entity, With};
+    use bevy::prelude::{default, Entity, Trigger, With};
 
     #[test]
     fn test_compute_hash() {
@@ -734,17 +735,19 @@ mod tests {
 
     /// Client spawns a PreSpawned entity and tries to despawn it locally
     /// before it gets matched to a server entity.
-    /// The entity should just be despawned completely on the client?
-    /// Then when the server entity arrives, it acts as if there's no match and spawns a new
-    /// predicted entity for it
+    /// The entity should be kept around in case of a match, and then cleanup via the cleanup system.
     #[test]
-    fn test_prespawn_local_despawn() {
+    fn test_prespawn_local_despawn_no_match() {
         let mut stepper = BevyStepper::default();
 
         let client_prespawn = stepper
             .client_app
             .world_mut()
-            .spawn(PreSpawnedPlayerObject::new(1))
+            .spawn((
+                PreSpawnedPlayerObject::new(1),
+                ComponentSyncModeFull(1.0),
+                ComponentSyncModeSimple(1.0),
+            ))
             .id();
         stepper.frame_step();
         stepper
@@ -758,6 +761,120 @@ mod tests {
             .client_app
             .world()
             .get_entity(client_prespawn)
+            .is_ok());
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<ComponentSyncModeFull>(client_prespawn)
+            .is_none());
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<ComponentSyncModeSimple>(client_prespawn)
+            .is_none());
+
+        // if enough frames pass without match, the entity gets cleaned
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_prespawn)
             .is_err());
+    }
+
+    fn panic_on_rollback(_: Trigger<RollbackEvent>) {
+        panic!("rollback triggered");
+    }
+
+    /// Client spawns a PreSpawned entity and tries to despawn it locally
+    /// before it gets matched to a server entity.
+    /// The match should work normally without causing any rollbacks, since the server components
+    /// on the PreSpawned entity should match the client history when it was spawned.
+    #[test]
+    fn test_prespawn_local_despawn_match() {
+        let mut stepper = BevyStepper::default();
+        stepper.client_app.add_observer(panic_on_rollback);
+
+        let client_tick = stepper.client_tick().0 as usize;
+        let server_tick = stepper.server_tick().0 as usize;
+        let client_prespawn = stepper
+            .client_app
+            .world_mut()
+            .spawn((
+                PreSpawnedPlayerObject::new(1),
+                ComponentSyncModeFull(1.0),
+                ComponentSyncModeSimple(1.0),
+            ))
+            .id();
+
+        stepper.frame_step();
+
+        // do a predicted despawn (we first wait one frame otherwise the components would get removed
+        //  immediately and the prediction-history would be empty)
+        stepper
+            .client_app
+            .world_mut()
+            .commands()
+            .entity(client_prespawn)
+            .prediction_despawn();
+
+        // we want to advance by the tick difference, so that the server prespawned is spawned on the same
+        // tick as the client prespawned
+        // (i.e. entity is spawned on tick client_tick = X on client, and spawned on tick server_tick = X on server, so that
+        // the Histories match)
+        for tick in server_tick + 1..client_tick {
+            stepper.frame_step();
+        }
+        // make sure that the components were removed on the client prespawned
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_prespawn)
+            .is_ok());
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<ComponentSyncModeFull>(client_prespawn)
+            .is_none());
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<ComponentSyncModeSimple>(client_prespawn)
+            .is_none());
+
+        // spawn the server prespawned entity
+        let server_prespawn = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                PreSpawnedPlayerObject::new(1),
+                ComponentSyncModeFull(1.0),
+                ComponentSyncModeSimple(1.0),
+                Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        ..default()
+                    },
+                    ..default()
+                },
+            ))
+            .id();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // the server entity gets replicated to the client
+        // we should have a match with no rollbacks.
+        // the ComponentSyncMode::Simple components should not be reinstated (they will be only if there is a rollback)
+        stepper.frame_step();
+        let confirmed = stepper
+            .client_app
+            .world()
+            .get::<Predicted>(client_prespawn)
+            .unwrap();
     }
 }

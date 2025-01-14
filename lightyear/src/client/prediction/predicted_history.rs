@@ -6,7 +6,7 @@ use bevy::prelude::{
     Added, Commands, Component, DetectChanges, Entity, OnRemove, Or, Query, Ref, Res, Trigger,
     With, Without,
 };
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::history::HistoryBuffer;

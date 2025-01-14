@@ -295,6 +295,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             // TODO: register type if C is reflect
             // app.register_type::<HistoryState<C>>();
             // app.register_type::<PredictionHistory<C>>();
+
             app.add_observer(apply_component_removal_predicted::<C>);
             app.add_observer(handle_tick_event_prediction_history::<C>);
             app.add_systems(

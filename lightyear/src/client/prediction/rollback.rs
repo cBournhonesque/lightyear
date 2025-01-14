@@ -11,7 +11,7 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
-use tracing::{debug, error, info, trace, trace_span};
+use tracing::{debug, error, trace, trace_span};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
@@ -1014,7 +1014,7 @@ mod integration_tests {
     /// entity-mapped are mapped when rollbacked.
     #[test]
     fn test_rollback_entity_mapping() {
-        #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq)]
+        #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
         struct ComponentWithEntity(Entity);
 
         impl MapEntities for ComponentWithEntity {

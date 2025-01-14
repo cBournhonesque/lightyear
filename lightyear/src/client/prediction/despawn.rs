@@ -41,15 +41,11 @@ impl Command for PredictionDespawnCommand {
         }
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
-            if entity.get::<PreSpawnedPlayerObject>().is_some() {
-                // if this is a pre-spawned entity, we can despawn it immediately
-                // - if the entity was spawned/despawned within a server replication interval, then the server
-                //   wouldn't even send a spawn, so we did the right thing
-                // - if the server sends the entity afterwards, the matching will fail and we will just spawn a new predicted entity
-                entity.despawn_recursive();
-                return;
-            }
-            if entity.get::<Predicted>().is_some() || entity.get::<ShouldBePredicted>().is_some() {
+            if entity.get::<Predicted>().is_some()
+                || entity.get::<ShouldBePredicted>().is_some()
+                // see https://github.com/cBournhonesque/lightyear/issues/818
+                || entity.get::<PreSpawnedPlayerObject>().is_some()
+            {
                 // if this is a predicted or pre-predicted entity, do not despawn the entity immediately but instead
                 // add a PredictionDespawn component to it to mark that it should be despawned as soon
                 // as the confirmed entity catches up to it
@@ -131,9 +127,11 @@ pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
 }
 
 // TODO: compare the performance of cloning the component versus popping from the World directly
-/// In case we rollback the despawn, we need to restore the removed components
-/// even if those components are not checking for rollback (SyncComponent != Full)
-/// For those components, we just re-add them from the cache at the start of rollback
+/// In case of a rollback, check if there were any entities that were predicted-despawn
+/// that we need to re-instate. (all the entities that have RemovedCache<C> are in this scenario)
+/// If we didn't need to re-instate them, the Confirmed entity would have been despawned.
+///
+/// Remember to reinstate components if SyncComponent != Full
 pub(crate) fn restore_components_if_despawn_rolled_back<C: SyncComponent>(
     mut commands: Commands,
     mut query: Query<(Entity, &mut RemovedCache<C>), Without<C>>,
@@ -171,12 +169,13 @@ pub(crate) fn remove_despawn_marker(
 mod tests {
     use crate::client::prediction::despawn::PredictionDespawnMarker;
     use crate::client::prediction::resource::PredictionManager;
+    use crate::client::prediction::rollback::RollbackEvent;
     use crate::prelude::client::{Confirmed, PredictionDespawnCommandsExt};
     use crate::prelude::server::SyncTarget;
     use crate::prelude::{client, server, NetworkTarget};
     use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeSimple};
     use crate::tests::stepper::BevyStepper;
-    use bevy::prelude::{default, Component};
+    use bevy::prelude::{default, Component, Trigger};
 
     #[derive(Component, Debug, PartialEq)]
     struct TestComponent(usize);
@@ -242,6 +241,11 @@ mod tests {
         //     .world()
         //     .get::<TestComponent>(predicted_entity)
         //     .is_none());
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(predicted_entity)
+            .is_ok());
         assert!(stepper
             .client_app
             .world()
