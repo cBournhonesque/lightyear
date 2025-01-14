@@ -33,7 +33,8 @@ use super::resource_history::{
 };
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
+    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, trigger_rollback_event,
+    Rollback, RollbackState,
 };
 use super::spawn::spawn_predicted_entity;
 
@@ -295,6 +296,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             // TODO: register type if C is reflect
             // app.register_type::<HistoryState<C>>();
             // app.register_type::<PredictionHistory<C>>();
+
             app.add_observer(apply_component_removal_predicted::<C>);
             app.add_observer(handle_tick_event_prediction_history::<C>);
             app.add_systems(
@@ -328,26 +330,19 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
         }
         ComponentSyncMode::Simple => {
             app.add_observer(apply_component_removal_confirmed::<C>);
+            // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
+            // runs in PrepareRollback because that's where the Rollback event is triggered
+            app.add_observer(restore_components_if_despawn_rolled_back::<C>);
             app.add_systems(
                 PreUpdate,
-                (
-                    // for SyncMode::Simple, just copy the confirmed components
-                    apply_confirmed_update::<C>.in_set(PredictionSet::CheckRollback),
-                    // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
-                    restore_components_if_despawn_rolled_back::<C>
-                        // .before(run_rollback::)
-                        .in_set(PredictionSet::PrepareRollback),
-                ),
+                // for SyncMode::Simple, just copy the confirmed components
+                apply_confirmed_update::<C>.in_set(PredictionSet::CheckRollback),
             );
         }
         ComponentSyncMode::Once => {
-            app.add_systems(
-                PreUpdate,
-                // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
-                restore_components_if_despawn_rolled_back::<C>
-                    // .before(run_rollback::)
-                    .in_set(PredictionSet::PrepareRollback),
-            );
+            // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
+            // runs in PrepareRollback because that's where the Rollback event is triggered
+            app.add_observer(restore_components_if_despawn_rolled_back::<C>);
         }
         _ => {}
     };
@@ -415,6 +410,7 @@ impl Plugin for PredictionPlugin {
                 spawn_predicted_entity
                     .after(PreSpawnedPlayerObjectSet::Spawn)
                     .in_set(PredictionSet::SpawnPrediction),
+                trigger_rollback_event.in_set(PredictionSet::PrepareRollback),
                 run_rollback.in_set(PredictionSet::Rollback),
                 #[cfg(feature = "metrics")]
                 super::rollback::no_rollback
