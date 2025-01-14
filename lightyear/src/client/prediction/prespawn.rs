@@ -131,6 +131,18 @@ impl PreSpawnedPlayerObjectPlugin {
                 .entry(hash)
                 .or_default()
                 .push(entity);
+
+            if prediction_manager
+                .prespawn_hash_to_entities
+                .get(&hash)
+                .is_some_and(|v| v.len() > 1)
+            {
+                warn!(
+                    ?hash,
+                    ?entity,
+                    "Multiple pre-spawned entities share the same hash, this might cause extra rollbacks"
+                );
+            }
             // add a timer on the entity so that it gets despawned if the interpolation tick
             // reaches it without matching with any server entity
             prediction_manager.prespawn_tick_to_hash.push(tick, hash);
