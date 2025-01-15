@@ -25,9 +25,9 @@ use serde::{Deserialize, Serialize};
 use crate::settings::*;
 use crate::shared::{shared_config, REPLICATION_INTERVAL};
 
-#[cfg(feature = "gui")]
+#[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
-#[cfg(feature = "gui")]
+#[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 #[cfg(feature = "gui")]
 use bevy::window::PresentMode;
