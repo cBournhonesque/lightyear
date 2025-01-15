@@ -177,7 +177,7 @@ pub struct Settings {
 }
 
 #[cfg(feature = "server")]
-pub(crate) fn build_server_netcode_config(
+pub fn build_server_netcode_config(
     conditioner: Option<&Conditioner>,
     shared: &SharedSettings,
     transport_config: server::ServerTransport,
@@ -295,7 +295,7 @@ impl From<&WebTransportCertificateSettings> for server::Identity {
 /// Parse the settings into a list of `NetConfig` that are used to configure how the lightyear server
 /// listens for incoming client connections
 #[cfg(feature = "server")]
-pub(crate) fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
+pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
     settings
         .server
         .transport
