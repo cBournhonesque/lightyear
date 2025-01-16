@@ -93,6 +93,8 @@ pub enum TargetEntity {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ReplicateHierarchy {
+    /// If true, the direct [`Children`](bevy::prelude::Children) of this entity will be replicated
+    pub enabled: bool,
     /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
     ///
     /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
@@ -102,7 +104,10 @@ pub struct ReplicateHierarchy {
 
 impl Default for ReplicateHierarchy {
     fn default() -> Self {
-        Self { recursive: true }
+        Self {
+            enabled: true,
+            recursive: true,
+        }
     }
 }
 

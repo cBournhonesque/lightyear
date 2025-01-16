@@ -86,6 +86,77 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
         >,
         children_query: Query<&Children>,
     ) {
+        // TODO: maybe use the `either` crate to avoid this?
+        let propagate = |child: Entity,
+                         recursive: bool,
+                         commands: &mut Commands,
+                         parent_group: &ReplicationGroup,
+                         parent_entity: Entity,
+                         pre_predicted: Option<&PrePredicted>,
+                         replication_target: Option<&ReplicationTarget>,
+                         replicate_to_server: Option<&ReplicateToServer>,
+                         sync_target: Option<&SyncTarget>,
+                         controlled_by: Option<&ControlledBy>,
+                         visibility_mode: Option<&NetworkRelevanceMode>,
+                         has_authority: Option<&HasAuthority>,
+                         authority_peer: Option<&AuthorityPeer>,
+                         is_replicated: bool| {
+            trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
+            let Some(mut child_commands) = commands.get_entity(child) else {
+                return;
+            };
+            // TODO: should we update the parent's replication group? we actually can't.. replication groups
+            //  aren't supposed to be updated
+            // no need to set the correct parent as it will be set later in the `update_parent_sync` system
+            child_commands.insert((
+                // TODO: should we add replicating?
+                Replicating,
+                // the entire hierarchy is replicated as a single group so we re-use the parent's replication group id
+                parent_group
+                    .clone()
+                    .set_id(parent_group.group_id(Some(parent_entity)).0),
+                ReplicateHierarchy {
+                    enabled: recursive,
+                    recursive,
+                },
+                ParentSync(None),
+            ));
+
+            // On the client, we want to add the PrePredicted component to the children
+            // the PrePredicted observer will spawn a corresponding Confirmed entity.
+            //
+            // On the server, we just send the PrePredicted component as is to the client,
+            // (we don't want to overwrite the PrePredicted component on the server)
+            if let Some(pre_predicted) = pre_predicted {
+                // only insert on the child if we are on the client
+                if !is_replicated {
+                    commands.entity(child).insert(PrePredicted::default());
+                }
+            }
+            if let Some(replication_target) = replication_target {
+                commands.entity(child).insert(replication_target.clone());
+            }
+            if let Some(replicate_to_server) = replicate_to_server {
+                commands.entity(child).insert(*replicate_to_server);
+            }
+            if let Some(controlled_by) = controlled_by {
+                commands.entity(child).insert(controlled_by.clone());
+            }
+            if let Some(sync_target) = sync_target {
+                commands.entity(child).insert(sync_target.clone());
+            }
+            if let Some(vis) = visibility_mode {
+                commands.entity(child).insert(*vis);
+            }
+            if let Some(has_authority) = has_authority {
+                debug!("Adding HasAuthority on child: {child:?} (parent: {parent_entity:?})");
+                commands.entity(child).insert(*has_authority);
+            }
+            if let Some(authority_peer) = authority_peer {
+                commands.entity(child).insert(*authority_peer);
+            }
+        };
+
         for (
             parent_entity,
             parent_group,
@@ -101,63 +172,54 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             is_replicated,
         ) in parent_query.iter()
         {
+            if !replicate_hierarchy.enabled {
+                continue;
+            }
             if replicate_hierarchy.recursive {
                 // iterate through all descendents of the entity
-                for child in children_query.iter_descendants(parent_entity) {
-                    trace!("Propagate Replicate through hierarchy: adding Replicate on child: {child:?}");
-                    let Some(mut child_commands) = commands.get_entity(child) else {
-                        continue;
-                    };
-                    // no need to set the correct parent as it will be set later in the `update_parent_sync` system
-                    child_commands.insert((
-                        // TODO: should we add replicating?
-                        Replicating,
-                        // the entire hierarchy is replicated as a single group so we re-use the parent's replication group id
-                        parent_group
-                            .clone()
-                            .set_id(parent_group.group_id(Some(parent_entity)).0),
-                        ReplicateHierarchy { recursive: true },
-                        ParentSync(None),
-                    ));
-                    // On the client, we want to add the PrePredicted component to the children
-                    // the PrePredicted observer will spawn a corresponding Confirmed entity.
-                    //
-                    // On the server, we just send the PrePredicted component as is to the client,
-                    // (we don't want to overwrite the PrePredicted component on the server)
-                    if let Some(pre_predicted) = pre_predicted {
-                        // only insert on the child if we are on the client
-                        if !is_replicated {
-                            commands.entity(child).insert(PrePredicted::default());
-                        }
-                    }
-                    if let Some(replication_target) = replication_target {
-                        commands.entity(child).insert(replication_target.clone());
-                    }
-                    if let Some(replicate_to_server) = replicate_to_server {
-                        commands.entity(child).insert(*replicate_to_server);
-                    }
-                    if let Some(controlled_by) = controlled_by {
-                        commands.entity(child).insert(controlled_by.clone());
-                    }
-                    if let Some(sync_target) = sync_target {
-                        commands.entity(child).insert(sync_target.clone());
-                    }
-                    if let Some(vis) = visibility_mode {
-                        commands.entity(child).insert(*vis);
-                    }
-                    if let Some(has_authority) = has_authority {
-                        debug!(
-                            "Adding HasAuthority on child: {child:?} (parent: {parent_entity:?})"
+                children_query
+                    .iter_descendants(parent_entity)
+                    .for_each(|child| {
+                        propagate(
+                            child,
+                            true,
+                            &mut commands,
+                            parent_group,
+                            parent_entity,
+                            pre_predicted,
+                            replication_target,
+                            replicate_to_server,
+                            sync_target,
+                            controlled_by,
+                            visibility_mode,
+                            has_authority,
+                            authority_peer,
+                            is_replicated,
                         );
-                        commands.entity(child).insert(*has_authority);
-                    }
-                    if let Some(authority_peer) = authority_peer {
-                        commands.entity(child).insert(*authority_peer);
-                    }
-                }
+                    });
+            } else {
+                children_query
+                    .children(parent_entity)
+                    .into_iter()
+                    .for_each(|child| {
+                        propagate(
+                            *child,
+                            false,
+                            &mut commands,
+                            parent_group,
+                            parent_entity,
+                            pre_predicted,
+                            replication_target,
+                            replicate_to_server,
+                            sync_target,
+                            controlled_by,
+                            visibility_mode,
+                            has_authority,
+                            authority_peer,
+                            is_replicated,
+                        );
+                    });
             }
-            // TODO: should we update the parent's replication group? we actually can't.. replication groups
-            //  aren't supposed to be updated
         }
     }
 
@@ -311,7 +373,10 @@ mod tests {
         let (mut stepper, grandparent, parent, child) = setup_hierarchy();
 
         let replicate = Replicate {
-            hierarchy: ReplicateHierarchy { recursive: false },
+            hierarchy: ReplicateHierarchy {
+                enabled: true,
+                recursive: false,
+            },
             // make sure that child and parent are replicated in the same group, so that both entities are spawned
             // before entity mapping is done
             group: ReplicationGroup::new_id(0),
