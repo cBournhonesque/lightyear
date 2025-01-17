@@ -60,15 +60,12 @@ impl Plugin for SpaceshipsRendererPlugin {
 
         app.add_plugins(EntityLabelPlugin);
 
-        // set up visual interp plugins for Position and Rotation.
-        // this doesn't do anything until you add VisualInterpolationStatus components to entities.
-        app.add_plugins(VisualInterpolationPlugin::<Position>::default());
-        app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
+        // set up visual interp plugins for Transform
+        app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
 
         // observers that add VisualInterpolationStatus components to entities which receive
-        // a Position or Rotation component.
-        app.add_observer(add_visual_interpolation_components::<Position>);
-        app.add_observer(add_visual_interpolation_components::<Rotation>);
+        // a Position
+        app.add_observer(add_visual_interpolation_components);
     }
 }
 
@@ -78,20 +75,13 @@ impl Plugin for SpaceshipsRendererPlugin {
 // We query filter With<Predicted> so that the correct client entities get visual-interpolation.
 // We don't want to visually interpolate the client's Confirmed entities, since they are not rendered.
 //
-// If your game uses Interpolated entities as well as Predicted, change the filter to:
-//
-//   Or<(With<Predicted>, With<Interpolated>)>
-//
-// We must trigger change detection so that the SyncPlugin will detect and sync changes
-// from Position/Rotation to Transform.
-//
-// Without syncing interpolated pos/rot to transform, things like sprites, meshes, and text which
-// render based on the *Transform* component (not avian's Position) will be stuttery.
-//
-// (Note also that we've configured avian's SyncPlugin to run in PostUpdate)
-fn add_visual_interpolation_components<T: Component>(
-    trigger: Trigger<OnAdd, T>,
-    q: Query<Entity, (With<T>, Without<Wall>, With<Predicted>)>,
+// We must trigger change detection so that the Transform updates from interpolation
+// will be propagated to children (sprites, meshes, text, etc.)
+fn add_visual_interpolation_components(
+    // We use Position because it's added by avian later, and when it's added
+    // we know that Predicted is already present on the entity
+    trigger: Trigger<OnAdd, Position>,
+    q: Query<Entity, (Without<Wall>, With<Predicted>)>,
     mut commands: Commands,
 ) {
     if !q.contains(trigger.entity()) {
@@ -100,7 +90,10 @@ fn add_visual_interpolation_components<T: Component>(
     debug!("Adding visual interp component to {:?}", trigger.entity());
     commands
         .entity(trigger.entity())
-        .insert(VisualInterpolateStatus::<T> {
+        .insert(VisualInterpolateStatus::<Transform> {
+            // We must trigger change detection on visual interpolation
+            // to make sure that child entities (sprites, meshes, text)
+            // are also interpolated
             trigger_change_detection: true,
             ..default()
         });

@@ -537,6 +537,7 @@ mod interpolation {
                 )
             });
         }
+
         pub(crate) fn interpolation_mode<C: Component>(&self) -> ComponentSyncMode {
             let kind = ComponentKind::of::<C>();
             self.interpolation_map

@@ -4,6 +4,7 @@ use crate::shared::replication::delta::Diffable;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian2d::math::Scalar;
 use avian2d::prelude::*;
+use bevy::app::{RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy::prelude::TransformSystem::TransformPropagate;
 use bevy::prelude::{App, FixedPostUpdate, Plugin};
 use bevy::prelude::{IntoSystemSetConfigs, PostUpdate};
@@ -41,11 +42,16 @@ impl Plugin for Avian2dPlugin {
                 PredictionSet::IncrementRollbackTick,
                 InterpolationSet::UpdateVisualInterpolationState,
             )
+                .after(PhysicsSet::StepSimulation)
                 .after(PhysicsSet::Sync),
         );
-        // if the Avian Sync happens in PostUpdate (because the visual interpolated Position/Rotation are updated
-        // every frame in PostUpdate), and we want to sync them every frame because some entities (text, etc.)
-        // might depend on Transform
+        app.configure_sets(
+            RunFixedMainLoop,
+            PhysicsSet::Sync.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
+        );
+        // if we are syncing Position/Rotation in PostUpdate (not in FixedLast because FixedLast might not run
+        // in some frames), and running VisualInterpolation for Position/Rotation,
+        // we want to first interpolate and then sync to transform
         app.configure_sets(
             PostUpdate,
             (

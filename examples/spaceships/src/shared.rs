@@ -49,10 +49,8 @@ impl Plugin for SharedPlugin {
         });
         // We change SyncPlugin to PostUpdate, because we want the visually interpreted values
         // synced to transform every time, not just when Fixed schedule runs.
-        app.add_plugins(PhysicsPlugins::default().build().disable::<SyncPlugin>())
-            .add_plugins(SyncPlugin::new(PostUpdate));
+        app.add_plugins(PhysicsPlugins::default().build());
 
-        app.insert_resource(Time::<Fixed>::from_hz(FIXED_TIMESTEP_HZ));
         app.insert_resource(Gravity(Vec2::ZERO));
         // our systems run in FixedUpdate, avian's systems run in FixedPostUpdate.
         app.add_systems(

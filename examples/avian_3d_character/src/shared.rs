@@ -95,6 +95,7 @@ impl Plugin for SharedPlugin {
 
         // Position and Rotation are the primary source of truth so no need to
         // sync changes from Transform to Position.
+        // (we are not applying manual updates to Transform)
         app.insert_resource(avian3d::sync::SyncConfig {
             transform_to_position: false,
             position_to_transform: true,
@@ -111,18 +112,14 @@ impl Plugin for SharedPlugin {
             after_physics_log.after(PhysicsSet::StepSimulation),
         );
 
-        // We change SyncPlugin to PostUpdate, because we want the visually
-        // interpreted values synced to transform every time, not just when
-        // Fixed schedule runs.
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
-                .disable::<SyncPlugin>()
-                .disable::<PhysicsInterpolationPlugin>(), // disable Sleeping plugin as it can mess up physics rollbacks
-                                                          // TODO: disabling sleeping plugin causes the player to fall through the floor
-                                                          // .disable::<SleepingPlugin>(),
-        )
-        .add_plugins(SyncPlugin::new(PostUpdate));
+                .disable::<PhysicsInterpolationPlugin>(),
+            // disable Sleeping plugin as it can mess up physics rollbacks
+            // TODO: disabling sleeping plugin causes the player to fall through the floor
+            // .disable::<SleepingPlugin>(),
+        );
     }
 }
 

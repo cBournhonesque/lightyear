@@ -5,15 +5,15 @@ use leafwing_input_manager::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use serde::{Deserialize, Serialize};
 
+use crate::shared::color_from_id;
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::client::{self, LeafwingInputConfig};
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::utils::avian2d::*;
+use lightyear::utils::bevy::TransformLinearInterpolation;
 use tracing_subscriber::util::SubscriberInitExt;
-
-use crate::shared::color_from_id;
 
 pub const BULLET_SIZE: f32 = 1.5;
 pub const SHIP_WIDTH: f32 = 19.0;
@@ -286,5 +286,11 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation_fn(rotation::lerp)
             .add_correction_fn(rotation::lerp);
+
+        // do not replicate Transform but make sure to register an interpolation function
+        // for it so that we can do visual interpolation
+        // (another option would be to replicate transform and not use Position/Rotation at all)
+        app.add_interpolation::<Transform>(ComponentSyncMode::None);
+        app.add_interpolation_fn::<Transform>(TransformLinearInterpolation::lerp);
     }
 }

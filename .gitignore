@@ -6,3 +6,4 @@
 .DS_Store
 /examples/target/
 /examples/Cargo.lock
+.aider*

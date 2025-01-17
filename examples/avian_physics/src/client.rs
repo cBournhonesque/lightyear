@@ -95,8 +95,6 @@ fn add_ball_physics(
         Entity,
         (
             With<BallMarker>,
-            // insert the physics components on the ball that is displayed on screen
-            // (either interpolated or predicted)
             Or<(Added<Interpolated>, Added<Predicted>)>,
         ),
     >,
