@@ -253,9 +253,7 @@ impl ComponentRegistry {
             }
         }
         for (component_kind, interpolation_data) in &self.interpolation_map {
-            if !self.serialize_fns_map.contains_key(component_kind) {
-                panic!("A component has interpolation metadata but wasn't registered for serialization");
-            } else if interpolation_data.interpolation_mode == ComponentSyncMode::Full
+            if interpolation_data.interpolation_mode == ComponentSyncMode::Full
                 && interpolation_data.interpolation.is_none()
                 && !interpolation_data.custom_interpolation
             {
