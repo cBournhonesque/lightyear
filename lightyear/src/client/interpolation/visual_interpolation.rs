@@ -63,10 +63,7 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
             )
                 .chain(),
         );
-        app.configure_sets(
-            FixedPostUpdate,
-            InterpolationSet::UpdateVisualInterpolationState,
-        );
+        app.configure_sets(FixedLast, InterpolationSet::UpdateVisualInterpolationState);
         app.configure_sets(
             PostUpdate,
             InterpolationSet::VisualInterpolation
@@ -82,7 +79,7 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
                 .in_set(InterpolationSet::RestoreVisualInterpolation),
         );
         app.add_systems(
-            FixedPostUpdate,
+            FixedLast,
             update_visual_interpolation_status::<C>
                 .in_set(InterpolationSet::UpdateVisualInterpolationState),
         );

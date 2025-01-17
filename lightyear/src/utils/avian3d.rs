@@ -38,7 +38,6 @@ impl Plugin for Avian3dPlugin {
                 // run physics before updating the prediction history
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick,
-                InterpolationSet::UpdateVisualInterpolationState,
             )
                 .after(PhysicsSet::StepSimulation)
                 .after(PhysicsSet::Sync),
