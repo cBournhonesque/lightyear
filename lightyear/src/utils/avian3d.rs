@@ -6,7 +6,7 @@ use avian3d::math::Scalar;
 use avian3d::prelude::*;
 use bevy::app::{App, FixedPostUpdate, Plugin};
 use bevy::prelude::TransformSystem::TransformPropagate;
-use bevy::prelude::{IntoSystemSetConfigs, PostUpdate};
+use bevy::prelude::{IntoSystemSetConfigs, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem};
 use tracing::trace;
 
 pub(crate) struct Avian3dPlugin;
@@ -40,10 +40,17 @@ impl Plugin for Avian3dPlugin {
                 PredictionSet::IncrementRollbackTick,
                 InterpolationSet::UpdateVisualInterpolationState,
             )
+                .after(PhysicsSet::StepSimulation)
                 .after(PhysicsSet::Sync),
         );
-        // if the sync happens in PostUpdate (because the visual interpolated Position/Rotation are updated every frame in
-        // PostUpdate), and we want to sync them every frame because some entities (text, etc.) might depend on Transform
+
+        app.configure_sets(
+            RunFixedMainLoop,
+            PhysicsSet::Sync.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
+        );
+        // if we are syncing Position/Rotation in PostUpdate (not in FixedLast because FixedLast might not run
+        // in some frames), and running VisualInterpolation for Position/Rotation,
+        // we want to first interpolate and then sync to transform
         app.configure_sets(
             PostUpdate,
             (
@@ -53,7 +60,6 @@ impl Plugin for Avian3dPlugin {
             )
                 .chain(),
         );
-
         // Add rollback for some non-replicated resources
         // app.add_resource_rollback::<Collisions>();
         // app.add_rollback::<CollidingEntities>();

@@ -6,7 +6,9 @@ use bevy::color::palettes::css;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use lightyear::client::components::Confirmed;
-use lightyear::prelude::client::{InterpolationSet, PredictionSet};
+use lightyear::client::interpolation::VisualInterpolateStatus;
+use lightyear::client::prediction::Predicted;
+use lightyear::prelude::client::{InterpolationSet, PredictionSet, VisualInterpolationPlugin};
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin {
@@ -23,6 +25,14 @@ impl Plugin for ExampleRendererPlugin {
                 .after(InterpolationSet::Interpolate)
                 .after(PredictionSet::VisualCorrection),
         );
+
+        // add visual interpolation for Position and Rotation
+        // (normally we would interpolate on Transform but here this is fine
+        // since rendering is done via Gizmos that only depend on Position/Rotation)
+        app.add_plugins(VisualInterpolationPlugin::<Position>::default());
+        app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
+        app.add_observer(add_visual_interpolation_components);
+
         if self.show_confirmed {
             app.add_systems(
                 PostUpdate,
@@ -32,6 +42,22 @@ impl Plugin for ExampleRendererPlugin {
             );
         }
     }
+}
+
+fn add_visual_interpolation_components(
+    // We use Position because it's added by avian later, and when it's added
+    // we know that Predicted is already present on the entity
+    trigger: Trigger<OnAdd, Position>,
+    query: Query<Entity, With<Predicted>>,
+    mut commands: Commands,
+) {
+    if !query.contains(trigger.entity()) {
+        return;
+    }
+    commands.entity(trigger.entity()).insert((
+        VisualInterpolateStatus::<Position>::default(),
+        VisualInterpolateStatus::<Rotation>::default(),
+    ));
 }
 
 fn init(mut commands: Commands) {

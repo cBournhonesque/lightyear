@@ -28,16 +28,13 @@ impl Plugin for ExampleRendererPlugin {
             ),
         );
 
-        // Set up visual interp plugins for Position and Rotation. This doesn't
-        // do anything until you add VisualInterpolationStatus components to
-        // entities.
-        app.add_plugins(VisualInterpolationPlugin::<Position>::default());
-        app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
+        // Set up visual interp plugins for Transform. Transform is updated in FixedUpdate
+        // by the physics plugin so we make sure that in PostUpdate we interpolate it
+        app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
 
         // Observers that add VisualInterpolationStatus components to entities
-        // which receive a Position or Rotation component.
-        app.add_observer(add_visual_interpolation_components::<Position>);
-        app.add_observer(add_visual_interpolation_components::<Rotation>);
+        // which receive a Position and are predicted
+        app.add_observer(add_visual_interpolation_components);
     }
 }
 
@@ -56,42 +53,30 @@ fn init(mut commands: Commands) {
     ));
 }
 
-/// Add the VisualInterpolateStatus component to non-floor entities with
-/// component `T`. Floors don't need to be visually interpolated because we
+/// Add the VisualInterpolateStatus::<Transform> component to non-floor entities with
+/// component `Position`. Floors don't need to be visually interpolated because we
 /// don't expect them to move.
 ///
 /// We query Without<Confirmed> instead of With<Predicted> so that the server's
 /// gui will also get some visual interpolation. But we're usually just
 /// concerned that the client's Predicted entities get the interpolation
 /// treatment.
-///
-/// Make sure that avian's SyncPlugin is run in PostUpdate in order to
-/// incorporate the changes in pos/rot due to visual interpolation. Entities
-/// rendered based on transforms will then have transforms based on the visual
-/// interpolation.
-fn add_visual_interpolation_components<T: Component>(
-    trigger: Trigger<OnAdd, T>,
-    // TODO: how to guarantee that Predicted has been added before the component gets added?
-    query: Query<Entity, (With<T>, With<Predicted>, Without<FloorMarker>)>,
+fn add_visual_interpolation_components(
+    // We use Position because it's added by avian later, and when it's added
+    // we know that Predicted is already present on the entity
+    trigger: Trigger<OnAdd, Position>,
+    query: Query<Entity, (With<Predicted>, Without<FloorMarker>)>,
     mut commands: Commands,
 ) {
     if !query.contains(trigger.entity()) {
         return;
     }
-    debug!(
-        "Adding visual interp component for {:?} to {:?}",
-        std::any::type_name::<T>(),
-        trigger.entity()
-    );
     commands
         .entity(trigger.entity())
-        .insert(VisualInterpolateStatus::<T> {
-            // We must trigger change detection so that the SyncPlugin will
-            // detect and sync changes from Position/Rotation to Transform.
-            //
-            // Without syncing interpolated pos/rot to transform, things like
-            // sprites, meshes, and text which render based on the *Transform*
-            // component (not avian's Position) will be stuttery.
+        .insert(VisualInterpolateStatus::<Transform> {
+            // We must trigger change detection on visual interpolation
+            // to make sure that child entities (sprites, meshes, text)
+            // are also interpolated
             trigger_change_detection: true,
             ..default()
         });

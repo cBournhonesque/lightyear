@@ -33,7 +33,6 @@ impl Plugin for SharedPlugin {
                 .build()
                 .disable::<ColliderHierarchyPlugin>(),
         )
-        .insert_resource(Time::<Fixed>::from_hz(FIXED_TIMESTEP_HZ))
         .insert_resource(Gravity(Vec2::ZERO));
 
         // add a log at the start of the physics schedule
