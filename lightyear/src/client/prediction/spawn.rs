@@ -6,6 +6,7 @@ use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::Predicted;
 use crate::prelude::{ShouldBePredicted, TickManager};
+use crate::shared::replication::components::Controlled;
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
@@ -15,20 +16,14 @@ pub(crate) fn spawn_predicted_entity(
     tick_manager: Res<TickManager>,
     connection: Res<ConnectionManager>,
     mut commands: Commands,
-
-    // TODO: instead of listening to the ComponentInsertEvent, should we just directly query on Added<ShouldBePredicted>?
-    //  maybe listening to the event is more performant, since Added<ShouldBePredicted> queries all entities that have this component?
-    //  (which should actually be ok since we remove ShouldBePredicted immediately)
-    //  But maybe this conflicts with PrePrediction and PreSpawning?
-    //  Benchmark!
-    // // get the list of entities who get ShouldBePredicted replicated from server
-    // mut should_be_predicted_added: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
-
     // only handle predicted that have ShouldBePredicted
     // (if the entity was handled by prespawn or prepredicted before, ShouldBePredicted gets removed)
-    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
+    mut confirmed_entities: Query<
+        (Entity, Option<&mut Confirmed>, Option<&Controlled>),
+        Added<ShouldBePredicted>,
+    >,
 ) {
-    for (confirmed_entity, confirmed) in confirmed_entities.iter_mut() {
+    for (confirmed_entity, confirmed, controlled) in confirmed_entities.iter_mut() {
         // skip if the entity already has a predicted entity
         if confirmed.as_ref().is_some_and(|c| c.predicted.is_some()) {
             continue;

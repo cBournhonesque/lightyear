@@ -94,6 +94,25 @@ impl InterpolationPlugin {
     }
 }
 
+#[derive(SystemSet, Debug, Default, Hash, PartialEq, Eq, Clone, Copy)]
+/// Subsets of SpawnHistory to have an ordering of the sync systems
+///
+/// Some components we want to sync sooner than others because they are often used in observers/filters
+/// For example we might want to have observers of the form:
+/// fn observer(
+///   trigger: Trigger<OnAdd, T>,
+///   query: Query<Entity, With<Controlled>>
+/// )
+/// so that we can react on the addition of a component on the Controlled entity.
+///
+/// However this does not work without ordering because the Controlled entity might be synced
+/// from Confirmed to Interpolated **after** the T component.
+pub(crate) enum SpawnHistorySet {
+    First,
+    #[default]
+    Normal,
+}
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InterpolationSet {
     // PreUpdate Sets
@@ -121,16 +140,14 @@ pub enum InterpolationSet {
 }
 
 /// Add per-component systems related to interpolation
-pub fn add_prepare_interpolation_systems<C: SyncComponent>(
+pub(crate) fn add_prepare_interpolation_systems<C: SyncComponent>(
     app: &mut App,
     interpolation_mode: ComponentSyncMode,
+    spawn_history: SpawnHistorySet,
 ) {
     // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?
-    app.add_systems(
-        Update,
-        add_component_history::<C>.in_set(InterpolationSet::SpawnHistory),
-    );
+    app.add_systems(Update, add_component_history::<C>.in_set(spawn_history));
     app.add_observer(removed_components::<C>);
     match interpolation_mode {
         ComponentSyncMode::Full => {
@@ -179,6 +196,12 @@ impl Plugin for InterpolationPlugin {
         // RESOURCES
         app.init_resource::<InterpolationManager>();
         // SETS
+        app.configure_sets(
+            Update,
+            (SpawnHistorySet::First, SpawnHistorySet::Normal)
+                .chain()
+                .in_set(InterpolationSet::SpawnHistory),
+        );
         app.configure_sets(
             Update,
             (

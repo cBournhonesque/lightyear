@@ -180,6 +180,27 @@ impl PredictionConfig {
 #[derive(Default)]
 pub struct PredictionPlugin;
 
+#[derive(SystemSet, Debug, Default, Hash, PartialEq, Eq, Clone, Copy)]
+/// Subsets of SpawnHistory to have an ordering of the sync systems
+///
+/// Some components we want to sync sooner than others because they are often used in observers/filters
+/// For example we might want to have observers of the form:
+/// fn observer(
+///   trigger: Trigger<OnAdd, T>,
+///   query: Query<Entity, With<Controlled>>
+/// )
+/// so that we can react on the addition of a component on the Controlled entity.
+///
+/// However this does not work without ordering because the Controlled entity might be synced
+/// from Confirmed to Predicted **after** the T component.
+pub(crate) enum SpawnHistorySet {
+    /// These components will be synced first
+    First,
+    #[default]
+    /// These components are normal user-defined components
+    Normal,
+}
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PredictionSet {
     // PreUpdate Sets
@@ -247,7 +268,7 @@ pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app:
 /// As a side note, the `Time<Fixed>` resource is already rollbacked internally
 /// by lightyear so that it can be used accurately within systems within the
 /// `FixedMain` schedule during a rollback.
-pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
+pub(crate) fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
     // TODO: add these registrations if the type is reflect
     // app.register_type::<HistoryState<R>>();
     // app.register_type::<ResourceHistory<R>>();
@@ -263,12 +284,16 @@ pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
     );
 }
 
-pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {
+pub(crate) fn add_prediction_systems<C: SyncComponent>(
+    app: &mut App,
+    prediction_mode: ComponentSyncMode,
+    priority: SpawnHistorySet,
+) {
     app.add_systems(
         PreUpdate,
         (
             // handle components being added
-            add_component_history::<C>.in_set(PredictionSet::SpawnHistory),
+            add_component_history::<C>.in_set(priority),
         ),
     );
     match prediction_mode {
@@ -317,7 +342,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             app.add_systems(
                 FixedPostUpdate,
                 (
-                    add_prespawned_component_history::<C>.in_set(PredictionSet::SpawnHistory),
+                    add_prespawned_component_history::<C>.in_set(priority),
                     // we need to run this during fixed update to know accurately the history for each tick
                     update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
                 ),
@@ -388,6 +413,12 @@ impl Plugin for PredictionPlugin {
         // 4. Potentially do rollback
         app.configure_sets(
             PreUpdate,
+            (SpawnHistorySet::First, SpawnHistorySet::Normal)
+                .chain()
+                .in_set(PredictionSet::SpawnHistory),
+        );
+        app.configure_sets(
+            PreUpdate,
             (
                 InternalMainSet::<ClientMarker>::EmitEvents,
                 (
@@ -431,6 +462,12 @@ impl Plugin for PredictionPlugin {
         // 2. Run main physics/game fixed-update loop
         // 3. Increment rollback tick (only run in fallback)
         // 4. Update predicted history
+        app.configure_sets(
+            FixedPostUpdate,
+            (SpawnHistorySet::First, SpawnHistorySet::Normal)
+                .chain()
+                .in_set(PredictionSet::SpawnHistory),
+        );
         app.configure_sets(
             FixedPostUpdate,
             (
