@@ -554,7 +554,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     let input_delay_ticks = connection.input_delay_ticks() as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
-    trace!(tick = ?tick, "prepare_input_message");
+    info!(tick = ?tick, "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
