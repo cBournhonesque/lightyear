@@ -146,6 +146,8 @@ pub(crate) fn visual_interpolation<C: SyncComponent>(
             ?kind,
             ?tick,
             ?overstep,
+            ?previous_value,
+            ?current_value,
             "Visual interpolation of fixed-update component!"
         );
         if !interpolate_status.trigger_change_detection {
@@ -172,8 +174,8 @@ pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
             );
             continue;
         }
-        trace!("updating interpolate status current_value");
         interpolate_status.current_value = Some(component.clone());
+        trace!(?interpolate_status, "updating interpolate status");
     }
 }
 
@@ -184,7 +186,7 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
     let kind = std::any::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {
         if let Some(current_value) = &interpolate_status.current_value {
-            trace!(?kind, "Restoring visual interpolation");
+            trace!(?kind, ?current_value, "Restoring visual interpolation");
             *component.bypass_change_detection() = current_value.clone();
         }
     }
