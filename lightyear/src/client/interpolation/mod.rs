@@ -6,7 +6,6 @@ use std::ops::{Add, Mul};
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
-pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 pub use visual_interpolation::{VisualInterpolateStatus, VisualInterpolationPlugin};
 
 use crate::client::components::LerpFn;

@@ -1,5 +1,7 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use crate::client::config::ClientConfig;
+use crate::client::interpolation::plugin::SpawnHistorySet as InterpolationSpawnHistorySet;
+use crate::client::prediction::plugin::SpawnHistorySet as PredictionSpawnHistorySet;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::ServerConnections;
 use crate::prelude::client::ComponentSyncMode;
@@ -173,9 +175,14 @@ impl Plugin for SharedPlugin {
             .add_prediction(ComponentSyncMode::Simple)
             .add_interpolation(ComponentSyncMode::Simple)
             .add_map_entities();
+        // TODO: should Controlled be a FULL component because control over entities can change?
+        //  or maybe just SIMPLE?
         app.register_component::<Controlled>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction_internal(ComponentSyncMode::Once, PredictionSpawnHistorySet::First)
+            .add_interpolation_internal(
+                ComponentSyncMode::Once,
+                InterpolationSpawnHistorySet::First,
+            );
 
         app.register_message::<AuthorityChange>(ChannelDirection::ServerToClient)
             .add_map_entities();

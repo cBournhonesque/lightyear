@@ -15,9 +15,13 @@ use tracing::{debug, error, trace};
 
 use crate::client::components::ComponentSyncMode;
 use crate::client::config::ClientConfig;
-use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
+use crate::client::interpolation::plugin::{
+    add_interpolation_systems, add_prepare_interpolation_systems,
+    SpawnHistorySet as InterpolationSpawnHistorySet,
+};
 use crate::client::prediction::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
+    SpawnHistorySet as PredictionSpawnHistorySet,
 };
 use crate::prelude::client::SyncComponent;
 use crate::prelude::server::ServerConfig;
@@ -934,6 +938,37 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
     }
 }
 
+fn add_prediction_internal<C: SyncComponent>(
+    app: &mut App,
+    prediction_mode: ComponentSyncMode,
+    sync_priority: PredictionSpawnHistorySet,
+) {
+    let mut registry = app.world_mut().resource_mut::<ComponentRegistry>();
+    registry.set_prediction_mode::<C>(prediction_mode);
+
+    let is_client = app.world().get_resource::<ClientConfig>().is_some();
+    if is_client {
+        add_prediction_systems::<C>(app, prediction_mode, sync_priority);
+    }
+}
+
+fn add_interpolation_internal<C: SyncComponent>(
+    app: &mut App,
+    interpolation_mode: ComponentSyncMode,
+    sync_priority: InterpolationSpawnHistorySet,
+) {
+    let mut registry = app.world_mut().resource_mut::<ComponentRegistry>();
+    registry.set_interpolation_mode::<C>(interpolation_mode);
+    let is_client = app.world().get_resource::<ClientConfig>().is_some();
+    if is_client {
+        add_prepare_interpolation_systems::<C>(app, interpolation_mode, sync_priority);
+        if interpolation_mode == ComponentSyncMode::Full {
+            // TODO: handle custom interpolation
+            add_interpolation_systems::<C>(app);
+        }
+    }
+}
+
 /// Add a component to the list of components that can be sent
 pub trait AppComponentExt {
     /// Registers the component in the Registry
@@ -1021,6 +1056,18 @@ impl<C> ComponentRegistration<'_, C> {
         self
     }
 
+    pub(crate) fn add_prediction_internal(
+        mut self,
+        prediction_mode: ComponentSyncMode,
+        sync_priority: PredictionSpawnHistorySet,
+    ) -> Self
+    where
+        C: SyncComponent,
+    {
+        add_prediction_internal::<C>(&mut self.app, prediction_mode, sync_priority);
+        self
+    }
+
     /// Add a `Correction` behaviour to this component by using a linear interpolation function.
     pub fn add_linear_correction_fn(self) -> Self
     where
@@ -1058,6 +1105,18 @@ impl<C> ComponentRegistration<'_, C> {
         C: SyncComponent,
     {
         self.app.add_interpolation::<C>(interpolation_mode);
+        self
+    }
+
+    pub(crate) fn add_interpolation_internal(
+        mut self,
+        prediction_mode: ComponentSyncMode,
+        sync_priority: InterpolationSpawnHistorySet,
+    ) -> Self
+    where
+        C: SyncComponent,
+    {
+        add_interpolation_internal::<C>(&mut self.app, prediction_mode, sync_priority);
         self
     }
 
@@ -1164,7 +1223,7 @@ impl AppComponentExt for App {
         // TODO: make prediction/interpolation possible on server?
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
-            add_prediction_systems::<C>(self, prediction_mode);
+            add_prediction_systems::<C>(self, prediction_mode, PredictionSpawnHistorySet::Normal);
         }
     }
 
@@ -1200,7 +1259,11 @@ impl AppComponentExt for App {
         // TODO: make prediction/interpolation possible on server?
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
-            add_prepare_interpolation_systems::<C>(self, interpolation_mode);
+            add_prepare_interpolation_systems::<C>(
+                self,
+                interpolation_mode,
+                InterpolationSpawnHistorySet::Normal,
+            );
         }
     }
 
@@ -1210,7 +1273,11 @@ impl AppComponentExt for App {
         // TODO: make prediction/interpolation possible on server?
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
-            add_prepare_interpolation_systems::<C>(self, interpolation_mode);
+            add_prepare_interpolation_systems::<C>(
+                self,
+                interpolation_mode,
+                InterpolationSpawnHistorySet::Normal,
+            );
             if interpolation_mode == ComponentSyncMode::Full {
                 // TODO: handle custom interpolation
                 add_interpolation_systems::<C>(self);
