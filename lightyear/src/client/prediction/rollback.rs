@@ -223,6 +223,14 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                         HistoryState::Updated(history_value) => {
                             let should = component_registry.should_rollback(&history_value, c);
                             if should {
+                                debug!(
+                                    ?tick,
+                                    ?current_tick,
+                                    ?p,
+                                    ?predicted_history,
+                                    ?c,
+                                    "rollback mismatch"
+                                );
                                 #[cfg(feature = "metrics")]
                                 metrics::counter!(format!(
                                     "prediction::rollbacks::causes::{}::value_mismatch",
