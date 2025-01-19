@@ -495,7 +495,6 @@ impl Component for PreSpawnedPlayerObject {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::prediction::history::HistoryState;
     use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
     use crate::prelude::client::{is_in_rollback, PredictionDespawnCommandsExt, PredictionSet};

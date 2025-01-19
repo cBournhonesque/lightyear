@@ -18,9 +18,8 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::diagnostics::PredictionMetrics;
-use crate::client::prediction::history::HistoryState;
 use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, Tick, TickManager};
+use crate::prelude::{ComponentRegistry, HistoryState, PreSpawnedPlayerObject, Tick, TickManager};
 
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;

@@ -7,7 +7,7 @@ use tracing::debug;
 
 /// Stores a past value in the history buffer
 #[derive(Debug, PartialEq, Clone, Default, Reflect)]
-pub(crate) enum HistoryState<R> {
+pub enum HistoryState<R> {
     // we add a Default implementation simply so that Reflection works
     #[default]
     /// the value just got removed
@@ -20,7 +20,7 @@ pub(crate) enum HistoryState<R> {
 /// The values must always remain ordered from oldest (front) to most recent (back)
 #[derive(Resource, Component, Debug, Reflect)]
 #[reflect(Component, Resource)]
-pub(crate) struct HistoryBuffer<R> {
+pub struct HistoryBuffer<R> {
     // Queue containing the history of the resource.
     // The front contains old elements, the back contains the more recent elements.
     // We will only store the history for the ticks where the resource got updated
@@ -53,23 +53,23 @@ impl<R> PartialEq for HistoryBuffer<R> {
 
 impl<R> HistoryBuffer<R> {
     /// Reset the history for this resource
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.buffer.clear();
     }
 
     /// Add to the buffer that we received an update for the resource at the given tick
     /// The tick must be more recent than the most recent update in the buffer
-    pub(crate) fn add_update(&mut self, tick: Tick, value: R) {
+    pub fn add_update(&mut self, tick: Tick, value: R) {
         self.add(tick, Some(value));
     }
     /// Add to the buffer that the value got removed at the given tick
-    pub(crate) fn add_remove(&mut self, tick: Tick) {
+    pub fn add_remove(&mut self, tick: Tick) {
         self.add(tick, None);
     }
 
     /// Add a value to the history buffer
     /// The tick must be strictly more recent than the most recent update in the buffer
-    pub(crate) fn add(&mut self, tick: Tick, value: Option<R>) {
+    pub fn add(&mut self, tick: Tick, value: Option<R>) {
         if let Some(last_tick) = self.peek().map(|(tick, _)| tick) {
             // assert!(
             //     tick >= *last_tick,
@@ -91,7 +91,7 @@ impl<R> HistoryBuffer<R> {
     }
 
     /// Peek at the most recent value in the history buffer
-    pub(crate) fn peek(&self) -> Option<&(Tick, HistoryState<R>)> {
+    pub fn peek(&self) -> Option<&(Tick, HistoryState<R>)> {
         self.buffer.back()
     }
 
@@ -114,7 +114,7 @@ impl<R: Clone> HistoryBuffer<R> {
     /// (i.e. if the buffer contains values at tick 4 and 8. If we pop_until_tick(6), we cannot delete the value for tick 4
     /// because we still need in case we call pop_until_tick(7). What we'll do is remove the value for tick 4 and re-insert it
     /// for tick 6)
-    pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<HistoryState<R>> {
+    pub fn pop_until_tick(&mut self, tick: Tick) -> Option<HistoryState<R>> {
         // self.buffer[partition] is the first element where the buffer_tick > tick
         let partition = self
             .buffer
