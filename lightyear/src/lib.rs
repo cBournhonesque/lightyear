@@ -230,6 +230,7 @@ pub mod prelude {
     pub use crate::shared::time_manager::TimeManager;
     pub use crate::transport::middleware::compression::CompressionConfig;
     pub use crate::transport::middleware::conditioner::LinkConditionerConfig;
+    pub use crate::utils::history_buffer::{HistoryBuffer, HistoryState};
 
     mod rename {
         pub use crate::client::events::ComponentInsertEvent as ClientComponentInsertEvent;

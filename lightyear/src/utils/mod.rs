@@ -17,5 +17,6 @@ pub mod avian2d;
 pub mod avian3d;
 
 pub(crate) mod captures;
+pub(crate) mod history_buffer;
 pub(crate) mod pool;
 pub mod wrapping_id;
