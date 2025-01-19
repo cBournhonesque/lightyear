@@ -8,7 +8,6 @@ use std::fmt::Debug;
 pub mod correction;
 pub mod despawn;
 pub mod diagnostics;
-mod history;
 pub mod plugin;
 pub mod pre_prediction;
 pub mod predicted_history;
