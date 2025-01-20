@@ -3,6 +3,8 @@ use bevy::prelude::{Component, Reflect, Resource};
 use bevy::prelude::{ReflectComponent, ReflectResource};
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::iter::FilterMap;
+use std::ops::Deref;
 use tracing::debug;
 
 /// Stores a past value in the history buffer
@@ -57,6 +59,20 @@ impl<R> HistoryBuffer<R> {
         self.buffer.clear();
     }
 
+    /// Clear all the values in the history buffer that are older or equal than the specified tick
+    pub fn clear_until_tick(&mut self, tick: Tick) {
+        // self.buffer[partition] is the first element where the buffer_tick > tick
+        let partition = self
+            .buffer
+            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+        // all elements are strictly more recent than the tick
+        if partition == 0 {
+            return;
+        }
+        // remove all elements older than the tick
+        self.buffer.drain(0..partition);
+    }
+
     /// Add to the buffer that we received an update for the resource at the given tick
     /// The tick must be more recent than the most recent update in the buffer
     pub fn add_update(&mut self, tick: Tick, value: R) {
@@ -100,6 +116,44 @@ impl<R> HistoryBuffer<R> {
         self.buffer.iter_mut().for_each(|(tick, _)| {
             *tick = *tick + delta;
         });
+    }
+}
+
+/// The iterator contains the elements that are actually present in the history
+/// from the oldest to the most recent
+impl<'a, R> IntoIterator for &'a HistoryBuffer<R> {
+    type Item = (Tick, &'a R);
+    type IntoIter = FilterMap<
+        <&'a VecDeque<(Tick, HistoryState<R>)> as IntoIterator>::IntoIter,
+        fn(&(Tick, HistoryState<R>)) -> Option<(Tick, &R)>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.buffer)
+            .into_iter()
+            .filter_map(|(tick, state)| match state {
+                HistoryState::Updated(value) => Some((*tick, value)),
+                HistoryState::Removed => None,
+            })
+    }
+}
+
+/// The iterator contains the elements that are actually present in the history
+/// from the oldest to the most recent
+impl<R> IntoIterator for HistoryBuffer<R> {
+    type Item = (Tick, R);
+    type IntoIter = FilterMap<
+        <VecDeque<(Tick, HistoryState<R>)> as IntoIterator>::IntoIter,
+        fn((Tick, HistoryState<R>)) -> Option<(Tick, R)>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.buffer
+            .into_iter()
+            .filter_map(|(tick, state)| match state {
+                HistoryState::Updated(value) => Some((tick, value)),
+                HistoryState::Removed => None,
+            })
     }
 }
 
@@ -196,7 +250,18 @@ mod tests {
         assert_eq!(history.buffer.len(), 3);
         assert_eq!(history.peek(), Some(&(Tick(5), HistoryState::Removed)));
 
-        history.clear();
-        assert_eq!(history.buffer.len(), 0);
+        history.clear_until_tick(Tick(3));
+        assert_eq!(
+            history.buffer,
+            VecDeque::from(vec![
+                (Tick(4), HistoryState::Updated(TestValue(4.0))),
+                (Tick(5), HistoryState::Removed)
+            ])
+        );
+
+        assert_eq!(
+            history.into_iter().collect::<Vec<_>>(),
+            vec![(Tick(4), TestValue(4.0))]
+        );
     }
 }
