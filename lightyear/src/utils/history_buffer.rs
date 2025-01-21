@@ -4,7 +4,6 @@ use bevy::prelude::{ReflectComponent, ReflectResource};
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::iter::FilterMap;
-use std::ops::Deref;
 use tracing::debug;
 
 /// Stores a past value in the history buffer

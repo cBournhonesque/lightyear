@@ -49,13 +49,13 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::client::run_conditions::is_synced;
-use crate::client::sync::SyncSet;
+use crate::client::sync::{SyncManager, SyncSet};
 use crate::inputs::leafwing::input_buffer::InputBuffer;
-use crate::inputs::leafwing::input_message::InputTarget;
+use crate::inputs::leafwing::input_message::{InputTarget, InterpolationDelay};
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{
     is_host_server, ChannelKind, ChannelRegistry, InputMessage, MessageRegistry,
-    ReplicateOnceComponent, TickManager,
+    ReplicateOnceComponent, TickManager, TimeManager,
 };
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
@@ -66,6 +66,11 @@ use crate::shared::tick_manager::TickEvent;
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Copy, Clone, Resource)]
 pub struct LeafwingInputConfig<A> {
+    /// If enabled, the client will send the interpolation_delay to the server so that the server
+    /// can apply lag compensation when the predicted client is shooting at interpolated enemies.
+    ///
+    /// See: https://developer.valvesoftware.com/wiki/Lag_Compensation
+    pub lag_compensation: bool,
     // TODO: right now the input-delay causes the client timeline to be more in the past than it should be
     //  I'm not sure if we can have different input_delay_ticks per ActionType
     // /// The amount of ticks that the player's inputs will be delayed by.
@@ -104,6 +109,7 @@ impl<A: LeafwingUserAction> Default for MessageBuffer<A> {
 impl<A> Default for LeafwingInputConfig<A> {
     fn default() -> Self {
         LeafwingInputConfig {
+            lag_compensation: false,
             packet_redundancy: 4,
             _marker: PhantomData,
         }
@@ -190,6 +196,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             (
                 SyncSet,
                 // run after SyncSet to make sure that the TickEvents are handled
+                // and that the interpolation_delay injected in the message are correct
                 (InputSystemSet::SendInputMessage, InputSystemSet::CleanUp)
                     .chain()
                     .run_if(should_run.clone().and(is_synced)),
@@ -649,13 +656,27 @@ fn prepare_input_message<A: LeafwingUserAction>(
 /// Drain the messages from the buffer and send them to the server
 fn send_input_messages<A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager>,
+    input_config: Res<LeafwingInputConfig<A>>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
+    time_manager: Res<TimeManager>,
+    tick_manager: Res<TickManager>,
 ) {
     trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
     );
     for mut message in message_buffer.0.drain(..) {
+        // if lag compensation is enabled, we send the current delay to the server
+        // (this runs here because the delay is only correct after the SyncSet has run)
+        // TODO: or should we actually use the interpolation_delay BEFORE SyncSet
+        //  because the user is reacting to stuff from the previous frame?
+        if input_config.lag_compensation {
+            message.interpolation_delay = Some(
+                connection
+                    .sync_manager
+                    .interpolation_delay(tick_manager.as_ref(), time_manager.as_ref()),
+            );
+        }
         connection
             .send_message::<InputChannel, InputMessage<A>>(&mut message)
             .unwrap_or_else(|err| {
@@ -740,20 +761,20 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
             ) {
                 Ok(message) => {
                     debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-                    for (target, start, diffs) in &message.diffs {
+                    for target_data in &message.diffs {
                         // - the input target has already been set to the server entity in the InputMessage
                         // - it has been mapped to a client-entity on the client during deserialization
                         //   ONLY if it's PrePredicted (look at the MapEntities implementation)
-                        let entity = match target {
+                        let entity = match target_data.target {
                             InputTarget::Entity(entity) => {
                                 // TODO: find a better way!
                                 // if InputTarget = Entity, we still need to do the mapping
                                 connection
                                     .replication_receiver
                                     .remote_entity_map
-                                    .get_local(*entity)
+                                    .get_local(entity)
                             }
-                            InputTarget::PrePredictedEntity(entity) => Some(*entity),
+                            InputTarget::PrePredictedEntity(entity) => Some(entity),
                             InputTarget::Global => continue,
                         };
                         if let Some(entity) = entity {
@@ -764,12 +785,12 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                             if let Ok(confirmed) = confirmed_query.get(entity) {
                                 if let Some(predicted) = confirmed.predicted {
                                     if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
-                                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+                                        debug!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
                                         if let Some(mut input_buffer) = input_buffer {
                                             input_buffer.update_from_message(
                                                 message.end_tick,
-                                                start,
-                                                diffs,
+                                                &target_data.start_state,
+                                                &target_data.diffs,
                                             );
                                             #[cfg(feature = "metrics")]
                                             {
@@ -785,8 +806,8 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                             let mut input_buffer = InputBuffer::<A>::default();
                                             input_buffer.update_from_message(
                                                 message.end_tick,
-                                                start,
-                                                diffs,
+                                                &target_data.start_state,
+                                                &target_data.diffs,
                                             );
                                             // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
                                             commands.entity(predicted).insert((
@@ -797,7 +818,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                     }
                                 }
                             } else {
-                                error!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                                error!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                             }
                         } else {
                             error!("received remote player input message for unrecognized entity");
