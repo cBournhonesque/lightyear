@@ -362,8 +362,8 @@ impl SyncManager {
         tick_manager: &TickManager,
         time_manager: &TimeManager,
     ) -> InterpolationDelay {
-        let delta =
-            self.current_prediction_time(tick_manager, time_manager) - self.interpolation_time;
+        let prediction_time = self.current_prediction_time(tick_manager, time_manager);
+        let delta = prediction_time - self.interpolation_time;
         assert!(
             delta.num_milliseconds() >= 0,
             "the prediction time should always be ahead of the interpolation time!"
@@ -653,12 +653,12 @@ mod tests {
             .world_mut()
             .entity_mut(server_entity)
             .insert(ComponentSyncModeFull(1.0));
-        dbg!(&stepper.server_tick());
-        dbg!(&stepper.client_tick());
-        dbg!(&stepper
-            .server_app
-            .world()
-            .get::<ComponentSyncModeFull>(server_entity));
+        // dbg!(&stepper.server_tick());
+        // dbg!(&stepper.client_tick());
+        // dbg!(&stepper
+        //     .server_app
+        //     .world()
+        //     .get::<ComponentSyncModeFull>(server_entity));
 
         // make sure the client receives the replication message
         for i in 0..5 {
