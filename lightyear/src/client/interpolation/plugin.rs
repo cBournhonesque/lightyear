@@ -35,7 +35,7 @@ pub struct InterpolationDelay {
 
 impl InterpolationDelay {
     /// What Tick the interpolation delay corresponds to, knowing the current tick
-    fn tick_and_overstep(&self, current_tick: Tick, tick_duration: Duration) -> (Tick, f32) {
+    pub fn tick_and_overstep(&self, current_tick: Tick, tick_duration: Duration) -> (Tick, f32) {
         let delay_time = WrappedTime::new(self.delay_ms as u32);
         let delay_tick = delay_time.to_tick(tick_duration).0;
         let delay_overstep = delay_time.tick_overstep(tick_duration);
