@@ -84,7 +84,17 @@ pub struct LeafwingInputConfig<A> {
     pub packet_redundancy: u16,
 
     // TODO: add an option where we send all diffs vs send only just-pressed diffs
-    pub(crate) _marker: PhantomData<A>,
+    pub marker: PhantomData<A>,
+}
+
+impl<A> Default for LeafwingInputConfig<A> {
+    fn default() -> Self {
+        LeafwingInputConfig {
+            lag_compensation: false,
+            packet_redundancy: 4,
+            marker: PhantomData,
+        }
+    }
 }
 
 // TODO: is this actually necessary? The sync happens in PostUpdate,
@@ -103,16 +113,6 @@ struct MessageBuffer<A: LeafwingUserAction>(Vec<InputMessage<A>>);
 impl<A: LeafwingUserAction> Default for MessageBuffer<A> {
     fn default() -> Self {
         Self(Vec::default())
-    }
-}
-
-impl<A> Default for LeafwingInputConfig<A> {
-    fn default() -> Self {
-        LeafwingInputConfig {
-            lag_compensation: false,
-            packet_redundancy: 4,
-            _marker: PhantomData,
-        }
     }
 }
 
