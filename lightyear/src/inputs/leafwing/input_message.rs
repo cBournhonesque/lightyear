@@ -1,11 +1,22 @@
+use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::inputs::leafwing::action_diff::ActionDiff;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::prelude::{Deserialize, LeafwingUserAction, Serialize, Tick};
+use crate::shared::time_manager::WrappedTime;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
 use std::fmt::{Formatter, Write};
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
+struct PerTargetData<A: Actionlike> {
+    pub(crate) target: InputTarget,
+    // The ActionState is the state at tick end_tick-N
+    pub(crate) start_state: ActionState<A>,
+    // ActionDiffs to apply to the ActionState for ticks `end_tick-N+1` to `end_tick` (included)
+    pub(crate) diffs: Vec<Vec<ActionDiff<A>>>,
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 /// We serialize the inputs by sending, for each entity:
@@ -15,9 +26,14 @@ use std::fmt::{Formatter, Write};
 /// (We do this to make sure that we can reconstruct the ActionState at any tick,
 /// even if we miss some inputs. This wouldn't be the case if we only send ActionDiffs)
 pub struct InputMessage<A: Actionlike> {
+    // TODO: avoid sending one extra byte for the option if no lag compensation! Maybe have a separate message type?
+    //  or the message being lag-compensation-compatible is handled on the registry?
+    /// Interpolation delay of the client at the time the message is sent
+    ///
+    /// We don't need any extra redundancy for the InterpolationDelay so we'll just send the value at `end_tick`.
+    pub(crate) interpolation_delay: Option<InterpolationDelay>,
     pub(crate) end_tick: Tick,
-    // first element is tick end_tick-N+1, last element is end_tick
-    pub(crate) diffs: Vec<(InputTarget, ActionState<A>, Vec<Vec<ActionDiff<A>>>)>,
+    pub(crate) diffs: Vec<PerTargetData<A>>,
 }
 
 impl<A: LeafwingUserAction> std::fmt::Display for InputMessage<A> {
@@ -27,18 +43,18 @@ impl<A: LeafwingUserAction> std::fmt::Display for InputMessage<A> {
         if self.diffs.is_empty() {
             return write!(f, "EmptyInputMessage");
         }
-        let start_tick = self.end_tick - Tick(self.diffs[0].2.len() as u16);
+        let start_tick = self.end_tick - Tick(self.diffs[0].diffs.len() as u16);
         let buffer_str = self
             .diffs
             .iter()
-            .map(|(entity, start_value, diffs_per_entity)| {
-                let mut str = format!("Entity: {:?}\n", entity);
+            .map(|data| {
+                let mut str = format!("Entity: {:?}\n", data.target);
                 let _ = writeln!(
                     &mut str,
-                    "Tick: {start_tick:?}. StartValue: {:?}",
-                    start_value.get_pressed()
+                    "Tick: {start_tick:?}. StartState: {:?}",
+                    data.start_state.get_pressed()
                 );
-                for (i, diffs) in diffs_per_entity.iter().enumerate() {
+                for (i, diffs) in data.diffs.iter().enumerate() {
                     let tick = start_tick + (i + 1) as i16;
                     let _ = writeln!(&mut str, "Tick: {}, Diffs: {:?}", tick, diffs);
                 }
@@ -69,20 +85,21 @@ impl<A: LeafwingUserAction> MapEntities for InputMessage<A> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.diffs
             .iter_mut()
-            .filter_map(|(entity, _, _)| {
-                if let InputTarget::PrePredictedEntity(e) = entity {
+            .filter_map(|data| {
+                if let InputTarget::PrePredictedEntity(e) = data.target {
                     return Some(e);
                 } else {
                     return None;
                 }
             })
-            .for_each(|entity| *entity = entity_mapper.map_entity(*entity));
+            .for_each(|mut entity| entity = entity_mapper.map_entity(entity));
     }
 }
 
 impl<A: LeafwingUserAction> InputMessage<A> {
     pub fn new(end_tick: Tick) -> Self {
         Self {
+            interpolation_delay: None,
             end_tick,
             diffs: vec![],
         }
@@ -95,10 +112,10 @@ impl<A: LeafwingUserAction> InputMessage<A> {
     pub(crate) fn add_inputs(
         &mut self,
         num_ticks: u16,
-        input_target: InputTarget,
+        target: InputTarget,
         input_buffer: &InputBuffer<A>,
     ) {
-        let mut inputs = Vec::new();
+        let mut diffs = Vec::new();
         // find the first tick for which we have an `ActionState` buffered
         let mut start_tick = self.end_tick - num_ticks + 1;
         while start_tick <= self.end_tick {
@@ -113,10 +130,10 @@ impl<A: LeafwingUserAction> InputMessage<A> {
             return;
         }
 
-        let start_value = input_buffer.get(start_tick).unwrap().clone();
+        let start_state = input_buffer.get(start_tick).unwrap().clone();
         let mut tick = start_tick + 1;
         while tick <= self.end_tick {
-            let diffs = ActionDiff::<A>::create(
+            let diffs_for_tick = ActionDiff::<A>::create(
                 // TODO: if the input_delay changes, this could leave gaps in the InputBuffer, which we will fill with Default
                 input_buffer
                     .get(tick - 1)
@@ -125,17 +142,23 @@ impl<A: LeafwingUserAction> InputMessage<A> {
                     .get(tick)
                     .unwrap_or(&ActionState::<A>::default()),
             );
-            inputs.push(diffs);
+            diffs.push(diffs_for_tick);
             tick += 1;
         }
-        self.diffs.push((input_target, start_value, inputs));
+        self.diffs.push(PerTargetData {
+            target,
+            start_state,
+            diffs,
+        });
     }
 
     // TODO: do we want to send the inputs if there are no diffs?
     pub fn is_empty(&self) -> bool {
-        self.diffs
-            .iter()
-            .all(|(_, _, diffs)| diffs.iter().all(|diffs_per_tick| diffs_per_tick.is_empty()))
+        self.diffs.iter().all(|data| {
+            data.diffs
+                .iter()
+                .all(|diffs_per_tick| diffs_per_tick.is_empty())
+        })
     }
 }
 
@@ -159,6 +182,7 @@ mod tests {
         assert_eq!(
             input_message,
             InputMessage {
+                interpolation_delay: None,
                 end_tick: Tick(10),
                 diffs: vec![],
             }

@@ -125,7 +125,13 @@ impl TimeManager {
         self.real_time.elapsed += real_delta;
     }
 
+    // TODO: some functions that now rely on this time should instead use the real time
+    //  (channel retries, etc.)
     /// Current time since start, wrapped around 46 days
+    /// This time doesn't get modified by TickEvents (re-syncs of client time to server time)
+    ///
+    /// You can access the WrappedTime that corresponds to the current tick using the
+    /// SyncManager's `current_prediction_time` method
     pub fn current_time(&self) -> WrappedTime {
         self.wrapped_time
     }
@@ -137,10 +143,13 @@ impl TimeManager {
 }
 
 mod wrapped_time {
-    use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-
     use crate::serialize::reader::Reader;
     use crate::serialize::{SerializationError, ToBytes};
+    use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+    use serde::{
+        de::{Error, Visitor},
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
 
     use super::*;
 
@@ -152,6 +161,39 @@ mod wrapped_time {
         pub(crate) elapsed: Duration,
     }
 
+    impl Serialize for WrappedTime {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_u32(self.millis())
+        }
+    }
+
+    struct WrappedTimeVisitor;
+    impl<'de> Visitor<'de> for WrappedTimeVisitor {
+        type Value = WrappedTime;
+
+        fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+            formatter.write_str("a u32 representing the time in milliseconds")
+        }
+
+        fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(WrappedTime::new(v))
+        }
+    }
+    impl<'de> Deserialize<'de> for WrappedTime {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_u32(WrappedTimeVisitor)
+        }
+    }
+
     impl ToBytes for WrappedTime {
         fn len(&self) -> usize {
             4
@@ -159,8 +201,7 @@ mod wrapped_time {
 
         // NOTE: we only encode the milliseconds up to u32, which is 46 days
         fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-            let millis: u32 = self.elapsed.as_millis().try_into().unwrap_or(u32::MAX);
-            buffer.write_u32::<NetworkEndian>(millis)?;
+            buffer.write_u32::<NetworkEndian>(self.millis())?;
             Ok(())
         }
 
@@ -211,6 +252,7 @@ mod wrapped_time {
             Tick((self.elapsed.as_nanos() / tick_duration.as_nanos()) as u16)
         }
 
+        // TODO: switch to f16?
         /// If the time is between two ticks, give us the overstep as a percentage of a tick duration
         pub fn tick_overstep(&self, tick_duration: Duration) -> f32 {
             (self.elapsed.as_nanos() % tick_duration.as_nanos()) as f32
