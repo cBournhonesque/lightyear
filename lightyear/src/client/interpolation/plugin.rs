@@ -14,7 +14,8 @@ use crate::client::interpolation::spawn::spawn_interpolated_entity;
 use crate::client::interpolation::Interpolated;
 use crate::client::run_conditions::is_synced;
 use crate::client::sync::SyncSet;
-use crate::prelude::{is_host_server, Deserialize, Serialize};
+use crate::prelude::{is_host_server, Deserialize, Serialize, Tick};
+use crate::shared::time_manager::WrappedTime;
 
 /// Interpolation delay of the client at the time the message is sent
 ///
@@ -30,6 +31,28 @@ pub struct InterpolationDelay {
     // /// `interpolation_tick + interpolation_overstep * tick_duration`
     // // TODO: switch to f16 when available
     // pub overstep: f32,
+}
+
+impl InterpolationDelay {
+    /// What Tick the interpolation delay corresponds to, knowing the current tick
+    fn tick_and_overstep(&self, current_tick: Tick, tick_duration: Duration) -> (Tick, f32) {
+        let delay_time = WrappedTime::new(self.delay_ms as u32);
+        let delay_tick = delay_time.to_tick(tick_duration).0;
+        let delay_overstep = delay_time.tick_overstep(tick_duration);
+        if delay_overstep == 0.0 {
+            (current_tick - delay_tick, 0.0)
+        } else {
+            (current_tick - delay_tick - 1, 1.0 - delay_overstep)
+        }
+    }
+
+    /// What overstep the interpolation delay corresponds to
+    ///
+    /// The exact interpolation value is
+    /// `interpolation_tick + interpolation_overstep * tick_duration`
+    fn overstep(&self, current_tick: Tick, tick_duration: Duration) -> f32 {
+        1.0 - WrappedTime::new(self.delay_ms as u32).tick_overstep(tick_duration)
+    }
 }
 
 /// Config to specify how the snapshot interpolation should behave
@@ -214,5 +237,25 @@ impl Plugin for InterpolationPlugin {
             spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
         );
         app.add_observer(despawn_interpolated);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_interpolation_delay() {
+        let delay = InterpolationDelay { delay_ms: 12 };
+        assert_eq!(
+            delay.tick_and_overstep(Tick(3), Duration::from_millis(10)),
+            (Tick(1), 0.8)
+        );
+
+        let delay = InterpolationDelay { delay_ms: 10 };
+        assert_eq!(
+            delay.tick_and_overstep(Tick(3), Duration::from_millis(10)),
+            (Tick(2), 0.0)
+        );
     }
 }
