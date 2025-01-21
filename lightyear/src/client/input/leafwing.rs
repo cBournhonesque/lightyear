@@ -49,9 +49,9 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::client::run_conditions::is_synced;
-use crate::client::sync::{SyncManager, SyncSet};
+use crate::client::sync::SyncSet;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
-use crate::inputs::leafwing::input_message::{InputTarget, InterpolationDelay};
+use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{
     is_host_server, ChannelKind, ChannelRegistry, InputMessage, MessageRegistry,

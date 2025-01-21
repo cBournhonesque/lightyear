@@ -2,7 +2,6 @@ use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::inputs::leafwing::action_diff::ActionDiff;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::prelude::{Deserialize, LeafwingUserAction, Serialize, Tick};
-use crate::shared::time_manager::WrappedTime;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use leafwing_input_manager::action_state::ActionState;
@@ -10,7 +9,7 @@ use leafwing_input_manager::Actionlike;
 use std::fmt::{Formatter, Write};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
-struct PerTargetData<A: Actionlike> {
+pub(crate) struct PerTargetData<A: Actionlike> {
     pub(crate) target: InputTarget,
     // The ActionState is the state at tick end_tick-N
     pub(crate) start_state: ActionState<A>,
@@ -83,16 +82,11 @@ impl<A: LeafwingUserAction> MapEntities for InputMessage<A> {
 
     // NOTE: we only map the inputs for the pre-predicted entities
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.diffs
-            .iter_mut()
-            .filter_map(|data| {
-                if let InputTarget::PrePredictedEntity(e) = data.target {
-                    return Some(e);
-                } else {
-                    return None;
-                }
-            })
-            .for_each(|mut entity| entity = entity_mapper.map_entity(entity));
+        self.diffs.iter_mut().for_each(|data| {
+            if let InputTarget::PrePredictedEntity(ref mut e) = data.target {
+                *e = entity_mapper.map_entity(*e);
+            }
+        });
     }
 }
 
