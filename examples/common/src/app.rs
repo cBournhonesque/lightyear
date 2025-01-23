@@ -183,7 +183,9 @@ impl Apps {
                     // even if we communicate via channels, we need to provide a socket address for the client
                     channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
                 }];
-                let (server_app, server_config) = server_app(settings, extra_transport_configs);
+                // we don't want to register the gui plugins twice if running in separate mode
+                let (server_app, server_config) =
+                    server_app(false, settings, extra_transport_configs);
                 Apps::ClientAndServer {
                     client_app,
                     client_config,
@@ -207,7 +209,7 @@ impl Apps {
             #[cfg(feature = "server")]
             Some(Mode::Server) => {
                 #[allow(unused_mut)]
-                let (mut app, config) = server_app(settings, vec![]);
+                let (mut app, config) = server_app(cfg!(feature = "gui"), settings, vec![]);
                 // we keep gui a parameter so that we can easily disable server gui even with all default features
                 // enabled
                 #[cfg(feature = "gui")]
@@ -532,11 +534,16 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
 /// Build the server app with the `ServerPlugins` added.
 #[cfg(feature = "server")]
 fn server_app(
+    enable_gui: bool,
     settings: Settings,
     extra_transport_configs: Vec<server::ServerTransport>,
 ) -> (App, ServerConfig) {
     #[cfg(feature = "gui")]
-    let app = new_gui_app(settings.server.inspector);
+    let app = if enable_gui {
+        new_gui_app(settings.server.inspector)
+    } else {
+        new_headless_app()
+    };
     #[cfg(not(feature = "gui"))]
     let app = new_headless_app();
     info!("server_app. gui={}", cfg!(feature = "gui"));
