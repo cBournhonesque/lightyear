@@ -37,7 +37,7 @@ impl SteamworksClient {
         let (client, single) = steamworks::Client::<ClientManager>::init().unwrap();
 
         Self {
-            app_id: client.utils().app_id(),
+            app_id: client.utils().app_id().0,
             client,
             single: SyncCell::new(single),
         }
