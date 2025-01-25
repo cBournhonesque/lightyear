@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "lightyear",
+    "lightyear_avian",
     "macros",
     # internal
     "benches/*",
