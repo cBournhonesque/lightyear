@@ -98,6 +98,10 @@ pub(crate) fn spawn_bot(mut commands: Commands) {
             ..default()
         },
         Transform::from_xyz(0.0, 10.0, 0.0),
+<<<<<<< HEAD
+=======
+        // WHY IS IT NECESSARY TO ADD POSITION/ROTATION HERE?
+>>>>>>> b1643586d7880bb7ea41b3ec09523ad3b9479b5e
         RigidBody::Kinematic,
         Collider::circle(BOT_RADIUS),
         // add the component to make lag-compensation possible!
