@@ -2,9 +2,7 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use super::history::{
-    BroadPhaseAabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory, LagCompensationSet,
-};
+use super::history::{AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory};
 use lightyear::prelude::client::InterpolationDelay;
 use lightyear::prelude::TickManager;
 #[cfg(all(feature = "2d", not(feature = "3d")))]
@@ -28,7 +26,7 @@ pub struct LagCompensationSpatialQuery<'w, 's> {
     pub config: Res<'w, LagCompensationConfig>,
     spatial_query: SpatialQuery<'w, 's>,
     parent_query: Query<'w, 's, (&'static Collider, &'static LagCompensationHistory)>,
-    child_query: Query<'w, 's, &'static Parent, With<BroadPhaseAabbEnvelopeHolder>>,
+    child_query: Query<'w, 's, &'static Parent, With<AabbEnvelopeHolder>>,
 }
 
 impl LagCompensationSpatialQuery<'_, '_> {
@@ -67,12 +65,10 @@ impl LagCompensationSpatialQuery<'_, '_> {
         filter: &mut SpatialQueryFilter,
     ) -> Option<RayHitData> {
         // 1): check if the ray hits the aabb envelope
-        filter
-            .mask
-            .add(self.config.broad_phase_envelope_layer_bit as u32);
+        filter.mask.add(self.config.aabb_envelope_layer_bit as u32);
         let tick = self.tick_manager.tick();
         let tick_duration = self.tick_manager.config.tick_duration;
-        let mut exact_hit_data: Option<RayHitData> = None;
+        // let mut exact_hit_data: Option<RayHitData> = None;
         self.spatial_query.cast_ray_predicate(
             origin,
             direction,
@@ -125,16 +121,17 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     if !predicate(parent) {
                         return false;
                     }
-                    exact_hit_data = Some(RayHitData {
-                        entity: parent,
-                        distance,
-                        normal,
-                    });
+                    // TODO: figure out a way to pass the actual hit data!
+                    // exact_hit_data = Some(RayHitData {
+                    //     entity: parent,
+                    //     distance,
+                    //     normal,
+                    // });
                     return true;
                 }
                 false
             },
-        );
-        exact_hit_data
+        )
+        // exact_hit_data
     }
 }

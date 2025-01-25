@@ -16,7 +16,7 @@ pub struct LagCompensationPlugin;
 #[derive(Resource)]
 pub struct LagCompensationConfig {
     /// The avian [LayerMask] bit used for the collision detection with the lag-compensated entities
-    pub broad_phase_envelope_layer_bit: u8,
+    pub aabb_envelope_layer_bit: u8,
     /// Maximum number of ticks that we will store in the history buffer for lag compensation.
     /// This will determine how far back in time we can rewind the entity's position.
     ///
@@ -24,11 +24,13 @@ pub struct LagCompensationConfig {
     pub max_collider_history_ticks: u8,
 }
 
+pub const DEFAULT_AABB_ENVELOPE_LAYER_BIT: u8 = 31;
+
 impl Default for LagCompensationConfig {
     fn default() -> Self {
         Self {
             // we will be using the last bit of the LayerMask
-            broad_phase_envelope_layer_bit: 31,
+            aabb_envelope_layer_bit: DEFAULT_AABB_ENVELOPE_LAYER_BIT,
             // 10 ticks corresponds to ~300ms assuming 64Hz ticks
             max_collider_history_ticks: 10,
         }
@@ -39,16 +41,18 @@ impl Default for LagCompensationConfig {
 pub enum LagCompensationSet {
     /// Update the broad phase collider history
     ///
-    /// Any system that needs to perform some lag-compensation query using the history
+    /// Any t needs to perform some lag-compensation query using the history
     /// should run after this set
     UpdateHistory,
+    /// Compute collisions using lag compensation
+    Collisions,
 }
 
 /// Marker component to indicate that this collider's [ColliderAabb] holds the
 /// broad-phase AABB envelope of its parent (the entity for which we want to apply
 /// lag compensation)
 #[derive(Component)]
-pub(crate) struct BroadPhaseAabbEnvelopeHolder;
+pub struct AabbEnvelopeHolder;
 
 /// Component that will store the Position, Rotation, ColliderAabb in a history buffer
 /// in order to perform lag compensation for client-predicted entities interacting with
@@ -57,6 +61,8 @@ pub type LagCompensationHistory = HistoryBuffer<(Position, Rotation, ColliderAab
 
 impl Plugin for LagCompensationPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<LagCompensationHistory>();
+
         app.init_resource::<LagCompensationConfig>();
         app.add_observer(spawn_broad_phase_aabb_envelope);
         // We want the history buffer at tick N to contain the collider state (Position, Rotation)
@@ -70,12 +76,22 @@ impl Plugin for LagCompensationPlugin {
             PhysicsSchedule,
             update_collider_history.in_set(LagCompensationSet::UpdateHistory),
         );
+
         app.configure_sets(
             PhysicsSchedule,
-            LagCompensationSet::UpdateHistory
-                .after(PhysicsStepSet::Solver)
-                // we need to update the aabb-envelope before the SpatialQuery
-                .before(PhysicsStepSet::SpatialQuery),
+            (
+                PhysicsStepSet::Solver,
+                // the history must be updated before the SpatialQuery is updated
+                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSet::ReportContacts),
+                PhysicsStepSet::SpatialQuery,
+                // collisions must run after the SpatialQuery has been updated
+                LagCompensationSet::Collisions,
+            )
+                .chain(),
+        );
+        app.configure_sets(
+            FixedPostUpdate,
+            LagCompensationSet::Collisions.after(PhysicsSet::Sync),
         );
     }
 }
@@ -97,11 +113,8 @@ fn spawn_broad_phase_aabb_envelope(
         Collider::cuboid(1.0, 1.0, 1.0),
         Position::default(),
         Rotation::default(),
-        BroadPhaseAabbEnvelopeHolder,
-        CollisionLayers::new(
-            config.broad_phase_envelope_layer_bit as u32,
-            LayerMask::NONE,
-        ),
+        AabbEnvelopeHolder,
+        CollisionLayers::new(config.aabb_envelope_layer_bit as u32, LayerMask::NONE),
     ));
 }
 
@@ -113,16 +126,16 @@ fn spawn_broad_phase_aabb_envelope(
 fn update_collider_history(
     tick_manager: Res<TickManager>,
     config: Res<LagCompensationConfig>,
-    mut parent_query: Query<(
-        &Position,
-        &Rotation,
-        &ColliderAabb,
-        &mut LagCompensationHistory,
-    )>,
-    mut children_query: Query<
-        (&Parent, &mut Collider, &mut Position),
-        With<BroadPhaseAabbEnvelopeHolder>,
+    mut parent_query: Query<
+        (
+            &Position,
+            &Rotation,
+            &ColliderAabb,
+            &mut LagCompensationHistory,
+        ),
+        Without<AabbEnvelopeHolder>,
     >,
+    mut children_query: Query<(&Parent, &mut Collider, &mut Position), With<AabbEnvelopeHolder>>,
 ) {
     let tick = tick_manager.tick();
     children_query
@@ -154,9 +167,10 @@ fn update_collider_history(
             // is the center of the aabb envelope.
             // We don't need to change the Rotation since the aabb envelope is axis-aligned
             #[cfg(all(feature = "2d", not(feature = "3d")))]
-            *collider = Collider::rectangle(max.x - min.x, max.y - min.y);
+            let new_collider = Collider::rectangle(max.x - min.x, max.y - min.y);
             #[cfg(all(feature = "3d", not(feature = "2d")))]
-            *collider = Collider::cuboid(max.x - min.x, max.y - min.y, max.z - min.z);
+            let new_collider = Collider::cuboid(max.x - min.x, max.y - min.y, max.z - min.z);
+            *collider = new_collider;
             *position = Position(aabb_envelope.center());
             trace!(
                 ?tick,

@@ -17,19 +17,9 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // To send global inputs, insert the ActionState and the InputMap as Resources
-        app.init_resource::<ActionState<AdminActions>>();
-        app.insert_resource(InputMap::<AdminActions>::new([
-            (AdminActions::SendMessage, KeyCode::KeyM),
-            (AdminActions::Reset, KeyCode::KeyR),
-        ]));
+        app.add_observer(add_player_input_map);
 
-        // all actions related-system that can be rolled back should be in the `FixedUpdate` schdule
-        // app.add_systems(FixedUpdate, player_movement);
-        // we update the ActionState manually from cursor, so we need to put it in the ManualControl set
-
-        // NOTE: we need to run this in FixedUpdate because we generate the ActionDiffs in
-        // FixedUpdate using the fixed_update value
+        // NOTE: we need to run this in FixedPreUpdate before we
         app.add_systems(
             FixedPreUpdate,
             update_cursor_state_from_window
@@ -37,42 +27,28 @@ impl Plugin for ExampleClientPlugin {
                 .before(InputSystemSet::BufferClientInputs)
                 .in_set(InputManagerSystem::ManualControl),
         );
-        app.add_systems(
-            PreUpdate,
-            (
-                // TODO: make sure it happens after update metadata?
-                spawn_player,
-            ),
-        );
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
     }
 }
 
-fn spawn_player(mut commands: Commands, mut connection_event: EventReader<ConnectEvent>) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        commands.spawn((
-            Text(format!("Client {}", client_id)),
-            TextColor(Color::WHITE),
-            TextFont::default().with_font_size(30.0),
-        ));
-        info!("Spawning player with id: {}", client_id);
-        let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
-        commands.spawn(PlayerBundle::new(
-            client_id,
-            Vec2::new(-50.0, y),
-            InputMap::new([
-                (PlayerActions::Up, KeyCode::KeyW),
-                (PlayerActions::Down, KeyCode::KeyS),
-                (PlayerActions::Left, KeyCode::KeyA),
-                (PlayerActions::Right, KeyCode::KeyD),
-                (PlayerActions::Shoot, KeyCode::Space),
-            ]),
-        ));
+/// Add the input map to the predicted player entity so that it can controlled by the user
+fn add_player_input_map(
+    trigger: Trigger<OnAdd, PlayerId>,
+    mut commands: Commands,
+    query: Query<(), With<Predicted>>,
+) {
+    if query.get(trigger.entity()).is_ok() {
+        commands.entity(trigger.entity()).insert(InputMap::new([
+            (PlayerActions::Up, KeyCode::KeyW),
+            (PlayerActions::Down, KeyCode::KeyS),
+            (PlayerActions::Left, KeyCode::KeyA),
+            (PlayerActions::Right, KeyCode::KeyD),
+            (PlayerActions::Shoot, KeyCode::Space),
+        ]));
     }
 }
 
-// Compute the world-position of the cursor
+/// Compute the world-position of the cursor and set it in the DualAxis input
 fn update_cursor_state_from_window(
     window_query: Query<&Window>,
     // query to get camera transform
