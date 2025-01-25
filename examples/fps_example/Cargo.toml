@@ -1,5 +1,5 @@
 [package]
-name = "bullet_prespawn"
+name = "fps_example"
 version = "0.0.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
@@ -16,19 +16,24 @@ steam = ["lightyear_examples_common/steam"]
 visualizer = ["lightyear_examples_common/visualizer", "gui"]
 
 [dependencies]
+avian2d = { workspace = true, features = [
+    "2d",
+    "debug-plugin",
+    "f32",
+    "parry-f32",
+    "parallel",
+    "serialize",
+] }
 lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = [
-  "steam",
-  "websocket",
-  "leafwing",
-  "lz4",
+    "avian2d",
+    "leafwing",
 ] }
+lightyear_avian = { workspace = true, features = ["2d", "lag_compensation"] }
 
 leafwing-input-manager.workspace = true
 serde.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 bevy.workspace = true
-rand.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }

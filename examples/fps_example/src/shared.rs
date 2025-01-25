@@ -1,7 +1,12 @@
+use avian2d::collision::ColliderHierarchyPlugin;
+use avian2d::prelude::{Gravity, Position, RigidBody};
+use avian2d::PhysicsPlugins;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
+use bevy::time::Stopwatch;
 use bevy::utils::Duration;
 use leafwing_input_manager::prelude::ActionState;
+use std::ops::DerefMut;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
@@ -14,6 +19,7 @@ use lightyear::transport::io::IoDiagnosticsPlugin;
 use crate::protocol::*;
 
 const EPS: f32 = 0.0001;
+pub const BOT_RADIUS: f32 = 15.0;
 
 #[derive(Clone)]
 pub struct SharedPlugin;
@@ -32,6 +38,7 @@ impl Plugin for SharedPlugin {
             //  - for every pre-predicted or pre-spawned entity, we keep track of the spawn tick.
             //  - if we rollback to before that, we
             (
+                bot_movement,
                 player_movement,
                 shoot_bullet,
                 // avoid re-shooting bullets during rollbacks
@@ -40,12 +47,13 @@ impl Plugin for SharedPlugin {
             )
                 .chain(),
         );
+        app.add_plugins(
+            PhysicsPlugins::default()
+                .build()
+                .disable::<ColliderHierarchyPlugin>(),
+        )
+        .insert_resource(Gravity(Vec2::ZERO));
         // NOTE: we need to create prespawned entities in FixedUpdate, because only then are inputs correctly associated with a tick
-        //  Example:
-        //  tick = 0
-        //   F1 PreUpdate: press-shoot. F1 FixedUpdate: SKIPPED!!! F1 Update: spawn bullet F1: PostUpdate add hash.
-        //   F2 FixedUpdate: tick = 1. Gather inputs for the tick (i.e. F1 preupdate + F2 preupdate)
-        //  So now the server will think that the bullet was shot at tick = 1, but on client it was shot on tick = 0 and the hashes won't match.
         //  In general, most input-handling needs to be handled in FixedUpdate to be correct.
         // app.add_systems(Update, shoot_bullet);
     }
@@ -108,12 +116,32 @@ fn player_movement(
     }
 }
 
+fn bot_movement(
+    time: Res<Time>,
+    mut query: Query<&mut Position, (With<BotMarker>, Or<(With<Predicted>, With<Replicating>)>)>,
+    mut timer: Local<(Stopwatch, bool)>,
+) {
+    let (stopwatch, go_up) = timer.deref_mut();
+    query.iter_mut().for_each(|mut position| {
+        stopwatch.tick(time.delta());
+        if stopwatch.elapsed() > Duration::from_secs_f32(3.0) {
+            stopwatch.reset();
+            *go_up = !*go_up;
+        }
+        if *go_up {
+            position.x += 2.0;
+        } else {
+            position.x -= 2.0;
+        }
+    });
+}
+
 pub(crate) fn fixed_update_log(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
     player: Query<(Entity, &Transform), (With<PlayerId>, Without<Confirmed>)>,
-    ball: Query<(Entity, &Transform), (With<BallMarker>, Without<Confirmed>)>,
-    interpolated_ball: Query<(Entity, &Transform), (With<BallMarker>, With<Interpolated>)>,
+    ball: Query<(Entity, &Transform), (With<BulletMarker>, Without<Confirmed>)>,
+    interpolated_ball: Query<(Entity, &Transform), (With<BulletMarker>, With<Interpolated>)>,
 ) {
     let tick = rollback.map_or(tick_manager.tick(), |r| {
         tick_manager.tick_or_rollback_tick(r.as_ref())
@@ -150,7 +178,7 @@ pub(crate) fn move_bullet(
     mut query: Query<
         (Entity, &mut Transform),
         (
-            With<BallMarker>,
+            With<BulletMarker>,
             Or<(
                 // move predicted bullets
                 With<Predicted>,
@@ -203,17 +231,24 @@ pub(crate) fn shoot_bullet(
         if action.just_pressed(&PlayerActions::Shoot) {
             error!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
 
-            for delta in &[-0.2, 0.2] {
-                let salt: u64 = if delta < &0.0 { 0 } else { 1 };
-                let ball = BallBundle::new(
-                    transform.translation.truncate(),
-                    transform.rotation.to_euler(EulerRot::XYZ).2 + delta,
-                    color.0,
+            for delta in [-0.2, 0.2] {
+                let salt: u64 = if delta < 0.0 { 0 } else { 1 };
+                // shoot from the position of the player, towards the cursor, with an angle of delta
+                let mut bullet_transform = transform.clone();
+                bullet_transform.rotate_z(delta);
+                let bullet_bundle = (
+                    bullet_transform,
+                    RigidBody::Kinematic,
+                    // store the player who fired the bullet
+                    *id,
+                    *color,
+                    BulletMarker,
+                    Name::new("Bullet"),
                 );
                 // on the server, replicate the bullet
                 if identity.is_server() {
                     commands.spawn((
-                        ball,
+                        bullet_bundle,
                         // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                         //  but the server will take authority as soon as the client receives the entity
                         //  it does this by matching with the client entity that has the same hash
@@ -241,7 +276,10 @@ pub(crate) fn shoot_bullet(
                     // on the client, just spawn the ball
                     // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    commands.spawn((ball, PreSpawnedPlayerObject::default_with_salt(salt)));
+                    commands.spawn((
+                        bullet_bundle,
+                        PreSpawnedPlayerObject::default_with_salt(salt),
+                    ));
                 }
             }
         }

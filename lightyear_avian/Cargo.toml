@@ -17,7 +17,7 @@ publish = true
 [features]
 2d = ["dep:avian2d", "avian2d/2d"]
 3d = ["dep:avian3d", "avian3d/3d"]
-
+lag_compensation = []
 
 [dependencies]
 avian2d = { workspace = true, optional = true }

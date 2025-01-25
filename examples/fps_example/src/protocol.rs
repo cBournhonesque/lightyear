@@ -19,72 +19,22 @@ pub const PLAYER_SIZE: f32 = 40.0;
 // will always be consistent (= on the same tick)
 pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
-// Player
-#[derive(Bundle)]
-pub(crate) struct PlayerBundle {
-    id: PlayerId,
-    transform: Transform,
-    color: ColorComponent,
-    replicate: Replicate,
-    inputs: InputManagerBundle<PlayerActions>,
-    // IMPORTANT: this lets the server know that the entity is pre-predicted
-    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-    // as the Predicted version
-    pre_predicted: PrePredicted,
-}
-
-impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2, input_map: InputMap<PlayerActions>) -> Self {
-        let color = color_from_id(id);
-        Self {
-            id: PlayerId(id),
-            transform: Transform::from_xyz(position.x, position.y, 0.0),
-            color: ColorComponent(color),
-            replicate: Replicate {
-                // NOTE (important): all entities that are being predicted need to be part of the same replication-group
-                //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                group: ReplicationGroup::new_id(id.to_bits()),
-                ..default()
-            },
-            inputs: InputManagerBundle::<PlayerActions> {
-                action_state: ActionState::default(),
-                input_map,
-            },
-            // IMPORTANT: this lets the server know that the entity is pre-predicted
-            pre_predicted: PrePredicted::default(),
-        }
-    }
-}
-
-// Ball
-#[derive(Bundle)]
-pub(crate) struct BallBundle {
-    transform: Transform,
-    color: ColorComponent,
-    marker: BallMarker,
-}
-
-impl BallBundle {
-    pub(crate) fn new(position: Vec2, rotation_radians: f32, color: Color) -> Self {
-        let mut transform = Transform::from_xyz(position.x, position.y, 0.0);
-        transform.rotate_z(rotation_radians);
-        Self {
-            transform,
-            color: ColorComponent(color),
-            marker: BallMarker,
-        }
-    }
-}
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct BotMarker;
 
 // Components
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+/// Number of bullet hits
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
+pub struct Score(pub usize);
+
+#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BallMarker;
+pub struct BulletMarker;
 
 // Channels
 
@@ -135,20 +85,28 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::Bidirectional)
+        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<Transform>(ChannelDirection::Bidirectional)
+        app.register_component::<Transform>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation(ComponentSyncMode::Full)
             .add_interpolation_fn(TransformLinearInterpolation::lerp);
 
-        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional)
+        app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<BallMarker>(ChannelDirection::Bidirectional)
+        app.register_component::<Score>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
+
+        app.register_component::<BulletMarker>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_component::<BotMarker>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
         // channels

@@ -40,6 +40,7 @@ debug = false
 
 [workspace.dependencies]
 
+lightyear_avian = { path = "./lightyear_avian", version = "0.18.0", default-features = false }
 lightyear_examples_common = { path = "./examples/common", default-features = false }
 lightyear = { path = "./lightyear", version = "0.18.0", default-features = false }
 
@@ -189,7 +190,8 @@ leafwing-input-manager = { version = "0.16", default-features = false, features 
 ] }
 
 # physics
-avian2d = { version = "0.2", default-features = false }
+avian2d = { git = "https://github.com/cBournhonesque/avian.git", branch = "cb/debug", default-features = false }
+#avian2d = { version = "0.2", default-features = false }
 avian3d = { version = "0.2", default-features = false }
 
 
