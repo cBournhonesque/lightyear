@@ -15,7 +15,7 @@ use crate::client::networking::utils::AppStateExt;
 use crate::client::replication::send::ReplicateToServer;
 use crate::client::run_conditions::is_disconnected;
 use crate::client::sync::SyncSet;
-use crate::connection::client::{ClientConnection, ConnectionState, DisconnectReason, NetClient};
+use crate::connection::client::{ClientConnection, ConnectionError, ConnectionState, NetClient};
 use crate::connection::server::IoConfig;
 use crate::prelude::{
     is_host_server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
@@ -66,14 +66,6 @@ impl Plugin for ClientNetworkingPlugin {
                     .chain(),
             )
             // SYSTEMS
-            .add_systems(
-                PreUpdate,
-                listen_io_state
-                    // we are running the listen_io_state in a different set because it can impact the run_condition for the
-                    // Receive system set
-                    .before(InternalMainSet::<ClientMarker>::Receive)
-                    .run_if(not(is_host_server.or(is_disconnected))),
-            )
             .add_systems(
                 PreUpdate,
                 (listen_io_state, (receive_packets, receive).chain())
@@ -320,7 +312,7 @@ fn listen_io_state(
                 Ok(ClientIoEvent::Disconnected(e)) => {
                     error!("Error from io: {}", e);
                     io.state = IoState::Disconnected;
-                    netclient.disconnect_reason = Some(DisconnectReason::Transport(e));
+                    netclient.disconnect_reason = Some(ConnectionError::Transport(e));
                     disconnect = true;
                 }
                 Err(TryRecvError::Empty) => {
@@ -328,7 +320,7 @@ fn listen_io_state(
                 }
                 Err(TryRecvError::Closed) => {
                     error!("Io status channel has been closed when it shouldn't be");
-                    netclient.disconnect_reason = Some(DisconnectReason::Transport(
+                    netclient.disconnect_reason = Some(ConnectionError::Transport(
                         std::io::Error::other("Io status channel has been closed").into(),
                     ));
                     disconnect = true;
@@ -495,14 +487,15 @@ fn connect(world: &mut World) {
     // new client connection and connection manager, which want to do because we need to reset
     // the internal time, sync, priority, message numbers, etc.)
     rebuild_client_connection(world);
-    let _ = world
+    if let Err(e) = world
         .resource_mut::<ClientConnection>()
-        .connect()
-        .inspect_err(|e| {
+        .connect() {
             error!("Error connecting client: {}", e);
-        });
+            world.resource_mut::<Events<DisconnectEvent>>().send(DisconnectEvent {
+                reason: Some(e)
+            });
+    }
     let config = world.resource::<ClientConfig>();
-
     if matches!(
         world.resource::<ClientConnection>().state(),
         ConnectionState::Connected
