@@ -9,6 +9,7 @@ use bevy::render::RenderPlugin;
 use lightyear::client::components::Confirmed;
 use lightyear::prelude::client::{Interpolated, InterpolationSet, Predicted, PredictionSet};
 use lightyear::prelude::server::ReplicationTarget;
+use lightyear::prelude::{NetworkIdentity, PreSpawnedPlayerObject, Replicated};
 use lightyear::transport::io::IoDiagnosticsPlugin;
 use lightyear_avian::prelude::AabbEnvelopeHolder;
 
@@ -18,10 +19,15 @@ pub struct ExampleRendererPlugin;
 impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
-        app.add_observer(add_bot_visuals);
-        app.add_observer(add_bullet_visuals);
-        app.add_observer(add_player_visuals);
 
+        app.add_observer(add_bot_visuals);
+        app.add_systems(Update, (add_bullet_visuals, add_player_visuals));
+
+        #[cfg(feature = "client")]
+        {
+            app.add_systems(Startup, spawn_score_text);
+            app.add_systems(Update, display_score);
+        }
         app.add_systems(
             PostUpdate,
             (
@@ -41,12 +47,39 @@ fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
+#[derive(Component)]
+struct ScoreText;
+
+#[cfg(feature = "client")]
+fn spawn_score_text(mut commands: Commands, identity: NetworkIdentity) {
+    if identity.is_client() {
+        commands.spawn((
+            Text::new("Score: 0"),
+            TextFont::from_font_size(30.0),
+            TextColor(Color::WHITE.with_alpha(0.5)),
+            Node {
+                align_self: AlignSelf::End,
+                ..default()
+            },
+            ScoreText,
+        ));
+    }
+}
+
+#[cfg(feature = "client")]
+fn display_score(
+    mut score_text: Query<&mut Text, With<ScoreText>>,
+    hits: Query<&Score, With<Replicated>>,
+) {
+    if let Ok(score) = hits.get_single() {
+        if let Ok(mut text) = score_text.get_single_mut() {
+            text.0 = format!("Score: {}", score.0);
+        }
+    }
+}
 
 #[cfg(feature = "server")]
-fn draw_aabb_envelope(
-    query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>,
-    mut gizmos: Gizmos,
-) {
+fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut gizmos: Gizmos) {
     query.iter().for_each(|collider_aabb| {
         gizmos.rect_2d(
             Isometry2d::new(collider_aabb.center(), Rot2::default()),
@@ -60,20 +93,28 @@ fn draw_aabb_envelope(
 /// Works either on the client or the server
 #[derive(QueryFilter)]
 pub struct VisibleFilter {
-    a: Or<(With<Predicted>, With<Interpolated>, With<ReplicationTarget>)>,
+    a: Or<(
+        With<Predicted>,
+        With<PreSpawnedPlayerObject>,
+        With<Interpolated>,
+        With<ReplicationTarget>,
+    )>,
 }
 
 /// Add visuals to newly spawned players
+/// NOTE: we cannot use an observer currently because we have no guarantee about the order in which
+///  the components are synced from the Confirmed to the Predicted entity, so the PlayerId could be synced
+///  before the ColorComponent is present on the Predicted entity
 fn add_player_visuals(
-    trigger: Trigger<OnAdd, PlayerId>,
-    query: Query<&ColorComponent, VisibleFilter>,
+    query: Query<
+        (Entity, &ColorComponent),
+        (VisibleFilter, Added<PlayerId>, Without<BulletMarker>),
+    >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.entity();
-    if let Ok(color) = query.get(entity) {
-        // add visibility
+    query.iter().for_each(|(entity, color)| {
         commands.entity(entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
@@ -82,29 +123,31 @@ fn add_player_visuals(
                 ..Default::default()
             })),
         ));
-    }
+    })
 }
 
 /// Add visuals to newly spawned bullets
+/// NOTE: we cannot use an observer currently because we have no guarantee about the order in which
+///  the components are synced from the Confirmed to the Predicted entity, so the BulletMarker could be synced
+///  before the ColorComponent is present on the Predicted entity
 fn add_bullet_visuals(
-    trigger: Trigger<OnAdd, BulletMarker>,
-    query: Query<&ColorComponent, VisibleFilter>,
+    query: Query<(Entity, &ColorComponent), (VisibleFilter, Added<BulletMarker>)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.entity();
-    if let Ok(color) = query.get(entity) {
-        // add visibility
+    query.iter().for_each(|(entity, color)| {
         commands.entity(entity).insert((
             Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle { radius: BULLET_SIZE}))),
+            Mesh2d(meshes.add(Mesh::from(Circle {
+                radius: BULLET_SIZE,
+            }))),
             MeshMaterial2d(materials.add(ColorMaterial {
                 color: color.0,
                 ..Default::default()
             })),
         ));
-    }
+    });
 }
 
 /// Add visuals to newly spawned bots

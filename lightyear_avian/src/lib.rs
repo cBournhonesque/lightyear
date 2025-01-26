@@ -6,7 +6,7 @@ pub mod prelude {
     pub use crate::lag_compensation::{
         history::{
             AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory,
-            LagCompensationPlugin, LagCompensationSet, DEFAULT_AABB_ENVELOPE_LAYER_BIT,
+            LagCompensationPlugin, LagCompensationSet,
         },
         query::LagCompensationSpatialQuery,
     };

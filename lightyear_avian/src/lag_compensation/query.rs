@@ -1,4 +1,6 @@
 //! Provides a system parameter for performing spatial queries while doing lag compensation.
+use std::cell::RefCell;
+
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
@@ -65,10 +67,10 @@ impl LagCompensationSpatialQuery<'_, '_> {
         filter: &mut SpatialQueryFilter,
     ) -> Option<RayHitData> {
         // 1): check if the ray hits the aabb envelope
-        filter.mask.add(self.config.aabb_envelope_layer_bit as u32);
         let tick = self.tick_manager.tick();
         let tick_duration = self.tick_manager.config.tick_duration;
-        // let mut exact_hit_data: Option<RayHitData> = None;
+        // we use interior mutability because the predicate must be a `dyn Fn`
+        let exact_hit_data: RefCell<Option<RayHitData>> = RefCell::new(None);
         self.spatial_query.cast_ray_predicate(
             origin,
             direction,
@@ -77,12 +79,14 @@ impl LagCompensationSpatialQuery<'_, '_> {
             filter,
             &|child| {
                 // 2) there is a hit! Check if we hit the collider from the history
-                // TODO: use error handling here
-                let parent = self
-                    .child_query
-                    .get(child)
-                    .expect("the broad phase entity must have a parent")
-                    .get();
+
+                // we cannot rely directly on the CollisionLayers to filter contacts with aabb envelopes
+                // because CollisionLayers only encodes OR conditions, not AND
+                let Ok(parent_component) = self.child_query.get(child) else {
+                    return false;
+                };
+                let parent = parent_component.get();
+                info!("Broadphase hit with {child:?}");
                 let (collider, history) = self
                     .parent_query
                     .get(parent)
@@ -121,17 +125,24 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     if !predicate(parent) {
                         return false;
                     }
-                    // TODO: figure out a way to pass the actual hit data!
-                    // exact_hit_data = Some(RayHitData {
-                    //     entity: parent,
-                    //     distance,
-                    //     normal,
-                    // });
+                    info!(
+                        ?tick,
+                        ?interpolation_tick,
+                        ?interpolation_overstep,
+                        ?interpolated_position,
+                        ?parent,
+                        "LagCompensation RayHit!"
+                    );
+                    *exact_hit_data.borrow_mut() = Some(RayHitData {
+                        entity: parent,
+                        distance,
+                        normal,
+                    });
                     return true;
                 }
                 false
             },
-        )
-        // exact_hit_data
+        );
+        exact_hit_data.into_inner()
     }
 }

@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy::utils::Duration;
 use leafwing_input_manager::prelude::ActionState;
+use server::ControlledBy;
 use std::ops::DerefMut;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
@@ -21,7 +22,7 @@ use crate::protocol::*;
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
 const BOT_MOVE_SPEED: f32 = 1.0;
-const BULLET_MOVE_SPEED: f32 = 30.0;
+const BULLET_MOVE_SPEED: f32 = 300.0;
 const MAP_LIMIT: f32 = 2000.0;
 
 #[derive(Clone)]
@@ -175,7 +176,6 @@ pub(crate) fn fixed_update_log(
     }
 }
 
-
 /// This system runs on both the client and the server, and is used to shoot a bullet
 /// The bullet is shot from the predicted player on the client, and from the server-entity on the server.
 /// When the bullet is replicated from server to client, it will use the existing client bullet with the `PreSpawnedPlayerObject` component
@@ -207,9 +207,7 @@ pub(crate) fn shoot_bullet(
                 bullet_transform.rotate_z(delta);
                 let bullet_bundle = (
                     bullet_transform,
-                    LinearVelocity(
-                        bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED,
-                    ),
+                    LinearVelocity(bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED),
                     RigidBody::Kinematic,
                     // store the player who fired the bullet
                     *id,
@@ -217,7 +215,7 @@ pub(crate) fn shoot_bullet(
                     BulletMarker,
                     Name::new("Bullet"),
                 );
-                
+
                 // on the server, replicate the bullet
                 if identity.is_server() {
                     commands.spawn((
@@ -239,6 +237,10 @@ pub(crate) fn shoot_bullet(
                                 prediction: NetworkTarget::Single(id.0),
                                 // the bullet is interpolated for other clients
                                 interpolation: NetworkTarget::AllExceptSingle(id.0),
+                            },
+                            controlled_by: ControlledBy {
+                                target: NetworkTarget::Single(id.0),
+                                ..default()
                             },
                             // NOTE: all predicted entities need to have the same replication group
                             group: ReplicationGroup::new_id(id.0.to_bits()),

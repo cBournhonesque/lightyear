@@ -15,8 +15,6 @@ pub struct LagCompensationPlugin;
 /// This resource contains some configuration options for lag compensation
 #[derive(Resource)]
 pub struct LagCompensationConfig {
-    /// The avian [LayerMask] bit used for the collision detection with the lag-compensated entities
-    pub aabb_envelope_layer_bit: u8,
     /// Maximum number of ticks that we will store in the history buffer for lag compensation.
     /// This will determine how far back in time we can rewind the entity's position.
     ///
@@ -24,15 +22,11 @@ pub struct LagCompensationConfig {
     pub max_collider_history_ticks: u8,
 }
 
-pub const DEFAULT_AABB_ENVELOPE_LAYER_BIT: u8 = 31;
-
 impl Default for LagCompensationConfig {
     fn default() -> Self {
         Self {
-            // we will be using the last bit of the LayerMask
-            aabb_envelope_layer_bit: DEFAULT_AABB_ENVELOPE_LAYER_BIT,
-            // 10 ticks corresponds to ~300ms assuming 64Hz ticks
-            max_collider_history_ticks: 10,
+            // 33 ticks corresponds to ~500ms assuming 64Hz ticks
+            max_collider_history_ticks: 35,
         }
     }
 }
@@ -74,7 +68,8 @@ impl Plugin for LagCompensationPlugin {
         // of all ticks
         app.add_systems(
             PhysicsSchedule,
-            update_collider_history.in_set(LagCompensationSet::UpdateHistory),
+            (update_collision_layers, update_collider_history)
+                .in_set(LagCompensationSet::UpdateHistory),
         );
 
         app.configure_sets(
@@ -100,22 +95,43 @@ impl Plugin for LagCompensationPlugin {
 /// for lag compensation purposes
 fn spawn_broad_phase_aabb_envelope(
     trigger: Trigger<OnAdd, LagCompensationHistory>,
-    config: Res<LagCompensationConfig>,
+    query: Query<Option<&CollisionLayers>>,
     mut commands: Commands,
 ) {
     debug!("spawning broad-phase collider from aabb!");
-    commands.entity(trigger.entity()).with_child((
-        // the collider/position/rotation values don't matter here because they will be updated in the
-        // `update_lag_compensation_broad_phase_collider` system
-        #[cfg(all(feature = "2d", not(feature = "3d")))]
-        Collider::rectangle(1.0, 1.0),
-        #[cfg(all(feature = "3d", not(feature = "2d")))]
-        Collider::cuboid(1.0, 1.0, 1.0),
-        Position::default(),
-        Rotation::default(),
-        AabbEnvelopeHolder,
-        CollisionLayers::new(config.aabb_envelope_layer_bit as u32, LayerMask::NONE),
-    ));
+    commands.entity(trigger.entity()).with_children(|builder| {
+        let mut child_commands = builder.spawn((
+            // the collider/position/rotation values don't matter here because they will be updated in the
+            // `update_lag_compensation_broad_phase_collider` system
+            #[cfg(all(feature = "2d", not(feature = "3d")))]
+            Collider::rectangle(1.0, 1.0),
+            #[cfg(all(feature = "3d", not(feature = "2d")))]
+            Collider::cuboid(1.0, 1.0, 1.0),
+            Position::default(),
+            Rotation::default(),
+            AabbEnvelopeHolder,
+        ));
+        // the aabb_envelope has the same collision_layers as the parent
+        if let Ok(Some(collision_layers)) = query.get(trigger.entity()) {
+            child_commands.insert(collision_layers.clone());
+        }
+    });
+}
+
+/// Update the collision layers of the child AabbEnvelopeHolder to match the parent
+fn update_collision_layers(
+    mut child_query: Query<&mut CollisionLayers, With<AabbEnvelopeHolder>>,
+    mut parent_query: Query<(&mut CollisionLayers, &Children), Without<AabbEnvelopeHolder>>,
+) {
+    parent_query.iter_mut().for_each(|(layers, children)| {
+        if layers.is_changed() || !layers.is_added() {
+            for child in children.iter() {
+                if let Ok(mut child_layers) = child_query.get_mut(*child) {
+                    *child_layers = *layers;
+                }
+            }
+        }
+    });
 }
 
 /// For each lag-compensated collider, store every tick a copy of the

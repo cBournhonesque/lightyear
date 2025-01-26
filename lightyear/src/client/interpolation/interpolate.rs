@@ -1,5 +1,5 @@
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Without};
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::client::components::SyncComponent;
 use crate::client::config::ClientConfig;

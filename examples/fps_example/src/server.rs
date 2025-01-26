@@ -16,7 +16,6 @@ use lightyear::prelude::*;
 use lightyear::shared::replication::components::InitialReplicated;
 use lightyear_avian::prelude::{
     LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
-    DEFAULT_AABB_ENVELOPE_LAYER_BIT,
 };
 
 // Plugin for server-specific logic
@@ -70,6 +69,7 @@ pub(crate) fn spawn_player(
                 group: ReplicationGroup::new_id(client_id.to_bits()),
                 ..default()
             },
+            Score(0),
             PlayerId(client_id),
             Transform::from_xyz(0.0, y, 0.0),
             ColorComponent(color),
@@ -120,7 +120,6 @@ pub(crate) fn compute_hit(
     mut player_query: Query<(&mut Score, &PlayerId)>,
 ) {
     bullets.iter().for_each(|(id, position, velocity)| {
-        dbg!(&id, &position, &velocity);
         let Ok(delay) = manager
             .client_entity(id.0)
             .map(|client_entity| client_query.get(client_entity).unwrap())
