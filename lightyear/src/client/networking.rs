@@ -410,7 +410,6 @@ fn on_disconnect(
 
     // set synced to false
     connection_manager.sync_manager.synced = false;
-
     // try to disconnect again to close io tasks (in case the disconnection is from the io)
     let _ = netclient.disconnect();
 
@@ -491,12 +490,12 @@ fn connect(world: &mut World) {
         .resource_mut::<ClientConnection>()
         .connect() {
             error!("Error connecting client: {}", e);
-            world.resource_mut::<Events<DisconnectEvent>>().send(DisconnectEvent {
-                reason: Some(e)
-            });
-            // TODO: how can we also provide a reason here since it's not cloneable?
-            // we need to also trigger the event because we sometimes react to it via observers
-            world.trigger(DisconnectEvent { reason: None });
+            world.resource_mut::<ClientConnection>()
+                .disconnect_reason = Some(e);
+                
+            world
+                .resource_mut::<NextState<NetworkingState>>()
+                .set(NetworkingState::Disconnected);
     }
     let config = world.resource::<ClientConfig>();
     if matches!(
