@@ -8,16 +8,16 @@ use chacha20poly1305::{
 
 use super::{MAC_BYTES, PRIVATE_KEY_BYTES};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] std::sync::Arc<std::io::Error>),
     #[error("buffer size mismatch")]
     BufferSizeMismatch,
     #[error("failed to encrypt: {0}")]
     Failed(#[from] chacha20poly1305::aead::Error),
     #[error("failed to generate key: {0}")]
-    GenerateKey(chacha20poly1305::aead::rand_core::Error),
+    GenerateKey(std::sync::Arc<chacha20poly1305::aead::rand_core::Error>),
 }
 
 /// A 32-byte array, used as a key for encrypting and decrypting packets and connect tokens.

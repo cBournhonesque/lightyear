@@ -21,7 +21,7 @@ const MAX_SERVERS_PER_CONNECT: usize = 32;
 pub(crate) const TOKEN_EXPIRE_SEC: i32 = 30;
 
 /// An error that can occur when de-serializing a connect token from bytes.
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum InvalidTokenError {
     #[error("address list length is out of range 1-32: {0}")]
     AddressListLength(u32),
@@ -32,7 +32,7 @@ pub enum InvalidTokenError {
     #[error("invalid version")]
     InvalidVersion,
     #[error("io error: {0}")]
-    Io(#[from] io::Error),
+    Io(#[from] std::sync::Arc<io::Error>),
 }
 
 #[derive(Debug, Clone, Copy)]

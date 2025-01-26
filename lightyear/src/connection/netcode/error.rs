@@ -4,7 +4,7 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// An error that can occur in the `netcode` crate.
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum Error {
     #[error("buffer size mismatch, expected {0} but got {1}")]
@@ -22,7 +22,7 @@ pub enum Error {
     #[error("invalid packet: {0}")]
     Packet(#[from] super::packet::Error),
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] std::sync::Arc<std::io::Error>),
     #[error(transparent)]
     Transport(#[from] crate::transport::error::Error),
 }

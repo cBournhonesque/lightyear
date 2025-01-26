@@ -19,7 +19,7 @@ use super::{
     MAC_BYTES, MAX_PKT_BUF_SIZE, NETCODE_VERSION,
 };
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
     #[error("packet type {0} is invalid")]
     InvalidType(u8),

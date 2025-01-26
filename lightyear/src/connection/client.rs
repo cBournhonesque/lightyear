@@ -323,7 +323,7 @@ impl std::fmt::Debug for Authentication {
 }
 
 /// Errors related to the client connection
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum ConnectionError {
     #[error("io is not initialized")]
     IoNotInitialized,
@@ -339,10 +339,10 @@ pub enum ConnectionError {
     NetcodeState(super::netcode::ClientState),
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-    SteamInvalidHandle(#[from] steamworks::networking_sockets::InvalidHandle),
+    SteamInvalidHandle(#[from] std::sync::Arc<steamworks::networking_sockets::InvalidHandle>),
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-    SteamInvalidState(#[from] steamworks::networking_types::InvalidConnectionState),
+    SteamInvalidState(#[from] std::sync::Arc<steamworks::networking_types::InvalidConnectionState>),
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamError(#[from] steamworks::SteamError),
