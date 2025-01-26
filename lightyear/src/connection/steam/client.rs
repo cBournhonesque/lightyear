@@ -1,4 +1,4 @@
-use crate::connection::client::{ConnectionError, ConnectionState, DisconnectReason, NetClient};
+use crate::connection::client::{ConnectionError, ConnectionState, NetClient};
 use crate::connection::id::ClientId;
 use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::client::Io;
@@ -159,7 +159,7 @@ impl NetClient for Client {
                     .connection_info()
                     .map_or(None, |info| info.ok().map(|i| i.end_reason()))
                     .flatten()
-                    .map(|r| DisconnectReason::Steam(r));
+                    .map(|r| ConnectionError::SteamDisconnection(r));
                 ConnectionState::Disconnected { reason }
             }
         }

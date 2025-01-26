@@ -496,7 +496,7 @@ fn connect(world: &mut World) {
             });
             // TODO: how can we also provide a reason here since it's not cloneable?
             // we need to also trigger the event because we sometimes react to it via observers
-            commands.trigger(DisconnectEvent { reason: None });
+            world.trigger(DisconnectEvent { reason: None });
     }
     let config = world.resource::<ClientConfig>();
     if matches!(
