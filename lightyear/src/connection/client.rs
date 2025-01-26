@@ -346,4 +346,7 @@ pub enum ConnectionError {
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamError(#[from] steamworks::SteamError),
+    #[error("client was disconnected")]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    SteamDisconnection(steamworks::networking_types::NetConnectionEnd)
 }
