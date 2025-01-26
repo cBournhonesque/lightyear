@@ -11,7 +11,7 @@ use lightyear::utils::bevy::*;
 
 use crate::shared::color_from_id;
 
-pub const BALL_SIZE: f32 = 10.0;
+pub const BULLET_SIZE: f32 = 10.0;
 pub const PLAYER_SIZE: f32 = 40.0;
 
 // For prediction, we want everything entity that is predicted to be part of the same replication group
@@ -85,6 +85,9 @@ impl Plugin for ProtocolPlugin {
             },
         });
         // components
+        app.register_component::<Name>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
         app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);

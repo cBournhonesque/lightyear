@@ -18,16 +18,19 @@ pub struct ExampleRendererPlugin;
 impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
-        // draw after interpolation is done
         app.add_observer(add_bot_visuals);
+        app.add_observer(add_bullet_visuals);
+        app.add_observer(add_player_visuals);
+
         app.add_systems(
             PostUpdate,
             (
                 #[cfg(feature = "server")]
                 draw_aabb_envelope,
-                draw_elements
-                    .after(InterpolationSet::Interpolate)
-                    .after(PredictionSet::VisualCorrection),
+                // // draw after interpolation is done
+                // draw_elements
+                //     .after(InterpolationSet::Interpolate)
+                //     .after(PredictionSet::VisualCorrection),
             ),
         );
         // TODO: draw bounding boxes for server aabb envelope
@@ -38,25 +41,6 @@ fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
-pub(crate) fn draw_elements(
-    mut gizmos: Gizmos,
-    players: Query<(&Transform, &ColorComponent), (Without<Confirmed>, With<PlayerId>)>,
-    balls: Query<(&Transform, &ColorComponent), (Without<Confirmed>, With<BulletMarker>)>,
-) {
-    for (transform, color) in &players {
-        gizmos.rect_2d(
-            Isometry2d::new(
-                transform.translation.truncate(),
-                transform.rotation.to_euler(EulerRot::XYZ).2.into(),
-            ),
-            Vec2::ONE * PLAYER_SIZE,
-            color.0,
-        );
-    }
-    for (transform, color) in &balls {
-        gizmos.circle_2d(transform.translation.truncate(), BALL_SIZE, color.0);
-    }
-}
 
 #[cfg(feature = "server")]
 fn draw_aabb_envelope(
@@ -77,6 +61,50 @@ fn draw_aabb_envelope(
 #[derive(QueryFilter)]
 pub struct VisibleFilter {
     a: Or<(With<Predicted>, With<Interpolated>, With<ReplicationTarget>)>,
+}
+
+/// Add visuals to newly spawned players
+fn add_player_visuals(
+    trigger: Trigger<OnAdd, PlayerId>,
+    query: Query<&ColorComponent, VisibleFilter>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let entity = trigger.entity();
+    if let Ok(color) = query.get(entity) {
+        // add visibility
+        commands.entity(entity).insert((
+            Visibility::default(),
+            Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
+            MeshMaterial2d(materials.add(ColorMaterial {
+                color: color.0,
+                ..Default::default()
+            })),
+        ));
+    }
+}
+
+/// Add visuals to newly spawned bullets
+fn add_bullet_visuals(
+    trigger: Trigger<OnAdd, BulletMarker>,
+    query: Query<&ColorComponent, VisibleFilter>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let entity = trigger.entity();
+    if let Ok(color) = query.get(entity) {
+        // add visibility
+        commands.entity(entity).insert((
+            Visibility::default(),
+            Mesh2d(meshes.add(Mesh::from(Circle { radius: BULLET_SIZE}))),
+            MeshMaterial2d(materials.add(ColorMaterial {
+                color: color.0,
+                ..Default::default()
+            })),
+        ));
+    }
 }
 
 /// Add visuals to newly spawned bots

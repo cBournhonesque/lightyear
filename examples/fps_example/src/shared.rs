@@ -20,7 +20,8 @@ use crate::protocol::*;
 
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
-const BALL_MOVE_SPEED: f32 = 3.0;
+const BOT_MOVE_SPEED: f32 = 1.0;
+const BULLET_MOVE_SPEED: f32 = 30.0;
 const MAP_LIMIT: f32 = 2000.0;
 
 #[derive(Clone)]
@@ -131,9 +132,9 @@ fn bot_movement(
             *go_up = !*go_up;
         }
         if *go_up {
-            position.x += 2.0;
+            position.x += BOT_MOVE_SPEED;
         } else {
-            position.x -= 2.0;
+            position.x -= BOT_MOVE_SPEED;
         }
     });
 }
@@ -174,36 +175,6 @@ pub(crate) fn fixed_update_log(
     }
 }
 
-// // This system defines how we update the bullets' positions when we receive an input
-// pub(crate) fn move_bullet(
-//     mut commands: Commands,
-//     mut query: Query<
-//         (Entity, &mut Transform),
-//         (
-//             With<BulletMarker>,
-//             Or<(
-//                 // move predicted bullets
-//                 With<Predicted>,
-//                 // move server entities
-//                 With<ReplicationTarget>,
-//                 // move prespawned bullets
-//                 With<PreSpawnedPlayerObject>,
-//             )>,
-//         ),
-//     >,
-// ) {
-//     const BALL_MOVE_SPEED: f32 = 3.0;
-//     const MAP_LIMIT: f32 = 2000.0;
-//     for (entity, mut transform) in query.iter_mut() {
-//         let movement_direction = transform.rotation * Vec3::Y;
-//         transform.translation += movement_direction * BALL_MOVE_SPEED;
-//         // destroy bullets that are out of the screen
-//         if transform.translation.x.abs() > MAP_LIMIT || transform.translation.y.abs() > MAP_LIMIT {
-//             // TODO: use the predicted despawn?
-//             commands.entity(entity).despawn();
-//         }
-//     }
-// }
 
 /// This system runs on both the client and the server, and is used to shoot a bullet
 /// The bullet is shot from the predicted player on the client, and from the server-entity on the server.
@@ -224,7 +195,6 @@ pub(crate) fn shoot_bullet(
     >,
 ) {
     let tick = tick_manager.tick();
-    const BALL_MOVE_SPEED: f32 = 10.0;
     for (id, transform, color, action) in query.iter_mut() {
         // NOTE: pressed lets you shoot many bullets, which can be cool
         if action.just_pressed(&PlayerActions::Shoot) {
@@ -235,14 +205,10 @@ pub(crate) fn shoot_bullet(
                 // shoot from the position of the player, towards the cursor, with an angle of delta
                 let mut bullet_transform = transform.clone();
                 bullet_transform.rotate_z(delta);
-                let velocity =                     LinearVelocity(
-                    bullet_transform.forward().as_vec3().truncate() * BALL_MOVE_SPEED,
-                );
-                dbg!(&velocity);
                 let bullet_bundle = (
                     bullet_transform,
                     LinearVelocity(
-                        bullet_transform.forward().as_vec3().truncate() * BALL_MOVE_SPEED,
+                        bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED,
                     ),
                     RigidBody::Kinematic,
                     // store the player who fired the bullet
