@@ -31,8 +31,10 @@ impl SteamworksClient {
         }
     }
 
-    /// Creates and initializes the Steamworks client. This must only be called
-    /// once per application run.
+    /// Creates and initializes the Steamworks client. If the game isn’t being run through steam
+    /// this can be provided by placing a steam_appid.txt with the ID inside in the current
+    /// working directory.
+    /// This must only be called once per application run.
     pub fn new() -> Self {
         let (client, single) = steamworks::Client::<ClientManager>::init().unwrap();
 
