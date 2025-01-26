@@ -14,7 +14,7 @@
 //! ```
 
 use crate::client::connection::ConnectionManager;
-use crate::connection::client::DisconnectReason;
+use crate::connection::client::ConnectionError;
 use crate::prelude::ClientId;
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
@@ -65,9 +65,9 @@ impl ConnectEvent {
 }
 
 /// Bevy [`Event`] emitted on the client on the frame where the connection is disconnected
-#[derive(Event, Default)]
+#[derive(Event, Default, Debug)]
 pub struct DisconnectEvent {
-    pub reason: Option<DisconnectReason>,
+    pub reason: Option<ConnectionError>,
 }
 
 /// Bevy [`Event`] emitted on the client to indicate the user input for the tick
