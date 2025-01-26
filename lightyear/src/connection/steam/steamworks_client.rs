@@ -19,13 +19,27 @@ impl std::fmt::Debug for SteamworksClient {
 }
 
 impl SteamworksClient {
-    /// Creates and initializes the Steamworks client. This must only be called
-    /// once per application run.
-    pub fn new(app_id: u32) -> Self {
+    /// Creates and initializes the Steamworks client with the specified AppId.
+    /// This must only be called once per application run.
+    pub fn new_with_app_id(app_id: u32) -> Self {
         let (client, single) = steamworks::Client::<ClientManager>::init_app(app_id).unwrap();
 
         Self {
             app_id,
+            client,
+            single: SyncCell::new(single),
+        }
+    }
+
+    /// Creates and initializes the Steamworks client. If the game isn’t being run through steam
+    /// this can be provided by placing a steam_appid.txt with the ID inside in the current
+    /// working directory.
+    /// This must only be called once per application run.
+    pub fn new() -> Self {
+        let (client, single) = steamworks::Client::<ClientManager>::init().unwrap();
+
+        Self {
+            app_id: client.utils().app_id().0,
             client,
             single: SyncCell::new(single),
         }
