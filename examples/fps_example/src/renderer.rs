@@ -60,12 +60,12 @@ pub(crate) fn draw_elements(
 
 #[cfg(feature = "server")]
 fn draw_aabb_envelope(
-    query: Query<(&ColliderAabb, &Position, &Rotation), With<AabbEnvelopeHolder>>,
+    query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>,
     mut gizmos: Gizmos,
 ) {
-    query.iter().for_each(|(collider_aabb, pos, rot)| {
+    query.iter().for_each(|collider_aabb| {
         gizmos.rect_2d(
-            Isometry2d::new(pos.0, (*rot).into()),
+            Isometry2d::new(collider_aabb.center(), Rot2::default()),
             collider_aabb.size(),
             Color::WHITE,
         );

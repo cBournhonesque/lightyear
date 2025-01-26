@@ -235,6 +235,10 @@ pub(crate) fn shoot_bullet(
                 // shoot from the position of the player, towards the cursor, with an angle of delta
                 let mut bullet_transform = transform.clone();
                 bullet_transform.rotate_z(delta);
+                let velocity =                     LinearVelocity(
+                    bullet_transform.forward().as_vec3().truncate() * BALL_MOVE_SPEED,
+                );
+                dbg!(&velocity);
                 let bullet_bundle = (
                     bullet_transform,
                     LinearVelocity(
@@ -247,6 +251,7 @@ pub(crate) fn shoot_bullet(
                     BulletMarker,
                     Name::new("Bullet"),
                 );
+                
                 // on the server, replicate the bullet
                 if identity.is_server() {
                     commands.spawn((
