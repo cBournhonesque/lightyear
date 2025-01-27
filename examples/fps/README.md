@@ -34,7 +34,10 @@ This can easily be achieved in `lightyear` in combination with `avian` by using 
 In this example, the green enemy on the left is interpolated on the client and hits are detected via lag compensation. The blue enemy on the right is predicted on the client and hits are detected normally.
 
 
-https://github.com/cBournhonesque/lightyear/assets/8112632/ee547c32-1f14-4bdc-9e6d-67f900af84d0
+
+https://github.com/user-attachments/assets/17bc985d-f700-439d-ba48-4c69fbfd7885
+
+
 
 ## Running the example
 
