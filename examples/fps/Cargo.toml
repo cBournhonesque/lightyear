@@ -1,5 +1,5 @@
 [package]
-name = "fps_example"
+name = "fps"
 version = "0.0.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"

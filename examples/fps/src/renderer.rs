@@ -2,12 +2,16 @@ use crate::protocol::*;
 use crate::shared::BOT_RADIUS;
 use avian2d::prelude::*;
 use bevy::color::palettes::basic::GREEN;
+use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use bevy::render::primitives::Aabb;
 use bevy::render::RenderPlugin;
 use lightyear::client::components::Confirmed;
-use lightyear::prelude::client::{Interpolated, InterpolationSet, Predicted, PredictionSet};
+use lightyear::client::interpolation::VisualInterpolationPlugin;
+use lightyear::prelude::client::{
+    Interpolated, InterpolationSet, Predicted, PredictionSet, VisualInterpolateStatus,
+};
 use lightyear::prelude::server::ReplicationTarget;
 use lightyear::prelude::{NetworkIdentity, PreSpawnedPlayerObject, Replicated};
 use lightyear::transport::io::IoDiagnosticsPlugin;
@@ -20,26 +24,21 @@ impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
 
-        app.add_observer(add_bot_visuals);
+        app.add_observer(add_interpolated_bot_visuals);
+        app.add_observer(add_predicted_bot_visuals);
         app.add_systems(Update, (add_bullet_visuals, add_player_visuals));
+        app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
 
         #[cfg(feature = "client")]
         {
             app.add_systems(Startup, spawn_score_text);
             app.add_systems(Update, display_score);
         }
-        app.add_systems(
-            PostUpdate,
-            (
-                #[cfg(feature = "server")]
-                draw_aabb_envelope,
-                // // draw after interpolation is done
-                // draw_elements
-                //     .after(InterpolationSet::Interpolate)
-                //     .after(PredictionSet::VisualCorrection),
-            ),
-        );
-        // TODO: draw bounding boxes for server aabb envelope
+
+        #[cfg(feature = "server")]
+        {
+            app.add_systems(PostUpdate, draw_aabb_envelope);
+        }
     }
 }
 
@@ -107,14 +106,14 @@ pub struct VisibleFilter {
 ///  before the ColorComponent is present on the Predicted entity
 fn add_player_visuals(
     query: Query<
-        (Entity, &ColorComponent),
+        (Entity, Has<Predicted>, &ColorComponent),
         (VisibleFilter, Added<PlayerId>, Without<BulletMarker>),
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    query.iter().for_each(|(entity, color)| {
+    query.iter().for_each(|(entity, is_predicted, color)| {
         commands.entity(entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
@@ -123,6 +122,11 @@ fn add_player_visuals(
                 ..Default::default()
             })),
         ));
+        if is_predicted {
+            commands
+                .entity(entity)
+                .insert(VisualInterpolateStatus::<Transform>::default());
+        }
     })
 }
 
@@ -146,13 +150,14 @@ fn add_bullet_visuals(
                 color: color.0,
                 ..Default::default()
             })),
+            VisualInterpolateStatus::<Transform>::default(),
         ));
     });
 }
 
 /// Add visuals to newly spawned bots
-fn add_bot_visuals(
-    trigger: Trigger<OnAdd, BotMarker>,
+fn add_interpolated_bot_visuals(
+    trigger: Trigger<OnAdd, InterpolatedBot>,
     query: Query<(), VisibleFilter>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -168,6 +173,29 @@ fn add_bot_visuals(
                 color: GREEN.into(),
                 ..Default::default()
             })),
+        ));
+    }
+}
+
+fn add_predicted_bot_visuals(
+    trigger: Trigger<OnAdd, PredictedBot>,
+    query: Query<(), VisibleFilter>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let entity = trigger.entity();
+    if query.get(entity).is_ok() {
+        // add visibility
+        commands.entity(entity).insert((
+            Visibility::default(),
+            Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
+            MeshMaterial2d(materials.add(ColorMaterial {
+                color: BLUE.into(),
+                ..Default::default()
+            })),
+            // predicted entities are updated in FixedUpdate so they need to be visually interpolated
+            VisualInterpolateStatus::<Transform>::default(),
         ));
     }
 }

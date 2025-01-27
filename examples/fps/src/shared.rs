@@ -21,7 +21,7 @@ use crate::protocol::*;
 
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
-const BOT_MOVE_SPEED: f32 = 1.0;
+pub(crate) const BOT_MOVE_SPEED: f32 = 1.0;
 const BULLET_MOVE_SPEED: f32 = 300.0;
 const MAP_LIMIT: f32 = 2000.0;
 
@@ -33,33 +33,24 @@ impl Plugin for SharedPlugin {
         app.add_plugins(ProtocolPlugin);
         // registry types for reflection
         app.register_type::<PlayerId>();
-        app.add_systems(FixedPostUpdate, fixed_update_log);
+        // debug systems
+        // app.add_systems(FixedPostUpdate, fixed_update_log);
+        // app.add_systems(FixedLast, log_predicted_bot_transform);
+
         // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
         app.add_systems(
             FixedUpdate,
-            // ideally, during rollback, we'd despawn the pre-predicted player objects and then respawn them during shoot_bullet.
-            // how? we keep track of their spawn-tick, if it was before the rollback-tick we despawn.
-            //  - for every pre-predicted or pre-spawned entity, we keep track of the spawn tick.
-            //  - if we rollback to before that, we
-            (
-                bot_movement,
-                player_movement,
-                shoot_bullet,
-                // avoid re-shooting bullets during rollbacks
-                // shoot_bullet.run_if(not(is_in_rollback)),
-                // move_bullet,
-            )
-                .chain(),
+            (predicted_bot_movement, player_movement, shoot_bullet).chain(),
         );
+        // both client and server need physics
+        // (the client also needs the physics plugin to be able to compute predicted
+        //  bullet hits)
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
                 .disable::<ColliderHierarchyPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
-        // NOTE: we need to create prespawned entities in FixedUpdate, because only then are inputs correctly associated with a tick
-        //  In general, most input-handling needs to be handled in FixedUpdate to be correct.
-        // app.add_systems(Update, shoot_bullet);
     }
 }
 
@@ -120,24 +111,32 @@ fn player_movement(
     }
 }
 
-fn bot_movement(
-    time: Res<Time>,
-    mut query: Query<&mut Position, (With<BotMarker>, Or<(With<Predicted>, With<Replicating>)>)>,
-    mut timer: Local<(Stopwatch, bool)>,
+fn predicted_bot_movement(
+    tick_manager: Res<TickManager>,
+    mut query: Query<&mut Position, (With<PredictedBot>, Or<(With<Predicted>, With<Replicating>)>)>,
 ) {
-    let (stopwatch, go_up) = timer.deref_mut();
+    let tick = tick_manager.tick();
     query.iter_mut().for_each(|mut position| {
-        stopwatch.tick(time.delta());
-        if stopwatch.elapsed() > Duration::from_secs_f32(3.0) {
-            stopwatch.reset();
-            *go_up = !*go_up;
-        }
-        if *go_up {
-            position.x += BOT_MOVE_SPEED;
-        } else {
-            position.x -= BOT_MOVE_SPEED;
-        }
+        let direction = if (tick.0 / 200) % 2 == 0 { 1.0 } else { -1.0 };
+        position.x += BOT_MOVE_SPEED * direction;
     });
+}
+
+fn log_predicted_bot_transform(
+    tick_manager: Res<TickManager>,
+    rollback: Option<Res<Rollback>>,
+    mut query: Query<
+        (&Position, &Transform),
+        (With<PredictedBot>, Or<(With<Predicted>, With<Replicating>)>),
+    >,
+) {
+    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
+    });
+    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
+    query.iter().for_each(|(pos, transform)| {
+        info!(?tick, ?pos, ?transform, "PredictedBot FixedLast");
+    })
 }
 
 pub(crate) fn fixed_update_log(

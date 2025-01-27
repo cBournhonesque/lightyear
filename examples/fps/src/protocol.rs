@@ -1,3 +1,4 @@
+use avian2d::prelude::RigidBody;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -20,7 +21,10 @@ pub const PLAYER_SIZE: f32 = 40.0;
 pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-pub struct BotMarker;
+pub struct PredictedBot;
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct InterpolatedBot;
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
@@ -103,13 +107,20 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<Score>(ChannelDirection::ServerToClient);
 
+        app.register_component::<RigidBody>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once);
+
         app.register_component::<BulletMarker>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<BotMarker>(ChannelDirection::ServerToClient)
+        app.register_component::<PredictedBot>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_component::<InterpolatedBot>(ChannelDirection::ServerToClient)
+            .add_interpolation(ComponentSyncMode::Once);
+
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
