@@ -602,7 +602,7 @@ impl GroupChannel {
         events: &mut ConnectionEvents,
     ) {
         let group_id = message.group_id;
-        debug!(
+        info!(
             ?remote_tick,
             ?message,
             "Received replication actions from remote: {remote:?}"
@@ -620,7 +620,7 @@ impl GroupChannel {
                         // (e.g client spawned an entity and then transfer the authority to the server.
                         //  The server will then send a spawn message)
                         if world.get_entity(local_entity).is_ok() {
-                            debug!(
+                            info!(
                                 ?local_entity,
                                 "Received spawn for entity {local_entity:?} that already exists. This might be because of an authority transfer or pre-prediction."
                             );
@@ -665,7 +665,7 @@ impl GroupChannel {
 
                     remote_entity_map.insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", remote_entity_map);
-                    debug!("Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}", local_entity.id());
+                    info!("Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}", local_entity.id());
                     events.push_spawn(local_entity.id());
                 }
                 SpawnAction::Reuse(local_entity) => {
@@ -814,7 +814,7 @@ impl GroupChannel {
         if is_history {
             return;
         }
-        debug!(
+        info!(
             ?remote_tick,
             ?message,
             "Received replication updates from remote: {:?}",
