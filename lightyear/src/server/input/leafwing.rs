@@ -122,9 +122,17 @@ fn receive_input_message<A: LeafwingUserAction>(
                 ) {
                     Ok(message) => {
                         trace!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+                        // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
+                        //  that the message was intended for?
+                        // update the interpolation delay estimate for the client
+                        if let Some(interpolation_delay) = message.interpolation_delay {
+                            commands
+                                .entity(connection.entity)
+                                .insert(interpolation_delay);
+                        }
                         // TODO: UPDATE THIS
-                        for (target, start, diffs) in &message.diffs {
-                            match target {
+                        for data in &message.diffs {
+                            match data.target {
                                 // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
                                 // (which is possible because the server received the entity)
                                 // - for non-pre predicted entities, the mapping was already done on client side
@@ -134,7 +142,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                     // TODO Don't update input buffer if inputs arrived too late?
                                     trace!("received input for entity: {:?}", entity);
 
-                                    if let Ok(buffer) = query.get_mut(*entity) {
+                                    if let Ok(buffer) = query.get_mut(entity) {
                                         if let Some(mut buffer) = buffer {
                                             trace!(
                                                 ?target,
@@ -144,18 +152,18 @@ fn receive_input_message<A: LeafwingUserAction>(
                                             );
                                             buffer.update_from_message(
                                                 message.end_tick,
-                                                start,
-                                                diffs,
+                                                &data.start_state,
+                                                &data.diffs,
                                             );
                                         } else {
                                             debug!("Adding InputBuffer and ActionState which are missing on the entity");
-                                            commands.entity(*entity).insert((
+                                            commands.entity(entity).insert((
                                                 InputBuffer::<A>::default(),
                                                 ActionState::<A>::default(),
                                             ));
                                         }
                                     } else {
-                                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                                        debug!(?entity, ?data.diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                                     }
                                 }
                                 InputTarget::Global => {

@@ -139,13 +139,14 @@ pub(crate) fn receive_packets(
             }
         }
 
+        // We don't run update on stopping because the IO's have been closed
+        // and we don't want to reset the list of connections/disconnections
         if networking_state.get() != &NetworkingState::Stopping {
             let _ = netserver
                 .try_update(delta.as_secs_f64())
                 .map_err(|e| error!("Error updating netcode server: {:?}", e));
         }
-        let new_disconnections = netserver.new_disconnections();
-        for client_id in netserver.new_connections().iter().copied() {
+        for client_id in netserver.new_connections() {
             netservers.client_server_map.insert(client_id, server_idx);
             // spawn an entity for the client
             let client_entity = commands
@@ -157,7 +158,7 @@ pub(crate) fn receive_packets(
         // TODO: handle disconnections in a separate system that listens to ServerDisconnect events
         //  to avoid duplicate logic for host-server in client/networking.rs
         // disconnects because we received a disconnect message
-        for client_id in new_disconnections {
+        for client_id in netserver.new_disconnections() {
             if netservers.client_server_map.remove(&client_id).is_some() {
                 debug!("removing connection from connection manager");
                 connection_manager.remove(client_id);
@@ -459,6 +460,7 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         let client = ClientId::Netcode(TEST_CLIENT_ID);
+        // create entity on server, which is controlled by the client
         let server_entity = stepper
             .server_app
             .world_mut()
@@ -470,6 +472,7 @@ mod tests {
                 ..default()
             })
             .id();
+        // the entity on the server that represents the client (holds ControlledEntities)
         let server_client_entity = stepper
             .server_app
             .world_mut()
@@ -491,6 +494,7 @@ mod tests {
 
         // stop the server
         stepper.server_app.world_mut().commands().stop_server();
+        stepper.frame_step();
         stepper.frame_step();
         stepper.frame_step();
 

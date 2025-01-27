@@ -200,7 +200,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             } else {
                 children_query
                     .children(parent_entity)
-                    .into_iter()
+                    .iter()
                     .for_each(|child| {
                         propagate(
                             *child,

@@ -1,7 +1,13 @@
+use avian2d::collision::ColliderHierarchyPlugin;
+use avian2d::prelude::*;
+use avian2d::PhysicsPlugins;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
+use bevy::time::Stopwatch;
 use bevy::utils::Duration;
 use leafwing_input_manager::prelude::ActionState;
+use server::ControlledBy;
+use std::ops::DerefMut;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
@@ -14,6 +20,10 @@ use lightyear::transport::io::IoDiagnosticsPlugin;
 use crate::protocol::*;
 
 const EPS: f32 = 0.0001;
+pub const BOT_RADIUS: f32 = 15.0;
+pub(crate) const BOT_MOVE_SPEED: f32 = 1.0;
+const BULLET_MOVE_SPEED: f32 = 300.0;
+const MAP_LIMIT: f32 = 2000.0;
 
 #[derive(Clone)]
 pub struct SharedPlugin;
@@ -23,31 +33,24 @@ impl Plugin for SharedPlugin {
         app.add_plugins(ProtocolPlugin);
         // registry types for reflection
         app.register_type::<PlayerId>();
-        app.add_systems(FixedPostUpdate, fixed_update_log);
+        // debug systems
+        // app.add_systems(FixedPostUpdate, fixed_update_log);
+        // app.add_systems(FixedLast, log_predicted_bot_transform);
+
         // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
         app.add_systems(
             FixedUpdate,
-            // ideally, during rollback, we'd despawn the pre-predicted player objects and then respawn them during shoot_bullet.
-            // how? we keep track of their spawn-tick, if it was before the rollback-tick we despawn.
-            //  - for every pre-predicted or pre-spawned entity, we keep track of the spawn tick.
-            //  - if we rollback to before that, we
-            (
-                player_movement,
-                shoot_bullet,
-                // avoid re-shooting bullets during rollbacks
-                // shoot_bullet.run_if(not(is_in_rollback)),
-                move_bullet,
-            )
-                .chain(),
+            (predicted_bot_movement, player_movement, shoot_bullet).chain(),
         );
-        // NOTE: we need to create prespawned entities in FixedUpdate, because only then are inputs correctly associated with a tick
-        //  Example:
-        //  tick = 0
-        //   F1 PreUpdate: press-shoot. F1 FixedUpdate: SKIPPED!!! F1 Update: spawn bullet F1: PostUpdate add hash.
-        //   F2 FixedUpdate: tick = 1. Gather inputs for the tick (i.e. F1 preupdate + F2 preupdate)
-        //  So now the server will think that the bullet was shot at tick = 1, but on client it was shot on tick = 0 and the hashes won't match.
-        //  In general, most input-handling needs to be handled in FixedUpdate to be correct.
-        // app.add_systems(Update, shoot_bullet);
+        // both client and server need physics
+        // (the client also needs the physics plugin to be able to compute predicted
+        //  bullet hits)
+        app.add_plugins(
+            PhysicsPlugins::default()
+                .build()
+                .disable::<ColliderHierarchyPlugin>(),
+        )
+        .insert_resource(Gravity(Vec2::ZERO));
     }
 }
 
@@ -108,12 +111,40 @@ fn player_movement(
     }
 }
 
+fn predicted_bot_movement(
+    tick_manager: Res<TickManager>,
+    mut query: Query<&mut Position, (With<PredictedBot>, Or<(With<Predicted>, With<Replicating>)>)>,
+) {
+    let tick = tick_manager.tick();
+    query.iter_mut().for_each(|mut position| {
+        let direction = if (tick.0 / 200) % 2 == 0 { 1.0 } else { -1.0 };
+        position.x += BOT_MOVE_SPEED * direction;
+    });
+}
+
+fn log_predicted_bot_transform(
+    tick_manager: Res<TickManager>,
+    rollback: Option<Res<Rollback>>,
+    mut query: Query<
+        (&Position, &Transform),
+        (With<PredictedBot>, Or<(With<Predicted>, With<Replicating>)>),
+    >,
+) {
+    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
+    });
+    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
+    query.iter().for_each(|(pos, transform)| {
+        info!(?tick, ?pos, ?transform, "PredictedBot FixedLast");
+    })
+}
+
 pub(crate) fn fixed_update_log(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
     player: Query<(Entity, &Transform), (With<PlayerId>, Without<Confirmed>)>,
-    ball: Query<(Entity, &Transform), (With<BallMarker>, Without<Confirmed>)>,
-    interpolated_ball: Query<(Entity, &Transform), (With<BallMarker>, With<Interpolated>)>,
+    ball: Query<(Entity, &Transform), (With<BulletMarker>, Without<Confirmed>)>,
+    interpolated_ball: Query<(Entity, &Transform), (With<BulletMarker>, With<Interpolated>)>,
 ) {
     let tick = rollback.map_or(tick_manager.tick(), |r| {
         tick_manager.tick_or_rollback_tick(r.as_ref())
@@ -144,37 +175,6 @@ pub(crate) fn fixed_update_log(
     }
 }
 
-// This system defines how we update the player's positions when we receive an input
-pub(crate) fn move_bullet(
-    mut commands: Commands,
-    mut query: Query<
-        (Entity, &mut Transform),
-        (
-            With<BallMarker>,
-            Or<(
-                // move predicted bullets
-                With<Predicted>,
-                // move server entities
-                With<ReplicationTarget>,
-                // move prespawned bullets
-                With<PreSpawnedPlayerObject>,
-            )>,
-        ),
-    >,
-) {
-    const BALL_MOVE_SPEED: f32 = 3.0;
-    const MAP_LIMIT: f32 = 2000.0;
-    for (entity, mut transform) in query.iter_mut() {
-        let movement_direction = transform.rotation * Vec3::Y;
-        transform.translation += movement_direction * BALL_MOVE_SPEED;
-        // destroy bullets that are out of the screen
-        if transform.translation.x.abs() > MAP_LIMIT || transform.translation.y.abs() > MAP_LIMIT {
-            // TODO: use the predicted despawn?
-            commands.entity(entity).despawn();
-        }
-    }
-}
-
 /// This system runs on both the client and the server, and is used to shoot a bullet
 /// The bullet is shot from the predicted player on the client, and from the server-entity on the server.
 /// When the bullet is replicated from server to client, it will use the existing client bullet with the `PreSpawnedPlayerObject` component
@@ -194,26 +194,31 @@ pub(crate) fn shoot_bullet(
     >,
 ) {
     let tick = tick_manager.tick();
-    const BALL_MOVE_SPEED: f32 = 10.0;
     for (id, transform, color, action) in query.iter_mut() {
-        // NOTE: cannot spawn the bullet during FixedUpdate because then during rollback we spawn a new bullet! For now just set the system to
-        //  run when not in rollback
-
         // NOTE: pressed lets you shoot many bullets, which can be cool
         if action.just_pressed(&PlayerActions::Shoot) {
             error!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
 
-            for delta in &[-0.2, 0.2] {
-                let salt: u64 = if delta < &0.0 { 0 } else { 1 };
-                let ball = BallBundle::new(
-                    transform.translation.truncate(),
-                    transform.rotation.to_euler(EulerRot::XYZ).2 + delta,
-                    color.0,
+            for delta in [-0.2, 0.2] {
+                let salt: u64 = if delta < 0.0 { 0 } else { 1 };
+                // shoot from the position of the player, towards the cursor, with an angle of delta
+                let mut bullet_transform = transform.clone();
+                bullet_transform.rotate_z(delta);
+                let bullet_bundle = (
+                    bullet_transform,
+                    LinearVelocity(bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED),
+                    RigidBody::Kinematic,
+                    // store the player who fired the bullet
+                    *id,
+                    *color,
+                    BulletMarker,
+                    Name::new("Bullet"),
                 );
+
                 // on the server, replicate the bullet
                 if identity.is_server() {
                     commands.spawn((
-                        ball,
+                        bullet_bundle,
                         // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                         //  but the server will take authority as soon as the client receives the entity
                         //  it does this by matching with the client entity that has the same hash
@@ -232,6 +237,10 @@ pub(crate) fn shoot_bullet(
                                 // the bullet is interpolated for other clients
                                 interpolation: NetworkTarget::AllExceptSingle(id.0),
                             },
+                            controlled_by: ControlledBy {
+                                target: NetworkTarget::Single(id.0),
+                                ..default()
+                            },
                             // NOTE: all predicted entities need to have the same replication group
                             group: ReplicationGroup::new_id(id.0.to_bits()),
                             ..default()
@@ -241,7 +250,10 @@ pub(crate) fn shoot_bullet(
                     // on the client, just spawn the ball
                     // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    commands.spawn((ball, PreSpawnedPlayerObject::default_with_salt(salt)));
+                    commands.spawn((
+                        bullet_bundle,
+                        PreSpawnedPlayerObject::default_with_salt(salt),
+                    ));
                 }
             }
         }
