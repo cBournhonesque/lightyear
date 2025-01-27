@@ -112,6 +112,7 @@ impl Plugin for SharedPlugin {
             after_physics_log.after(PhysicsSet::StepSimulation),
         );
 
+        app.add_plugins(lightyear_avian::AvianPlugin);
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()

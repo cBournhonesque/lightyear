@@ -15,7 +15,7 @@ This section focuses about the third type of predicted entity: prespawned entiti
 
 ## How does it work
 
-You can find an example of prespawning in the [prespawned example](https://github.com/cBournhonesque/lightyear/tree/main/examples/bullet_prespawn).
+You can find an example of prespawning in the [fps example](https://github.com/cBournhonesque/lightyear/tree/main/examples/fps).
 
 Let's say you want to spawn a bullet when the client shoots.
 You could just spawn the bullet on the server and wait for it to be replicated + predicted on the client.

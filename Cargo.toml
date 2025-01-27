@@ -1,15 +1,33 @@
+[package]
+name = "lightyear"
+version.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+description = "Server-client networking library for the Bevy game engine"
+readme = "README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license.workspace = true
+exclude = ["/tests"]
+publish = true
+
 [workspace]
 resolver = "2"
 members = [
+<<<<<<< Updated upstream
     "lightyear",
+=======
+    "crates/*",
+>>>>>>> Stashed changes
     "macros",
     # internal
     "benches/*",
     "examples/*",
 ]
-default-members = ["lightyear"]
+default-members = ["crates/lightyear_core"]
 exclude = ["examples/certificates"]
-
 
 [workspace.package]
 version = "0.18.0"
@@ -18,6 +36,24 @@ publish = false
 edition = "2021"
 rust-version = "1.82"
 license = "MIT OR Apache-2.0"
+
+[features]
+trace = ["dep:lightyear_core:trace"]
+metrics = ["lightyear_core:metrics"]
+visualizer = ["lightyear_core:visualizer"]
+mock_time = ["lightyear_core:mock_time"]
+webtransport = ["lightyear_core:webtransport"]
+leafwing = ["lightyear_core:leafwing-input-manager"]
+# NOTE: because lightyear doesn't enable any features of avian by default, your crate must enable essential features (like f32 or f64).
+avian2d = ["lightyear_core:avian2d", "lightyear_avian/2d"]
+avian3d = ["lightyear_core:avian3d", "lightyear_avian/3d"]
+websocket = ["lightyear_core:websocket"]
+steam = ["lightyear_core:steam"]
+track_change_detection = ["lightyear_core:track_change_detection"]
+
+# compression
+lz4 = ["lightyear_core:lz4"]
+zstd = ["lightyear_core:zstd"]
 
 # Enable max optimizations for dependencies, but not for our code:
 [profile.dev.package."*"]
@@ -38,12 +74,16 @@ incremental = false
 debug = false
 
 [workspace.dependencies]
+<<<<<<< Updated upstream
 
+=======
+lightyear_avian = { path = "./crates/lightyear_avian", version = "0.18.0", default-features = false }
+>>>>>>> Stashed changes
 lightyear_examples_common = { path = "./examples/common", default-features = false }
-lightyear = { path = "./lightyear", version = "0.18.0", default-features = false }
+lightyear = { path = ".", version = "0.18.0", default-features = false }
+lightyear_core = { path = "./crates/lightyear_core", version = "0.18.0", default-features = false }
 
 # utils
-
 anyhow = { version = "1.0.75", features = [] }
 clap = { version = "4.5.4", features = ["derive"] }
 chrono = "0.4.38"
@@ -58,7 +98,6 @@ ringbuffer = "0.15"
 thiserror = "2.0.3"
 seahash = "4.1.0"
 zstd = "0.13.1"
-
 
 # serialization
 
@@ -215,3 +254,6 @@ bevygap_client_plugin = { version = "0.3.1" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"
+
+[dependencies]
+lightyear_core.workspace = true

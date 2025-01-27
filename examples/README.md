@@ -29,8 +29,7 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
   We also use the `leafwing` feature for a better way to manage inputs.
 - `avian_3d_character`: example that shows clients controlling server-authoritative 3D objects simulated using avian.
 - `spaceships`: more advanced version of `avian_physics` with player movement based on forces, fully server authoritative, predicted bullet spawning. 
-- `bullet_prespawn`: example that shows how to spawn player-objects on the Predicted timeline. This is useful
-  to avoid having to wait a full round-trip before the object is spawned.
+- `fps`: example that shows how to spawn player-objects directly on the Predicted timeline, and how to use lag compensation to compute collisions between predicted and interpolated entities.
 - `auth`: an example that shows how a client can get a `ConnectToken` to connect to a server
 - `lobby`: an example that shows how the network topology can be changed at runtime.
   Every client can potentially act as a host for the game (instead of the dedicated server).

@@ -37,11 +37,13 @@ The replication can be client-controlled.
 
 It also shows how to spawn entities directly on the client's predicted timeline.
 
-### [Bullet Pre-spawn](https://cbournhonesque.github.io/lightyear/examples/bullet_prespawn/dist/)
+### [FPS](https://cbournhonesque.github.io/lightyear/examples/fps/dist/)
 
 This example shows how to easily pre-spawn entities on the client's predicted timeline.
 The bullets are created using the same system on both client and server; however when the server
 replicates a bullet to the client, the client will match it with the existing pre-spawned bullet (instead of creating a new entity).
+
+It also showcases how to use lag compensation to compute collisions between predicted and interpolated entities.
 
 ### [Leafwing Input Prediction](https://cbournhonesque.github.io/lightyear/examples/leafwing_inputs/dist/)
 
