@@ -183,7 +183,9 @@ impl Apps {
                     // even if we communicate via channels, we need to provide a socket address for the client
                     channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
                 }];
-                let (server_app, server_config) = server_app(settings, extra_transport_configs);
+                // we don't want to register the gui plugins twice if running in separate mode
+                let (server_app, server_config) =
+                    server_app(false, settings, extra_transport_configs);
                 Apps::ClientAndServer {
                     client_app,
                     client_config,
@@ -207,7 +209,7 @@ impl Apps {
             #[cfg(feature = "server")]
             Some(Mode::Server) => {
                 #[allow(unused_mut)]
-                let (mut app, config) = server_app(settings, vec![]);
+                let (mut app, config) = server_app(cfg!(feature = "gui"), settings, vec![]);
                 // we keep gui a parameter so that we can easily disable server gui even with all default features
                 // enabled
                 #[cfg(feature = "gui")]
@@ -457,7 +459,7 @@ impl Apps {
 }
 
 #[cfg(feature = "gui")]
-fn window_plugin() -> WindowPlugin {
+pub fn window_plugin() -> WindowPlugin {
     WindowPlugin {
         primary_window: Some(Window {
             title: format!("Lightyear Example: {}", env!("CARGO_PKG_NAME")),
@@ -471,7 +473,7 @@ fn window_plugin() -> WindowPlugin {
     }
 }
 
-fn log_plugin() -> LogPlugin {
+pub fn log_plugin() -> LogPlugin {
     LogPlugin {
         level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,bevy_time=warn".to_string(),
@@ -480,7 +482,7 @@ fn log_plugin() -> LogPlugin {
 }
 
 #[cfg(feature = "gui")]
-fn new_gui_app(add_inspector: bool) -> App {
+pub fn new_gui_app(add_inspector: bool) -> App {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -499,7 +501,7 @@ fn new_gui_app(add_inspector: bool) -> App {
     app
 }
 
-fn new_headless_app() -> App {
+pub fn new_headless_app() -> App {
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins,
@@ -514,7 +516,7 @@ fn new_headless_app() -> App {
 /// Build the client app with the `ClientPlugins` added.
 /// Takes in a `net_config` parameter so that we configure the network transport.
 #[cfg(feature = "client")]
-fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, ClientConfig) {
+pub fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, ClientConfig) {
     let app = new_gui_app(settings.client.inspector);
 
     let client_config = ClientConfig {
@@ -531,12 +533,17 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
 
 /// Build the server app with the `ServerPlugins` added.
 #[cfg(feature = "server")]
-fn server_app(
+pub fn server_app(
+    enable_gui: bool,
     settings: Settings,
     extra_transport_configs: Vec<server::ServerTransport>,
 ) -> (App, ServerConfig) {
     #[cfg(feature = "gui")]
-    let app = new_gui_app(settings.server.inspector);
+    let app = if enable_gui {
+        new_gui_app(settings.server.inspector)
+    } else {
+        new_headless_app()
+    };
     #[cfg(not(feature = "gui"))]
     let app = new_headless_app();
     info!("server_app. gui={}", cfg!(feature = "gui"));
@@ -560,7 +567,7 @@ fn server_app(
 
 /// An `App` that contains both the client and server plugins
 #[cfg(all(feature = "client", feature = "server"))]
-fn combined_app(
+pub fn combined_app(
     settings: Settings,
     extra_transport_configs: Vec<server::ServerTransport>,
     client_net_config: client::NetConfig,

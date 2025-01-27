@@ -11,19 +11,14 @@ categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 publish = false
 
-[features]
-gui = [
-  "bevy/bevy_render",
-  "bevy/bevy_core_pipeline",
-  "bevy/bevy_winit",
-  "bevy/bevy_window",
-]
-client = ["gui"]
-server = []
-visualizer = ["lightyear/visualizer", "gui"]
 
 [dependencies]
-lightyear = { workspace = true, features = ["steam", "websocket", "leafwing"] }
-
-bevy.workspace = true
+clap.workspace = true
+lightyear.workspace = true
+bevy = { workspace = true, features = [
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_winit",
+    "bevy_window"
+]}
 serde.workspace = true

@@ -5,7 +5,7 @@ use tracing::{debug, error, info, trace};
 
 use crate::client::io::Io;
 use crate::connection::client::{
-    ConnectionError, ConnectionState, DisconnectReason, IoConfig, NetClient,
+    ConnectionError, ConnectionState, IoConfig, NetClient,
 };
 use crate::connection::id;
 use crate::packet::packet_builder::RecvPayload;
@@ -690,7 +690,7 @@ pub(crate) mod connection {
                 }
                 ClientState::Connected => ConnectionState::Connected,
                 _ => ConnectionState::Disconnected {
-                    reason: Some(DisconnectReason::Netcode(self.client.state)),
+                    reason: Some(ConnectionError::NetcodeState(self.client.state)),
                 },
             }
         }

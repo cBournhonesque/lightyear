@@ -42,7 +42,7 @@ pub fn modify_digest_on_wasm(client_settings: &mut ClientSettings) -> Option<Str
 }
 
 #[cfg(target_family = "wasm")]
-fn get_digest_on_wasm() -> Option<String> {
+pub fn get_digest_on_wasm() -> Option<String> {
     let window = web_sys::window().expect("expected window");
 
     if let Ok(obj) = window.location().hash() {
@@ -358,7 +358,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
 }
 
 /// Build a netcode config for the client
-pub(crate) fn build_client_netcode_config(
+pub fn build_client_netcode_config(
     client_id: u64,
     server_addr: SocketAddr,
     conditioner: Option<&Conditioner>,
