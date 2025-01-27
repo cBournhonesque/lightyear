@@ -154,7 +154,7 @@ bevy_web_keepalive = "0.3.4"
 
 futures-lite = "2.1.0"
 getrandom = { version = "0.3.0", features = [
-    "js", # feature 'js' is required for wasm
+    "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
 xwt-core = "0.6"
 xwt-web = "0.15.0"
