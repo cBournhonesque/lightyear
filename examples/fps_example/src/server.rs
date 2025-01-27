@@ -21,6 +21,8 @@ use lightyear_avian::prelude::{
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
+const BULLET_COLLISION_DISTANCE_CHECK: f32 = 2.0;
+
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(LagCompensationPlugin);
@@ -110,8 +112,10 @@ pub(crate) fn compute_hit(
     // instead of directly using avian's SpatialQuery, we want to use the LagCompensationSpatialQuery
     // to apply lag-compensation (i.e. compute the collision between the bullet and the collider as it
     // was seen by the client when they fired the shot)
+    mut commands: Commands,
+    tick_manager: Res<TickManager>,
     query: LagCompensationSpatialQuery,
-    bullets: Query<(&PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
+    bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
     manager: Res<ConnectionManager>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
@@ -119,7 +123,8 @@ pub(crate) fn compute_hit(
     client_query: Query<&InterpolationDelay>,
     mut player_query: Query<(&mut Score, &PlayerId)>,
 ) {
-    bullets.iter().for_each(|(id, position, velocity)| {
+    let tick = tick_manager.tick();
+    bullets.iter().for_each(|(entity, id, position, velocity)| {
         let Ok(delay) = manager
             .client_entity(id.0)
             .map(|client_entity| client_query.get(client_entity).unwrap())
@@ -127,19 +132,18 @@ pub(crate) fn compute_hit(
             error!("Could not retrieve InterpolationDelay for client {id:?}");
             return;
         };
-        if query
-            .cast_ray(
-                // the delay is sent in every input message; the latest InterpolationDelay received
-                // is stored on the client entity
-                *delay,
-                position.0,
-                Dir2::new_unchecked(velocity.0.normalize()),
-                velocity.length(),
-                false,
-                &mut SpatialQueryFilter::default(),
-            )
-            .is_some()
-        {
+        if let Some(hit_data) = query.cast_ray(
+            // the delay is sent in every input message; the latest InterpolationDelay received
+            // is stored on the client entity
+            *delay,
+            position.0,
+            Dir2::new_unchecked(velocity.0.normalize()),
+            // TODO: shouldn't this be based on velocity length?
+            BULLET_COLLISION_DISTANCE_CHECK,
+            false,
+            &mut SpatialQueryFilter::default(),
+        ) {
+            info!(?tick, ?hit_data, ?entity, "Despawn bullet");
             // if there is a hit, increment the score
             player_query
                 .iter_mut()
@@ -147,6 +151,7 @@ pub(crate) fn compute_hit(
                 .map(|(mut score, _)| {
                     score.0 += 1;
                 });
+            commands.entity(entity).despawn_recursive();
         }
     })
 }
