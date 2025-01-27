@@ -153,7 +153,7 @@ web-sys = { version = "0.3", features = [
 bevy_web_keepalive = "0.3.4"
 
 futures-lite = "2.1.0"
-getrandom = { version = "0.2.11", features = [
+getrandom = { version = "0.3.0", features = [
     "js", # feature 'js' is required for wasm
 ] }
 xwt-core = "0.6"
