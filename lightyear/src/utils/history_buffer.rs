@@ -128,12 +128,10 @@ impl<'a, R> IntoIterator for &'a HistoryBuffer<R> {
     >;
 
     fn into_iter(self) -> Self::IntoIter {
-        (&self.buffer)
-            .into_iter()
-            .filter_map(|(tick, state)| match state {
-                HistoryState::Updated(value) => Some((*tick, value)),
-                HistoryState::Removed => None,
-            })
+        self.buffer.iter().filter_map(|(tick, state)| match state {
+            HistoryState::Updated(value) => Some((*tick, value)),
+            HistoryState::Removed => None,
+        })
     }
 }
 

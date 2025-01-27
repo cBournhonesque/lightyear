@@ -22,7 +22,5 @@ lag_compensation = []
 [dependencies]
 avian2d = { workspace = true, optional = true }
 avian3d = { workspace = true, optional = true }
-lightyear = { workspace = true, features = [
-    "leafwing",
-] }
+lightyear = { workspace = true, features = ["leafwing"] }
 bevy = { workspace = true }

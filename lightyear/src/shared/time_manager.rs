@@ -169,9 +169,8 @@ mod wrapped_time {
             serializer.serialize_u32(self.millis())
         }
     }
-
     struct WrappedTimeVisitor;
-    impl<'de> Visitor<'de> for WrappedTimeVisitor {
+    impl Visitor<'_> for WrappedTimeVisitor {
         type Value = WrappedTime;
 
         fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {

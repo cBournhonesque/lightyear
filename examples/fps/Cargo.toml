@@ -17,18 +17,15 @@ visualizer = ["lightyear_examples_common/visualizer", "gui"]
 
 [dependencies]
 avian2d = { workspace = true, features = [
-    "2d",
-    "debug-plugin",
-    "f32",
-    "parry-f32",
-    "parallel",
-    "serialize",
+  "2d",
+  "debug-plugin",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
 ] }
 lightyear_examples_common.workspace = true
-lightyear = { workspace = true, features = [
-    "avian2d",
-    "leafwing",
-] }
+lightyear = { workspace = true, features = ["avian2d", "leafwing"] }
 lightyear_avian = { workspace = true, features = ["2d", "lag_compensation"] }
 
 leafwing-input-manager.workspace = true
