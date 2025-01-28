@@ -6,7 +6,9 @@ use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::alloc::Layout;
 use std::any::TypeId;
+use std::ptr::NonNull;
 
 /// Stores function pointers related to serialization and deserialization
 #[derive(Clone, Debug, PartialEq)]
@@ -17,6 +19,7 @@ pub struct ErasedSerializeFns {
     pub serialize: unsafe fn(),
     pub erased_serialize: ErasedSerializeFn,
     pub deserialize: unsafe fn(),
+    pub erased_deserialize_into_fn: ErasedDeserializeIntoFn,
     pub erased_clone: Option<unsafe fn()>,
     pub map_entities: Option<ErasedMapEntitiesFn>,
     pub send_map_entities: Option<ErasedSendMapEntitiesFn>,
@@ -37,6 +40,14 @@ type ErasedSerializeFn = unsafe fn(
     writer: &mut Writer,
     entity_map: Option<&mut SendEntityMap>,
 ) -> Result<(), SerializationError>;
+
+type ErasedDeserializeIntoFn = unsafe fn(
+    erased_serialize_fn: &ErasedSerializeFns,
+    // Will store the raw bytes of the deserialized message
+    raw_bytes: &mut Vec<u8>,
+    reader: &mut Reader,
+    entity_map: &mut ReceiveEntityMap,
+) -> Result<usize, SerializationError>;
 
 /// Type of the serialize function without entity mapping
 type SerializeFn<M> = fn(message: &M, writer: &mut Writer) -> Result<(), SerializationError>;
@@ -81,22 +92,38 @@ unsafe fn erased_serialize_fn<M: Message>(
     }
 }
 
-// unsafe fn erased_deserialize_fn<'a, M: Message>(
-//     erased_serialize_fn: &ErasedSerializeFns,
-//     reader: &mut Reader,
-//     // TODO: should this be an option?
-//     entity_map: &mut ReceiveEntityMap,
-// ) -> Result<OwningPtr<'a>, SerializationError> {
-//     let typed_deserialize_fns = erased_serialize_fn.typed::<M>();
-//     let mut message = (typed_deserialize_fns.deserialize)(reader)?;
-//     if let Some(map_entities) = erased_serialize_fn.receive_map_entities {
-//         unsafe {
-//             map_entities(PtrMut::from(&mut message), entity_map);
-//         }
-//     }
-//     let owning_ptr = OwningPtr::new(NonNull::new(ManuallyDrop::new(message)));
-//     Ok(owning_ptr)
-// }
+pub(crate) unsafe fn erased_deserialize_into<M: Message>(
+    erased_serialize_fn: &ErasedSerializeFns,
+    raw_bytes: &mut Vec<u8>,
+    reader: &mut Reader,
+    // TODO: should this be an option?
+    entity_map: &mut ReceiveEntityMap,
+) -> Result<usize, SerializationError> {
+    let typed_deserialize_fns = erased_serialize_fn.typed::<M>();
+    let mut message = (typed_deserialize_fns.deserialize)(reader)?;
+    if let Some(map_entities) = erased_serialize_fn.receive_map_entities {
+        unsafe {
+            map_entities(PtrMut::from(&mut message), entity_map);
+        }
+    };
+    let layout = Layout::new::<M>();
+    let ptr = NonNull::new_unchecked(&mut message).cast::<u8>();
+    // make sure the Drop trait is not called on the message when we exit this function
+    std::mem::forget(message);
+    Ok(push_ptr(raw_bytes, ptr, layout))
+}
+
+// Given a pointer to a value of type M and the layout of the type, push the bytes
+// of the value into the raw_bytes vector
+unsafe fn push_ptr(raw_bytes: &mut Vec<u8>, ptr: NonNull<u8>, layout: Layout) -> usize {
+    let count = layout.size();
+    raw_bytes.reserve(count);
+    let space = NonNull::new_unchecked(raw_bytes.spare_capacity_mut()).cast::<u8>();
+    space.copy_from_nonoverlapping(ptr, count);
+    let length = raw_bytes.len();
+    raw_bytes.set_len(length + count);
+    length
+}
 
 /// Default serialize function using bincode
 fn default_serialize<M: Message + Serialize>(
@@ -160,6 +187,7 @@ impl ErasedSerializeFns {
             type_name: std::any::type_name::<M>(),
             erased_serialize: erased_serialize_fn::<M>,
             serialize: unsafe { std::mem::transmute(serialize_fns.serialize) },
+            erased_deserialize_into_fn: erased_deserialize_into::<M>,
             deserialize: unsafe { std::mem::transmute(serialize_fns.deserialize) },
             erased_clone: None,
             map_entities: None,

@@ -1,15 +1,15 @@
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
-use std::any::TypeId;
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::ops::{Add, Mul};
-
 use bevy::prelude::{App, Component, EntityWorldMut, Mut, Reflect, Resource, TypePath, World};
 use bevy::ptr::Ptr;
 use bevy::utils::HashMap;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::any::TypeId;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::ops::{Add, Mul};
+use std::ptr::NonNull;
 
 use tracing::{debug, error, trace};
 
@@ -138,6 +138,13 @@ pub enum ComponentError {
 /// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct ComponentRegistry {
+    // temporary buffers to store the deserialized data to batch write
+    // Raw storage where we can store the deserialized data bytes
+    raw_bytes: Vec<u8>,
+    // Positions of each component in the `raw_bytes` bufferk
+    component_ptrs_indices: Vec<usize>,
+    // List of component ids
+    component_ids: Vec<ComponentId>,
     pub(crate) replication_map: HashMap<ComponentKind, ReplicationMetadata>,
     interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
     prediction_map: HashMap<ComponentKind, PredictionMetadata>,
@@ -563,6 +570,8 @@ mod replication {
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
+    use bevy::ptr::OwningPtr;
+    use bytes::Bytes;
 
     impl ComponentRegistry {
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
@@ -591,6 +600,63 @@ mod replication {
                     remove: Some(remove),
                 },
             );
+        }
+
+        pub(crate) fn batch_write(
+            &mut self,
+            component_bytes: Vec<Bytes>,
+            entity_world_mut: &mut EntityWorldMut,
+            tick: Tick,
+            entity_map: &mut ReceiveEntityMap,
+            events: &mut ConnectionEvents,
+        ) -> Result<(), ComponentError> {
+            component_bytes.into_iter().try_for_each(|b| {
+                let mut reader = Reader::from(b);
+                let net_id =
+                    ComponentNetId::from_bytes(&mut reader).map_err(SerializationError::from)?;
+                let kind = self
+                    .kind_map
+                    .kind(net_id)
+                    .ok_or(ComponentError::NotRegistered)?;
+                let replication_metadata = self
+                    .replication_map
+                    .get(kind)
+                    .ok_or(ComponentError::MissingReplicationFns)?;
+                let serialization_fns = self
+                    .serialize_fns_map
+                    .get(kind)
+                    .ok_or(ComponentError::MissingSerializationFns)?;
+                let ptr_index = unsafe {
+                    (serialization_fns.erased_deserialize_into_fn)(
+                        serialization_fns,
+                        &mut self.raw_bytes,
+                        &mut reader,
+                        entity_map,
+                    )?
+                };
+                self.component_ids.push(replication_metadata.component_id);
+                self.component_ptrs_indices.push(ptr_index);
+                Ok::<(), ComponentError>(())
+            })?;
+
+            // TODO: sort by component id for cache efficiency!
+            // TODO: update events?
+            // # Safety
+            // - Each [`ComponentId`] is from the same world as [`EntityWorldMut`]
+            // - Each [`OwningPtr`] is a valid reference to the type represented by [`ComponentId`]
+            //   (the data is store in self.raw_bytes)
+            unsafe {
+                entity_world_mut.insert_by_ids(
+                    self.component_ids.as_slice(),
+                    self.component_ptrs_indices.drain(..).map(|index| {
+                        let ptr = NonNull::new_unchecked(self.raw_bytes.as_mut_ptr().add(index));
+                        OwningPtr::new(ptr)
+                    }),
+                )
+            };
+            // we don't need the raw bytes anymore since the OwningPtrs have been inserted into the entity
+            self.raw_bytes.clear();
+            Ok(())
         }
 
         /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
