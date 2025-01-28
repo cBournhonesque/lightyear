@@ -5,9 +5,7 @@ use super::entity_map::RemoteEntityMap;
 use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
-use crate::prelude::{
-    ClientConnectionManager, ClientId, PrePredicted, ServerConnectionManager, Tick,
-};
+use crate::prelude::{ClientId, PrePredicted, Tick};
 use crate::protocol::component::{ComponentKind, ComponentRegistry};
 use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
@@ -40,27 +38,6 @@ pub struct ReplicationReceiver {
     // BOTH
     /// Buffer to so that we have an ordered receiver per group
     pub(crate) group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
-}
-
-/// Get `ConnectionEvents` depending on whether we receive from a client or a server
-pub(crate) fn get_connection_events(
-    world: &mut World,
-    remote_id: Option<ClientId>,
-) -> &mut ConnectionEvents {
-    // SAFETY: the ConnectionEvents resource is always present
-    if let Some(remote_client) = remote_id {
-        &mut world
-            .resource_mut::<ServerConnectionManager>()
-            .into_inner()
-            .connection_mut(remote_client)
-            .unwrap()
-            .events
-    } else {
-        &mut world
-            .resource_mut::<ClientConnectionManager>()
-            .into_inner()
-            .events
-    }
 }
 
 impl ReplicationReceiver {
@@ -271,8 +248,6 @@ impl ReplicationReceiver {
         // apply actions first
 
         // TODO: this would be how we do it, but the borrow-checked prevents us...
-        //  either create a ViewLens?
-
         // self.read_actions(current_tick)
         //     .for_each(|(remote_tick, actions)| {
         //         self.apply_actions_message(

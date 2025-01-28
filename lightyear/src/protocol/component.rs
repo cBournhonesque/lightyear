@@ -330,7 +330,7 @@ mod serialize {
             erased_fns.map_entities.is_some()
         }
 
-        pub(crate) fn serialize<C: 'static>(
+        pub(crate) fn serialize<C: Message>(
             &self,
             component: &mut C,
             writer: &mut Writer,
@@ -373,7 +373,7 @@ mod serialize {
         }
 
         /// Deserialize only the component value (the ComponentNetId has already been read)
-        pub(crate) fn raw_deserialize<C: 'static>(
+        pub(crate) fn raw_deserialize<C: Message>(
             &self,
             reader: &mut Reader,
             net_id: ComponentNetId,
@@ -1267,7 +1267,6 @@ mod tests {
         registry.register_component_custom_serde::<ComponentSyncModeSimple>(SerializeFns {
             serialize: serialize_component2,
             deserialize: deserialize_component2,
-            serialize_map_entities: None,
         });
         let mut component = ComponentSyncModeSimple(1.0);
         let mut writer = Writer::default();

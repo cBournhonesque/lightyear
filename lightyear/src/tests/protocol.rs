@@ -226,7 +226,6 @@ impl Plugin for ProtocolPlugin {
             SerializeFns {
                 serialize: serialize_component2,
                 deserialize: deserialize_component2,
-                serialize_map_entities: None,
             },
         )
         .add_prediction(ComponentSyncMode::Simple);
@@ -260,7 +259,6 @@ impl Plugin for ProtocolPlugin {
             SerializeFns {
                 serialize: serialize_resource2,
                 deserialize: deserialize_resource2,
-                serialize_map_entities: None,
             },
         );
         // channels
