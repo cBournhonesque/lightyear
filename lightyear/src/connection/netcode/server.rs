@@ -385,7 +385,7 @@ pub struct NetcodeServer<Ctx = ()> {
     conn_cache: ConnectionCache,
     token_entries: TokenEntries,
     cfg: ServerConfig<Ctx>,
-    pub client_errors: Vec<ConnectionError>,
+    client_errors: Vec<ConnectionError>,
 }
 
 impl NetcodeServer {
@@ -741,7 +741,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                 continue;
             };
             if !client.is_connected() {
-                self.handle_client_error(Error::ClientNotConnected);
+                self.handle_client_error(Error::ClientNotConnected(id::ClientId::Netcode(id)));
                 continue;
             }
             if client.last_send_time + self.cfg.keep_alive_send_rate >= self.time {
@@ -837,19 +837,19 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// For a non-panicking version, use [`try_update`](NetcodeServer::try_update).
     pub fn update(&mut self, delta_ms: f64, io: &mut Io) {
         self.try_update(delta_ms, io)
-            .expect("send/recv error while updating server")
+            .expect("send/recv error while updating server");
     }
     /// The fallible version of [`update`](NetcodeServer::update).
     ///
     /// Returns an error if the server can't send or receive packets.
-    pub fn try_update(&mut self, delta_ms: f64, io: &mut Io) -> Result<()> {
+    pub fn try_update(&mut self, delta_ms: f64, io: &mut Io) -> Result<Vec<ConnectionError>> {
         self.time += delta_ms;
         self.conn_cache.update(delta_ms);
         let (sender, receiver) = io.split();
         self.check_for_timeouts();
         self.recv_packets(sender, receiver)?;
         self.send_packets(io)?;
-        Ok(())
+        Ok(self.client_errors.drain(..).collect())
     }
     /// Receives a packet from a client, if one is available in the queue.
     ///
@@ -897,7 +897,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             // since there is no way to obtain a client index of clients that are not connected,
             // there is no straight-forward way for a user to send a packet to a non-connected client.
             // still, in case a user somehow manages to obtain such index, we'll return an error.
-            return Err(Error::ClientNotConnected);
+            return Err(Error::ClientNotConnected(id::ClientId::Netcode(client_id)));
         }
         if !conn.is_confirmed() {
             // send a keep-alive packet to the client to confirm the connection
@@ -913,7 +913,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     pub fn send_all(&mut self, buf: &[u8], io: &mut Io) -> Result<()> {
         for id in self.conn_cache.ids() {
             match self.send(buf, id, io) {
-                Ok(_) | Err(Error::ClientNotConnected) | Err(Error::ClientNotFound(_)) => continue,
+                Ok(_) | Err(Error::ClientNotConnected(_)) | Err(Error::ClientNotFound(_)) => continue,
                 Err(e) => return Err(e),
             }
         }
@@ -985,7 +985,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// The server will send a number of redundant disconnect packets to the client, and then remove its connection info.
     pub(crate) fn disconnect_by_addr(&mut self, addr: SocketAddr, io: &mut Io) -> Result<()> {
         let Some(client_id) = self.conn_cache.client_id_map.get(&addr) else {
-            return Err(Error::ClientNotConnected);
+            return Err(Error::AddressNotFound(addr));
         };
         self.disconnect(*client_id, io)
     }
@@ -1052,7 +1052,6 @@ pub(crate) mod connection {
     #[derive(Resource)]
     pub struct Server {
         pub(crate) server: NetcodeServer<NetcodeServerContext>,
-        client_errors: Vec<ConnectionError>,
         io_config: IoConfig,
         io: Option<Io>,
     }
@@ -1109,15 +1108,15 @@ pub(crate) mod connection {
                 .collect()
         }
 
-        fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
+        fn try_update(&mut self, delta_ms: f64) -> Result<Vec<ConnectionError>, ConnectionError> {
             let io = self.io.as_mut().ok_or(ConnectionError::IoNotInitialized)?;
             // reset the new connections, disconnections, and errors
             self.server.cfg.context.connections.clear();
             self.server.cfg.context.disconnections.clear();
             self.server.client_errors.clear();
 
-            self.server.try_update(delta_ms, io)?;
-            Ok(())
+            let client_errors = self.server.try_update(delta_ms, io)?;
+            Ok(client_errors)
         }
 
         fn recv(&mut self) -> Option<(RecvPayload, id::ClientId)> {
@@ -1189,7 +1188,6 @@ pub(crate) mod connection {
                 server,
                 io_config,
                 io: None,
-                client_errors: vec![],
             }
         }
 

@@ -98,6 +98,7 @@ pub(crate) fn receive_packets(
     component_registry: Res<ComponentRegistry>,
     message_registry: Res<MessageRegistry>,
     system_change_tick: SystemChangeTick,
+    aggregate_client_errors: Local<Vec<(usize, ConnectionError)>>,
 ) {
     trace!("Receive client packets");
     let delta = virtual_time.delta();
@@ -105,8 +106,6 @@ pub(crate) fn receive_packets(
     // update time manager
     time_manager.update(delta);
     trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
-
-    let mut client_errors = Vec::new();
 
     // update server net connections
     // reborrow trick to enable split borrows
@@ -145,26 +144,18 @@ pub(crate) fn receive_packets(
         }
 
         if networking_state.get() != &NetworkingState::Stopping {
-            let _ = netserver
-                .try_update(delta.as_secs_f64())
-                .map_err(|e| error!("Error updating netcode server: {:?}", e));
-
-            match netserver {
-                ServerConnection::Netcode(netcode) => {
-                    client_errors.extend(
-                        netcode
-                            .server
-                            .client_errors
+            match netserver.try_update(delta.as_secs_f64()) {
+                Ok(mut this_client_errors) => {
+                    if !this_client_errors.is_empty() {
+                        this_client_errors
                             .drain(..)
-                            .map(|e| (server_idx, e)),
-                    );
+                            .for_each(|e| react_to_client_error(&mut commands, e));
+                    }
                 }
-                #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-                ServerConnection::Steam(_) => {} // todo: steam errors
-            };
+                Err(e) => error!("Error updating server: {}", e),
+            }
         }
 
-        let new_disconnections = netserver.new_disconnections();
         for client_id in netserver.new_connections() {
             netservers.client_server_map.insert(client_id, server_idx);
             // spawn an entity for the client
@@ -177,7 +168,7 @@ pub(crate) fn receive_packets(
         // TODO: handle disconnections in a separate system that listens to ServerDisconnect events
         //  to avoid duplicate logic for host-server in client/networking.rs
         // disconnects because we received a disconnect message
-        for client_id in new_disconnections {
+        for client_id in netserver.new_disconnections() {
             if netservers.client_server_map.remove(&client_id).is_some() {
                 debug!("removing connection from connection manager");
                 connection_manager.remove(client_id);
@@ -186,12 +177,6 @@ pub(crate) fn receive_packets(
             } else {
                 error!("Client disconnected but could not map client_id to the corresponding netserver");
             }
-        }
-    }
-
-    for (server_idx, error) in client_errors {
-        if let Some(server) = netservers.servers.get_mut(server_idx) {
-            react_to_client_error(&mut connection_manager, server, error);
         }
     }
 
@@ -282,6 +267,7 @@ pub(crate) fn receive(
 
 // or do additional send stuff here
 pub(crate) fn send(
+    mut commands: Commands,
     change_tick: SystemChangeTick,
     mut netservers: ResMut<ServerConnections>,
     mut connection_manager: ResMut<ConnectionManager>,
@@ -290,8 +276,6 @@ pub(crate) fn send(
 ) {
     trace!("Send packets to clients");
     let span = info_span!("send_packets").entered();
-
-    let mut send_errors = Vec::new();
 
     connection_manager
         .connections
@@ -321,7 +305,7 @@ pub(crate) fn send(
                     metrics::counter!("transport::send::kb").increment(bytes);
                 }
                 if let Err(e) = netserver.send(packet_byte.as_slice(), *client_id) {
-                    send_errors.push((*client_id, netserver_idx, e));
+                    react_to_client_error(&mut commands, e);
                 }
             }
             Ok(())
@@ -329,24 +313,9 @@ pub(crate) fn send(
         .unwrap_or_else(|e: ServerError| {
             error!("Error sending packets: {}", e);
         });
-
-    for (client_id, server_idx, error) in send_errors {
-        if let Some(server) = netservers.servers.get_mut(server_idx) {
-            react_to_client_error(&mut connection_manager, server, error);
-        } else {
-            error!(
-                "Could not find server for index {} when handling error",
-                server_idx
-            );
-        }
-    }
 }
 
-fn react_to_client_error(
-    connection_manager: &mut ResMut<ConnectionManager>,
-    server: &mut ServerConnection,
-    error: ConnectionError,
-) {
+fn react_to_client_error(commands: &mut Commands, error: ConnectionError) {
     let fatal_error_client_info = match &error {
         ConnectionError::Netcode(netcode_error) => match netcode_error {
             NetcodeError::ClientTransport(client_id, err) => match err {
@@ -362,8 +331,7 @@ fn react_to_client_error(
     };
     if let Some((client_id, err)) = fatal_error_client_info {
         error!("Fatal Client Error: {:?}", error);
-        let _ = server.disconnect(client_id);
-        connection_manager.remove(client_id);
+        commands.disconnect(client_id);
     } else {
         warn!("Non-Fatal Client Error: {:?}", error);
     }

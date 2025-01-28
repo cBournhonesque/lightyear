@@ -13,10 +13,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("buffer size mismatch, expected {0} but got {1}")]
     SizeMismatch(usize, usize),
-    #[error("client_id {0} tried to send a packet to a client that doesn't exist")]
+    #[error("tried to send a packet to a client {0} that doesn't exist")]
     ClientNotFound(ClientId),
+    #[error("tried to send a packet to a address {0} that doesn't exist")]
+    AddressNotFound(SocketAddr),
     #[error("tried to send a packet to a client that isn't connected")]
-    ClientNotConnected,
+    ClientNotConnected(ClientId),
     #[error("failed to read connect token")]
     InvalidConnectToken,
     #[error("client_id {0} connect token has already been used")]

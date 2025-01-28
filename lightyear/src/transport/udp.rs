@@ -100,6 +100,11 @@ impl PacketSender for UdpSocketBuffer {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         let socket = self.socket.as_ref().lock().unwrap();
 
+        // Windows reports socket failures asynchronously.
+        // Before attempting to send, the socket's health must be checked, to verify
+        // that a previous operation did not asynchronously produce an error.
+        // Failure to do this check will leave the socket in an error state,
+        // causing all subsequent operations on this socket to fail.
         #[cfg(target_os = "windows")]
         {
             let mut peek_buf = [0u8; 1];
