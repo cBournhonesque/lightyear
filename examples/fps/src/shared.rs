@@ -125,7 +125,7 @@ fn predicted_bot_movement(
 fn log_predicted_bot_transform(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
-    mut query: Query<
+    query: Query<
         (&Position, &Transform),
         (With<PredictedBot>, Or<(With<Predicted>, With<Replicating>)>),
     >,

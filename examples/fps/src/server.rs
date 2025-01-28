@@ -31,10 +31,12 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(FixedUpdate, interpolated_bot_movement);
         app.add_systems(
             PhysicsSchedule,
-            compute_hit_lag_compensation.in_set(LagCompensationSet::Collisions),
+            // lag compensation collisions must run after the SpatialQuery has been updated
+            compute_hit_lag_compensation.after(PhysicsStepSet::SpatialQuery),
         );
         app.add_systems(
             FixedPostUpdate,
+            // check collisions after physics have run
             compute_hit_prediction.after(PhysicsSet::Sync),
         );
     }

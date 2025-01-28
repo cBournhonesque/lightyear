@@ -15,7 +15,7 @@ use lightyear::prelude::client::{
 use lightyear::prelude::server::ReplicationTarget;
 use lightyear::prelude::{NetworkIdentity, PreSpawnedPlayerObject, Replicated};
 use lightyear::transport::io::IoDiagnosticsPlugin;
-use lightyear_avian::prelude::AabbEnvelopeHolder;
+use lightyear_avian::prelude::{AabbEnvelopeHolder, LagCompensationHistory};
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
