@@ -1,6 +1,4 @@
 //! Defines the server bevy systems and run conditions
-use std::net::SocketAddr;
-
 use crate::connection::netcode::Error as NetcodeError;
 use crate::connection::server::{ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::server::is_stopped;
@@ -159,7 +157,7 @@ pub(crate) fn receive_packets(
         }
 
         let new_disconnections = netserver.new_disconnections();
-        for client_id in netserver.new_connections().iter().copied() {
+        for client_id in netserver.new_connections() {
             netservers.client_server_map.insert(client_id, server_idx);
             // spawn an entity for the client
             let client_entity = commands
@@ -183,7 +181,6 @@ pub(crate) fn receive_packets(
         }
     }
 
-    // Handle all errors after the main loop is complete
     for (server_idx, error) in client_errors {
         if let Some(server) = netservers.servers.get_mut(server_idx) {
             react_to_client_error(&mut connection_manager, server, error);

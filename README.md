@@ -98,6 +98,7 @@ app.add_channel::<Channel1>(ChannelSettings {
       or more mis-predictions
     - **Bandwidth Management**: you can set a cap to the bandwidth for the connection. Then messages will be sent in
       decreasing order of priority (that you can set yourself), with a priority-accumulation scheme
+    - **Lag Compensation** is available so that predicted entities can interact with interpolated entities (used most often for fps games)
 - Configurable
     - *Lightyear* is highly configurable: you can configure the size of the input buffer, the amount of
       interpolation-delay, the packet send rate, etc.
@@ -107,7 +108,7 @@ app.add_channel::<Channel1>(ChannelSettings {
       sending/receiving messages, etc.). The metrics can be exported to Prometheus for analysis.
 - Examples
     - *Lightyear* has plenty of examples demonstrating all these features, as well as the integration with other bevy
-      crates such as `bevy_xpbd_2d`
+      crates such as `avian`
 
 ## Games using lightyear
 
@@ -118,7 +119,7 @@ app.add_channel::<Channel1>(ChannelSettings {
 
 | Lightyear | Bevy |
 |-----------|------|
-| 0.18      | 0.15 |
+| 0.18-0.19 | 0.15 |
 | 0.16-0.17 | 0.14 |
 | 0.10-0.15 | 0.13 |
 | 0.1-0.9   | 0.12 |

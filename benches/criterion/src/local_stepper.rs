@@ -28,7 +28,6 @@ use crate::protocol::*;
 
 pub trait Step {
     /// Advance the time on the server and client by a given duration
-
     fn advance_time(&mut self, duration: Duration);
 
     /// Update the server and then the client(s)

@@ -507,7 +507,7 @@ pub struct Connection {
     client_id: ClientId,
     /// We create one entity per connected client, so that users
     /// can store metadata about the client using the ECS
-    entity: Entity,
+    pub(crate) entity: Entity,
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender,
     pub replication_receiver: ReplicationReceiver,

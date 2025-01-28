@@ -106,8 +106,9 @@ pub fn cli() -> Cli {
         if #[cfg(target_family = "wasm")] {
             let client_id = rand::random::<u64>();
             Cli {
-                client_id: Some(client_id),
-                mode: Mode::Client,
+                mode: Some(Mode::Client {
+                    client_id: Some(client_id),
+                })
             }
         } else {
             Cli::parse()

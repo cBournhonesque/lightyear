@@ -257,7 +257,7 @@ pub(crate) fn sync_update(
         tick_manager.deref_mut(),
         &connection.ping_manager,
         &config.prediction,
-        &config.interpolation.delay,
+        &config.interpolation,
         // TODO: how to adjust this for replication groups that have a custom send_interval?
         config.shared.server_replication_send_interval,
     ) {
@@ -486,16 +486,13 @@ fn connect(world: &mut World) {
     // new client connection and connection manager, which want to do because we need to reset
     // the internal time, sync, priority, message numbers, etc.)
     rebuild_client_connection(world);
-    if let Err(e) = world
-        .resource_mut::<ClientConnection>()
-        .connect() {
-            error!("Error connecting client: {}", e);
-            world.resource_mut::<ClientConnection>()
-                .disconnect_reason = Some(e);
-                
-            world
-                .resource_mut::<NextState<NetworkingState>>()
-                .set(NetworkingState::Disconnected);
+    if let Err(e) = world.resource_mut::<ClientConnection>().connect() {
+        error!("Error connecting client: {}", e);
+        world.resource_mut::<ClientConnection>().disconnect_reason = Some(e);
+
+        world
+            .resource_mut::<NextState<NetworkingState>>()
+            .set(NetworkingState::Disconnected);
     }
     let config = world.resource::<ClientConfig>();
     if matches!(

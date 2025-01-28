@@ -128,7 +128,7 @@ pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
 
 // TODO: compare the performance of cloning the component versus popping from the World directly
 /// In case of a rollback, check if there were any entities that were predicted-despawn
-/// that we need to re-instate. (all the entities that have RemovedCache<C> are in this scenario)
+/// that we need to re-instate. (all the entities that have `RemovedCache<C>` are in this scenario)
 /// If we didn't need to re-instate them, the Confirmed entity would have been despawned.
 ///
 /// Remember to reinstate components if SyncComponent != Full

@@ -158,7 +158,9 @@ impl NetConfig {
                 // TODO: handle errors
                 let server = super::steam::server::Server::new(
                     steamworks_client.unwrap_or_else(|| {
-                        Arc::new(RwLock::new(SteamworksClient::new_with_app_id(config.app_id)))
+                        Arc::new(RwLock::new(SteamworksClient::new_with_app_id(
+                            config.app_id,
+                        )))
                     }),
                     config,
                     conditioner,

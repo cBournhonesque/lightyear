@@ -5,9 +5,9 @@ use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
 use tracing::{debug, trace};
 
-use crate::client::interpolation::plugin::InterpolationDelay;
+use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::packet::packet::PacketId;
-use crate::prelude::client::PredictionConfig;
+use crate::prelude::client::{InterpolationDelay, PredictionConfig};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickEvent};
@@ -152,7 +152,7 @@ impl SyncManager {
         tick_manager: &mut TickManager,
         ping_manager: &PingManager,
         prediction_config: &PredictionConfig,
-        interpolation_delay: &InterpolationDelay,
+        interpolation_delay: &InterpolationConfig,
         server_send_interval: Duration,
     ) -> Option<TickEvent> {
         // TODO: we are in PostUpdate, so this seems incorrect? this uses the previous-frame's delta,
@@ -186,7 +186,12 @@ impl SyncManager {
         self.synced
     }
 
-    /// Compute the current client time; we will make sure that the client tick is ahead of the server tick
+    /// Compute the current client time from the client tick and the overstep.
+    ///
+    /// We use the client tick as the source of truth because the client tick can be
+    /// reset via a TickEvent.
+    ///
+    /// we will make sure that the client tick is ahead of the server tick
     /// Even if it is wrapped around.
     /// (i.e. if client tick is 1, and server tick is 65535, we act as if the client tick was 65537)
     /// This is because we have 2 distinct entities with wrapping: Ticks and WrappedTime
@@ -331,7 +336,7 @@ impl SyncManager {
     pub(crate) fn interpolation_objective(
         &self,
         // TODO: make interpolation delay part of SyncConfig?
-        interpolation_delay: &InterpolationDelay,
+        interpolation_delay: &InterpolationConfig,
         // TODO: should we get this via an estimate?
         server_send_interval: Duration,
         tick_manager: &TickManager,
@@ -351,6 +356,23 @@ impl SyncManager {
         self.server_time_estimate() - objective_delta
     }
 
+    /// Interpolation delay as the number of milliseconds between the prediction time and the interpolation time
+    pub(crate) fn interpolation_delay(
+        &self,
+        tick_manager: &TickManager,
+        time_manager: &TimeManager,
+    ) -> InterpolationDelay {
+        let prediction_time = self.current_prediction_time(tick_manager, time_manager);
+        let delta = prediction_time - self.interpolation_time;
+        assert!(
+            delta.num_milliseconds() >= 0,
+            "the prediction time should always be ahead of the interpolation time!"
+        );
+        InterpolationDelay {
+            delay_ms: delta.num_milliseconds() as u16,
+        }
+    }
+
     pub(crate) fn interpolation_tick(&self, tick_manager: &TickManager) -> Tick {
         self.interpolation_time
             .to_tick(tick_manager.config.tick_duration)
@@ -366,7 +388,7 @@ impl SyncManager {
     pub(crate) fn update_interpolation_time(
         &mut self,
         // TODO: make interpolation delay part of SyncConfig?
-        interpolation_delay: &InterpolationDelay,
+        interpolation_delay: &InterpolationConfig,
         // TODO: should we get this via an estimate?
         server_update_rate: Duration,
         tick_manager: &TickManager,
@@ -631,12 +653,12 @@ mod tests {
             .world_mut()
             .entity_mut(server_entity)
             .insert(ComponentSyncModeFull(1.0));
-        dbg!(&stepper.server_tick());
-        dbg!(&stepper.client_tick());
-        dbg!(&stepper
-            .server_app
-            .world()
-            .get::<ComponentSyncModeFull>(server_entity));
+        // dbg!(&stepper.server_tick());
+        // dbg!(&stepper.client_tick());
+        // dbg!(&stepper
+        //     .server_app
+        //     .world()
+        //     .get::<ComponentSyncModeFull>(server_entity));
 
         // make sure the client receives the replication message
         for i in 0..5 {

@@ -4,9 +4,7 @@ use bevy::prelude::Resource;
 use tracing::{debug, error, info, trace};
 
 use crate::client::io::Io;
-use crate::connection::client::{
-    ConnectionError, ConnectionState, IoConfig, NetClient,
-};
+use crate::connection::client::{ConnectionError, ConnectionState, IoConfig, NetClient};
 use crate::connection::id;
 use crate::packet::packet_builder::RecvPayload;
 use crate::transport::io::IoState;
