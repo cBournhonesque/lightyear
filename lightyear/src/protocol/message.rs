@@ -617,7 +617,6 @@ mod tests {
         registry.add_message_custom_serde::<Resource2>(SerializeFns {
             serialize: serialize_resource2,
             deserialize: deserialize_resource2,
-            serialize_map_entities: None,
         });
 
         let message = Resource2(1.0);
