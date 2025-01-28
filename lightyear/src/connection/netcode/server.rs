@@ -384,7 +384,7 @@ pub struct NetcodeServer<Ctx = ()> {
     conn_cache: ConnectionCache,
     token_entries: TokenEntries,
     cfg: ServerConfig<Ctx>,
-    pub client_errors: Vec<Error>,
+    pub client_errors: Vec<ConnectionError>,
 }
 
 impl NetcodeServer {
@@ -462,7 +462,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         }
     }
     fn handle_client_error(&mut self, error: Error) {
-        self.client_errors.push(error);
+        self.client_errors.push(ConnectionError::Netcode(error));
     }
     fn touch_client(&mut self, client_id: Option<ClientId>) {
         let Some(id) = client_id else {
@@ -806,9 +806,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                 }
                 Ok(None) => break,
                 Err(e) => {
-                    // PacketReceiver implementations are not obligated to return the address
-                    // in the sad path.
-                    println!("from here, how do we return the address in the error ?");
+                    self.handle_client_error(e.into());
                 }
             }
         }
@@ -1044,7 +1042,7 @@ pub(crate) mod connection {
     #[derive(Resource)]
     pub struct Server {
         pub(crate) server: NetcodeServer<NetcodeServerContext>,
-        client_errors: Vec<Error>,
+        client_errors: Vec<ConnectionError>,
         io_config: IoConfig,
         io: Option<Io>,
     }

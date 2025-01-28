@@ -25,6 +25,8 @@ pub enum Error {
     ConnectTokenEncryptionFailure(ClientId),
     #[error("failed to descrypt challenge token")]
     ConnectTokenDecryptionFailure,
+    #[error(transparent)]
+    UnindexableConnectToken(#[from] TryFromSliceError),
     #[error("a client with address {0} is already connected")]
     ClientAddressInUse(SocketAddr),
     #[error("client_id {0} a client with this id is already connected")]
@@ -47,12 +49,10 @@ pub enum Error {
     Packet(#[from] super::packet::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    // #[error(transparent)]
-    // Transport(#[from] crate::transport::error::Error),
-    #[error("client specific transport error")]
-    ClientTransport(ClientId, crate::transport::error::Error),
-    #[error("address specific transport error")]
-    AddressTransport(SocketAddr, crate::transport::error::Error),
     #[error(transparent)]
-    UnindexableConnectToken(#[from] TryFromSliceError),
+    Transport(#[from] crate::transport::error::Error),
+    #[error("client_id {0} client specific transport error {1}")]
+    ClientTransport(ClientId, crate::transport::error::Error),
+    #[error("address {0} address specific transport error  {1}")]
+    AddressTransport(SocketAddr, crate::transport::error::Error),
 }

@@ -1,6 +1,8 @@
 //! Defines the server bevy systems and run conditions
+use std::net::SocketAddr;
+
 use crate::connection::netcode::Error as NetcodeError;
-use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
+use crate::connection::server::{ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::server::is_stopped;
 use crate::prelude::{
     is_host_server, ChannelRegistry, ClientId, MainSet, MessageRegistry, TickManager, TimeManager,
@@ -104,6 +106,8 @@ pub(crate) fn receive_packets(
     time_manager.update(delta);
     trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
+    let mut client_errors = Vec::new();
+    
     // update server net connections
     // reborrow trick to enable split borrows
     let netservers = &mut *netservers;
@@ -146,45 +150,14 @@ pub(crate) fn receive_packets(
                 .map_err(|e| error!("Error updating netcode server: {:?}", e));
 
             match netserver {
-                ServerConnection::Netcode(netcode_server) => {
-                    for error in &netcode_server.server.client_errors {
-                            match error {
-                                NetcodeError::ClientTransport(client_id, error) => {
-                                    match error {
-                                        crate::transport::error::Error::Io(error) => {
-                                            // match error.kind() {
-                                            //     std::io::ErrorKind::ConnectionReset => netserver.disconnect(),
-                                            //     _ => {},
-                                            // }
-                                            continue;
-                                        },
-                                        _ => {}
-                                    }
-                                },
-                                NetcodeError::AddressTransport(socket_addr, error) => {
-                                    match error {
-                                        crate::transport::error::Error::Io(error) => {
-                                            // match error.kind() {
-                                            //     std::io::ErrorKind::ConnectionReset => netserver.disconnect(),
-                                            //     _ => {},
-                                            // }
-                                            continue;
-                                        },
-                                        _ => {}
-                                    }
-                                },
-                                _ => {}
-                            }
-                            warn!("Client Error: {}", error);
-                    }
-
+                ServerConnection::Netcode(netcode) => {
+                    client_errors.extend(netcode.server.client_errors.drain(..).map(|e| (server_idx, e)));
                 },
                 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-                ServerConnection::Steam(_) => {
-                    todo!()
-                }
+                ServerConnection::Steam(_) => {}, // todo: steam errors
             };
         }
+
         let new_disconnections = netserver.new_disconnections();
         for client_id in netserver.new_connections().iter().copied() {
             netservers.client_server_map.insert(client_id, server_idx);
@@ -207,6 +180,13 @@ pub(crate) fn receive_packets(
             } else {
                 error!("Client disconnected but could not map client_id to the corresponding netserver");
             }
+        }
+    }
+
+    // Handle all errors after the main loop is complete
+    for (server_idx, error) in client_errors {
+        if let Some(server) = netservers.servers.get_mut(server_idx) {
+            react_to_client_error(&mut connection_manager, server, error);
         }
     }
 
@@ -304,8 +284,10 @@ pub(crate) fn send(
     time_manager: Res<TimeManager>,
 ) {
     trace!("Send packets to clients");
-    // SEND_PACKETS: send buffered packets to io
     let span = info_span!("send_packets").entered();
+    
+    let mut send_errors = Vec::new();
+    
     connection_manager
         .connections
         .iter_mut()
@@ -313,8 +295,6 @@ pub(crate) fn send(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 info_span!("send_packets_to_client", client_id = ?client_id).entered();
-            // TODO: because we are removing the ClientConnection from netservers.client_server_map immediately
-            //  we get a log here that says that the netserver_idx cannot be found when we try to disconnect
             let netserver_idx = *netservers
                 .client_server_map
                 .get(client_id)
@@ -335,14 +315,58 @@ pub(crate) fn send(
                     metrics::counter!("transport::send::packets").increment(packets);
                     metrics::counter!("transport::send::kb").increment(bytes);
                 }
-                netserver.send(packet_byte.as_slice(), *client_id)?;
+                if let Err(e) = netserver.send(packet_byte.as_slice(), *client_id) {
+                    send_errors.push((*client_id, netserver_idx, e));
+                }
             }
             Ok(())
         })
         .unwrap_or_else(|e: ServerError| {
             error!("Error sending packets: {}", e);
         });
+
+    for (client_id, server_idx, error) in send_errors {
+        if let Some(server) = netservers.servers.get_mut(server_idx) {
+            react_to_client_error(&mut connection_manager, server, error);
+        } else {
+            error!("Could not find server for index {} when handling error", server_idx);
+        }
+    }
 }
+
+fn react_to_client_error(
+    connection_manager: &mut ResMut<ConnectionManager>,
+    server: &mut ServerConnection,
+    error: ConnectionError
+ ) {
+    let fatal_error_client_info = match &error {
+        ConnectionError::Netcode(netcode_error) => {
+            match netcode_error {
+                NetcodeError::ClientTransport(client_id, err) => match err {
+                    crate::transport::error::Error::Io(io_error) => {
+                        match io_error.kind() {
+                            std::io::ErrorKind::ConnectionReset => Some((*client_id, err)),
+                            _ => None
+                        }
+                    },
+                    _ => None
+                },
+                _ => None
+            }
+        },
+        _ => {
+            None
+        }
+    };
+    if let Some((client_id, err)) = fatal_error_client_info {
+        error!("Fatal Client Error: {:?}", error);
+        let _ = server.disconnect(client_id);
+        connection_manager.remove(client_id);
+    } else {
+        warn!("Non-Fatal Client Error: {:?}", error);
+    }
+ }
+
 
 /// When running in host-server mode, we also need to send messages to the local client.
 /// We do this directly without io.
