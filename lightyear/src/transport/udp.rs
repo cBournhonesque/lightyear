@@ -99,7 +99,7 @@ pub struct UdpSocketBuffer {
 impl PacketSender for UdpSocketBuffer {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         let socket = self.socket.as_ref().lock().unwrap();
-        
+
         #[cfg(target_os = "windows")]
         {
             let mut peek_buf = [0u8; 1];
@@ -109,7 +109,6 @@ impl PacketSender for UdpSocketBuffer {
                 Err(e) => return Err(e.into()),
             }
         }
-
 
         socket.send_to(payload, address)?;
         Ok(())

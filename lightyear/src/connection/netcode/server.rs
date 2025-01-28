@@ -12,7 +12,8 @@ use tracing::{instrument, Level};
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::{
-    ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer
+    ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason,
+    IoConfig, NetServer,
 };
 use crate::packet::packet_builder::RecvPayload;
 use crate::server::config::NetcodeConfig;
@@ -531,7 +532,9 @@ impl<Ctx> NetcodeServer<Ctx> {
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
-        sender.send(&buf[..size], &addr).map_err(|e| Error::AddressTransport(addr, e))?;
+        sender
+            .send(&buf[..size], &addr)
+            .map_err(|e| Error::AddressTransport(addr, e))?;
         self.sequence += 1;
         Ok(())
     }
@@ -593,17 +596,19 @@ impl<Ctx> NetcodeServer<Ctx> {
             .find_by_id(token.client_id)
             .is_some_and(|conn| conn.is_connected())
         {
-            return Err(Error::ClientIdInUse(id::ClientId::Netcode(token.client_id)))
+            return Err(Error::ClientIdInUse(id::ClientId::Netcode(token.client_id)));
         };
         let entry = TokenEntry {
             time: self.time,
             addr: from_addr,
             mac: packet.token_data
                 [ConnectTokenPrivate::SIZE - MAC_BYTES..ConnectTokenPrivate::SIZE]
-                .try_into()?
+                .try_into()?,
         };
         if !self.token_entries.find_or_insert(entry) {
-            return Err(Error::ConnectTokenInUse(id::ClientId::Netcode(token.client_id)))
+            return Err(Error::ConnectTokenInUse(id::ClientId::Netcode(
+                token.client_id,
+            )));
         };
         if self.num_connected_clients() >= MAX_CLIENTS {
             self.send_to_addr(
@@ -633,7 +638,9 @@ impl<Ctx> NetcodeServer<Ctx> {
             user_data: token.user_data,
         }
         .encrypt(self.challenge_sequence, &self.challenge_key) else {
-            return Err(Error::ConnectTokenEncryptionFailure(id::ClientId::Netcode(token.client_id)));
+            return Err(Error::ConnectTokenEncryptionFailure(id::ClientId::Netcode(
+                token.client_id,
+            )));
         };
 
         self.send_to_addr(
@@ -661,7 +668,9 @@ impl<Ctx> NetcodeServer<Ctx> {
         mut packet: ResponsePacket,
         sender: &mut impl PacketSender,
     ) -> Result<()> {
-        let Ok(challenge_token) = ChallengeToken::decrypt(&mut packet.token, packet.sequence, &self.challenge_key) else {
+        let Ok(challenge_token) =
+            ChallengeToken::decrypt(&mut packet.token, packet.sequence, &self.challenge_key)
+        else {
             return Err(Error::ConnectTokenDecryptionFailure);
         };
 
@@ -674,12 +683,13 @@ impl<Ctx> NetcodeServer<Ctx> {
         };
 
         if self.num_connected_clients() >= MAX_CLIENTS {
-            let send_key = self.conn_cache
+            let send_key = self
+                .conn_cache
                 .clients
                 .get(&id)
                 .ok_or(Error::ClientNotFound(id::ClientId::Netcode(id)))?
                 .send_key;
-                
+
             self.send_to_addr(
                 DeniedPacket::create(DeniedReason::ServerFull),
                 from_addr,

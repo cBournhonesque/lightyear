@@ -1,6 +1,8 @@
 //! Defines the server bevy systems and run conditions
 use crate::connection::netcode::Error as NetcodeError;
-use crate::connection::server::{ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections};
+use crate::connection::server::{
+    ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections,
+};
 use crate::prelude::server::is_stopped;
 use crate::prelude::{
     is_host_server, ChannelRegistry, ClientId, MainSet, MessageRegistry, TickManager, TimeManager,
@@ -105,7 +107,7 @@ pub(crate) fn receive_packets(
     trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
     let mut client_errors = Vec::new();
-    
+
     // update server net connections
     // reborrow trick to enable split borrows
     let netservers = &mut *netservers;
@@ -149,10 +151,16 @@ pub(crate) fn receive_packets(
 
             match netserver {
                 ServerConnection::Netcode(netcode) => {
-                    client_errors.extend(netcode.server.client_errors.drain(..).map(|e| (server_idx, e)));
-                },
+                    client_errors.extend(
+                        netcode
+                            .server
+                            .client_errors
+                            .drain(..)
+                            .map(|e| (server_idx, e)),
+                    );
+                }
                 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-                ServerConnection::Steam(_) => {}, // todo: steam errors
+                ServerConnection::Steam(_) => {} // todo: steam errors
             };
         }
 
@@ -282,9 +290,9 @@ pub(crate) fn send(
 ) {
     trace!("Send packets to clients");
     let span = info_span!("send_packets").entered();
-    
+
     let mut send_errors = Vec::new();
-    
+
     connection_manager
         .connections
         .iter_mut()
@@ -326,7 +334,10 @@ pub(crate) fn send(
         if let Some(server) = netservers.servers.get_mut(server_idx) {
             react_to_client_error(&mut connection_manager, server, error);
         } else {
-            error!("Could not find server for index {} when handling error", server_idx);
+            error!(
+                "Could not find server for index {} when handling error",
+                server_idx
+            );
         }
     }
 }
@@ -334,26 +345,20 @@ pub(crate) fn send(
 fn react_to_client_error(
     connection_manager: &mut ResMut<ConnectionManager>,
     server: &mut ServerConnection,
-    error: ConnectionError
- ) {
+    error: ConnectionError,
+) {
     let fatal_error_client_info = match &error {
-        ConnectionError::Netcode(netcode_error) => {
-            match netcode_error {
-                NetcodeError::ClientTransport(client_id, err) => match err {
-                    crate::transport::error::Error::Io(io_error) => {
-                        match io_error.kind() {
-                            std::io::ErrorKind::ConnectionReset => Some((*client_id, err)),
-                            _ => None
-                        }
-                    },
-                    _ => None
+        ConnectionError::Netcode(netcode_error) => match netcode_error {
+            NetcodeError::ClientTransport(client_id, err) => match err {
+                crate::transport::error::Error::Io(io_error) => match io_error.kind() {
+                    std::io::ErrorKind::ConnectionReset => Some((*client_id, err)),
+                    _ => None,
                 },
-                _ => None
-            }
+                _ => None,
+            },
+            _ => None,
         },
-        _ => {
-            None
-        }
+        _ => None,
     };
     if let Some((client_id, err)) = fatal_error_client_info {
         error!("Fatal Client Error: {:?}", error);
@@ -362,8 +367,7 @@ fn react_to_client_error(
     } else {
         warn!("Non-Fatal Client Error: {:?}", error);
     }
- }
-
+}
 
 /// When running in host-server mode, we also need to send messages to the local client.
 /// We do this directly without io.
