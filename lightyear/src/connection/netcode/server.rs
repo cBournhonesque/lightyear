@@ -495,7 +495,10 @@ impl<Ctx> NetcodeServer<Ctx> {
         match packet {
             Packet::Request(packet) => self.process_connection_request(addr, packet, sender),
             Packet::Response(packet) => self.process_connection_response(addr, packet, sender),
-            Packet::KeepAlive(_) => Ok(self.touch_client(client_id)),
+            Packet::KeepAlive(_) => {
+                self.touch_client(client_id);
+                Ok(())
+            }
             Packet::Payload(packet) => {
                 self.touch_client(client_id);
                 if let Some(idx) = client_id {
@@ -913,7 +916,9 @@ impl<Ctx> NetcodeServer<Ctx> {
     pub fn send_all(&mut self, buf: &[u8], io: &mut Io) -> Result<()> {
         for id in self.conn_cache.ids() {
             match self.send(buf, id, io) {
-                Ok(_) | Err(Error::ClientNotConnected(_)) | Err(Error::ClientNotFound(_)) => continue,
+                Ok(_) | Err(Error::ClientNotConnected(_)) | Err(Error::ClientNotFound(_)) => {
+                    continue
+                }
                 Err(e) => return Err(e),
             }
         }

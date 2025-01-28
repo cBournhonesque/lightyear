@@ -317,18 +317,17 @@ pub(crate) fn send(
 
 fn react_to_client_error(commands: &mut Commands, error: ConnectionError) {
     let fatal_error_client_info = match &error {
-        ConnectionError::Netcode(netcode_error) => match netcode_error {
-            NetcodeError::ClientTransport(client_id, err) => match err {
-                crate::transport::error::Error::Io(io_error) => match io_error.kind() {
-                    std::io::ErrorKind::ConnectionReset => Some((*client_id, err)),
-                    _ => None,
-                },
-                _ => None,
-            },
+        ConnectionError::Netcode(NetcodeError::ClientTransport(client_id, err)) => match err {
+            crate::transport::error::Error::Io(io_error)
+                if io_error.kind() == std::io::ErrorKind::ConnectionReset =>
+            {
+                Some((*client_id, err))
+            }
             _ => None,
         },
         _ => None,
     };
+
     if let Some((client_id, err)) = fatal_error_client_info {
         error!("Fatal Client Error: {:?}", error);
         commands.disconnect(client_id);
