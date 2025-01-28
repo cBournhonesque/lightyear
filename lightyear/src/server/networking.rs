@@ -1,4 +1,5 @@
 //! Defines the server bevy systems and run conditions
+use crate::connection::netcode::Error as NetcodeError;
 use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::server::is_stopped;
 use crate::prelude::{
@@ -143,6 +144,46 @@ pub(crate) fn receive_packets(
             let _ = netserver
                 .try_update(delta.as_secs_f64())
                 .map_err(|e| error!("Error updating netcode server: {:?}", e));
+
+            match netserver {
+                ServerConnection::Netcode(netcode_server) => {
+                    for error in &netcode_server.server.client_errors {
+                            match error {
+                                NetcodeError::ClientTransport(client_id, error) => {
+                                    match error {
+                                        crate::transport::error::Error::Io(error) => {
+                                            // match error.kind() {
+                                            //     std::io::ErrorKind::ConnectionReset => netserver.disconnect(),
+                                            //     _ => {},
+                                            // }
+                                            continue;
+                                        },
+                                        _ => {}
+                                    }
+                                },
+                                NetcodeError::AddressTransport(socket_addr, error) => {
+                                    match error {
+                                        crate::transport::error::Error::Io(error) => {
+                                            // match error.kind() {
+                                            //     std::io::ErrorKind::ConnectionReset => netserver.disconnect(),
+                                            //     _ => {},
+                                            // }
+                                            continue;
+                                        },
+                                        _ => {}
+                                    }
+                                },
+                                _ => {}
+                            }
+                            warn!("Client Error: {}", error);
+                    }
+
+                },
+                #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+                ServerConnection::Steam(_) => {
+                    todo!()
+                }
+            };
         }
         let new_disconnections = netserver.new_disconnections();
         for client_id in netserver.new_connections().iter().copied() {

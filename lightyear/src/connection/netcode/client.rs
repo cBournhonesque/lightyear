@@ -358,7 +358,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             &self.token.client_to_server_key,
             self.token.protocol_id,
         )?;
-        io.send(&buf[..size], &self.server_addr())?;
+        io.send(&buf[..size], &self.server_addr()).map_err(|e| Error::AddressTransport(self.server_addr(), e))?;
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -506,7 +506,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
         // number of seconds since unix epoch
         let now = utils::now();
-        while let Some((buf, addr)) = io.recv()? {
+        while let Some((buf, addr)) = io.recv().map_err(|e| Error::AddressTransport(self.server_addr(), e))? {
             self.recv_packet(buf, now, addr)?;
         }
         Ok(())

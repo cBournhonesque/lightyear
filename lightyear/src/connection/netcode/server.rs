@@ -12,7 +12,7 @@ use tracing::{instrument, Level};
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::{
-    ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer,
+    ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason, IoConfig, NetServer
 };
 use crate::packet::packet_builder::RecvPayload;
 use crate::server::config::NetcodeConfig;
@@ -384,6 +384,7 @@ pub struct NetcodeServer<Ctx = ()> {
     conn_cache: ConnectionCache,
     token_entries: TokenEntries,
     cfg: ServerConfig<Ctx>,
+    pub client_errors: Vec<Error>,
 }
 
 impl NetcodeServer {
@@ -402,6 +403,7 @@ impl NetcodeServer {
             conn_cache: ConnectionCache::new(0.0),
             token_entries: TokenEntries::new(),
             cfg: ServerConfig::default(),
+            client_errors: vec![],
         };
         // info!("server started on {}", server.io.local_addr());
         Ok(server)
@@ -436,6 +438,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             conn_cache: ConnectionCache::new(0.0),
             token_entries: TokenEntries::new(),
             cfg,
+            client_errors: vec![],
         };
         // info!("server started on {}", server.addr());
         Ok(server)
@@ -458,19 +461,21 @@ impl<Ctx> NetcodeServer<Ctx> {
             cb(client_id, addr, &mut self.cfg.context)
         }
     }
-    fn touch_client(&mut self, client_id: Option<ClientId>) -> Result<()> {
+    fn handle_client_error(&mut self, error: Error) {
+        self.client_errors.push(error);
+    }
+    fn touch_client(&mut self, client_id: Option<ClientId>) {
         let Some(id) = client_id else {
-            return Ok(());
+            return;
         };
         let Some(conn) = self.conn_cache.clients.get_mut(&id) else {
-            return Ok(());
+            return;
         };
         conn.last_receive_time = self.time;
         if !conn.is_confirmed() {
             debug!("server confirmed connection with client {id}");
             conn.confirm();
         }
-        Ok(())
     }
     fn process_packet(
         &mut self,
@@ -489,9 +494,9 @@ impl<Ctx> NetcodeServer<Ctx> {
         match packet {
             Packet::Request(packet) => self.process_connection_request(addr, packet, sender),
             Packet::Response(packet) => self.process_connection_response(addr, packet, sender),
-            Packet::KeepAlive(_) => self.touch_client(client_id),
+            Packet::KeepAlive(_) => Ok(self.touch_client(client_id)),
             Packet::Payload(packet) => {
-                self.touch_client(client_id)?;
+                self.touch_client(client_id);
                 if let Some(idx) = client_id {
                     // // use a buffer from the pool to avoid re-allocating
                     // let mut reader = self.conn_cache.buffer_pool.start_read(packet.buf);
@@ -526,7 +531,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
-        sender.send(&buf[..size], &addr).map_err(Error::from)?;
+        sender.send(&buf[..size], &addr).map_err(|e| Error::AddressTransport(addr, e))?;
         self.sequence += 1;
         Ok(())
     }
@@ -541,12 +546,12 @@ impl<Ctx> NetcodeServer<Ctx> {
             .conn_cache
             .clients
             .get_mut(&id)
-            .expect("invalid client id");
+            .ok_or(Error::ClientNotFound(id::ClientId::Netcode(id)))?;
+
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
         sender
             .send(&buf[..size], &conn.addr)
-            // .inspect_err(|e| error!("ERROR SENDING: {:?}", e))
-            .map_err(Error::from)?;
+            .map_err(|e| Error::ClientTransport(id::ClientId::Netcode(id), e))?;
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
         conn.sequence += 1;
@@ -560,10 +565,8 @@ impl<Ctx> NetcodeServer<Ctx> {
         sender: &mut impl PacketSender,
     ) -> Result<()> {
         let mut reader = std::io::Cursor::new(&mut packet.token_data[..]);
-        let Ok(token) = ConnectTokenPrivate::read_from(&mut reader) else {
-            debug!("server ignored connection request. failed to read connect token");
-            return Ok(());
-        };
+        let token = ConnectTokenPrivate::read_from(&mut reader)?;
+
         // TODO: this doesn't work with local hosts because the local bind_addr is often 0.0.0.0, even though
         //  the tokens contain 127.0.0.1
         // if !token
@@ -583,53 +586,63 @@ impl<Ctx> NetcodeServer<Ctx> {
             .find_by_addr(&from_addr)
             .is_some_and(|(_, conn)| conn.is_connected())
         {
-            debug!("server ignored connection request. a client with this address is already connected");
-            return Ok(());
+            return Err(Error::ClientAddressInUse(from_addr));
         };
         if self
             .conn_cache
             .find_by_id(token.client_id)
             .is_some_and(|conn| conn.is_connected())
         {
-            debug!("server ignored connection request. a client with this id is already connected");
-            return Ok(());
+            return Err(Error::ClientIdInUse(id::ClientId::Netcode(token.client_id)))
         };
         let entry = TokenEntry {
             time: self.time,
             addr: from_addr,
             mac: packet.token_data
                 [ConnectTokenPrivate::SIZE - MAC_BYTES..ConnectTokenPrivate::SIZE]
-                .try_into()
-                .expect("valid MAC size"),
+                .try_into()?
         };
         if !self.token_entries.find_or_insert(entry) {
-            debug!("server ignored connection request. connect token has already been used");
-            return Ok(());
+            return Err(Error::ConnectTokenInUse(id::ClientId::Netcode(token.client_id)))
         };
         if self.num_connected_clients() >= MAX_CLIENTS {
-            debug!("server denied connection request. server is full");
             self.send_to_addr(
                 DeniedPacket::create(DeniedReason::ServerFull),
                 from_addr,
                 token.server_to_client_key,
                 sender,
             )?;
-            return Ok(());
+            return Err(Error::ServerIsFull(id::ClientId::Netcode(token.client_id)));
         };
         if let Some(denied_reason) = self
             .cfg
             .connection_request_handler
             .handle_request(crate::prelude::ClientId::Netcode(token.client_id))
         {
-            debug!("server denied connection request. handle_connection_request_fn returned false");
             self.send_to_addr(
                 DeniedPacket::create(denied_reason),
                 from_addr,
                 token.server_to_client_key,
                 sender,
             )?;
-            return Ok(());
+            return Err(Error::Denied(id::ClientId::Netcode(token.client_id)));
         }
+
+        let Ok(challenge_token_encrypted) = ChallengeToken {
+            client_id: token.client_id,
+            user_data: token.user_data,
+        }
+        .encrypt(self.challenge_sequence, &self.challenge_key) else {
+            return Err(Error::ConnectTokenEncryptionFailure(id::ClientId::Netcode(token.client_id)));
+        };
+
+        self.send_to_addr(
+            ChallengePacket::create(self.challenge_sequence, challenge_token_encrypted),
+            from_addr,
+            token.server_to_client_key,
+            sender,
+        )?;
+
         self.conn_cache.add(
             token.client_id,
             from_addr,
@@ -637,20 +650,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             token.server_to_client_key,
             token.client_to_server_key,
         );
-        let Ok(challenge_token_encrypted) = ChallengeToken {
-            client_id: token.client_id,
-            user_data: token.user_data,
-        }
-        .encrypt(self.challenge_sequence, &self.challenge_key) else {
-            debug!("server ignored connection request. failed to encrypt challenge token");
-            return Ok(());
-        };
-        self.send_to_addr(
-            ChallengePacket::create(self.challenge_sequence, challenge_token_encrypted),
-            from_addr,
-            token.server_to_client_key,
-            sender,
-        )?;
+
         debug!("server sent connection challenge packet");
         self.challenge_sequence += 1;
         Ok(())
@@ -661,41 +661,40 @@ impl<Ctx> NetcodeServer<Ctx> {
         mut packet: ResponsePacket,
         sender: &mut impl PacketSender,
     ) -> Result<()> {
-        let Ok(challenge_token) =
-            ChallengeToken::decrypt(&mut packet.token, packet.sequence, &self.challenge_key)
-        else {
-            debug!("server ignored connection response. failed to decrypt challenge token");
-            return Ok(());
+        let Ok(challenge_token) = ChallengeToken::decrypt(&mut packet.token, packet.sequence, &self.challenge_key) else {
+            return Err(Error::ConnectTokenDecryptionFailure);
         };
+
         let id: ClientId = challenge_token.client_id;
         let Some(conn) = self.conn_cache.find_by_id(id) else {
-            debug!("server ignored connection response. no packet send key");
-            return Ok(());
+            return Err(Error::UnknownClient(id::ClientId::Netcode(id)));
         };
         if conn.is_connected() {
-            debug!("server ignored connection request. a client with this id is already connected");
-            return Ok(());
+            return Err(Error::ClientIdInUse(id::ClientId::Netcode(id)));
         };
 
         if self.num_connected_clients() >= MAX_CLIENTS {
-            debug!("server denied connection response. server is full");
+            let send_key = self.conn_cache
+                .clients
+                .get(&id)
+                .ok_or(Error::ClientNotFound(id::ClientId::Netcode(id)))?
+                .send_key;
+                
             self.send_to_addr(
                 DeniedPacket::create(DeniedReason::ServerFull),
                 from_addr,
-                self.conn_cache
-                    .clients
-                    .get(&id)
-                    .expect("invalid client id")
-                    .send_key,
+                send_key,
                 sender,
             )?;
-            return Ok(());
-        };
+            return Err(Error::ServerIsFull(id::ClientId::Netcode(id)));
+        }
+
         let client = self
             .conn_cache
             .clients
             .get_mut(&id)
-            .expect("invalid client id");
+            .ok_or(Error::ClientNotFound(id::ClientId::Netcode(id)))?;
+
         client.connect();
         client.last_send_time = self.time;
         client.last_receive_time = self.time;
@@ -728,9 +727,11 @@ impl<Ctx> NetcodeServer<Ctx> {
     fn send_packets(&mut self, io: &mut Io) -> Result<()> {
         for id in self.conn_cache.ids() {
             let Some(client) = self.conn_cache.clients.get_mut(&id) else {
+                self.handle_client_error(Error::ClientNotFound(id::ClientId::Netcode(id)));
                 continue;
             };
             if !client.is_connected() {
+                self.handle_client_error(Error::ClientNotConnected);
                 continue;
             }
             if client.last_send_time + self.cfg.keep_alive_send_rate >= self.time {
@@ -766,34 +767,25 @@ impl<Ctx> NetcodeServer<Ctx> {
                 self.conn_cache
                     .clients
                     .get(&client_id)
-                    .expect("client id not found")
+                    .ok_or(Error::ClientNotFound(id::ClientId::Netcode(client_id)))?
                     .receive_key,
                 self.conn_cache.replay_protection.get_mut(&client_id),
             ),
             None => {
                 // Not a connection request packet, and not a known client, so ignore
-                debug!("server ignored non-connection-request packet from unknown address {addr}");
-                return Ok(());
+                return Err(Error::Ignored(addr));
             }
         };
-        let packet = match Packet::read(
+
+        let packet = Packet::read(
             buf,
             self.protocol_id,
             now,
             key,
             replay_protection,
             Self::ALLOWED_PACKETS,
-        ) {
-            Ok(packet) => packet,
-            Err(Error::Crypto(e)) => {
-                debug!(error = ?e, "server ignored packet because it failed to decrypt.");
-                return Ok(());
-            }
-            Err(e) => {
-                error!("server ignored packet: {e}");
-                return Ok(());
-            }
-        };
+        )?;
+
         self.process_packet(addr, packet, sender)
     }
 
@@ -803,9 +795,24 @@ impl<Ctx> NetcodeServer<Ctx> {
         receiver: &mut impl PacketReceiver,
     ) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        while let Some((buf, addr)) = receiver.recv().map_err(Error::from)? {
-            self.recv_packet(buf, now, addr, sender)?;
+
+        // process every packet regardless of success/failure
+        loop {
+            match receiver.recv() {
+                Ok(Some((buf, addr))) => {
+                    if let Err(e) = self.recv_packet(buf, now, addr, sender) {
+                        self.handle_client_error(e);
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    // PacketReceiver implementations are not obligated to return the address
+                    // in the sad path.
+                    println!("from here, how do we return the address in the error ?");
+                }
+            }
         }
+
         Ok(())
     }
     /// Updates the server.
@@ -876,7 +883,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
         let Some(conn) = self.conn_cache.clients.get_mut(&client_id) else {
-            return Err(Error::ClientNotFound);
+            return Err(Error::ClientNotFound(id::ClientId::Netcode(client_id)));
         };
         if !conn.is_connected() {
             // since there is no way to obtain a client index of clients that are not connected,
@@ -898,7 +905,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     pub fn send_all(&mut self, buf: &[u8], io: &mut Io) -> Result<()> {
         for id in self.conn_cache.ids() {
             match self.send(buf, id, io) {
-                Ok(_) | Err(Error::ClientNotConnected) | Err(Error::ClientNotFound) => continue,
+                Ok(_) | Err(Error::ClientNotConnected) | Err(Error::ClientNotFound(_)) => continue,
                 Err(e) => return Err(e),
             }
         }
@@ -970,7 +977,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// The server will send a number of redundant disconnect packets to the client, and then remove its connection info.
     pub(crate) fn disconnect_by_addr(&mut self, addr: SocketAddr, io: &mut Io) -> Result<()> {
         let Some(client_id) = self.conn_cache.client_id_map.get(&addr) else {
-            return Err(Error::ClientNotFound);
+            return Err(Error::ClientNotConnected);
         };
         self.disconnect(*client_id, io)
     }
@@ -1037,6 +1044,7 @@ pub(crate) mod connection {
     #[derive(Resource)]
     pub struct Server {
         pub(crate) server: NetcodeServer<NetcodeServerContext>,
+        client_errors: Vec<Error>,
         io_config: IoConfig,
         io: Option<Io>,
     }
@@ -1095,9 +1103,10 @@ pub(crate) mod connection {
 
         fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
             let io = self.io.as_mut().ok_or(ConnectionError::IoNotInitialized)?;
-            // reset the new connections/disconnections
+            // reset the new connections, disconnections, and errors
             self.server.cfg.context.connections.clear();
             self.server.cfg.context.disconnections.clear();
+            self.server.client_errors.clear();
 
             self.server.try_update(delta_ms, io)?;
             Ok(())
@@ -1172,6 +1181,7 @@ pub(crate) mod connection {
                 server,
                 io_config,
                 io: None,
+                client_errors: vec![],
             }
         }
 
