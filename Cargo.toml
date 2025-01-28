@@ -13,7 +13,7 @@ exclude = ["examples/certificates"]
 
 
 [workspace.package]
-version = "0.18.0"
+version = "0.19.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 publish = false
 edition = "2021"
@@ -40,9 +40,9 @@ debug = false
 
 [workspace.dependencies]
 
-lightyear_avian = { path = "./lightyear_avian", version = "0.18.0", default-features = false }
+lightyear_avian = { path = "./lightyear_avian", version = "0.19.0", default-features = false }
 lightyear_examples_common = { path = "./examples/common", default-features = false }
-lightyear = { path = "./lightyear", version = "0.18.0", default-features = false }
+lightyear = { path = "./lightyear", version = "0.19.0", default-features = false }
 
 # utils
 
@@ -76,7 +76,7 @@ chacha20poly1305 = { version = "0.10", features = ["std"] }
 
 # derive
 
-lightyear_macros = { version = "0.18.0", path = "./macros" }
+lightyear_macros = { version = "0.19.0", path = "./macros" }
 
 # tracing
 
@@ -156,7 +156,7 @@ bevy_web_keepalive = "0.3.4"
 
 futures-lite = "2.1.0"
 getrandom = { version = "0.3.0", features = [
-    "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
+  "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
 xwt-core = "0.6"
 xwt-web = "0.15.0"
@@ -190,13 +190,13 @@ leafwing-input-manager = { version = "0.16", default-features = false, features 
 ] }
 
 # physics
-avian2d = { version = "0.2", default-features = false }
-avian3d = { version = "0.2", default-features = false }
+# NOTE: avian 0.2.1 seems to be causing some issues, test with the fps example
+avian2d = { version = "=0.2.0", default-features = false }
+avian3d = { version = "=0.2.0", default-features = false }
 
 
 # gui debug ui
-# TODO: switch to the released version once inspector upgrades to bevy_egui 0.32
-bevy-inspector-egui = { git = "https://github.com/blip-radar/bevy-inspector-egui.git", branch = "egui-0.30", default-features = false, features = [
+bevy-inspector-egui = { version = "0.29", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
@@ -209,7 +209,6 @@ bevy_egui = { version = "0.32", default-features = false, features = [
 ] }
 bevy_metrics_dashboard = "0.4"
 egui_extras = "0.30"
-
 
 # bevygap for deploying on Edgegap
 bevygap_server_plugin = { version = "0.3.1" }

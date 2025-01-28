@@ -178,7 +178,7 @@ fn update_collider_history(
                 |(min, max), (_, (_, _, aabb))| (min.min(aabb.min), max.max(aabb.max)),
             );
             let aabb_envelope = ColliderAabb::from_min_max(min, max);
-            // we cannot use the aabb_envelope directly, the SpatialQuery uses Position, Rotation, Collider
+            // we cannot use the aabb_envelope directly because the SpatialQuery uses Position, Rotation, Collider
             // instead we will use a cuboid collider with the same dimensions as the aabb envelope, and whose position
             // is the center of the aabb envelope.
             // We don't need to change the Rotation since the aabb envelope is axis-aligned

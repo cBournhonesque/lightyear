@@ -25,13 +25,13 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Mode {
     Client,
-    Server
+    Server,
 }
 
 fn main() {
     let cli = Cli::parse();
     let mut app = App::new();
-    
+
     match cli.mode {
         Mode::Client => {
             app.add_plugins(client::ExampleClientPlugin);

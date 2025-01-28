@@ -69,7 +69,7 @@ pub struct LeafwingInputConfig<A> {
     /// If enabled, the client will send the interpolation_delay to the server so that the server
     /// can apply lag compensation when the predicted client is shooting at interpolated enemies.
     ///
-    /// See: https://developer.valvesoftware.com/wiki/Lag_Compensation
+    /// See: <https://developer.valvesoftware.com/wiki/Lag_Compensation>
     pub lag_compensation: bool,
     // TODO: right now the input-delay causes the client timeline to be more in the past than it should be
     //  I'm not sure if we can have different input_delay_ticks per ActionType
