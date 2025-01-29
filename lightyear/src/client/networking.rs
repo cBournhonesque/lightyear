@@ -182,12 +182,15 @@ pub(crate) fn receive(world: &mut World) {
     //  these resources
     let mut connection_manager =
         unsafe { unsafe_world.get_resource_mut::<ConnectionManager>() }.unwrap();
+    let mut component_registry =
+        unsafe { unsafe_world.get_resource_mut::<ComponentRegistry>() }.unwrap();
     let time_manager = unsafe { unsafe_world.get_resource::<TimeManager>() }.unwrap();
     let tick_manager = unsafe { unsafe_world.get_resource::<TickManager>() }.unwrap();
     // RECEIVE: read messages and parse them into events
     let _ = connection_manager
         .receive(
             unsafe { unsafe_world.world_mut() },
+            component_registry.as_mut(),
             time_manager,
             tick_manager,
         )
@@ -453,7 +456,6 @@ fn rebuild_client_connection(world: &mut World) {
 
     // insert a new connection manager (to reset sync, priority, message numbers, etc.)
     let connection_manager = ConnectionManager::new(
-        world.resource::<ComponentRegistry>(),
         world.resource::<MessageRegistry>(),
         world.resource::<ChannelRegistry>(),
         &client_config,

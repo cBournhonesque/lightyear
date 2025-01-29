@@ -69,7 +69,6 @@ use super::sync::SyncManager;
 /// ```
 #[derive(Resource, Debug)]
 pub struct ConnectionManager {
-    pub(crate) component_registry: ComponentRegistry,
     pub(crate) message_registry: MessageRegistry,
     pub(crate) message_manager: MessageManager,
     pub(crate) delta_manager: DeltaManager,
@@ -105,7 +104,6 @@ impl Default for ConnectionManager {
         );
         let replication_receiver = ReplicationReceiver::new();
         Self {
-            component_registry: ComponentRegistry::default(),
             message_registry: MessageRegistry::default(),
             message_manager: MessageManager::new(
                 &ChannelRegistry::default(),
@@ -130,7 +128,6 @@ impl Default for ConnectionManager {
 impl ConnectionManager {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        component_registry: &ComponentRegistry,
         message_registry: &MessageRegistry,
         channel_registry: &ChannelRegistry,
         client_config: &ClientConfig,
@@ -162,7 +159,6 @@ impl ConnectionManager {
         );
         let replication_receiver = ReplicationReceiver::new();
         Self {
-            component_registry: component_registry.clone(),
             message_registry: message_registry.clone(),
             message_manager,
             delta_manager: DeltaManager::default(),
@@ -370,8 +366,9 @@ impl ConnectionManager {
     pub(crate) fn receive(
         &mut self,
         world: &mut World,
-        // TODO: pass the `ComponentRegistry`/`MessageRegistry` as arguments instead of storing a copy
+        // TODO: pass the MessageRegistry` as arguments instead of storing a copy
         //  in the `ConnectionManager`
+        component_registry: &mut ComponentRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Result<(), ClientError> {
@@ -464,7 +461,7 @@ impl ConnectionManager {
             self.replication_receiver.apply_world(
                 world,
                 None,
-                &self.component_registry,
+                component_registry,
                 tick_manager.tick(),
                 &mut self.events,
             );

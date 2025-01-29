@@ -444,7 +444,7 @@ impl ConnectionManager {
     pub(crate) fn receive(
         &mut self,
         world: &mut World,
-        component_registry: &ComponentRegistry,
+        component_registry: &mut ComponentRegistry,
         message_registry: &MessageRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
@@ -716,7 +716,7 @@ impl Connection {
     pub fn receive(
         &mut self,
         world: &mut World,
-        component_registry: &ComponentRegistry,
+        component_registry: &mut ComponentRegistry,
         message_registry: &MessageRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,

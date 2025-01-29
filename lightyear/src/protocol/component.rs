@@ -1,8 +1,8 @@
 use bevy::ecs::component::ComponentId;
-use bevy::ecs::entity::MapEntities;
+use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{App, Component, EntityWorldMut, Mut, Reflect, Resource, TypePath, World};
 use bevy::ptr::Ptr;
-use bevy::utils::HashMap;
+use bevy::utils::{hashbrown, HashMap};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::any::TypeId;
@@ -566,12 +566,18 @@ mod interpolation {
 
 mod replication {
     use super::*;
-    use crate::prelude::{DeltaCompression, OverrideTargetComponent, ReplicateOnceComponent};
+    use crate::prelude::{
+        DeltaCompression, OverrideTargetComponent, PrePredicted, ReplicateOnceComponent,
+    };
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
+    use crate::shared::replication::components::ReplicationGroupId;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
+    use bevy::prelude::Entity;
     use bevy::ptr::OwningPtr;
     use bytes::Bytes;
+
+    type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
     impl ComponentRegistry {
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
@@ -611,6 +617,7 @@ mod replication {
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
             component_bytes.into_iter().try_for_each(|b| {
+                // TODO: reuse a single reader that reads through the entire message ?
                 let mut reader = Reader::from(b);
                 let net_id =
                     ComponentNetId::from_bytes(&mut reader).map_err(SerializationError::from)?;
@@ -655,6 +662,7 @@ mod replication {
                 )
             };
             // we don't need the raw bytes anymore since the OwningPtrs have been inserted into the entity
+            self.component_ids.clear();
             self.raw_bytes.clear();
             Ok(())
         }
