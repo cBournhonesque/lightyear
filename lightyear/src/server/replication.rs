@@ -3073,63 +3073,60 @@ pub(crate) mod send {
         #[derive(Resource, Default)]
         struct Counter(u32);
 
-        // TODO: this is not valid anymore because now we batch insert the components
-        //  and on Insert we do not check if the receiving entity already have the component
-        //  or not
-        // /// Check if we send an update with a component that is not equal to the component on the remote,
-        // /// then we apply the update to the remote (so we emit a ComponentUpdateEvent)
-        // #[test]
-        // fn test_not_equal_update_does_not_trigger_change_detection() {
-        //     let mut stepper = BevyStepper::default();
-        //
-        //     // spawn an entity on server
-        //     let server_entity = stepper
-        //         .server_app
-        //         .world_mut()
-        //         .spawn(ComponentSyncModeFull(2.0))
-        //         .id();
-        //     // spawn an entity on the client with the component value
-        //     let client_entity = stepper
-        //         .client_app
-        //         .world_mut()
-        //         .spawn(ComponentSyncModeFull(1.0))
-        //         .id();
-        //
-        //     stepper.client_app.init_resource::<Counter>();
-        //     stepper.client_app.add_systems(
-        //         Update,
-        //         move |mut events: EventReader<ComponentUpdateEvent<ComponentSyncModeFull>>,
-        //               mut counter: ResMut<Counter>| {
-        //             for events in events.read() {
-        //                 counter.0 += 1;
-        //                 assert_eq!(events.entity(), client_entity);
-        //             }
-        //         },
-        //     );
-        //
-        //     // add replication with a pre-existing target
-        //     stepper
-        //         .server_app
-        //         .world_mut()
-        //         .entity_mut(server_entity)
-        //         .insert((
-        //             Replicate::default(),
-        //             TargetEntity::Preexisting(client_entity),
-        //         ));
-        //
-        //     // check that we did receive an ComponentUpdateEvent
-        //     stepper.frame_step();
-        //     stepper.frame_step();
-        //     assert_eq!(
-        //         stepper
-        //             .client_app
-        //             .world()
-        //             .get_resource::<Counter>()
-        //             .unwrap()
-        //             .0,
-        //         1
-        //     );
-        // }
+        /// Check if we send an update with a component that is not equal to the component on the remote,
+        /// then we apply the update to the remote (so we emit a ComponentUpdateEvent)
+        #[test]
+        fn test_not_equal_update_does_not_trigger_change_detection() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(ComponentSyncModeFull(2.0))
+                .id();
+            // spawn an entity on the client with the component value
+            let client_entity = stepper
+                .client_app
+                .world_mut()
+                .spawn(ComponentSyncModeFull(1.0))
+                .id();
+
+            stepper.client_app.init_resource::<Counter>();
+            stepper.client_app.add_systems(
+                Update,
+                move |mut events: EventReader<ComponentUpdateEvent<ComponentSyncModeFull>>,
+                      mut counter: ResMut<Counter>| {
+                    for events in events.read() {
+                        counter.0 += 1;
+                        assert_eq!(events.entity(), client_entity);
+                    }
+                },
+            );
+
+            // add replication with a pre-existing target
+            stepper
+                .server_app
+                .world_mut()
+                .entity_mut(server_entity)
+                .insert((
+                    Replicate::default(),
+                    TargetEntity::Preexisting(client_entity),
+                ));
+
+            // check that we did receive an ComponentUpdateEvent
+            stepper.frame_step();
+            stepper.frame_step();
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .get_resource::<Counter>()
+                    .unwrap()
+                    .0,
+                1
+            );
+        }
 
         /// Make sure that ClientToServer components are not replicated to the client
         #[test]

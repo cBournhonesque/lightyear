@@ -157,13 +157,11 @@ pub struct ComponentRegistry {
 pub struct ReplicationMetadata {
     pub direction: ChannelDirection,
     pub component_id: ComponentId,
-    /// If true, the component is a DeltaMessage<C>
-    pub is_delta: bool,
     pub delta_compression_id: ComponentId,
     pub replicate_once_id: ComponentId,
     pub override_target_id: ComponentId,
     pub write: RawWriteFn,
-    pub insert_fn: RawInsertFn,
+    pub buffer_insert_fn: RawBufferInsertFn,
     pub remove: Option<RawRemoveFn>,
 }
 
@@ -210,7 +208,7 @@ type RawWriteFn = fn(
     &mut ConnectionEvents,
 ) -> Result<(), ComponentError>;
 
-type RawInsertFn = fn(
+type RawBufferInsertFn = fn(
     &mut ComponentRegistry,
     &mut Reader,
     ComponentNetId,
@@ -593,9 +591,9 @@ mod replication {
 
     impl ComponentRegistry {
 
-        // TODO: this is only for components that will be added!
-        /// Insert a raw pointer's data into a temporary buffer so that
-        /// we can get an OwningPtr to it
+        /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
+        /// This function is called for all components that will be added to an entity, so that we can
+        /// insert them all at once using `entity_world_mut.insert_by_ids`
         pub(crate) unsafe fn buffer_insert_raw_ptrs<C: Component>(&mut self, mut component: C, component_id: ComponentId) {
             let layout = Layout::new::<C>();
             let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
@@ -629,12 +627,11 @@ mod replication {
                 ReplicationMetadata {
                     direction,
                     component_id: world.register_component::<C>(),
-                    is_delta: false,
                     delta_compression_id: world.register_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
                     override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
                     write,
-                    insert_fn: Self::buffer_insert::<C>,
+                    buffer_insert_fn: Self::buffer_insert::<C>,
                     remove: Some(remove),
                 },
             );
@@ -667,7 +664,7 @@ mod replication {
                     .ok_or(ComponentError::MissingReplicationFns)?;
                 // buffer the component data into the temporary buffer so that
                 // all components can be inserted at once
-                (replication_metadata.insert_fn)(
+                (replication_metadata.buffer_insert_fn)(
                     self,
                     &mut reader,
                     net_id,
@@ -900,13 +897,12 @@ mod delta {
                         .map(|m| m.direction)
                         .unwrap_or(ChannelDirection::Bidirectional),
                     component_id: world.register_component::<DeltaMessage<C>>(),
-                    is_delta: true,
                     // NOTE: we set these to 0 because they are never used for the DeltaMessage component
                     delta_compression_id: ComponentId::new(0),
                     replicate_once_id: ComponentId::new(0),
                     override_target_id: ComponentId::new(0),
                     write,
-                    insert_fn: Self::buffer_insert_delta::<C>,
+                    buffer_insert_fn: Self::buffer_insert_delta::<C>,
                     remove: None,
                 },
             );
@@ -1066,6 +1062,9 @@ mod delta {
             Ok(())
         }
 
+        /// Insert a component delta into the entity.
+        /// If the component is not present on the entity, we put it in a temporary buffer
+        /// so that all components can be inserted at once
         pub(crate) fn buffer_insert_delta<C: Component + PartialEq + Diffable>(
             &mut self,
             reader: &mut Reader,
