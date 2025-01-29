@@ -5,8 +5,8 @@ use super::entity_map::RemoteEntityMap;
 use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
-use crate::prelude::{ClientId, PrePredicted, Tick};
-use crate::protocol::component::{ComponentKind, ComponentRegistry};
+use crate::prelude::{ClientId, Tick};
+use crate::protocol::component::ComponentRegistry;
 use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
@@ -697,7 +697,7 @@ impl GroupChannel {
             // TODO: remove updates that are duplicate for the same component
             trace!(remote_entity = ?entity, "Received InsertComponent");
             let _ = component_registry
-                .batch_write(
+                .batch_insert(
                     actions.insert,
                     &mut local_entity_mut,
                     remote_tick,

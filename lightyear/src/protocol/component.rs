@@ -581,13 +581,11 @@ mod replication {
     use std::alloc::Layout;
     use super::*;
     use crate::prelude::{
-        DeltaCompression, OverrideTargetComponent, PrePredicted, ReplicateOnceComponent,
+        DeltaCompression, OverrideTargetComponent, ReplicateOnceComponent,
     };
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
-    use crate::shared::replication::components::ReplicationGroupId;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
-    use bevy::prelude::Entity;
     use bevy::ptr::OwningPtr;
     use bytes::Bytes;
 
@@ -598,7 +596,7 @@ mod replication {
         // TODO: this is only for components that will be added!
         /// Insert a raw pointer's data into a temporary buffer so that
         /// we can get an OwningPtr to it
-        pub(crate) unsafe fn push_ptr<C: Component>(&mut self, mut component: C, component_id: ComponentId) {
+        pub(crate) unsafe fn buffer_insert_raw_ptrs<C: Component>(&mut self, mut component: C, component_id: ComponentId) {
             let layout = Layout::new::<C>();
             let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
             // make sure the Drop trait is not called when the `component` variable goes out of scope
@@ -642,7 +640,11 @@ mod replication {
             );
         }
 
-        pub(crate) fn batch_write(
+        /// Insert a batch of components on the entity
+        ///
+        /// This method will insert all the components simultaneously.
+        /// If any component already existed on the entity, it will be updated instead of inserted.
+        pub(crate) fn batch_insert(
             &mut self,
             component_bytes: Vec<Bytes>,
             entity_world_mut: &mut EntityWorldMut,
@@ -678,7 +680,7 @@ mod replication {
             })?;
 
             // TODO: sort by component id for cache efficiency!
-            // TODO: update events?
+            //  maybe it's not needed because on the server side we iterate through archetypes in a deterministic order?
             // # Safety
             // - Each [`ComponentId`] is from the same world as [`EntityWorldMut`]
             // - Each [`OwningPtr`] is a valid reference to the type represented by [`ComponentId`]
@@ -749,22 +751,42 @@ mod replication {
                 .replication_map
                 .get(kind)
                 .ok_or(ComponentError::MissingReplicationFns)?;
-            debug!("Insert component {} to entity", std::any::type_name::<C>());
             let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
-            // TODO: add safety comment
-            unsafe { self.push_ptr::<C>(component, replication_metadata.component_id) };
             let entity = entity_world_mut.id();
-            // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
-            #[cfg(feature = "metrics")]
-            {
-                metrics::counter!("replication::receive::component::insert").increment(1);
-                metrics::counter!(format!(
+            debug!("Insert component {} to entity", std::any::type_name::<C>());
+
+            // if the component is already on the entity, no need to insert
+            if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                // TODO: when can we be in this situation? on authority change?
+                // only apply the update if the component is different, to not trigger change detection
+                if c.as_ref() != &component {
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("replication::receive::component::update").increment(1);
+                        metrics::counter!(format!(
+                            "replication::receive::component::{}::update",
+                            std::any::type_name::<C>()
+                        ))
+                            .increment(1);
+                    }
+                    events.push_update_component(entity, net_id, tick);
+                    *c = component;
+                }
+            } else {
+                // TODO: add safety comment
+                unsafe { self.buffer_insert_raw_ptrs::<C>(component, replication_metadata.component_id) };
+                // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("replication::receive::component::insert").increment(1);
+                    metrics::counter!(format!(
                     "replication::receive::component::{}::insert",
                     std::any::type_name::<C>()
                 ))
-                    .increment(1);
+                        .increment(1);
+                }
+                events.push_insert_component(entity, net_id, tick);
             }
-            events.push_insert_component(entity, net_id, tick);
             Ok(())
         }
 
@@ -1080,10 +1102,20 @@ mod delta {
                     new_value.apply_diff(&delta.delta);
                     // clone the value so that we can insert it in the history
                     let cloned_value = new_value.clone();
-                    // TODO: add safety comment
-                    // use the component id of C, not DeltaMessage<C>
-                    unsafe { self.push_ptr::<C>(new_value, replication_metadata.component_id) };
-                    events.push_insert_component(entity, net_id, tick);
+
+                    // if the component is on the entity, no need to insert
+                    if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                        // only apply the update if the component is different, to not trigger change detection
+                        if c.as_ref() != &new_value {
+                            *c = new_value;
+                            events.push_update_component(entity, net_id, tick);
+                        }
+                    } else {
+                        // TODO: add safety comment
+                        // use the component id of C, not DeltaMessage<C>
+                        unsafe { self.buffer_insert_raw_ptrs::<C>(new_value, replication_metadata.component_id) };
+                        events.push_insert_component(entity, net_id, tick);
+                    }
                     // store the component value in the delta component history, so that we can compute
                     // diffs from it
                     if let Some(mut history) =
