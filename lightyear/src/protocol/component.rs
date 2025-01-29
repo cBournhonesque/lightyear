@@ -157,10 +157,13 @@ pub struct ComponentRegistry {
 pub struct ReplicationMetadata {
     pub direction: ChannelDirection,
     pub component_id: ComponentId,
+    /// If true, the component is a DeltaMessage<C>
+    pub is_delta: bool,
     pub delta_compression_id: ComponentId,
     pub replicate_once_id: ComponentId,
     pub override_target_id: ComponentId,
     pub write: RawWriteFn,
+    pub insert_fn: RawInsertFn,
     pub remove: Option<RawRemoveFn>,
 }
 
@@ -198,6 +201,16 @@ pub struct InterpolationMetadata {
 
 type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
 type RawWriteFn = fn(
+    &ComponentRegistry,
+    &mut Reader,
+    ComponentNetId,
+    Tick,
+    &mut EntityWorldMut,
+    &mut ReceiveEntityMap,
+    &mut ConnectionEvents,
+) -> Result<(), ComponentError>;
+
+type RawInsertFn = fn(
     &ComponentRegistry,
     &mut Reader,
     ComponentNetId,
@@ -565,6 +578,7 @@ mod interpolation {
 }
 
 mod replication {
+    use std::alloc::Layout;
     use super::*;
     use crate::prelude::{
         DeltaCompression, OverrideTargetComponent, PrePredicted, ReplicateOnceComponent,
@@ -576,10 +590,27 @@ mod replication {
     use bevy::prelude::Entity;
     use bevy::ptr::OwningPtr;
     use bytes::Bytes;
+    use crate::protocol::serialize::push_ptr;
 
     type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
     impl ComponentRegistry {
+
+        /// Insert a raw pointer's data into a temporary buffer so that
+        /// we can get an OwningPtr to it
+        pub(crate) unsafe fn push_ptr<C: Component>(&mut self, mut component: C) {
+            let layout = Layout::new::<C>();
+            let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
+            // make sure the Drop trait is not called when the `component` variable goes out of scope
+            std::mem::forget(component);
+            let count = layout.size();
+            self.raw_bytes.reserve(count);
+            let space = NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>();
+            space.copy_from_nonoverlapping(ptr, count);
+            let length = self.raw_bytes.len();
+            self.raw_bytes.set_len(length + count);
+            self.component_ptrs_indices.push(length);
+        }
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
             self.replication_map
                 .get(&kind)
@@ -599,6 +630,7 @@ mod replication {
                 ReplicationMetadata {
                     direction,
                     component_id: world.register_component::<C>(),
+                    is_delta: false,
                     delta_compression_id: world.register_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
                     override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
@@ -629,6 +661,14 @@ mod replication {
                     .replication_map
                     .get(kind)
                     .ok_or(ComponentError::MissingReplicationFns)?;
+                // TODO: or maybe we can? since it's an Insert we should be able to just compute the FromBase value and insert that
+                // + update other metadata
+
+                // for delta component, we cannot just batch insert
+                if replication_metadata.is_delta {
+                    self.
+
+                }
                 let serialization_fns = self
                     .serialize_fns_map
                     .get(kind)
@@ -695,6 +735,37 @@ mod replication {
                 events,
             )?;
             Ok(*kind)
+        }
+
+
+        /// Method that returns a pointer to the component data that will be inserted
+        /// in the entity
+        pub(crate) fn prepare_insert<C: Component + PartialEq>(
+            &mut self,
+            reader: &mut Reader,
+            net_id: ComponentNetId,
+            tick: Tick,
+            entity_world_mut: &mut EntityWorldMut,
+            entity_map: &mut ReceiveEntityMap,
+            events: &mut ConnectionEvents,
+        ) -> Result<(), ComponentError> {
+            debug!("Insert component {} to entity", std::any::type_name::<C>());
+            let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
+            // TODO: add safety comment
+            unsafe { self.push_ptr::<C>(component) };
+            let entity = entity_world_mut.id();
+            // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
+            #[cfg(feature = "metrics")]
+            {
+                metrics::counter!("replication::receive::component::insert").increment(1);
+                metrics::counter!(format!(
+                    "replication::receive::component::{}::insert",
+                    std::any::type_name::<C>()
+                ))
+                    .increment(1);
+            }
+            events.push_insert_component(entity, net_id, tick);
+            Ok(())
         }
 
         pub(crate) fn write<C: Component + PartialEq>(
@@ -808,6 +879,7 @@ mod delta {
                         .unwrap_or(ChannelDirection::Bidirectional),
                     // NOTE: we set these to 0 because they are never used for the DeltaMessage component
                     component_id: ComponentId::new(0),
+                    is_delta: true,
                     delta_compression_id: ComponentId::new(0),
                     replicate_once_id: ComponentId::new(0),
                     override_target_id: ComponentId::new(0),
@@ -1182,10 +1254,10 @@ impl AppComponentExt for App {
         self.world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
                 if !registry.is_registered::<C>() {
+                    debug!("register component {}", std::any::type_name::<C>());
                     registry.register_component::<C>();
+                    registry.set_replication_fns::<C>(world, direction);
                 }
-                registry.set_replication_fns::<C>(world, direction);
-                debug!("register component {}", std::any::type_name::<C>());
             });
         register_component_send::<C>(self, direction);
         ComponentRegistration {

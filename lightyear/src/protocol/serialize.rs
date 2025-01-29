@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::alloc::Layout;
 use std::any::TypeId;
 use std::ptr::NonNull;
+use tracing::trace;
 
 /// Stores function pointers related to serialization and deserialization
 #[derive(Clone, Debug, PartialEq)]
@@ -99,6 +100,7 @@ pub(crate) unsafe fn erased_deserialize_into<M: Message>(
     // TODO: should this be an option?
     entity_map: &mut ReceiveEntityMap,
 ) -> Result<usize, SerializationError> {
+    trace!("Batch insert for {:?}", std::any::type_name::<M>());
     let typed_deserialize_fns = erased_serialize_fn.typed::<M>();
     let mut message = (typed_deserialize_fns.deserialize)(reader)?;
     if let Some(map_entities) = erased_serialize_fn.receive_map_entities {
@@ -115,7 +117,7 @@ pub(crate) unsafe fn erased_deserialize_into<M: Message>(
 
 // Given a pointer to a value of type M and the layout of the type, push the bytes
 // of the value into the raw_bytes vector
-unsafe fn push_ptr(raw_bytes: &mut Vec<u8>, ptr: NonNull<u8>, layout: Layout) -> usize {
+pub(crate) unsafe fn push_ptr(raw_bytes: &mut Vec<u8>, ptr: NonNull<u8>, layout: Layout) -> usize {
     let count = layout.size();
     raw_bytes.reserve(count);
     let space = NonNull::new_unchecked(raw_bytes.spare_capacity_mut()).cast::<u8>();

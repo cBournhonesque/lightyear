@@ -12,7 +12,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{ComponentRegistry, Replicated, ShouldBePredicted, TickManager};
+use crate::prelude::{ComponentRegistry, Replicated, Replicating, ShouldBePredicted, TickManager};
 
 use crate::shared::replication::prespawn::compute_default_hash;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -172,21 +172,19 @@ impl PreSpawnedPlayerObjectPlugin {
         mut commands: Commands,
         connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
-        // TODO: replace with Query<&PreSpawnedPlayerObject, Added<Replicating>> ?
-        mut events: EventReader<ComponentInsertEvent<PreSpawnedPlayerObject>>,
-        query: Query<&PreSpawnedPlayerObject>,
+        query: Query<
+            (Entity, &PreSpawnedPlayerObject),
+            (Added<Replicated>, Added<PreSpawnedPlayerObject>),
+        >,
     ) {
-        for event in events.read() {
-            let confirmed_entity = event.entity();
+        query.iter().for_each(|(confirmed_entity, server_prespawn)| {
             // we handle the PreSpawnedPlayerObject hash in this system and don't need it afterwards
             commands
                 .entity(confirmed_entity)
                 .remove::<PreSpawnedPlayerObject>();
-            let server_prespawn = query.get(confirmed_entity).unwrap();
-
             let Some(server_hash) = server_prespawn.hash else {
                 error!("Received a PreSpawnedPlayerObject entity from the server without a hash");
-                continue;
+                return;
             };
             let Some(mut client_entity_list) =
                 manager.prespawn_hash_to_entities.remove(&server_hash)
@@ -196,7 +194,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 commands
                     .entity(confirmed_entity)
                     .remove::<PreSpawnedPlayerObject>();
-                continue;
+                return;
             };
 
             // if there are multiple entities, we will use the first one
@@ -259,7 +257,7 @@ impl PreSpawnedPlayerObjectPlugin {
                     .prespawn_hash_to_entities
                     .insert(server_hash, client_entity_list);
             }
-        }
+        });
     }
 
     /// Cleanup the client prespawned entities for which we couldn't find a mapped server entity
@@ -570,9 +568,9 @@ mod tests {
     ///
     #[test]
     fn test_prespawn_success() {
-        // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::DEBUG)
-        //     .init();
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::ERROR)
+            .init();
         let mut stepper = BevyStepper::default();
 
         let client_prespawn = stepper
