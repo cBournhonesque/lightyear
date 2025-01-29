@@ -81,23 +81,6 @@ unsafe fn erased_serialize_fn<M: Message>(
     }
 }
 
-// unsafe fn erased_deserialize_fn<'a, M: Message>(
-//     erased_serialize_fn: &ErasedSerializeFns,
-//     reader: &mut Reader,
-//     // TODO: should this be an option?
-//     entity_map: &mut ReceiveEntityMap,
-// ) -> Result<OwningPtr<'a>, SerializationError> {
-//     let typed_deserialize_fns = erased_serialize_fn.typed::<M>();
-//     let mut message = (typed_deserialize_fns.deserialize)(reader)?;
-//     if let Some(map_entities) = erased_serialize_fn.receive_map_entities {
-//         unsafe {
-//             map_entities(PtrMut::from(&mut message), entity_map);
-//         }
-//     }
-//     let owning_ptr = OwningPtr::new(NonNull::new(ManuallyDrop::new(message)));
-//     Ok(owning_ptr)
-// }
-
 /// Default serialize function using bincode
 fn default_serialize<M: Message + Serialize>(
     message: &M,

@@ -1658,6 +1658,9 @@ pub(crate) mod send {
 
         #[test]
         fn test_component_insert_delta() {
+            // tracing_subscriber::FmtSubscriber::builder()
+            //     .with_max_level(tracing::Level::DEBUG)
+            //     .init();
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server

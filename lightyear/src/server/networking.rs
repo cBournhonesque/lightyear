@@ -237,7 +237,8 @@ pub(crate) fn receive(
     //  these resources
     let mut connection_manager =
         unsafe { unsafe_world.get_resource_mut::<ConnectionManager>() }.unwrap();
-    let component_registry = unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
+    let mut component_registry =
+        unsafe { unsafe_world.get_resource_mut::<ComponentRegistry>() }.unwrap();
     let message_registry = unsafe { unsafe_world.get_resource::<MessageRegistry>() }.unwrap();
     let time_manager = unsafe { unsafe_world.get_resource::<TimeManager>() }.unwrap();
     let tick_manager = unsafe { unsafe_world.get_resource::<TickManager>() }.unwrap();
@@ -245,7 +246,7 @@ pub(crate) fn receive(
     connection_manager
         .receive(
             unsafe { unsafe_world.world_mut() },
-            component_registry,
+            component_registry.as_mut(),
             message_registry,
             time_manager,
             tick_manager,

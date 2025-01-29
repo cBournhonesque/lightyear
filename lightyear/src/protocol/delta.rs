@@ -32,6 +32,7 @@ unsafe fn erased_diff<C: Diffable>(
         delta_type: DeltaType::Normal { previous_tick },
         delta,
     };
+    // TODO: Box::leak seems incorrect here; use Box::into_raw()
     let leaked_data = Box::leak(Box::new(delta_message));
     NonNull::from(leaked_data).cast()
 }

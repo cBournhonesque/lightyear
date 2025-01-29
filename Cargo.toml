@@ -45,7 +45,6 @@ lightyear_examples_common = { path = "./examples/common", default-features = fal
 lightyear = { path = "./lightyear", version = "0.19.0", default-features = false }
 
 # utils
-
 anyhow = { version = "1.0.75", features = [] }
 clap = { version = "4.5.4", features = ["derive"] }
 chrono = "0.4.38"

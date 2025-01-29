@@ -5,8 +5,8 @@ use super::entity_map::RemoteEntityMap;
 use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
-use crate::prelude::{ClientId, PrePredicted, Tick};
-use crate::protocol::component::{ComponentKind, ComponentRegistry};
+use crate::prelude::{ClientId, Tick};
+use crate::protocol::component::ComponentRegistry;
 use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
@@ -241,7 +241,7 @@ impl ReplicationReceiver {
         // TODO: should we use commands for command batching?
         world: &mut World,
         remote: Option<ClientId>,
-        component_registry: &ComponentRegistry,
+        component_registry: &mut ComponentRegistry,
         current_tick: Tick,
         events: &mut ConnectionEvents,
     ) {
@@ -569,7 +569,7 @@ impl GroupChannel {
         &mut self,
         world: &mut World,
         remote: Option<ClientId>,
-        component_registry: &ComponentRegistry,
+        component_registry: &mut ComponentRegistry,
         remote_tick: Tick,
         message: EntityActionsMessage,
         remote_entity_map: &mut RemoteEntityMap,
@@ -696,36 +696,33 @@ impl GroupChannel {
             // inserts
             // TODO: remove updates that are duplicate for the same component
             trace!(remote_entity = ?entity, "Received InsertComponent");
-            for component in actions.insert {
-                // TODO: reuse a single reader that reads through the entire message
-                let mut reader = Reader::from(component);
-                if let Ok(kind) = component_registry
-                    .raw_write(
-                        &mut reader,
-                        &mut local_entity_mut,
-                        remote_tick,
-                        &mut remote_entity_map.remote_to_local,
-                        events,
-                    )
-                    .inspect_err(|e| error!("could not write the component to the entity: {:?}", e))
-                {
-                    // for pre-predicted, we need to update the local_entities data, because the entity
-                    // is not spawned so the local_entities data is not updated
-                    if kind == ComponentKind::of::<PrePredicted>() {
-                        self.local_entities.insert(local_entity_mut.id());
-                        local_entity_to_group.insert(local_entity_mut.id(), group_id);
-                    }
-                }
+            let _ = component_registry
+                .batch_insert(
+                    actions.insert,
+                    &mut local_entity_mut,
+                    remote_tick,
+                    &mut remote_entity_map.remote_to_local,
+                    events,
+                )
+                .inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
 
-                // TODO: special-case for pre-predicted entities: we receive them from a client, but then we
-                //  we should immediately take ownership of it, so we won't receive a despawn for it
-                //  thus, we should remove it from the entity map right after receiving it!
-                //  Actually, we should figure out a way to cleanup every received entity where the sender
-                //  stopped replicating or didn't replicate the Despawn, as this could just cause memory to accumulate
+            // TODO: find a way to handle this elegantly. Maybe the server should send a Spawn::Reuse
+            //  or Spawn::PrePredicted for this situation?
+            // for pre-predicted, we need to update the local_entities data, because the entity
+            // is not spawned so the local_entities data is not updated
+            // if kind == ComponentKind::of::<PrePredicted>() {
+            //     self.local_entities.insert(local_entity_mut.id());
+            //     local_entity_to_group.insert(local_entity_mut.id(), group_id);
+            // }
 
-                // TODO: maybe if is-server, attach the client-id to the ShouldBePredicted entity
-                //  to know for which client we should do the pre-prediction
-            }
+            // TODO: special-case for pre-predicted entities: we receive them from a client, but then we
+            //  we should immediately take ownership of it, so we won't receive a despawn for it
+            //  thus, we should remove it from the entity map right after receiving it!
+            //  Actually, we should figure out a way to cleanup every received entity where the sender
+            //  stopped replicating or didn't replicate the Despawn, as this could just cause memory to accumulate
+
+            // TODO: maybe if is-server, attach the client-id to the ShouldBePredicted entity
+            //  to know for which client we should do the pre-prediction
 
             // removals
             trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
@@ -872,7 +869,11 @@ impl GroupChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::ServerReplicate;
     use crate::shared::replication::EntityActions;
+    use crate::tests::protocol::{ComponentSyncModeOnce, ComponentSyncModeSimple};
+    use crate::tests::stepper::BevyStepper;
+    use bevy::prelude::{OnAdd, Query, Trigger, With};
 
     /// Test that the UpdatesIterator works correctly, when we want to iterate through
     /// the buffered updates we have received
@@ -1181,7 +1182,7 @@ mod tests {
         let mut world = World::new();
         let remote_entity = Entity::from_raw(1000);
         let local_entity = world.spawn_empty().id();
-        let component_registry = ComponentRegistry::default();
+        let mut component_registry = ComponentRegistry::default();
         let mut events = ConnectionEvents::default();
         let replication = EntityActionsMessage {
             group_id: ReplicationGroupId(0),
@@ -1203,7 +1204,7 @@ mod tests {
         group_channel.apply_actions_message(
             &mut world,
             None,
-            &component_registry,
+            &mut component_registry,
             Tick(0),
             replication,
             &mut manager.remote_entity_map,
@@ -1218,5 +1219,44 @@ mod tests {
             manager.remote_entity_map.get_local(remote_entity).unwrap(),
             local_entity
         );
+    }
+
+    /// Test that receive() inserts multiple components at the same time
+    /// instead of one by one
+    #[test]
+    fn test_batch_actions_write() {
+        let mut stepper = BevyStepper::default_no_init();
+        // make sure that when ComponentSimple is added, ComponentOnce was also added
+        stepper.client_app.add_observer(
+            |trigger: Trigger<OnAdd, ComponentSyncModeSimple>,
+             query: Query<(), With<ComponentSyncModeOnce>>| {
+                assert!(query.get(trigger.entity()).is_ok());
+            },
+        );
+        // make sure that when ComponentOnce is added, ComponentSimple was also added
+        // i.e. both components are added at the same time
+        stepper.client_app.add_observer(
+            |trigger: Trigger<OnAdd, ComponentSyncModeOnce>,
+             query: Query<(), With<ComponentSyncModeSimple>>| {
+                assert!(query.get(trigger.entity()).is_ok());
+            },
+        );
+        stepper.init();
+
+        stepper.server_app.world_mut().spawn((
+            ServerReplicate::default(),
+            ComponentSyncModeOnce(1.0),
+            ComponentSyncModeSimple(1.0),
+        ));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the components were added
+        assert!(stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<(), (With<ComponentSyncModeOnce>, With<ComponentSyncModeSimple>)>()
+            .get_single(stepper.client_app.world())
+            .is_ok());
     }
 }
