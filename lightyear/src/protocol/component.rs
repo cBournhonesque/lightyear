@@ -590,7 +590,6 @@ mod replication {
     use bevy::prelude::Entity;
     use bevy::ptr::OwningPtr;
     use bytes::Bytes;
-    use crate::protocol::serialize::push_ptr;
 
     type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -684,6 +683,7 @@ mod replication {
             // - Each [`ComponentId`] is from the same world as [`EntityWorldMut`]
             // - Each [`OwningPtr`] is a valid reference to the type represented by [`ComponentId`]
             //   (the data is store in self.raw_bytes)
+            trace!(?self.component_ids, "Inserting components into entity");
             unsafe {
                 entity_world_mut.insert_by_ids(
                     self.component_ids.as_slice(),
@@ -854,7 +854,7 @@ mod delta {
 
     impl ComponentRegistry {
         /// Register delta compression functions for a component
-        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self)
+        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self, world: &mut World)
         where
             C::Delta: Serialize + DeserializeOwned,
         {
@@ -877,9 +877,9 @@ mod delta {
                         .get(&kind)
                         .map(|m| m.direction)
                         .unwrap_or(ChannelDirection::Bidirectional),
-                    // NOTE: we set these to 0 because they are never used for the DeltaMessage component
-                    component_id: ComponentId::new(0),
+                    component_id: world.register_component::<DeltaMessage<C>>(),
                     is_delta: true,
+                    // NOTE: we set these to 0 because they are never used for the DeltaMessage component
                     delta_compression_id: ComponentId::new(0),
                     replicate_once_id: ComponentId::new(0),
                     override_target_id: ComponentId::new(0),
@@ -1047,16 +1047,13 @@ mod delta {
         pub(crate) fn buffer_insert_delta<C: Component + PartialEq + Diffable>(
             &mut self,
             reader: &mut Reader,
-            net_id: ComponentNetId,
+            delta_net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
             entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
-            trace!(
-                "Writing component delta {} to entity",
-                std::any::type_name::<C>()
-            );
+            let net_id = self.net_id::<C>();
             let kind = self
                 .kind_map
                 .kind(net_id)
@@ -1065,7 +1062,12 @@ mod delta {
                 .replication_map
                 .get(kind)
                 .ok_or(ComponentError::MissingReplicationFns)?;
-            let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
+            trace!(
+                ?delta_net_id, ?net_id,
+                component_id = ?replication_metadata.component_id,
+                "Writing component delta {} to entity",
+                std::any::type_name::<C>()
+            );
             let delta =
                 self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
             let entity = entity_world_mut.id();
@@ -1079,6 +1081,7 @@ mod delta {
                     // clone the value so that we can insert it in the history
                     let cloned_value = new_value.clone();
                     // TODO: add safety comment
+                    // use the component id of C, not DeltaMessage<C>
                     unsafe { self.push_ptr::<C>(new_value, replication_metadata.component_id) };
                     events.push_insert_component(entity, net_id, tick);
                     // store the component value in the delta component history, so that we can compute
@@ -1433,8 +1436,11 @@ impl AppComponentExt for App {
     where
         C::Delta: Serialize + DeserializeOwned,
     {
-        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
-        registry.set_delta_compression::<C>();
+
+        self.world_mut()
+            .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
+                registry.set_delta_compression::<C>(world);
+        })
     }
 }
 

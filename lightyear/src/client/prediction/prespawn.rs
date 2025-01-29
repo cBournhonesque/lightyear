@@ -7,12 +7,11 @@ use tracing::{debug, trace};
 
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
-use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{ComponentRegistry, Replicated, Replicating, ShouldBePredicted, TickManager};
+use crate::prelude::{ComponentRegistry, Replicated, ShouldBePredicted, TickManager};
 
 use crate::shared::replication::prespawn::compute_default_hash;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -568,9 +567,9 @@ mod tests {
     ///
     #[test]
     fn test_prespawn_success() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::ERROR)
-            .init();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
         let mut stepper = BevyStepper::default();
 
         let client_prespawn = stepper
