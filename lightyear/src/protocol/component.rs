@@ -594,6 +594,9 @@ mod replication {
         /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
         /// This function is called for all components that will be added to an entity, so that we can
         /// insert them all at once using `entity_world_mut.insert_by_ids`
+        ///
+        /// SAFETY:
+        /// - the component C must match the `component_id `
         pub(crate) unsafe fn buffer_insert_raw_ptrs<C: Component>(&mut self, mut component: C, component_id: ComponentId) {
             let layout = Layout::new::<C>();
             let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
