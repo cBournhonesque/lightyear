@@ -211,7 +211,7 @@ type RawWriteFn = fn(
 ) -> Result<(), ComponentError>;
 
 type RawInsertFn = fn(
-    &ComponentRegistry,
+    &mut ComponentRegistry,
     &mut Reader,
     ComponentNetId,
     Tick,
@@ -596,9 +596,10 @@ mod replication {
 
     impl ComponentRegistry {
 
+        // TODO: this is only for components that will be added!
         /// Insert a raw pointer's data into a temporary buffer so that
         /// we can get an OwningPtr to it
-        pub(crate) unsafe fn push_ptr<C: Component>(&mut self, mut component: C) {
+        pub(crate) unsafe fn push_ptr<C: Component>(&mut self, mut component: C, component_id: ComponentId) {
             let layout = Layout::new::<C>();
             let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
             // make sure the Drop trait is not called when the `component` variable goes out of scope
@@ -610,6 +611,7 @@ mod replication {
             let length = self.raw_bytes.len();
             self.raw_bytes.set_len(length + count);
             self.component_ptrs_indices.push(length);
+            self.component_ids.push(component_id);
         }
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
             self.replication_map
@@ -635,6 +637,7 @@ mod replication {
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
                     override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
                     write,
+                    insert_fn: Self::buffer_insert::<C>,
                     remove: Some(remove),
                 },
             );
@@ -661,28 +664,17 @@ mod replication {
                     .replication_map
                     .get(kind)
                     .ok_or(ComponentError::MissingReplicationFns)?;
-                // TODO: or maybe we can? since it's an Insert we should be able to just compute the FromBase value and insert that
-                // + update other metadata
-
-                // for delta component, we cannot just batch insert
-                if replication_metadata.is_delta {
-                    self.
-
-                }
-                let serialization_fns = self
-                    .serialize_fns_map
-                    .get(kind)
-                    .ok_or(ComponentError::MissingSerializationFns)?;
-                let ptr_index = unsafe {
-                    (serialization_fns.erased_deserialize_into_fn)(
-                        serialization_fns,
-                        &mut self.raw_bytes,
-                        &mut reader,
-                        entity_map,
-                    )?
-                };
-                self.component_ids.push(replication_metadata.component_id);
-                self.component_ptrs_indices.push(ptr_index);
+                // buffer the component data into the temporary buffer so that
+                // all components can be inserted at once
+                (replication_metadata.insert_fn)(
+                    self,
+                    &mut reader,
+                    net_id,
+                    tick,
+                    entity_world_mut,
+                    entity_map,
+                    events,
+                )?;
                 Ok::<(), ComponentError>(())
             })?;
 
@@ -738,9 +730,9 @@ mod replication {
         }
 
 
-        /// Method that returns a pointer to the component data that will be inserted
-        /// in the entity
-        pub(crate) fn prepare_insert<C: Component + PartialEq>(
+        /// Method that buffers a pointer to the component data that will be inserted
+        /// in the entity inside `self.raw_bytes`
+        pub(crate) fn buffer_insert<C: Component + PartialEq>(
             &mut self,
             reader: &mut Reader,
             net_id: ComponentNetId,
@@ -749,10 +741,18 @@ mod replication {
             entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
+            let kind = self
+                .kind_map
+                .kind(net_id)
+                .ok_or(ComponentError::NotRegistered)?;
+            let replication_metadata = self
+                .replication_map
+                .get(kind)
+                .ok_or(ComponentError::MissingReplicationFns)?;
             debug!("Insert component {} to entity", std::any::type_name::<C>());
             let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
             // TODO: add safety comment
-            unsafe { self.push_ptr::<C>(component) };
+            unsafe { self.push_ptr::<C>(component, replication_metadata.component_id) };
             let entity = entity_world_mut.id();
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             #[cfg(feature = "metrics")]
@@ -884,6 +884,7 @@ mod delta {
                     replicate_once_id: ComponentId::new(0),
                     override_target_id: ComponentId::new(0),
                     write,
+                    insert_fn: Self::buffer_insert_delta::<C>,
                     remove: None,
                 },
             );
@@ -1036,6 +1037,60 @@ mod delta {
                         // create a DeltaComponentHistory and insert the value
                         let mut history = DeltaComponentHistory::default();
                         history.buffer.insert(tick, value);
+                        entity_world_mut.insert(history);
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        pub(crate) fn buffer_insert_delta<C: Component + PartialEq + Diffable>(
+            &mut self,
+            reader: &mut Reader,
+            net_id: ComponentNetId,
+            tick: Tick,
+            entity_world_mut: &mut EntityWorldMut,
+            entity_map: &mut ReceiveEntityMap,
+            events: &mut ConnectionEvents,
+        ) -> Result<(), ComponentError> {
+            trace!(
+                "Writing component delta {} to entity",
+                std::any::type_name::<C>()
+            );
+            let kind = self
+                .kind_map
+                .kind(net_id)
+                .ok_or(ComponentError::NotRegistered)?;
+            let replication_metadata = self
+                .replication_map
+                .get(kind)
+                .ok_or(ComponentError::MissingReplicationFns)?;
+            let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
+            let delta =
+                self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
+            let entity = entity_world_mut.id();
+            match delta.delta_type {
+                DeltaType::Normal { previous_tick } => {
+                    unreachable!("buffer_insert_delta should only be called for FromBase deltas since the component is being inserted");
+                }
+                DeltaType::FromBase => {
+                    let mut new_value = C::base_value();
+                    new_value.apply_diff(&delta.delta);
+                    // clone the value so that we can insert it in the history
+                    let cloned_value = new_value.clone();
+                    // TODO: add safety comment
+                    unsafe { self.push_ptr::<C>(new_value, replication_metadata.component_id) };
+                    events.push_insert_component(entity, net_id, tick);
+                    // store the component value in the delta component history, so that we can compute
+                    // diffs from it
+                    if let Some(mut history) =
+                        entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
+                    {
+                        history.buffer.insert(tick, cloned_value);
+                    } else {
+                        // create a DeltaComponentHistory and insert the value
+                        let mut history = DeltaComponentHistory::default();
+                        history.buffer.insert(tick, cloned_value);
                         entity_world_mut.insert(history);
                     }
                 }
