@@ -576,28 +576,29 @@ mod interpolation {
 }
 
 mod replication {
-    use std::alloc::Layout;
     use super::*;
-    use crate::prelude::{
-        DeltaCompression, OverrideTargetComponent, ReplicateOnceComponent,
-    };
+    use crate::prelude::{DeltaCompression, OverrideTargetComponent, ReplicateOnceComponent};
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
     use bevy::ptr::OwningPtr;
     use bytes::Bytes;
+    use std::alloc::Layout;
 
     type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
     impl ComponentRegistry {
-
         /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
         /// This function is called for all components that will be added to an entity, so that we can
         /// insert them all at once using `entity_world_mut.insert_by_ids`
         ///
         /// SAFETY:
         /// - the component C must match the `component_id `
-        pub(crate) unsafe fn buffer_insert_raw_ptrs<C: Component>(&mut self, mut component: C, component_id: ComponentId) {
+        pub(crate) unsafe fn buffer_insert_raw_ptrs<C: Component>(
+            &mut self,
+            mut component: C,
+            component_id: ComponentId,
+        ) {
             let layout = Layout::new::<C>();
             let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
             // make sure the Drop trait is not called when the `component` variable goes out of scope
@@ -731,7 +732,6 @@ mod replication {
             Ok(*kind)
         }
 
-
         /// Method that buffers a pointer to the component data that will be inserted
         /// in the entity inside `self.raw_bytes`
         pub(crate) fn buffer_insert<C: Component + PartialEq>(
@@ -767,23 +767,25 @@ mod replication {
                             "replication::receive::component::{}::update",
                             std::any::type_name::<C>()
                         ))
-                            .increment(1);
+                        .increment(1);
                     }
                     events.push_update_component(entity, net_id, tick);
                     *c = component;
                 }
             } else {
                 // TODO: add safety comment
-                unsafe { self.buffer_insert_raw_ptrs::<C>(component, replication_metadata.component_id) };
+                unsafe {
+                    self.buffer_insert_raw_ptrs::<C>(component, replication_metadata.component_id)
+                };
                 // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
                 #[cfg(feature = "metrics")]
                 {
                     metrics::counter!("replication::receive::component::insert").increment(1);
                     metrics::counter!(format!(
-                    "replication::receive::component::{}::insert",
-                    std::any::type_name::<C>()
-                ))
-                        .increment(1);
+                        "replication::receive::component::{}::insert",
+                        std::any::type_name::<C>()
+                    ))
+                    .increment(1);
                 }
                 events.push_insert_component(entity, net_id, tick);
             }
@@ -876,8 +878,10 @@ mod delta {
 
     impl ComponentRegistry {
         /// Register delta compression functions for a component
-        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(&mut self, world: &mut World)
-        where
+        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(
+            &mut self,
+            world: &mut World,
+        ) where
             C::Delta: Serialize + DeserializeOwned,
         {
             let kind = ComponentKind::of::<C>();
@@ -1115,7 +1119,12 @@ mod delta {
                     } else {
                         // TODO: add safety comment
                         // use the component id of C, not DeltaMessage<C>
-                        unsafe { self.buffer_insert_raw_ptrs::<C>(new_value, replication_metadata.component_id) };
+                        unsafe {
+                            self.buffer_insert_raw_ptrs::<C>(
+                                new_value,
+                                replication_metadata.component_id,
+                            )
+                        };
                         events.push_insert_component(entity, net_id, tick);
                     }
                     // store the component value in the delta component history, so that we can compute
@@ -1470,11 +1479,10 @@ impl AppComponentExt for App {
     where
         C::Delta: Serialize + DeserializeOwned,
     {
-
         self.world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
                 registry.set_delta_compression::<C>(world);
-        })
+            })
     }
 }
 

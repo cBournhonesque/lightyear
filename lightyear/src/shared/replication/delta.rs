@@ -219,9 +219,9 @@ impl DeltaComponentStore {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::World;
     use super::*;
     use crate::tests::protocol::ComponentDeltaCompression;
+    use bevy::prelude::World;
 
     #[test]
     fn test_add_get_data() {

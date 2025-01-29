@@ -81,7 +81,6 @@ unsafe fn erased_serialize_fn<M: Message>(
     }
 }
 
-
 /// Default serialize function using bincode
 fn default_serialize<M: Message + Serialize>(
     message: &M,
