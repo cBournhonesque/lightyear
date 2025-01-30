@@ -197,7 +197,7 @@ pub struct InterpolationMetadata {
     pub custom_interpolation: bool,
 }
 
-type RawBufferRemoveFn = fn(&ComponentRegistry, ComponentNetId);
+type RawBufferRemoveFn = fn(&mut ComponentRegistry, ComponentNetId);
 type RawWriteFn = fn(
     &ComponentRegistry,
     &mut Reader,
@@ -622,20 +622,17 @@ mod replication {
             world: &mut World,
             direction: ChannelDirection,
         ) {
-            let kind = ComponentKind::of::<C>();
-            let write: RawWriteFn = Self::write::<C>;
-            let remove: RawBufferRemoveFn = Self::remove::<C>;
             self.replication_map.insert(
-                kind,
+                ComponentKind::of::<C>(),
                 ReplicationMetadata {
                     direction,
                     component_id: world.register_component::<C>(),
                     delta_compression_id: world.register_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
                     override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
-                    write,
+                    write: Self::write::<C>,
                     buffer_insert_fn: Self::buffer_insert::<C>,
-                    remove: Some(remove),
+                    remove: Some(Self::buffer_remove::<C>),
                 },
             );
         }
@@ -835,7 +832,7 @@ mod replication {
             Ok(())
         }
 
-        pub(crate) fn batch_remove(&self, net_ids: Vec<ComponentNetId>, entity_world_mut: &mut EntityWorldMut) {
+        pub(crate) fn batch_remove(&mut self, net_ids: Vec<ComponentNetId>, entity_world_mut: &mut EntityWorldMut) {
             for net_id in net_ids {
                 let kind = self.kind_map.kind(net_id).expect("unknown component kind");
                 let replication_metadata = self
@@ -846,7 +843,8 @@ mod replication {
                 remove_fn(self, net_id);
             }
 
-            entity_world_mut.remove_by_ids
+            entity_world_mut.remove_by_ids(&self.component_ids);
+            self.component_ids.clear();
         }
 
         /// Prepare for a component being removed
