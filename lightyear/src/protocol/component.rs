@@ -162,7 +162,7 @@ pub struct ReplicationMetadata {
     pub override_target_id: ComponentId,
     pub write: RawWriteFn,
     pub buffer_insert_fn: RawBufferInsertFn,
-    pub remove: Option<RawRemoveFn>,
+    pub remove: Option<RawBufferRemoveFn>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -197,7 +197,7 @@ pub struct InterpolationMetadata {
     pub custom_interpolation: bool,
 }
 
-type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
+type RawBufferRemoveFn = fn(&mut ComponentRegistry, ComponentNetId);
 type RawWriteFn = fn(
     &ComponentRegistry,
     &mut Reader,
@@ -622,20 +622,17 @@ mod replication {
             world: &mut World,
             direction: ChannelDirection,
         ) {
-            let kind = ComponentKind::of::<C>();
-            let write: RawWriteFn = Self::write::<C>;
-            let remove: RawRemoveFn = Self::remove::<C>;
             self.replication_map.insert(
-                kind,
+                ComponentKind::of::<C>(),
                 ReplicationMetadata {
                     direction,
                     component_id: world.register_component::<C>(),
                     delta_compression_id: world.register_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
                     override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
-                    write,
+                    write: Self::write::<C>,
                     buffer_insert_fn: Self::buffer_insert::<C>,
-                    remove: Some(remove),
+                    remove: Some(Self::buffer_remove::<C>),
                 },
             );
         }
@@ -835,23 +832,31 @@ mod replication {
             Ok(())
         }
 
-        pub(crate) fn raw_remove(
-            &self,
-            net_id: ComponentNetId,
-            entity_world_mut: &mut EntityWorldMut,
-        ) {
+        pub(crate) fn batch_remove(&mut self, net_ids: Vec<ComponentNetId>, entity_world_mut: &mut EntityWorldMut) {
+            for net_id in net_ids {
+                let kind = self.kind_map.kind(net_id).expect("unknown component kind");
+                let replication_metadata = self
+                    .replication_map
+                    .get(kind)
+                    .expect("the component is not part of the protocol");
+                let remove_fn = replication_metadata.remove.expect("the component does not have a remove function");
+                remove_fn(self, net_id);
+            }
+
+            entity_world_mut.remove_by_ids(&self.component_ids);
+            self.component_ids.clear();
+        }
+
+        /// Prepare for a component being removed
+        /// We don't actually remove the component here, we just push the ComponentId to the `component_ids` vector
+        /// so that they can all be removed at the same time
+        pub(crate) fn buffer_remove<C: Component>(&mut self, net_id: ComponentNetId) {
             let kind = self.kind_map.kind(net_id).expect("unknown component kind");
             let replication_metadata = self
                 .replication_map
                 .get(kind)
                 .expect("the component is not part of the protocol");
-            let f = replication_metadata
-                .remove
-                .expect("the component does not have a remove function");
-            f(self, entity_world_mut);
-        }
-
-        pub(crate) fn remove<C: Component>(&self, entity_world_mut: &mut EntityWorldMut) {
+            self.component_ids.push(replication_metadata.component_id);
             #[cfg(feature = "metrics")]
             {
                 metrics::counter!("replication::receive::component::remove").increment(1);
@@ -861,7 +866,6 @@ mod replication {
                 ))
                 .increment(1);
             }
-            entity_world_mut.remove::<C>();
         }
     }
 }
@@ -910,6 +914,7 @@ mod delta {
                     override_target_id: ComponentId::new(0),
                     write,
                     buffer_insert_fn: Self::buffer_insert_delta::<C>,
+                    // we never need to remove the DeltaMessage<C> component
                     remove: None,
                 },
             );

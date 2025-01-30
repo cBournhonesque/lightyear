@@ -725,11 +725,7 @@ impl GroupChannel {
             //  to know for which client we should do the pre-prediction
 
             // removals
-            trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
-            for kind in actions.remove {
-                events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
-                component_registry.raw_remove(kind, &mut local_entity_mut);
-            }
+            let _ = component_registry.batch_remove(actions.remove, &mut local_entity_mut);
 
             // updates
             trace!(remote_entity = ?entity, "Received UpdateComponent");
@@ -873,7 +869,7 @@ mod tests {
     use crate::shared::replication::EntityActions;
     use crate::tests::protocol::{ComponentSyncModeOnce, ComponentSyncModeSimple};
     use crate::tests::stepper::BevyStepper;
-    use bevy::prelude::{OnAdd, Query, Trigger, With};
+    use bevy::prelude::{OnAdd, OnRemove, Query, Trigger, With, Without};
 
     /// Test that the UpdatesIterator works correctly, when we want to iterate through
     /// the buffered updates we have received
@@ -1256,6 +1252,53 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<(), (With<ComponentSyncModeOnce>, With<ComponentSyncModeSimple>)>()
+            .get_single(stepper.client_app.world())
+            .is_ok());
+    }
+
+    /// Test that receive() removes multiple components at the same time
+    /// instead of one by one
+    #[test]
+    fn test_batch_removes_write() {
+        let mut stepper = BevyStepper::default_no_init();
+        // the observer runs before the component is removed
+        // make sure that if ComponentSimple still exists, ComponentOnce also does
+        stepper.client_app.add_observer(
+            |trigger: Trigger<OnRemove, ComponentSyncModeSimple>,
+             query: Query<(), With<ComponentSyncModeOnce>>| {
+                assert!(query.get(trigger.target()).is_ok());
+            },
+        );
+        // the observer runs before the component is removed
+        // make sure that if ComponentOnce still exists, ComponentSimple also does
+        // i.e. both components are removed at the same time
+        stepper.client_app.add_observer(
+            |trigger: Trigger<OnRemove, ComponentSyncModeOnce>,
+             query: Query<(), With<ComponentSyncModeSimple>>| {
+                assert!(query.get(trigger.target()).is_ok());
+            },
+        );
+        stepper.init();
+
+        let server_entity = stepper.server_app.world_mut().spawn((
+            ServerReplicate::default(),
+            ComponentSyncModeOnce(1.0),
+            ComponentSyncModeSimple(1.0),
+        )).id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // remove both components
+        stepper.server_app.world_mut().entity_mut(server_entity).remove::<(ComponentSyncModeOnce, ComponentSyncModeSimple)>();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the components were removed
+        assert!(stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<(), (With<Replicated>, Without<ComponentSyncModeSimple>, Without<ComponentSyncModeOnce>)>()
             .get_single(stepper.client_app.world())
             .is_ok());
     }
