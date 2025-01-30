@@ -1,7 +1,7 @@
 /*! Handles syncing the time between the client and the server
 */
 use bevy::prelude::{Reflect, SystemSet};
-use bevy::utils::Duration;
+use core::time::Duration;
 use chrono::Duration as ChronoDuration;
 use tracing::{debug, trace};
 
@@ -588,7 +588,7 @@ impl SyncManager {
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;
-    use bevy::utils::Duration;
+    use core::time::Duration;
 
     use crate::client::input::native::InputManager;
     use crate::prelude::server::Replicate;

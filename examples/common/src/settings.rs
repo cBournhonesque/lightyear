@@ -5,7 +5,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use bevy::asset::ron;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 #[cfg(not(target_family = "wasm"))]
 use async_compat::Compat;

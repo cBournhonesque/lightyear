@@ -12,7 +12,7 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 `lightyear` provides two plugins groups: [`ServerPlugins`](prelude::server::ServerPlugins) and [`ClientPlugins`](prelude::client::ClientPlugins) that will handle the networking for you.
 
 ```rust
-use bevy::utils::Duration;
+use core::time::Duration;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use lightyear::prelude::client::*;

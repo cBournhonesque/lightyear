@@ -7,7 +7,7 @@ use bevy::input::InputPlugin;
 use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
-use bevy::utils::Duration;
+use core::time::Duration;
 use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
@@ -31,7 +31,7 @@ pub struct HostServerStepper {
     pub server_app: App,
     pub frame_duration: Duration,
     pub tick_duration: Duration,
-    pub current_time: bevy::utils::Instant,
+    pub current_time: bevy::platform_support::time::Instant,
 }
 
 impl Default for HostServerStepper {
@@ -166,7 +166,7 @@ impl HostServerStepper {
         }
 
         // Initialize Real time (needed only for the first TimeSystem run)
-        let now = bevy::utils::Instant::now();
+        let now = bevy::platform_support::time::Instant::now();
         client_app
             .world_mut()
             .get_resource_mut::<Time<Real>>()

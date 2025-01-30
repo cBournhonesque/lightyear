@@ -3,7 +3,7 @@ use std::ops::{Add, Mul};
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
-use bevy::utils::HashSet;
+use bevy::platform_support::collections::HashSet;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;
 use lightyear_macros::ChannelInternal;

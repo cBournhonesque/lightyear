@@ -194,6 +194,6 @@ pub(crate) fn handle_disconnection(
 /// (Replicated entities are automatically despawned by lightyear on disconnection)
 fn on_disconnect(mut commands: Commands, debug_text: Query<Entity, With<ClientIdText>>) {
     for entity in debug_text.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
 }

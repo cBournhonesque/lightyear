@@ -10,7 +10,7 @@ use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 #[derive(Clone, Copy, Debug, Reflect)]
 pub struct ReplicationConfig {

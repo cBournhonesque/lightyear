@@ -1,7 +1,7 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use std::ops::DerefMut;
 
@@ -177,7 +177,7 @@ pub(crate) fn compute_hit_lag_compensation(
                 .map(|(mut score, _)| {
                     score.0 += 1;
                 });
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     })
 }
@@ -216,7 +216,7 @@ pub(crate) fn compute_hit_prediction(
                 .map(|(mut score, _)| {
                     score.0 += 1;
                 });
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     })
 }

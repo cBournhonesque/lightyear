@@ -45,7 +45,7 @@
 //! This module is kept for simplicity but might get removed in the future.
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
-use bevy::utils::Duration;
+use core::time::Duration;
 use tracing::{error, trace};
 
 use crate::client::config::ClientConfig;

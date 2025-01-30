@@ -190,7 +190,7 @@ impl<K: Ord, T> Ord for ItemWithReadyKey<K, T> {
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
+    use core::time::Duration;
     use mock_instant::global::Instant;
     use mock_instant::global::MockClock;
 

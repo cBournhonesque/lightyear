@@ -2,7 +2,7 @@
 //! Messages are sent via channels
 use std::net::SocketAddr;
 
-use bevy::utils::HashMap;
+use bevy::platform_support::collections::HashMap;
 use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::debug;

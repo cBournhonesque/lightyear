@@ -89,7 +89,7 @@ pub enum TargetEntity {
 
 /// Component that defines how the hierarchy of an entity (parent/children) should be replicated
 ///
-/// If the component is absent, the [`Parent`](bevy::prelude::Parent)/[`Children`](bevy::prelude::Children) components will not be replicated.
+/// If the component is absent, the [`ChildOf`](bevy::prelude::ChildOf)/[`Children`](bevy::prelude::Children) components will not be replicated.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ReplicateHierarchy {
@@ -328,7 +328,7 @@ impl ReplicationGroup {
     /// This can be useful to send updates for a group of entities less frequently than the default send_interval.
     /// For example the send_interval could be 30Hz, but you could set the send_frequency to 10Hz for a group of entities
     /// to buffer updates less frequently.
-    pub fn set_send_frequency(mut self, send_frequency: bevy::utils::Duration) -> Self {
+    pub fn set_send_frequency(mut self, send_frequency: core::time::Duration) -> Self {
         self.send_frequency = Some(Timer::new(send_frequency, TimerMode::Repeating));
         self
     }

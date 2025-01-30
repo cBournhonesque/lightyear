@@ -1,6 +1,6 @@
 //! Handles client-side prediction
 use crate::client::prediction::resource::PredictionManager;
-use bevy::ecs::component::StorageType;
+use bevy::ecs::component::{Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
 use std::fmt::Debug;
@@ -28,6 +28,8 @@ pub struct Predicted {
 
 impl Component for Predicted {
     const STORAGE_TYPE: StorageType = StorageType::Table;
+
+    type Mutability = Mutable;
 
     fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
         hooks.on_add(

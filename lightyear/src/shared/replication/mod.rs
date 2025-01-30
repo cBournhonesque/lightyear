@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use bevy::prelude::{Entity, Resource};
-use bevy::utils::hashbrown::HashMap;
+use bevy::platform_support::collections::HashMap;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 

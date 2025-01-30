@@ -2,7 +2,7 @@ use crate::prelude::ClientId;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use bevy::prelude::Reflect;
-use bevy::utils::HashSet;
+use bevy::platform_support::collections::HashSet;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 

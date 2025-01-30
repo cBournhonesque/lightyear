@@ -1,7 +1,6 @@
 use bevy::ecs::system::EntityCommands;
-use bevy::ecs::world::Command;
 use bevy::prelude::{
-    Commands, Component, DespawnRecursiveExt, Entity, OnRemove, Query, Reflect, ReflectComponent,
+    Command, Commands, Component, Entity, OnRemove, Query, Reflect, ReflectComponent,
     Res, Trigger, With, Without, World,
 };
 use tracing::{debug, error, trace};
@@ -37,7 +36,7 @@ impl Command for PredictionDespawnCommand {
 
         // if we are in host server mode, there is no rollback so we can despawn the entity immediately
         if world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
-            world.entity_mut(self.entity).despawn_recursive();
+            world.entity_mut(self.entity).despawn();
         }
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
@@ -60,7 +59,7 @@ impl Command for PredictionDespawnCommand {
             } else if let Some(confirmed) = entity.get::<Confirmed>() {
                 // TODO: actually we should never despawn directly on the client a Confirmed entity
                 //  it should only get despawned when replicating!
-                entity.despawn_recursive();
+                entity.despawn();
             } else {
                 error!("This command should only be called for predicted entities!");
             }
@@ -84,9 +83,9 @@ pub(crate) fn despawn_confirmed(
     query: Query<&Confirmed>,
     mut commands: Commands,
 ) {
-    if let Some(predicted) = query.get(trigger.entity()).unwrap().predicted {
+    if let Some(predicted) = query.get(trigger.target()).unwrap().predicted {
         if let Some(entity_mut) = commands.get_entity(predicted) {
-            entity_mut.despawn_recursive();
+            entity_mut.despawn();
         }
     }
 }

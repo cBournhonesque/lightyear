@@ -58,6 +58,7 @@ rand = "0.8"
 ringbuffer = "0.15"
 thiserror = "2.0.3"
 seahash = "4.1.0"
+variadics_please = "1.1.0"
 zstd = "0.13.1"
 
 
@@ -172,7 +173,7 @@ approx = "0.5.1"
 # Bevy
 # (we add back features needed for gui clients if desired)
 
-bevy = { version = "0.15", default-features = false, features = [
+bevy = { git = "https://github.com/bevyengine/bevy.git", branch = "main", default-features = false, features = [
   "multi_threaded",
   "bevy_state",
   "serialize",

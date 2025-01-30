@@ -195,7 +195,7 @@ mod tests {
     use crate::client::config::ClientConfig;
     use approx::assert_relative_eq;
     use bevy::prelude::*;
-    use bevy::utils::Duration;
+    use core::time::Duration;
 
     use crate::prelude::{SharedConfig, TickConfig};
     use crate::tests::protocol::*;

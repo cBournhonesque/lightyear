@@ -1,6 +1,6 @@
 use bevy::app::App;
 use bevy::prelude::{Resource, TypePath};
-use bevy::utils::Duration;
+use core::time::Duration;
 use std::any::TypeId;
 use std::collections::HashMap;
 

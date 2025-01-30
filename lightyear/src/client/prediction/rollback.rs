@@ -2,10 +2,11 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
 use bevy::app::FixedMain;
-use bevy::ecs::entity::EntityHashSet;
+use bevy::ecs::component::{Mutable};
+use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::ecs::reflect::ReflectResource;
 use bevy::prelude::{
-    Commands, Component, DespawnRecursiveExt, DetectChanges, Entity, Query, Ref, Res, ResMut,
+    Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut,
     Resource, With, Without, World,
 };
 use bevy::reflect::Reflect;
@@ -460,8 +461,8 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
             ?entity,
             "deleting pre-spawned entity because it was created after the rollback tick"
         );
-        if let Some(entity_commands) = commands.get_entity(*entity) {
-            entity_commands.despawn_recursive();
+        if let Some(mut entity_commands) = commands.get_entity(*entity) {
+            entity_commands.despawn();
         }
     });
 
@@ -513,7 +514,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
 /// - TODO: entities that were despawned since rollback are respawned (maybe just via using prediction_despawn()?)
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback_non_networked<C: Component + PartialEq + Clone>(
+pub(crate) fn prepare_rollback_non_networked<C: Component<Mutability=Mutable> + PartialEq + Clone>(
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
     tick_manager: Res<TickManager>,

@@ -3,7 +3,7 @@
 use bevy::core::TaskPoolThreadAssignmentPolicy;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::log::{error, Level, LogPlugin};
-use bevy::utils::Duration;
+use core::time::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
@@ -14,7 +14,7 @@ use bevy::prelude::{
 use bevy::state::app::StatesPlugin;
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
-use bevy::utils::HashMap;
+use bevy::platform_support::collections::HashMap;
 use bevy::MinimalPlugins;
 
 use lightyear::connection::netcode::generate_key;
@@ -55,7 +55,7 @@ pub struct LocalBevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: bevy::utils::Instant,
+    pub current_time: bevy::platform_support::time::Instant,
 }
 
 impl Default for LocalBevyStepper {
@@ -89,7 +89,7 @@ impl LocalBevyStepper {
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        let now = bevy::utils::Instant::now();
+        let now = bevy::platform_support::time::Instant::now();
         // Local channels transport only works with server socket = LOCAL_SOCKET
         let server_addr = LOCAL_SOCKET;
 

@@ -846,7 +846,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// ```
     /// # use crate::lightyear::connection::netcode::{NetcodeServer, ServerConfig, MAX_PACKET_SIZE};
     /// # use std::net::{SocketAddr, Ipv4Addr};
-    /// # use bevy::utils::Instant;
+    /// # use bevy::platform_support::time::Instant;
     /// # use lightyear::prelude::server::*;
     /// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
     /// # let protocol_id = 0x123456789ABCDEF0;

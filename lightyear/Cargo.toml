@@ -43,7 +43,7 @@ websocket = [
   "dep:wasm-bindgen-futures",
 ]
 steam = ["dep:steamworks"]
-track_change_detection = ["bevy/track_change_detection"]
+track_location = ["bevy/track_location"]
 
 # compression
 lz4 = ["dep:lz4_flex"]
@@ -63,6 +63,7 @@ rand.workspace = true
 ringbuffer.workspace = true
 thiserror.workspace = true
 seahash.workspace = true
+variadics_please.workspace = true
 
 # input
 leafwing-input-manager = { workspace = true, optional = true }

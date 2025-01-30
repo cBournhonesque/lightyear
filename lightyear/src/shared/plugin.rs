@@ -19,7 +19,7 @@ use crate::transport::io::{IoState, IoStats};
 use crate::transport::middleware::compression::CompressionConfig;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 #[derive(Default, Debug)]
 pub struct SharedPlugin {

@@ -6,7 +6,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::Entity;
 use bevy::ptr::Ptr;
-use bevy::utils::{hashbrown, HashMap};
+use bevy::platform_support::collections::{hash_map::HashMap, hash_set::HashSet};
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, trace};
@@ -32,9 +32,9 @@ use {
     crate::utils::captures::Captures,
 };
 
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
-type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
+type EntityHashSet<K> = HashSet<K, EntityHash>;
 
 /// When a [`EntityUpdatesMessage`](super::EntityUpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.

@@ -6,7 +6,7 @@ use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::tests::stepper::BevyStepper;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 fn press_input(mut input_manager: ResMut<InputManager<MyInput>>, tick_manager: Res<TickManager>) {
     input_manager.add_input(MyInput(0), tick_manager.tick());

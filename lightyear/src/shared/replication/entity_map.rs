@@ -1,5 +1,5 @@
 //! Map between local and remote entities
-use bevy::ecs::entity::{EntityHashMap, EntityMapper};
+use bevy::ecs::entity::{hash_map::EntityHashMap, EntityMapper};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use tracing::{error, trace};

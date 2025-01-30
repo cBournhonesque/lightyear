@@ -1,4 +1,4 @@
-use bevy::utils::HashMap;
+use bevy::platform_support::collections::HashMap;
 use byteorder::NetworkEndian;
 use byteorder::ReadBytesExt;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};

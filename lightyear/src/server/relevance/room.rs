@@ -20,6 +20,7 @@ This can be useful for games where you have physical instances of rooms:
 
 ```rust
 use bevy::prelude::*;
+use bevy::ecs::entity::hash_map::EntityHashMap;
 use lightyear::prelude::*;
 use lightyear::prelude::server::*;
 
@@ -38,10 +39,10 @@ it just caches the room metadata to keep track of the relevance of entities.
 */
 
 use bevy::app::App;
-use bevy::ecs::entity::EntityHash;
+use bevy::ecs::entity::{hash_set::EntityHashSet, hash_map::EntityHashMap};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
-use bevy::utils::{Entry, HashMap, HashSet};
+use bevy::platform_support::collections::{hash_map::Entry, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -51,10 +52,6 @@ use crate::prelude::server::is_started;
 use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceEvents, RelevanceManager};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
 
-use bevy::utils::hashbrown;
-
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
-type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 /// Id for a [`Room`], which is used to perform interest management.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect)]
@@ -83,7 +80,7 @@ struct RoomData {
     /// List of rooms that a client is in
     client_to_rooms: HashMap<ClientId, HashSet<RoomId>>,
     /// List of rooms that an entity is in
-    entity_to_rooms: EntityHashMap<Entity, HashSet<RoomId>>,
+    entity_to_rooms: EntityHashMap<HashSet<RoomId>>,
     /// Mapping from [`RoomId`] to the [`Room`]
     rooms: HashMap<RoomId, Room>,
 }
@@ -100,7 +97,7 @@ pub struct Room {
     /// list of clients that are in the room
     pub clients: HashSet<ClientId>,
     /// list of entities that are in the room
-    pub entities: EntityHashSet<Entity>,
+    pub entities: EntityHashSet,
 }
 
 impl Room {
@@ -356,7 +353,7 @@ pub(super) mod systems {
         trigger: Trigger<OnRemove, ReplicationGroup>,
         mut room_manager: ResMut<RoomManager>,
     ) {
-        room_manager.entity_despawn(trigger.entity());
+        room_manager.entity_despawn(trigger.target());
     }
 }
 
@@ -364,7 +361,7 @@ pub(super) mod systems {
 mod tests {
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::Events;
-    use bevy::utils::HashMap;
+    use bevy::platform_support::collections::HashMap;
 
     use crate::prelude::client::*;
     use crate::prelude::server::Replicate;

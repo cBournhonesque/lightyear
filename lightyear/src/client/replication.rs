@@ -1,6 +1,6 @@
 //! Client replication plugins
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use crate::client::connection::ConnectionManager;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
@@ -492,7 +492,7 @@ pub(crate) mod send {
         query: Query<&ReplicationGroup, With<Replicating>>,
         mut sender: ResMut<ConnectionManager>,
     ) {
-        let mut entity = trigger.entity();
+        let mut entity = trigger.target();
         // convert the entity to a network entity (possibly mapped)
         entity = sender
             .replication_receiver
@@ -666,7 +666,7 @@ pub(crate) mod send {
             (With<Replicating>, With<ReplicateToServer>),
         >,
     ) {
-        let mut entity = trigger.entity();
+        let mut entity = trigger.target();
         // convert the entity to a network entity (possibly mapped)
         entity = sender
             .replication_receiver

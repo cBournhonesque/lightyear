@@ -2,7 +2,7 @@
 Defines components that are used for the client-side prediction and interpolation
 */
 use std::fmt::Debug;
-
+use bevy::ecs::component::{Mutable};
 use bevy::prelude::{Component, Entity, ReflectComponent};
 use bevy::reflect::Reflect;
 
@@ -26,8 +26,8 @@ pub struct Confirmed {
     pub tick: Tick,
 }
 
-pub trait SyncComponent: Component + Clone + PartialEq + Message {}
-impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message {}
+pub trait SyncComponent: Component<Mutability=Mutable> + Clone + PartialEq + Message {}
+impl<T> SyncComponent for T where T: Component<Mutability=Mutable> + Clone + PartialEq + Message {}
 
 /// Function that will interpolate between two values
 pub trait LerpFn<C> {

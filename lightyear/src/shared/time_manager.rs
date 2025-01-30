@@ -15,8 +15,8 @@ use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 use bevy::app::{App, RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time};
 use bevy::time::Fixed;
-use bevy::utils::Duration;
-use bevy::utils::Instant;
+use core::time::Duration;
+use bevy::platform_support::time::Instant;
 use chrono::Duration as ChronoDuration;
 
 pub use wrapped_time::WrappedTime;

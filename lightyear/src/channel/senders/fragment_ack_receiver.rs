@@ -1,4 +1,4 @@
-use bevy::utils::HashMap;
+use bevy::platform_support::collections::HashMap;
 use tracing::{error, trace};
 
 use crate::packet::message::{FragmentIndex, MessageId};

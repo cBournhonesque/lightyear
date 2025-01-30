@@ -1,8 +1,8 @@
 use bevy::ecs::component::ComponentId;
-use bevy::ecs::entity::{EntityHash, MapEntities};
+use bevy::ecs::entity::{MapEntities};
 use bevy::prelude::{App, Component, EntityWorldMut, Mut, Reflect, Resource, TypePath, World};
 use bevy::ptr::Ptr;
-use bevy::utils::{hashbrown, HashMap};
+use bevy::platform_support::collections::hash_map::HashMap;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::any::TypeId;
@@ -584,8 +584,6 @@ mod replication {
     use bevy::ptr::OwningPtr;
     use bytes::Bytes;
     use std::alloc::Layout;
-
-    type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
     impl ComponentRegistry {
         /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it

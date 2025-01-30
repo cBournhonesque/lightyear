@@ -7,7 +7,7 @@
 //! - to implement input-delay, we want a button press at tick t to be processed at tick t + delay on the client.
 //!   Therefore, we will store the computed ActionState at tick t + delay, but then we load the ActionState at tick t
 //!   from the buffer
-use bevy::utils::Instant;
+use bevy::platform_support::time::Instant;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 

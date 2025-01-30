@@ -14,15 +14,14 @@ use crate::shared::replication::components::{InitialReplicated, Replicated, Repl
 #[cfg(test)]
 use crate::utils::captures::Captures;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{DespawnRecursiveExt, Entity, EntityWorldMut, World};
-use bevy::utils::{hashbrown, HashSet};
+use bevy::prelude::{Entity, EntityWorldMut, World};
+use bevy::platform_support::collections::{hash_set::HashSet, hash_map::HashMap};
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
-type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 #[derive(Debug)]
 pub struct ReplicationReceiver {
@@ -669,7 +668,7 @@ impl GroupChannel {
                     self.local_entities.remove(&local_entity);
                     // TODO: we despawn all children as well right now, but that might not be what we want?
                     if let Ok(entity_mut) = world.get_entity_mut(local_entity) {
-                        entity_mut.despawn_recursive();
+                        entity_mut.despawn();
                     }
                     events.push_despawn(local_entity);
                     local_entity_to_group.remove(&local_entity);
@@ -1230,7 +1229,7 @@ mod tests {
         stepper.client_app.add_observer(
             |trigger: Trigger<OnAdd, ComponentSyncModeSimple>,
              query: Query<(), With<ComponentSyncModeOnce>>| {
-                assert!(query.get(trigger.entity()).is_ok());
+                assert!(query.get(trigger.target()).is_ok());
             },
         );
         // make sure that when ComponentOnce is added, ComponentSimple was also added
@@ -1238,7 +1237,7 @@ mod tests {
         stepper.client_app.add_observer(
             |trigger: Trigger<OnAdd, ComponentSyncModeOnce>,
              query: Query<(), With<ComponentSyncModeSimple>>| {
-                assert!(query.get(trigger.entity()).is_ok());
+                assert!(query.get(trigger.target()).is_ok());
             },
         );
         stepper.init();

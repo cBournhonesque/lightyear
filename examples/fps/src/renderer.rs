@@ -163,7 +163,7 @@ fn add_interpolated_bot_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.entity();
+    let entity = trigger.target();
     if query.get(entity).is_ok() {
         // add visibility
         commands.entity(entity).insert((
@@ -184,7 +184,7 @@ fn add_predicted_bot_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.entity();
+    let entity = trigger.target();
     if query.get(entity).is_ok() {
         // add visibility
         commands.entity(entity).insert((

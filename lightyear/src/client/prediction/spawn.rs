@@ -82,7 +82,7 @@ mod tests {
     use crate::prelude::server::SyncTarget;
     use crate::prelude::{client, server, ClientId, NetworkTarget};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-    use bevy::hierarchy::{BuildChildren, Parent};
+    use bevy::ecs::hierarchy::{ChildOf};
     use bevy::prelude::default;
 
     /// https://github.com/cBournhonesque/lightyear/issues/627
@@ -134,7 +134,7 @@ mod tests {
             stepper
                 .client_app
                 .world()
-                .get::<Parent>(confirmed_child)
+                .get::<ChildOf>(confirmed_child)
                 .expect("confirmed child entity doesn't have a parent")
                 .get(),
             confirmed_parent
@@ -160,7 +160,7 @@ mod tests {
             stepper
                 .client_app
                 .world()
-                .get::<Parent>(predicted_child)
+                .get::<ChildOf>(predicted_child)
                 .expect("predicted child entity doesn't have a parent")
                 .get(),
             predicted_parent

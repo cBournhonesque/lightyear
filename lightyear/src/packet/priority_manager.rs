@@ -1,4 +1,4 @@
-use bevy::utils::HashMap;
+use bevy::platform_support::collections::HashMap;
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
 

@@ -68,11 +68,11 @@ fn add_visual_interpolation_components(
     query: Query<Entity, (With<Predicted>, Without<FloorMarker>)>,
     mut commands: Commands,
 ) {
-    if !query.contains(trigger.entity()) {
+    if !query.contains(trigger.target()) {
         return;
     }
     commands
-        .entity(trigger.entity())
+        .entity(trigger.target())
         .insert(VisualInterpolateStatus::<Transform> {
             // We must trigger change detection on visual interpolation
             // to make sure that child entities (sprites, meshes, text)

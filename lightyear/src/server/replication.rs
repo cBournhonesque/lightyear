@@ -1,6 +1,6 @@
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
@@ -392,7 +392,7 @@ pub(crate) mod send {
         q: Query<&AuthorityPeer>,
         mut commands: Commands,
     ) {
-        let entity = trigger.entity();
+        let entity = trigger.target();
         if let Ok(authority_peer) = q.get(entity) {
             match authority_peer {
                 AuthorityPeer::Client(c) => {
@@ -748,7 +748,7 @@ pub(crate) mod send {
         //  when we are not connected?
         mut sender: ResMut<ConnectionManager>,
     ) {
-        let entity = trigger.entity();
+        let entity = trigger.target();
         if let Ok((replication_group, network_target, cached_relevance)) = query.get(entity) {
             trace!(?entity, "Replicate entity despawn");
             // only send the despawn to clients who were in the target of the entity
@@ -1108,7 +1108,7 @@ pub(crate) mod send {
         use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
         use bevy::ecs::system::RunSystemOnce;
         use bevy::prelude::{default, EventReader, Resource, Update};
-        use bevy::utils::HashSet;
+        use bevy::platform_support::collections::HashSet;
 
         // TODO: test entity spawn newly connected client
 
@@ -3179,7 +3179,7 @@ pub(crate) mod commands {
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{InitialReplicated, ReplicationGroupId};
     use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{Entity, World};
+    use bevy::prelude::{Entity, EntityWorldMut, World};
 
     pub trait AuthorityCommandExt {
         /// This command is used to transfer the authority of an entity to a different peer.
@@ -3398,13 +3398,11 @@ pub(crate) mod commands {
         }
     }
 
-    fn despawn_without_replication(entity: Entity, world: &mut World) {
+    fn despawn_without_replication(mut entity_mut: EntityWorldMut) {
         // remove replicating separately so that when we despawn the entity and trigger the observer
         // the entity doesn't have replicating anymore
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.remove::<Replicating>();
-            entity_mut.despawn();
-        }
+        entity_mut.remove::<Replicating>();
+        entity_mut.despawn();
     }
 
     pub trait DespawnReplicationCommandExt {

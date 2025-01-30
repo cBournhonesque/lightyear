@@ -5,7 +5,7 @@
 //! mispredictions/rollbacks.
 
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use std::ops::{Deref, DerefMut};
 
 use lightyear::prelude::client::{Confirmed, Interpolated};

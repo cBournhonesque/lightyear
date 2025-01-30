@@ -24,7 +24,7 @@ use bevy::prelude::{
 };
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::{add_component_history, apply_confirmed_update};

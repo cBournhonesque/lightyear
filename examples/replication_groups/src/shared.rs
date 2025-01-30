@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use tracing::Level;
 
 use crate::protocol::Direction;

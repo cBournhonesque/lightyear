@@ -14,7 +14,7 @@ cfg_if::cfg_if!(
         use crate::packet::header::PacketHeader;
         use crate::packet::packet_type::PacketType;
         use crate::packet::message::{SingleData, FragmentData};
-        use bevy::utils::HashMap;
+        use bevy::platform_support::collections::HashMap;
     }
 );
 

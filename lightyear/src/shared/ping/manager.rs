@@ -1,7 +1,7 @@
 //! Manages sending/receiving pings and computing network statistics
 use bevy::reflect::Reflect;
 use bevy::time::Stopwatch;
-use bevy::utils::Duration;
+use core::time::Duration;
 use tracing::{error, trace};
 
 use crate::shared::ping::message::{Ping, Pong};
