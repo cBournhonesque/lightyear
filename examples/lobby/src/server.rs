@@ -7,8 +7,8 @@
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
 use bevy::prelude::*;
-use bevy::utils::Duration;
-use bevy::utils::HashMap;
+use core::time::Duration;
+use bevy::platform_support::collections::HashMap;
 
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;

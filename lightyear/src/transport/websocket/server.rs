@@ -5,7 +5,7 @@ use std::{
 
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
-use bevy::utils::HashMap;
+use crate::utils::collections::HashMap;
 use futures_util::{
     future, pin_mut,
     stream::{SplitSink, TryStreamExt},

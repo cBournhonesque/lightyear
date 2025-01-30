@@ -4,7 +4,7 @@ use avian2d::PhysicsPlugins;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use server::ControlledBy;
 use std::ops::DerefMut;

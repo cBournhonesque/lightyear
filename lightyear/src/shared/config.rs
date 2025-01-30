@@ -1,6 +1,6 @@
 //! Configuration that has to be the same between the server and the client.
 use bevy::reflect::Reflect;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use crate::shared::tick_manager::TickConfig;
 

@@ -66,7 +66,7 @@ pub(crate) fn handle_pre_predicted(
     // for local client entities
     q: Query<(Entity, &PrePredicted, &Replicated)>,
 ) {
-    if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.entity()) {
+    if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.target()) {
         let sending_client = replicated.from.unwrap();
         let confirmed_entity = pre_predicted.confirmed_entity.unwrap();
         // update the mapping so that when we send updates, the server entity gets mapped

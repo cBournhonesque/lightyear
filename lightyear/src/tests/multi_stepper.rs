@@ -1,6 +1,6 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
 use crate::client::networking::ClientCommands;
-use bevy::core::TaskPoolThreadAssignmentPolicy;
+use bevy::app::TaskPoolThreadAssignmentPolicy;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::{
     default, App, Commands, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time,
@@ -8,7 +8,7 @@ use bevy::prelude::{
 use bevy::state::app::StatesPlugin;
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
-use bevy::utils::Duration;
+use core::time::Duration;
 use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
@@ -35,7 +35,7 @@ pub struct MultiBevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: bevy::utils::Instant,
+    pub current_time: bevy::platform_support::time::Instant,
 }
 
 impl Default for MultiBevyStepper {
@@ -69,7 +69,7 @@ impl MultiBevyStepper {
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        let now = bevy::utils::Instant::now();
+        let now = bevy::platform_support::time::Instant::now();
 
         // both clients will use the same client id
         let server_addr = LOCAL_SOCKET;

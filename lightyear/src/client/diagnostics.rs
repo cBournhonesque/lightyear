@@ -4,7 +4,7 @@ use bevy::app::{App, Plugin, PostUpdate};
 use bevy::diagnostic::Diagnostics;
 use bevy::prelude::{not, Condition, IntoSystemConfigs, Real, Res, ResMut, Time};
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::{client::is_disconnected, is_host_server};

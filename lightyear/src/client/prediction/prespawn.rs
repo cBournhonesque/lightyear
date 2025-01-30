@@ -1,6 +1,6 @@
 //! Handles spawning entities that are predicted
 
-use bevy::ecs::component::{Components, StorageType};
+use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
@@ -59,7 +59,7 @@ impl Plugin for PreSpawnedPlayerObjectPlugin {
             // we first try to see if the entity was a PreSpawnedPlayerObject
             // if we couldn't match it then the component gets removed and then should we try the normal spawn-prediction flow
             // TODO: or should we just consider that there was an error, and not go through the normal prediction flow?
-            (Self::match_with_received_server_entity, apply_deferred)
+            (Self::match_with_received_server_entity, ApplyDeferred)
                 .chain()
                 .in_set(PreSpawnedPlayerObjectSet::Spawn),
         );
@@ -293,14 +293,14 @@ impl PreSpawnedPlayerObjectPlugin {
                 .iter()
                 .flatten()
                 .for_each(|entity| {
-                    if let Some(entity_commands) = commands.get_entity(*entity) {
+                    if let Some(mut entity_commands) = commands.get_entity(*entity) {
                         trace!(
                             ?tick,
                             ?entity,
                             "Cleaning up prespawned player object up to past tick: {:?}",
                             past_tick
                         );
-                        entity_commands.despawn_recursive();
+                        entity_commands.despawn();
                     }
                 });
         }
@@ -360,8 +360,12 @@ impl PreSpawnedPlayerObject {
 /// PreSpawnedPlayerObject component, on the same tick that PreSpawnedPlayerObject was inserted.
 impl Component for PreSpawnedPlayerObject {
     const STORAGE_TYPE: StorageType = StorageType::Table;
+
+    type Mutability = Mutable;
+
     fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
-        hooks.on_add(|mut deferred_world, entity, _component_id| {
+        hooks.on_add(|mut deferred_world, context: HookContext| {
+            let entity = context.entity;
             let prespawned_obj = deferred_world
                 .entity(entity)
                 .get::<PreSpawnedPlayerObject>()

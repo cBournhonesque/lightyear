@@ -1,10 +1,10 @@
 //! Specify how a Server sends/receives messages with a Client
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::{EntityHash, MapEntities};
+use bevy::ecs::entity::{MapEntities};
 use bevy::prelude::{Component, Entity, Event, Resource, World};
 use bevy::ptr::Ptr;
-use bevy::utils::{hashbrown, hashbrown::hash_map::Entry};
-use bevy::utils::{Duration, HashMap};
+use bevy::platform_support::collections::hash_map::{Entry, HashMap};
+use core::time::Duration;
 use bytes::Bytes;
 use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
@@ -57,8 +57,6 @@ use crate::shared::sets::ServerMarker;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
-
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 #[derive(Resource)]
 pub struct ConnectionManager {

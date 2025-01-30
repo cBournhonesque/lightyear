@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use bevy::tasks::futures_lite::future;
 use bevy::tasks::{block_on, IoTaskPool, Task};
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
+use core::time::Duration;
 use lightyear::connection::netcode::CONNECT_TOKEN_BYTES;
 use tokio::io::AsyncReadExt;
 
@@ -113,7 +113,7 @@ async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -
 /// Remove all entities when the client disconnect
 fn on_disconnect(mut commands: Commands, debug_text: Query<Entity, With<ClientIdText>>) {
     for entity in debug_text.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
 }
 

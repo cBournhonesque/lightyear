@@ -1,7 +1,7 @@
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use server::ControlledEntities;
 use std::hash::{Hash, Hasher};

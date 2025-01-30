@@ -238,7 +238,7 @@ pub(crate) fn apply_component_removal_predicted<C: Component + PartialEq + Clone
     mut predicted_query: Query<&mut PredictionHistory<C>>,
 ) {
     // if the component was removed from the Predicted entity, add the Removal to the history
-    if let Ok(mut history) = predicted_query.get_mut(trigger.entity()) {
+    if let Ok(mut history) = predicted_query.get_mut(trigger.target()) {
         // tick for which we will record the history (either the current client tick or the current rollback tick)
         let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
         history.add_remove(tick);
@@ -255,7 +255,7 @@ pub(crate) fn apply_component_removal_confirmed<C: SyncComponent>(
     confirmed_query: Query<&Confirmed>,
 ) {
     // Components that are removed from the Confirmed entity also get removed from the Predicted entity
-    if let Ok(confirmed) = confirmed_query.get(trigger.entity()) {
+    if let Ok(confirmed) = confirmed_query.get(trigger.target()) {
         if let Some(p) = confirmed.predicted {
             if let Some(mut commands) = commands.get_entity(p) {
                 commands.remove::<C>();

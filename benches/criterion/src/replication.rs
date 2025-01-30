@@ -6,7 +6,7 @@ use bevy::log::{info, tracing_subscriber};
 use bevy::prelude::{default, error, Events, With};
 use bevy::utils::tracing;
 use bevy::utils::tracing::Level;
-use bevy::utils::Duration;
+use core::time::Duration;
 use divan::{AllocProfiler, Bencher};
 use lightyear::client::sync::SyncConfig;
 use lightyear::prelude::client::{

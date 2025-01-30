@@ -1,6 +1,6 @@
 //! Module to handle the [`Tick`], a sequence number incremented at each [`bevy::prelude::FixedUpdate`] schedule run
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use tracing::trace;
 
 use crate::client::prediction::plugin::is_in_rollback;

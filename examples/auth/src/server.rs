@@ -13,7 +13,8 @@ use std::sync::{Arc, RwLock};
 
 use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
-use bevy::utils::{Duration, HashSet};
+use core::time::Duration;
+use crate::utils::collections::HashSet;
 use tokio::io::AsyncWriteExt;
 
 use lightyear::prelude::server::*;

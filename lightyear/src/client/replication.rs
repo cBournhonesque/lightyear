@@ -1,6 +1,6 @@
 //! Client replication plugins
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use crate::client::connection::ConnectionManager;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
@@ -492,7 +492,7 @@ pub(crate) mod send {
         query: Query<&ReplicationGroup, With<Replicating>>,
         mut sender: ResMut<ConnectionManager>,
     ) {
-        let mut entity = trigger.entity();
+        let mut entity = trigger.target();
         // convert the entity to a network entity (possibly mapped)
         entity = sender
             .replication_receiver
@@ -666,7 +666,7 @@ pub(crate) mod send {
             (With<Replicating>, With<ReplicateToServer>),
         >,
     ) {
-        let mut entity = trigger.entity();
+        let mut entity = trigger.target();
         // convert the entity to a network entity (possibly mapped)
         entity = sender
             .replication_receiver
@@ -1306,15 +1306,13 @@ pub(crate) mod send {
 pub(crate) mod commands {
     use crate::prelude::Replicating;
     use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{Entity, World};
+    use bevy::prelude::{EntityWorldMut};
 
-    fn despawn_without_replication(entity: Entity, world: &mut World) {
+    fn despawn_without_replication(mut entity_mut: EntityWorldMut) {
         // remove replicating separately so that when we despawn the entity and trigger the observer
         // the entity doesn't have replicating anymore
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.remove::<Replicating>();
-            entity_mut.despawn();
-        }
+        entity_mut.remove::<Replicating>();
+        entity_mut.despawn();
     }
 
     pub trait DespawnReplicationCommandExt {

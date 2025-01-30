@@ -566,7 +566,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// ```
     /// # use std::net::SocketAddr;
     /// # use lightyear::connection::netcode::{ConnectToken, NetcodeClient, ClientConfig, ClientState, Server};
-    /// # use bevy::utils::{Instant, Duration};
+    /// # use core::time::Duration;
     /// # use std::thread;
     /// # use lightyear::connection::netcode::NetcodeServer;
     /// # use lightyear::prelude::client::{ClientTransport, IoConfig};
@@ -578,10 +578,9 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
     /// client.connect();
     ///
-    /// let start = Instant::now();
     /// let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
     /// loop {
-    ///     client.update(start.elapsed().as_secs_f64(), &mut io);
+    ///     client.update(tick_rate.as_secs_f64() / 1000.0, &mut io);
     ///     if let Some(packet) = client.recv() {
     ///         // ...
     ///     }

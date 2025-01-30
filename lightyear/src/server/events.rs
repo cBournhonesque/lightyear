@@ -1,8 +1,7 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
 
-use bevy::ecs::entity::EntityHash;
 use bevy::prelude::*;
-use bevy::utils::{hashbrown, HashMap};
+use crate::utils::collections::HashMap;
 
 use crate::connection::id::ClientId;
 use crate::prelude::ComponentRegistry;
@@ -14,8 +13,6 @@ use crate::shared::events::connection::{
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
-
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 /// Plugin that adds bevy [`Events`] related to networking and replication
 #[derive(Default)]

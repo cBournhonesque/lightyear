@@ -17,10 +17,10 @@ use crate::shared::replication::{ReplicationPeer, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
-/// The `ParentSync` component will be updated automatically when the `Parent` component changes,
+/// The `ParentSync` component will be updated automatically when the `ChildOf` component changes,
 /// and the entity's hierarchy will automatically be updated when the `ParentSync` component changes.
 ///
-/// Updates entity's `Parent` component on change.
+/// Updates entity's `ChildOf` component on change.
 /// Removes the parent if `None`.
 #[derive(Component, Default, Reflect, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 #[reflect(Component)]
@@ -69,7 +69,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                 Has<Replicated>,
             ),
             (
-                Without<Parent>,
+                Without<ChildOf>,
                 With<Children>,
                 // TODO also handle when a component is removed, it should be removed for children
                 //   maybe do all this via observers?
@@ -178,7 +178,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             if replicate_hierarchy.recursive {
                 // iterate through all descendents of the entity
                 children_query
-                    .iter_descendants(parent_entity)
+                    .iter_descendants::<Children>(parent_entity)
                     .for_each(|child| {
                         propagate(
                             child,
@@ -199,11 +199,10 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                     });
             } else {
                 children_query
-                    .children(parent_entity)
-                    .iter()
+                    .relationship_sources::<Children>(parent_entity)
                     .for_each(|child| {
                         propagate(
-                            *child,
+                            child,
                             false,
                             &mut commands,
                             parent_group,
@@ -228,7 +227,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
     ///
     /// This only runs on the sending side
     fn update_parent_sync(
-        mut query: Query<(Ref<Parent>, &mut ParentSync), With<ReplicateHierarchy>>,
+        mut query: Query<(Ref<ChildOf>, &mut ParentSync), With<ReplicateHierarchy>>,
     ) {
         for (parent, mut parent_sync) in query.iter_mut() {
             if parent.is_changed() || parent_sync.is_added() {
@@ -246,10 +245,10 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
     ///
     /// This only runs on the sending side
     fn handle_parent_remove(
-        trigger: Trigger<OnRemove, Parent>,
+        trigger: Trigger<OnRemove, ChildOf>,
         mut hierarchy: Query<&mut ParentSync, With<ReplicateHierarchy>>,
     ) {
-        if let Ok(mut parent_sync) = hierarchy.get_mut(trigger.entity()) {
+        if let Ok(mut parent_sync) = hierarchy.get_mut(trigger.target()) {
             parent_sync.0 = None;
         }
     }
@@ -289,7 +288,7 @@ impl<R> HierarchyReceivePlugin<R> {
     fn update_parent(
         mut commands: Commands,
         hierarchy: Query<
-            (Entity, &ParentSync, Option<&Parent>),
+            (Entity, &ParentSync, Option<&ChildOf>),
             (Changed<ParentSync>, Without<ReplicationTarget>),
         >,
     ) {
@@ -302,10 +301,10 @@ impl<R> HierarchyReceivePlugin<R> {
             );
             if let Some(new_parent) = parent_sync.0 {
                 if parent.filter(|&parent| **parent == new_parent).is_none() {
-                    commands.entity(entity).set_parent(new_parent);
+                    commands.entity(entity).insert(ChildOf(new_parent));
                 }
             } else if parent.is_some() {
-                commands.entity(entity).remove_parent();
+                commands.entity(entity).remove::<ChildOf>();
             }
         }
     }
@@ -334,7 +333,7 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
 mod tests {
     use std::ops::Deref;
 
-    use bevy::hierarchy::{BuildChildren, Children, Parent};
+    use bevy::ecs::hierarchy::{Children, ChildOf};
     use bevy::prelude::{default, Entity, With};
 
     use crate::prelude::server::{Replicate, ReplicationTarget};
@@ -405,7 +404,7 @@ mod tests {
         let (client_parent, client_parent_sync, client_parent_component) = stepper
             .client_app
             .world_mut()
-            .query_filtered::<(Entity, &ParentSync, &Parent), With<ComponentSyncModeSimple>>()
+            .query_filtered::<(Entity, &ParentSync, &ChildOf), With<ComponentSyncModeSimple>>()
             .get_single(stepper.client_app.world())
             .unwrap();
 
@@ -417,7 +416,7 @@ mod tests {
             .server_app
             .world_mut()
             .entity_mut(parent)
-            .remove_parent();
+            .remove::<ChildOf>();
         stepper.frame_step();
         stepper.frame_step();
         // 1. make sure that parent sync has been updated on the sender side
@@ -444,7 +443,7 @@ mod tests {
                 .client_app
                 .world_mut()
                 .entity_mut(client_parent)
-                .get::<Parent>(),
+                .get::<ChildOf>(),
             None,
         );
         assert!(stepper
@@ -497,7 +496,7 @@ mod tests {
                 .client_app
                 .world_mut()
                 .entity_mut(client_parent)
-                .get::<Parent>()
+                .get::<ChildOf>()
                 .unwrap()
                 .deref(),
             &client_grandparent
@@ -507,7 +506,7 @@ mod tests {
                 .client_app
                 .world_mut()
                 .entity_mut(client_child)
-                .get::<Parent>()
+                .get::<ChildOf>()
                 .unwrap()
                 .deref(),
             &client_parent
@@ -568,7 +567,7 @@ mod tests {
             stepper
                 .server_app
                 .world()
-                .get::<Parent>(server_child)
+                .get::<ChildOf>(server_child)
                 .unwrap()
                 .get(),
             server_parent

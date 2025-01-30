@@ -16,7 +16,7 @@ use bevy::input::InputPlugin;
 use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, State, Time, World};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
-use bevy::utils::Duration;
+use core::time::Duration;
 use bevy::MinimalPlugins;
 
 pub const TEST_CLIENT_ID: u64 = 111;
@@ -27,7 +27,7 @@ pub struct BevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: bevy::utils::Instant,
+    pub current_time: bevy::platform_support::time::Instant,
 }
 
 impl Default for BevyStepper {
@@ -132,7 +132,7 @@ impl BevyStepper {
         }
 
         // Initialize Real time (needed only for the first TimeSystem run)
-        let now = bevy::utils::Instant::now();
+        let now = bevy::platform_support::time::Instant::now();
         client_app
             .world_mut()
             .get_resource_mut::<Time<Real>>()

@@ -5,13 +5,13 @@ use bevy::prelude::*;
 #[allow(unused_imports)]
 use bevy::ptr::{Ptr, UnsafeCellDeref};
 use std::any::TypeId;
-#[cfg(feature = "track_change_detection")]
+#[cfg(feature = "track_location")]
 use std::{cell::UnsafeCell, panic::Location};
 
-#[cfg(feature = "track_change_detection")]
+#[cfg(feature = "track_location")]
 pub(crate) type MaybeUnsafeCellLocation<'a> = &'a UnsafeCell<&'static Location<'static>>;
 
-#[cfg(not(feature = "track_change_detection"))]
+#[cfg(not(feature = "track_location"))]
 pub(crate) type MaybeUnsafeCellLocation<'a> = ();
 
 pub(crate) fn get_ref<C: Component>(
@@ -41,7 +41,7 @@ pub(crate) fn get_ref<C: Component>(
                 cells.changed.deref(),
                 last_run,
                 this_run,
-                #[cfg(feature = "track_change_detection")]
+                #[cfg(feature = "track_location")]
                 _caller.deref(),
             )
         })
@@ -73,11 +73,11 @@ unsafe fn get_component_and_ticks(
                         .get_changed_tick(component_id, location.table_row)
                         .unwrap_unchecked(),
                 },
-                #[cfg(feature = "track_change_detection")]
+                #[cfg(feature = "track_location")]
                 table
                     .get_changed_by(component_id, location.table_row)
                     .unwrap_unchecked(),
-                #[cfg(not(feature = "track_change_detection"))]
+                #[cfg(not(feature = "track_location"))]
                 (),
             ))
         }

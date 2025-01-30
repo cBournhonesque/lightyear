@@ -1,6 +1,6 @@
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
@@ -392,7 +392,7 @@ pub(crate) mod send {
         q: Query<&AuthorityPeer>,
         mut commands: Commands,
     ) {
-        let entity = trigger.entity();
+        let entity = trigger.target();
         if let Ok(authority_peer) = q.get(entity) {
             match authority_peer {
                 AuthorityPeer::Client(c) => {
@@ -748,7 +748,7 @@ pub(crate) mod send {
         //  when we are not connected?
         mut sender: ResMut<ConnectionManager>,
     ) {
-        let entity = trigger.entity();
+        let entity = trigger.target();
         if let Ok((replication_group, network_target, cached_relevance)) = query.get(entity) {
             trace!(?entity, "Replicate entity despawn");
             // only send the despawn to clients who were in the target of the entity
@@ -1108,7 +1108,7 @@ pub(crate) mod send {
         use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
         use bevy::ecs::system::RunSystemOnce;
         use bevy::prelude::{default, EventReader, Resource, Update};
-        use bevy::utils::HashSet;
+        use crate::utils::collections::HashSet;
 
         // TODO: test entity spawn newly connected client
 
@@ -2649,7 +2649,7 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((
                     Replicate::default(),
-                    ComponentDeltaCompression2(HashSet::from([1])),
+                    ComponentDeltaCompression2(HashSet::from_iter([1])),
                     DeltaCompression::<ComponentDeltaCompression2>::default(),
                 ))
                 .id();
@@ -2663,7 +2663,7 @@ pub(crate) mod send {
                 .entity_mut(server_entity)
                 .get_mut::<ComponentDeltaCompression2>()
                 .unwrap()
-                .0 = HashSet::from([2]);
+                .0 = HashSet::from_iter([2]);
             // replicate and make sure that the server received the client ack
             stepper.frame_step();
             let base_update_tick = stepper.server_tick();
@@ -2687,7 +2687,7 @@ pub(crate) mod send {
                     .entity(client_entity)
                     .get::<ComponentDeltaCompression2>()
                     .expect("component missing"),
-                &ComponentDeltaCompression2(HashSet::from([2]))
+                &ComponentDeltaCompression2(HashSet::from_iter([2]))
             );
             // check that the server received an ack
             assert!(stepper
@@ -2707,7 +2707,7 @@ pub(crate) mod send {
                 .entity_mut(server_entity)
                 .get_mut::<ComponentDeltaCompression2>()
                 .unwrap()
-                .0 = HashSet::from([3]);
+                .0 = HashSet::from_iter([3]);
             stepper.frame_step();
             let update_tick = stepper.server_tick();
             // apply another update (the update should still be from the last acked value, aka add 4, remove 2
@@ -2717,7 +2717,7 @@ pub(crate) mod send {
                 .entity_mut(server_entity)
                 .get_mut::<ComponentDeltaCompression2>()
                 .unwrap()
-                .0 = HashSet::from([4]);
+                .0 = HashSet::from_iter([4]);
             stepper.frame_step();
             // the client receives the first update
             assert_eq!(
@@ -2727,7 +2727,7 @@ pub(crate) mod send {
                     .entity(client_entity)
                     .get::<ComponentDeltaCompression2>()
                     .expect("component missing"),
-                &ComponentDeltaCompression2(HashSet::from([3]))
+                &ComponentDeltaCompression2(HashSet::from_iter([3]))
             );
             stepper.frame_step();
             // the client receives the second update, and it still works well because we apply the diff
@@ -2739,7 +2739,7 @@ pub(crate) mod send {
                     .entity(client_entity)
                     .get::<ComponentDeltaCompression2>()
                     .expect("component missing"),
-                &ComponentDeltaCompression2(HashSet::from([4]))
+                &ComponentDeltaCompression2(HashSet::from_iter([4]))
             );
             // check that the history still contains the component for the component update
             // (because we only purge when we receive a strictly more recent tick)
@@ -3179,7 +3179,7 @@ pub(crate) mod commands {
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{InitialReplicated, ReplicationGroupId};
     use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{Entity, World};
+    use bevy::prelude::{EntityWorldMut, World};
 
     pub trait AuthorityCommandExt {
         /// This command is used to transfer the authority of an entity to a different peer.
@@ -3188,7 +3188,9 @@ pub(crate) mod commands {
 
     impl AuthorityCommandExt for EntityCommands<'_> {
         fn transfer_authority(&mut self, new_owner: AuthorityPeer) {
-            self.queue(move |entity: Entity, world: &mut World| {
+            self.queue(move |entity_mut: EntityWorldMut| {
+                let entity = entity_mut.id();
+                let world = entity_mut.into_world_mut();
                 let bevy_tick = world.change_tick();
                 // check who the current owner is
                 let current_owner =
@@ -3398,13 +3400,11 @@ pub(crate) mod commands {
         }
     }
 
-    fn despawn_without_replication(entity: Entity, world: &mut World) {
+    fn despawn_without_replication(mut entity_mut: EntityWorldMut) {
         // remove replicating separately so that when we despawn the entity and trigger the observer
         // the entity doesn't have replicating anymore
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.remove::<Replicating>();
-            entity_mut.despawn();
-        }
+        entity_mut.remove::<Replicating>();
+        entity_mut.despawn();
     }
 
     pub trait DespawnReplicationCommandExt {
@@ -3419,7 +3419,7 @@ pub(crate) mod commands {
 
     #[cfg(test)]
     mod tests {
-        use bevy::prelude::With;
+        use bevy::prelude::{Entity, With};
 
         use crate::prelude::server::Replicate;
         use crate::tests::protocol::*;
@@ -3479,7 +3479,7 @@ pub(crate) mod commands {
                 .is_ok());
 
             // apply the command to remove replicate
-            despawn_without_replication(entity, stepper.server_app.world_mut());
+            despawn_without_replication(stepper.server_app.world_mut().entity_mut(entity));
             stepper.frame_step();
             stepper.frame_step();
             // now the despawn should not have been replicated

@@ -99,7 +99,7 @@ fn spawn_broad_phase_aabb_envelope(
     mut commands: Commands,
 ) {
     debug!("spawning broad-phase collider from aabb!");
-    commands.entity(trigger.entity()).with_children(|builder| {
+    commands.entity(trigger.target()).with_children(|builder| {
         let mut child_commands = builder.spawn((
             // the collider/position/rotation values don't matter here because they will be updated in the
             // `update_lag_compensation_broad_phase_collider` system
@@ -112,7 +112,7 @@ fn spawn_broad_phase_aabb_envelope(
             AabbEnvelopeHolder,
         ));
         // the aabb_envelope has the same collision_layers as the parent
-        if let Ok(Some(collision_layers)) = query.get(trigger.entity()) {
+        if let Ok(Some(collision_layers)) = query.get(trigger.target()) {
             child_commands.insert(collision_layers.clone());
         }
     });

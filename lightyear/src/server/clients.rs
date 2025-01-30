@@ -4,7 +4,7 @@
 use crate::server::clients::systems::handle_controlled_by_remove;
 use crate::server::replication::send::Lifetime;
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
-use bevy::ecs::entity::EntityHashMap;
+use bevy::ecs::entity::hash_map::EntityHashMap;
 use bevy::prelude::*;
 
 /// List of entities under the control of a client
@@ -77,7 +77,7 @@ mod systems {
         sender: Res<ConnectionManager>,
     ) {
         // OnRemove observers trigger before the actual removal
-        let entity = trigger.entity();
+        let entity = trigger.target();
         if let Ok(controlled_by) = query.get(entity) {
             // TODO: avoid clone
             sender
@@ -123,15 +123,15 @@ mod systems {
                         "Despawning entity {entity:?} controlled by disconnected client {:?}",
                         client_id
                     );
-                    if let Some(command) = commands.get_entity(*entity) {
-                        command.despawn_recursive();
+                    if let Some(mut command) = commands.get_entity(*entity) {
+                        command.despawn();
                     }
                 }
             }
         }
         // despawn the client entity itself
-        if let Some(command) = commands.get_entity(client_entity) {
-            command.despawn_recursive();
+        if let Some(mut command) = commands.get_entity(client_entity) {
+            command.despawn();
         };
     }
 
@@ -144,7 +144,7 @@ mod systems {
     // ) {
     //     for client_entity in client_query.iter() {
     //         if let Some(command) = commands.get_entity(client_entity) {
-    //             command.despawn_recursive();
+    //             command.despawn();
     //         }
     //     }
     // }
@@ -177,7 +177,7 @@ mod tests {
     use crate::server::replication::send::ReplicationTarget;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-    use bevy::ecs::entity::EntityHashMap;
+    use bevy::ecs::entity::hash_map::EntityHashMap;
     use bevy::prelude::{default, Entity, With};
 
     /// Check that the Client Entities are updated after ControlledBy is added

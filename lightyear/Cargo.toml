@@ -43,7 +43,7 @@ websocket = [
   "dep:wasm-bindgen-futures",
 ]
 steam = ["dep:steamworks"]
-track_change_detection = ["bevy/track_change_detection"]
+track_location = ["bevy/track_location"]
 
 # compression
 lz4 = ["dep:lz4_flex"]
@@ -55,6 +55,7 @@ chrono.workspace = true
 cfg-if.workspace = true
 enum_dispatch.workspace = true
 governor.workspace = true
+hashbrown.workspace = true
 mock_instant = { workspace = true, optional = true }
 nonzero_ext.workspace = true
 parking_lot.workspace = true
@@ -63,6 +64,7 @@ rand.workspace = true
 ringbuffer.workspace = true
 thiserror.workspace = true
 seahash.workspace = true
+variadics_please.workspace = true
 
 # input
 leafwing-input-manager = { workspace = true, optional = true }

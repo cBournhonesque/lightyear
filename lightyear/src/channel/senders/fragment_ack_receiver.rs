@@ -1,4 +1,4 @@
-use bevy::utils::HashMap;
+use crate::utils::collections::HashMap;
 use tracing::{error, trace};
 
 use crate::packet::message::{FragmentIndex, MessageId};
@@ -13,7 +13,7 @@ pub struct FragmentAckReceiver {
 impl FragmentAckReceiver {
     pub fn new() -> Self {
         Self {
-            fragment_messages: HashMap::new(),
+            fragment_messages: HashMap::default(),
         }
     }
 

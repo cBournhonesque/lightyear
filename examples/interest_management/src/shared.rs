@@ -1,6 +1,6 @@
 use bevy::color::palettes::css::GREEN;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::action_state::ActionState;
 use std::ops::Deref;
 

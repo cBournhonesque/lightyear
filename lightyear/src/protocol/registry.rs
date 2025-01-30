@@ -1,7 +1,7 @@
 use crate::serialize::reader::Reader;
 use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::{SerializationError, ToBytes};
-use bevy::utils::HashMap;
+use crate::utils::collections::HashMap;
 use byteorder::WriteBytesExt;
 use std::any::TypeId;
 use std::hash::Hash;
@@ -47,8 +47,8 @@ impl<K: TypeKind> TypeMapper<K> {
     pub fn new() -> Self {
         Self {
             next_net_id: 0,
-            kind_map: HashMap::new(),
-            id_map: HashMap::new(),
+            kind_map: HashMap::default(),
+            id_map: HashMap::default(),
         }
     }
 

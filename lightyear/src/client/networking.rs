@@ -406,8 +406,8 @@ fn on_disconnect(
     info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
     received_entities.iter().for_each(|e| {
-        if let Some(commands) = commands.get_entity(e) {
-            commands.despawn_recursive();
+        if let Some(mut commands) = commands.get_entity(e) {
+            commands.despawn();
         }
     });
 

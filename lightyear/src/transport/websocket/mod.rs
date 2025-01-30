@@ -15,7 +15,7 @@ API must have changed at some point, this test doesn't compile.
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
+    use core::time::Duration;
 
     use crate::transport::{PacketReceiver, PacketSender};
 

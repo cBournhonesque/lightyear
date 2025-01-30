@@ -136,7 +136,7 @@ mod tests {
 
     use crate::client::io::transport::ClientTransportBuilder;
     use crate::server::io::transport::ServerTransportBuilder;
-    use bevy::utils::Duration;
+    use core::time::Duration;
 
     use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
     use crate::transport::middleware::PacketReceiverWrapper;

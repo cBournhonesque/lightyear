@@ -20,3 +20,4 @@ pub(crate) mod captures;
 pub(crate) mod history_buffer;
 pub(crate) mod pool;
 pub mod wrapping_id;
+pub(crate) mod collections;
