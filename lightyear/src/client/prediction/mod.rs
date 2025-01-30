@@ -16,6 +16,8 @@ pub(crate) mod resource;
 pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
+mod archetypes;
+mod sync;
 
 /// Marks an entity that is being predicted by the client
 #[derive(Debug, Reflect)]

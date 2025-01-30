@@ -146,8 +146,8 @@ pub struct ComponentRegistry {
     // List of component ids
     component_ids: Vec<ComponentId>,
     pub(crate) replication_map: HashMap<ComponentKind, ReplicationMetadata>,
-    interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
-    prediction_map: HashMap<ComponentKind, PredictionMetadata>,
+    pub(crate) interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
+    pub(crate) prediction_map: HashMap<ComponentKind, PredictionMetadata>,
     serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
     delta_fns_map: HashMap<ComponentKind, ErasedDeltaFns>,
     pub(crate) kind_map: TypeMapper<ComponentKind>,
@@ -167,7 +167,7 @@ pub struct ReplicationMetadata {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredictionMetadata {
-    pub prediction_mode: ComponentSyncMode,
+    pub sync_mode: ComponentSyncMode,
     pub correction: Option<unsafe fn()>,
     /// Function used to compare the confirmed component with the predicted component's history
     /// to determine if a rollback is needed. Returns true if we should do a rollback.
@@ -179,7 +179,7 @@ impl PredictionMetadata {
     fn default_from<C: PartialEq>(mode: ComponentSyncMode) -> Self {
         let should_rollback: ShouldRollbackFn<C> = <C as PartialEq>::ne;
         Self {
-            prediction_mode: mode,
+            sync_mode: mode,
             correction: None,
             should_rollback: unsafe {
                 std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
@@ -192,7 +192,7 @@ impl PredictionMetadata {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterpolationMetadata {
-    pub interpolation_mode: ComponentSyncMode,
+    pub sync_mode: ComponentSyncMode,
     pub interpolation: Option<unsafe fn()>,
     pub custom_interpolation: bool,
 }
@@ -271,7 +271,7 @@ impl ComponentRegistry {
             }
         }
         for (component_kind, interpolation_data) in &self.interpolation_map {
-            if interpolation_data.interpolation_mode == ComponentSyncMode::Full
+            if interpolation_data.sync_mode == ComponentSyncMode::Full
                 && interpolation_data.interpolation.is_none()
                 && !interpolation_data.custom_interpolation
             {
@@ -483,7 +483,7 @@ mod prediction {
             let kind = ComponentKind::of::<C>();
             self.prediction_map
                 .get(&kind)
-                .map_or(ComponentSyncMode::None, |metadata| metadata.prediction_mode)
+                .map_or(ComponentSyncMode::None, |metadata| metadata.sync_mode)
         }
 
         pub(crate) fn has_correction<C: Component>(&self) -> bool {
@@ -527,11 +527,11 @@ mod interpolation {
             self.interpolation_map
                 .entry(kind)
                 .or_insert_with(|| InterpolationMetadata {
-                    interpolation_mode: mode,
+                    sync_mode: mode,
                     interpolation: None,
                     custom_interpolation: false,
                 })
-                .interpolation_mode = mode;
+                .sync_mode = mode;
         }
 
         pub(crate) fn set_linear_interpolation<C: Component + Linear>(&mut self) {
@@ -543,7 +543,7 @@ mod interpolation {
             self.interpolation_map
                 .entry(kind)
                 .or_insert_with(|| InterpolationMetadata {
-                    interpolation_mode: ComponentSyncMode::Full,
+                    sync_mode: ComponentSyncMode::Full,
                     interpolation: None,
                     custom_interpolation: false,
                 })
@@ -559,7 +559,7 @@ mod interpolation {
             self.interpolation_map
                 .get(&kind)
                 .map_or(ComponentSyncMode::None, |metadata| {
-                    metadata.interpolation_mode
+                    metadata.sync_mode
                 })
         }
         pub(crate) fn interpolate<C: Component>(&self, start: &C, end: &C, t: f32) -> C {
