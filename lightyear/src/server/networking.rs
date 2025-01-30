@@ -1,5 +1,8 @@
 //! Defines the server bevy systems and run conditions
-use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
+use crate::connection::netcode::Error as NetcodeError;
+use crate::connection::server::{
+    ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections,
+};
 use crate::prelude::server::is_stopped;
 use crate::prelude::{
     is_host_server, ChannelRegistry, ClientId, MainSet, MessageRegistry, TickManager, TimeManager,
@@ -13,6 +16,7 @@ use crate::server::error::ServerError;
 use crate::server::io::ServerIoEvent;
 use crate::server::run_conditions::is_started_ref;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
+use crate::transport::error::Error as TransportError;
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::*;
@@ -95,6 +99,7 @@ pub(crate) fn receive_packets(
     component_registry: Res<ComponentRegistry>,
     message_registry: Res<MessageRegistry>,
     system_change_tick: SystemChangeTick,
+    aggregate_client_errors: Local<Vec<(usize, ConnectionError)>>,
 ) {
     trace!("Receive client packets");
     let delta = virtual_time.delta();
@@ -142,10 +147,16 @@ pub(crate) fn receive_packets(
         // We don't run update on stopping because the IO's have been closed
         // and we don't want to reset the list of connections/disconnections
         if networking_state.get() != &NetworkingState::Stopping {
-            let _ = netserver
-                .try_update(delta.as_secs_f64())
-                .map_err(|e| error!("Error updating netcode server: {:?}", e));
+            match netserver.try_update(delta.as_secs_f64()) {
+                Ok(mut this_client_errors) => {
+                    if !this_client_errors.is_empty() {
+                        this_client_errors.drain(..).for_each(log_client_error);
+                    }
+                }
+                Err(e) => error!("Error updating server: {}", e),
+            }
         }
+
         for client_id in netserver.new_connections() {
             netservers.client_server_map.insert(client_id, server_idx);
             // spawn an entity for the client
@@ -265,7 +276,6 @@ pub(crate) fn send(
     time_manager: Res<TimeManager>,
 ) {
     trace!("Send packets to clients");
-    // SEND_PACKETS: send buffered packets to io
     let span = info_span!("send_packets").entered();
     connection_manager
         .connections
@@ -296,13 +306,30 @@ pub(crate) fn send(
                     metrics::counter!("transport::send::packets").increment(packets);
                     metrics::counter!("transport::send::kb").increment(bytes);
                 }
-                netserver.send(packet_byte.as_slice(), *client_id)?;
+                if let Err(e) = netserver.send(packet_byte.as_slice(), *client_id) {
+                    log_client_error(e);
+                }
             }
             Ok(())
         })
         .unwrap_or_else(|e: ServerError| {
             error!("Error sending packets: {}", e);
         });
+}
+
+fn log_client_error(error: ConnectionError) {
+    let suppress_error = match &error {
+        ConnectionError::Netcode(NetcodeError::Transport(transport_error)) => {
+            matches!(transport_error, TransportError::Io(io_error) if io_error.kind() == std::io::ErrorKind::ConnectionReset)
+        }
+        _ => false,
+    };
+
+    if suppress_error {
+        debug!("Suppressed Client Error: {:?}", error);
+    } else {
+        warn!("Client Error: {:?}", error);
+    }
 }
 
 /// When running in host-server mode, we also need to send messages to the local client.
