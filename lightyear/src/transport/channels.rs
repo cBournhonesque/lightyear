@@ -2,7 +2,7 @@
 //! Messages are sent via channels
 use std::net::SocketAddr;
 
-use bevy::platform_support::collections::HashMap;
+use crate::utils::collections::HashMap;
 use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::debug;
@@ -25,8 +25,8 @@ impl Channels {
     /// Create a [`Channels`] object with a list of channels.
     /// Each channel allow us to send and receive packets to a remote client.
     pub(crate) fn new(channels: Vec<(SocketAddr, Receiver<Vec<u8>>, Sender<Vec<u8>>)>) -> Self {
-        let mut remote_recv = HashMap::new();
-        let mut remote_send = HashMap::new();
+        let mut remote_recv = HashMap::default();
+        let mut remote_send = HashMap::default();
         for (remote_addr, recv, send) in channels {
             debug!("adding remote: {:?}", remote_addr);
             remote_recv.insert(remote_addr, recv);
@@ -36,7 +36,7 @@ impl Channels {
         // receiver is a self-referential struct
         let owner = ChannelsReceiverOwner { recv: remote_recv };
         let receiver = ChannelsReceiver::new(owner, |o| {
-            let mut id_map = HashMap::new();
+            let mut id_map = HashMap::default();
             let mut select = Select::new();
             for (addr, recv) in o.recv.iter() {
                 let idx = select.recv(recv);

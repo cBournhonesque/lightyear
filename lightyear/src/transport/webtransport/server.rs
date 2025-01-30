@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use async_compat::Compat;
 use bevy::tasks::IoTaskPool;
-use bevy::platform_support::collections::HashMap;
+use crate::utils::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};

@@ -8,9 +8,8 @@ use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::component::ComponentError;
 use crate::shared::replication::entity_map::PredictedEntityMap;
 use crate::utils::ready_buffer::ReadyBuffer;
-use bevy::platform_support::collections::HashMap;
 
-type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
 
 #[derive(Resource, Default, Debug)]
 pub(crate) struct PredictionManager {

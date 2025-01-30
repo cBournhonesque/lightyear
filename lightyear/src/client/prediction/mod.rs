@@ -1,6 +1,6 @@
 //! Handles client-side prediction
 use crate::client::prediction::resource::PredictionManager;
-use bevy::ecs::component::{Mutable, StorageType};
+use bevy::ecs::component::{HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
 use std::fmt::Debug;
@@ -33,7 +33,8 @@ impl Component for Predicted {
 
     fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
         hooks.on_add(
-            |mut deferred_world: DeferredWorld, predicted: Entity, _component_id| {
+            |mut deferred_world: DeferredWorld, hook_context: HookContext | {
+                let predicted = hook_context.entity;
                 if let Some(confirmed) = deferred_world
                     .get::<Predicted>(predicted)
                     .unwrap()
@@ -52,7 +53,8 @@ impl Component for Predicted {
             },
         );
         hooks.on_remove(
-            |mut deferred_world: DeferredWorld, predicted: Entity, _component_id| {
+            |mut deferred_world: DeferredWorld, hook_context: HookContext| {
+                let predicted = hook_context.entity;
                 if let Some(confirmed) = deferred_world
                     .get::<Predicted>(predicted)
                     .unwrap()

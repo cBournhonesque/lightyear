@@ -15,7 +15,7 @@ use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use crate::shared::replication::resources::DespawnResource;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{App, Events, Resource, TypePath, World};
-use bevy::platform_support::collections::HashMap;
+use crate::utils::collections::HashMap;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::any::TypeId;

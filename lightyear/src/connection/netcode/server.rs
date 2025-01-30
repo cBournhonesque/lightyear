@@ -350,7 +350,7 @@ impl<Ctx> ServerConfig<Ctx> {
 /// ```
 /// # use crate::lightyear::connection::netcode::{generate_key, NetcodeServer};
 /// # use std::net::{SocketAddr, Ipv4Addr};
-/// # use bevy::utils::{Instant, Duration};
+/// # use core::time::Duration;
 /// # use std::thread;
 /// # use lightyear::prelude::server::{IoConfig, ServerTransport};
 /// let mut io = IoConfig::from_transport(ServerTransport::UdpSocket(
@@ -360,11 +360,10 @@ impl<Ctx> ServerConfig<Ctx> {
 /// let protocol_id = 0x123456789ABCDEF0;
 /// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
 ///
-/// let start = Instant::now();
 /// let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
 ///
 /// loop {
-///     server.update(start.elapsed().as_secs_f64(), &mut io);
+///     server.update(tick_rate.as_secs_f64() / 1000.0, &mut io);
 ///     if let Some((received, from)) = server.recv() {
 ///         // ...
 ///     }

@@ -178,7 +178,7 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
             if replicate_hierarchy.recursive {
                 // iterate through all descendents of the entity
                 children_query
-                    .iter_descendants(parent_entity)
+                    .iter_descendants::<Children>(parent_entity)
                     .for_each(|child| {
                         propagate(
                             child,
@@ -199,11 +199,10 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                     });
             } else {
                 children_query
-                    .children(parent_entity)
-                    .iter()
+                    .relationship_sources::<Children>(parent_entity)
                     .for_each(|child| {
                         propagate(
-                            *child,
+                            child,
                             false,
                             &mut commands,
                             parent_group,
@@ -302,10 +301,10 @@ impl<R> HierarchyReceivePlugin<R> {
             );
             if let Some(new_parent) = parent_sync.0 {
                 if parent.filter(|&parent| **parent == new_parent).is_none() {
-                    commands.entity(entity).set_parent(new_parent);
+                    commands.entity(entity).insert(ChildOf(new_parent));
                 }
             } else if parent.is_some() {
-                commands.entity(entity).remove_parent();
+                commands.entity(entity).remove::<ChildOf>();
             }
         }
     }
@@ -417,7 +416,7 @@ mod tests {
             .server_app
             .world_mut()
             .entity_mut(parent)
-            .remove_parent();
+            .remove::<ChildOf>();
         stepper.frame_step();
         stepper.frame_step();
         // 1. make sure that parent sync has been updated on the sender side

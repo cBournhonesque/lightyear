@@ -1,5 +1,5 @@
 //! Handles interpolation of entities between server updates
-use bevy::ecs::component::{Mutable, StorageType};
+use bevy::ecs::component::{HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
 use std::ops::{Add, Mul};
@@ -50,7 +50,8 @@ impl Component for Interpolated {
     type Mutability = Mutable;
     fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
         hooks.on_add(
-            |mut deferred_world: DeferredWorld, interpolated: Entity, _component_id| {
+            |mut deferred_world: DeferredWorld, context: HookContext| {
+                let interpolated = context.entity;
                 let confirmed = deferred_world
                     .get::<Interpolated>(interpolated)
                     .unwrap()
@@ -67,7 +68,8 @@ impl Component for Interpolated {
             },
         );
         hooks.on_remove(
-            |mut deferred_world: DeferredWorld, interpolated: Entity, _component_id| {
+            |mut deferred_world: DeferredWorld, context: HookContext| {
+                let interpolated = context.entity;
                 let confirmed = deferred_world
                     .get::<Interpolated>(interpolated)
                     .unwrap()

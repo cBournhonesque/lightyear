@@ -84,7 +84,7 @@ pub(crate) fn despawn_confirmed(
     mut commands: Commands,
 ) {
     if let Some(predicted) = query.get(trigger.target()).unwrap().predicted {
-        if let Some(entity_mut) = commands.get_entity(predicted) {
+        if let Some(mut entity_mut) = commands.get_entity(predicted) {
             entity_mut.despawn();
         }
     }

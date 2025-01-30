@@ -3,7 +3,7 @@ use std::ops::{Add, Mul};
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
-use bevy::platform_support::collections::HashSet;
+use crate::utils::collections::HashSet;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;
 use lightyear_macros::ChannelInternal;
@@ -131,7 +131,7 @@ impl Diffable for ComponentDeltaCompression2 {
     type Delta = (HashSet<usize>, HashSet<usize>);
 
     fn base_value() -> Self {
-        Self(HashSet::new())
+        Self(HashSet::default())
     }
 
     fn diff(&self, other: &Self) -> Self::Delta {

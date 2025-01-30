@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::platform_support::collections::HashMap;
+use crate::utils::collections::HashMap::HashMap;
 use std::ops::Deref;
 
 pub use lightyear::prelude::server::*;

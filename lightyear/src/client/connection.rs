@@ -3,7 +3,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Event, Resource, World};
 use core::time::Duration;
-use bevy::platform_support::collections::hash_map::HashMap;
+use crate::utils::collections::HashMap;
 use bytes::Bytes;
 use tracing::{debug, trace, trace_span};
 

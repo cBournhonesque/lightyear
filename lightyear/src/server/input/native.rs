@@ -1,6 +1,6 @@
 //! Handles client-generated inputs
 use bevy::prelude::*;
-use bevy::platform_support::collections::HashMap;
+use crate::utils::collections::HashMap;
 
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;

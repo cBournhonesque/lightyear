@@ -1,6 +1,6 @@
 //! Handles spawning entities that are predicted
 
-use bevy::ecs::component::{Components, Mutable, StorageType};
+use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
@@ -364,7 +364,8 @@ impl Component for PreSpawnedPlayerObject {
     type Mutability = Mutable;
 
     fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
-        hooks.on_add(|mut deferred_world, entity, _component_id| {
+        hooks.on_add(|mut deferred_world, context: HookContext| {
+            let entity = context.entity;
             let prespawned_obj = deferred_world
                 .entity(entity)
                 .get::<PreSpawnedPlayerObject>()

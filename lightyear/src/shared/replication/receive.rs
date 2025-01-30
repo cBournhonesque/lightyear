@@ -15,12 +15,13 @@ use crate::shared::replication::components::{InitialReplicated, Replicated, Repl
 use crate::utils::captures::Captures;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, EntityWorldMut, World};
-use bevy::platform_support::collections::{hash_set::HashSet, hash_map::HashMap};
+use crate::utils::collections::{HashSet};
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
+
 
 
 #[derive(Debug)]

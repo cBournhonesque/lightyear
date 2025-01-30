@@ -14,7 +14,7 @@ use bevy::prelude::{
 use bevy::state::app::StatesPlugin;
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
-use bevy::platform_support::collections::HashMap;
+use crate::utils::collections::HashMap;
 use bevy::MinimalPlugins;
 
 use lightyear::connection::netcode::generate_key;

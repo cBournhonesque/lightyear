@@ -55,6 +55,7 @@ chrono.workspace = true
 cfg-if.workspace = true
 enum_dispatch.workspace = true
 governor.workspace = true
+hashbrown.workspace = true
 mock_instant = { workspace = true, optional = true }
 nonzero_ext.workspace = true
 parking_lot.workspace = true

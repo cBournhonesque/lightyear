@@ -29,7 +29,7 @@ pub(crate) fn despawn_interpolated(
     mut commands: Commands,
 ) {
     if let Some(interpolated) = query.get(trigger.target()).unwrap().interpolated {
-        if let Some(entity_mut) = commands.get_entity(interpolated) {
+        if let Some(mut entity_mut) = commands.get_entity(interpolated) {
             entity_mut.despawn();
         }
     }

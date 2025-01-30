@@ -1,7 +1,7 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
 
 use bevy::prelude::*;
-use bevy::platform_support::collections::hash_map::HashMap;
+use crate::utils::collections::HashMap;
 
 use crate::connection::id::ClientId;
 use crate::prelude::ComponentRegistry;

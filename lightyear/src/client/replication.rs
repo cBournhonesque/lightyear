@@ -1306,15 +1306,13 @@ pub(crate) mod send {
 pub(crate) mod commands {
     use crate::prelude::Replicating;
     use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{Entity, World};
+    use bevy::prelude::{EntityWorldMut};
 
-    fn despawn_without_replication(entity: Entity, world: &mut World) {
+    fn despawn_without_replication(mut entity_mut: EntityWorldMut) {
         // remove replicating separately so that when we despawn the entity and trigger the observer
         // the entity doesn't have replicating anymore
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.remove::<Replicating>();
-            entity_mut.despawn();
-        }
+        entity_mut.remove::<Replicating>();
+        entity_mut.despawn();
     }
 
     pub trait DespawnReplicationCommandExt {

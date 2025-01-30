@@ -3,7 +3,7 @@
 use std::iter;
 
 use bevy::prelude::{Component, Entity, Resource};
-use bevy::platform_support::collections::HashMap;
+use crate::utils::collections::HashMap;
 use tracing::trace;
 
 use crate::prelude::{ComponentRegistry, Tick};

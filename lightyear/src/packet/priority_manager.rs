@@ -1,4 +1,4 @@
-use bevy::platform_support::collections::HashMap;
+use crate::utils::collections::HashMap;
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
 
@@ -179,8 +179,8 @@ impl PriorityManager {
         );
 
         // select the top messages with the rate limiter
-        let mut single_data: HashMap<ChannelId, VecDeque<SingleData>> = HashMap::new();
-        let mut fragment_data: HashMap<ChannelId, VecDeque<FragmentData>> = HashMap::new();
+        let mut single_data: HashMap<ChannelId, VecDeque<SingleData>> = HashMap::default();
+        let mut fragment_data: HashMap<ChannelId, VecDeque<FragmentData>> = HashMap::default();
         let mut bytes_used = 0;
         while let Some(buffered_message) = all_messages.pop() {
             // we don't use the exact size of the message, but the size of the bytes
