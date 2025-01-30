@@ -16,6 +16,7 @@ use crate::server::error::ServerError;
 use crate::server::io::ServerIoEvent;
 use crate::server::run_conditions::is_started_ref;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
+use crate::transport::error::Error as TransportError;
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::*;
@@ -143,13 +144,13 @@ pub(crate) fn receive_packets(
             }
         }
 
+        // We don't run update on stopping because the IO's have been closed
+        // and we don't want to reset the list of connections/disconnections
         if networking_state.get() != &NetworkingState::Stopping {
             match netserver.try_update(delta.as_secs_f64()) {
                 Ok(mut this_client_errors) => {
                     if !this_client_errors.is_empty() {
-                        this_client_errors
-                            .drain(..)
-                            .for_each(|e| react_to_client_error(&mut commands, e));
+                        this_client_errors.drain(..).for_each(log_client_error);
                     }
                 }
                 Err(e) => error!("Error updating server: {}", e),
@@ -267,7 +268,6 @@ pub(crate) fn receive(
 
 // or do additional send stuff here
 pub(crate) fn send(
-    mut commands: Commands,
     change_tick: SystemChangeTick,
     mut netservers: ResMut<ServerConnections>,
     mut connection_manager: ResMut<ConnectionManager>,
@@ -276,7 +276,6 @@ pub(crate) fn send(
 ) {
     trace!("Send packets to clients");
     let span = info_span!("send_packets").entered();
-
     connection_manager
         .connections
         .iter_mut()
@@ -284,6 +283,8 @@ pub(crate) fn send(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 info_span!("send_packets_to_client", client_id = ?client_id).entered();
+            // TODO: because we are removing the ClientConnection from netservers.client_server_map immediately
+            //  we get a log here that says that the netserver_idx cannot be found when we try to disconnect
             let netserver_idx = *netservers
                 .client_server_map
                 .get(client_id)
@@ -305,7 +306,7 @@ pub(crate) fn send(
                     metrics::counter!("transport::send::kb").increment(bytes);
                 }
                 if let Err(e) = netserver.send(packet_byte.as_slice(), *client_id) {
-                    react_to_client_error(&mut commands, e);
+                    log_client_error(e);
                 }
             }
             Ok(())
@@ -315,24 +316,18 @@ pub(crate) fn send(
         });
 }
 
-fn react_to_client_error(commands: &mut Commands, error: ConnectionError) {
-    let fatal_error_client_info = match &error {
-        ConnectionError::Netcode(NetcodeError::ClientTransport(client_id, err)) => match err {
-            crate::transport::error::Error::Io(io_error)
-                if io_error.kind() == std::io::ErrorKind::ConnectionReset =>
-            {
-                Some((*client_id, err))
-            }
-            _ => None,
-        },
-        _ => None,
+fn log_client_error(error: ConnectionError) {
+    let suppress_error = match &error {
+        ConnectionError::Netcode(NetcodeError::Transport(transport_error)) => {
+            matches!(transport_error, TransportError::Io(io_error) if io_error.kind() == std::io::ErrorKind::ConnectionReset)
+        }
+        _ => false,
     };
 
-    if let Some((client_id, err)) = fatal_error_client_info {
-        error!("Fatal Client Error: {:?}", error);
-        commands.disconnect(client_id);
+    if suppress_error {
+        debug!("Suppressed Client Error: {:?}", error);
     } else {
-        warn!("Non-Fatal Client Error: {:?}", error);
+        warn!("Client Error: {:?}", error);
     }
 }
 
@@ -492,6 +487,7 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         let client = ClientId::Netcode(TEST_CLIENT_ID);
+        // create entity on server, which is controlled by the client
         let server_entity = stepper
             .server_app
             .world_mut()
@@ -503,6 +499,7 @@ mod tests {
                 ..default()
             })
             .id();
+        // the entity on the server that represents the client (holds ControlledEntities)
         let server_client_entity = stepper
             .server_app
             .world_mut()
@@ -524,6 +521,7 @@ mod tests {
 
         // stop the server
         stepper.server_app.world_mut().commands().stop_server();
+        stepper.frame_step();
         stepper.frame_step();
         stepper.frame_step();
 

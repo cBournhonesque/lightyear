@@ -98,24 +98,11 @@ pub struct UdpSocketBuffer {
 
 impl PacketSender for UdpSocketBuffer {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
-        let socket = self.socket.as_ref().lock().unwrap();
-
-        // Windows reports socket failures asynchronously.
-        // Before attempting to send, the socket's health must be checked, to verify
-        // that a previous operation did not asynchronously produce an error.
-        // Failure to do this check will leave the socket in an error state,
-        // causing all subsequent operations on this socket to fail.
-        #[cfg(target_os = "windows")]
-        {
-            let mut peek_buf = [0u8; 1];
-            match socket.peek_from(&mut peek_buf) {
-                Ok(_) => (),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => (),
-                Err(e) => return Err(e.into()),
-            }
-        }
-
-        socket.send_to(payload, address)?;
+        self.socket
+            .as_ref()
+            .lock()
+            .unwrap()
+            .send_to(payload, address)?;
         Ok(())
     }
 }

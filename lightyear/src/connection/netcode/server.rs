@@ -555,9 +555,8 @@ impl<Ctx> NetcodeServer<Ctx> {
             .ok_or(Error::ClientNotFound(id::ClientId::Netcode(id)))?;
 
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
-        sender
-            .send(&buf[..size], &conn.addr)
-            .map_err(|e| Error::ClientTransport(id::ClientId::Netcode(id), e))?;
+        sender.send(&buf[..size], &conn.addr)?;
+
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
         conn.sequence += 1;
