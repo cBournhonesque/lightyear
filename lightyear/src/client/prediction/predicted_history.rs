@@ -461,7 +461,7 @@ mod tests {
     /// 3. Sync ComponentSyncMode::Once added to the confirmed entity but don't add history
     /// 4. Sync ComponentSyncMode::Simple added to the confirmed entity but don't add history
     /// 5. For components that have MapEntities, the component gets mapped from Confirmed to Predicted
-    /// TODO: 6. Sync pre-existing ComponentSyncMode::Full when Confirmed is added to an entity
+    /// 6. Sync pre-existing components when Confirmed is added to an entity
     #[test]
     fn test_confirmed_to_predicted_sync() {
         let mut stepper = BevyStepper::default();
@@ -638,17 +638,97 @@ mod tests {
             "Expected component to be added to predicted entity with entity mapping"
         );
 
-        // TODO: 6. Components are added to the confirmed entity before Confirmed is added
-        // let confirmed_2 = stepper
-        //     .client_app
-        //     .world_mut()
-        //     .spawn((
-        //         ComponentSyncModeFull(1.0),
-        //         ComponentSyncModeSimple(1.0),
-        //         ComponentSyncModeOnce(1.0),
-        //         ComponentMapEntities(confirmed),
-        //     ))
-        //     .id();
+        // 6. Sync components that were present on the confirmed entity before Confirmed is added
+        let confirmed_2 = stepper
+            .client_app
+            .world_mut()
+            .spawn((
+                ComponentSyncModeFull(1.0),
+                ComponentSyncModeSimple(1.0),
+                ComponentSyncModeOnce(1.0),
+                ComponentMapEntities(confirmed),
+            ))
+            .id();
+        let predicted_2 = stepper
+            .client_app
+            .world_mut()
+            .spawn(Predicted {
+                confirmed_entity: Some(confirmed_2),
+            })
+            .id();
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed_2)
+            .insert(Confirmed {
+                tick,
+                predicted: Some(predicted_2),
+                interpolated: None,
+            });
+
+        stepper.frame_step();
+        let tick = stepper.client_tick();
+
+        // check that the components were synced
+        assert_eq!(
+            stepper
+                .client_app
+                .world_mut()
+                .entity_mut(predicted_2)
+                .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
+                .expect("Expected prediction history to be added")
+                .pop_until_tick(tick),
+            Some(HistoryState::Updated(ComponentSyncModeFull(1.0))),
+            "Expected component value to be added to prediction history"
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .entity(predicted_2)
+                .get::<ComponentSyncModeFull>()
+                .expect("Expected component to be added to predicted entity"),
+            &ComponentSyncModeFull(1.0),
+            "Expected component to be added to predicted entity"
+        );
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .entity(predicted_2)
+                .get::<PredictionHistory<ComponentSyncModeOnce>>()
+                .is_none(),
+            "Expected component value to not be added to prediction history for ComponentSyncMode::Once"
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .entity(predicted_2)
+                .get::<ComponentSyncModeOnce>()
+                .expect("Expected component to be added to predicted entity"),
+            &ComponentSyncModeOnce(1.0),
+            "Expected component to be added to predicted entity"
+        );
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .entity(predicted_2)
+                .get::<PredictionHistory<ComponentMapEntities>>()
+                .is_none(),
+            "Expected component value to not be added to prediction history for ComponentSyncMode::Simple"
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .entity(predicted_2)
+                .get::<ComponentMapEntities>()
+                .expect("Expected component to be added to predicted entity"),
+            &ComponentMapEntities(predicted),
+            "Expected component to be added to predicted entity with entity mapping"
+        );
     }
 
     /// Test that the history gets updated correctly
