@@ -191,12 +191,12 @@ impl RemoteEntityMap {
 
 #[cfg(test)]
 mod tests {
+    use crate::client::components::Confirmed;
     use crate::prelude::server::{Replicate, SyncTarget};
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use bevy::prelude::{default, Entity};
-    use crate::client::components::Confirmed;
 
     /// Test marking entities as mapped or not
     #[test]
@@ -313,7 +313,9 @@ mod tests {
             .client_app
             .world()
             .get::<Confirmed>(c1_confirmed)
-            .unwrap().predicted.unwrap();
+            .unwrap()
+            .predicted
+            .unwrap();
         let c2 = stepper
             .client_app
             .world()
