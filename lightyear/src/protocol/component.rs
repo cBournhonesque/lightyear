@@ -637,7 +637,6 @@ mod prediction {
             let value = world.get::<C>(confirmed).unwrap();
             let mut clone = value.clone();
             world.resource::<PredictionManager>().map_entities(&mut clone, self).unwrap();
-            dbg!(value, &clone);
             unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap()) };
         }
     }

@@ -11,6 +11,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::prelude::{ComponentRegistry, HistoryBuffer, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
+use crate::prelude::client::PredictionSet;
 use crate::shared::tick_manager::{Tick, TickEvent};
 
 pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
@@ -295,6 +296,38 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
 }
 
 
+#[derive(Event, Debug)]
+struct PredictedSyncEvent {
+    confirmed: Entity,
+    predicted: Entity,
+    components: Vec<ComponentId>,
+}
+
+
+/// Sync components from confirmed entity to predicted entity
+fn apply_predicted_sync(
+    world: &mut World,
+) {
+    world.resource_scope(|world, mut events: Mut<Events<PredictedSyncEvent>>| {
+        events.drain().for_each(|event| {
+            // NOTE: we cannot use `world.resource_scope::<ComponentRegistry>` because doing the sync
+            //  might trigger other Observers that might also use the ComponentRegistry
+            //  Instead we'll use UnsafeWorldCell since the rest of the world does not modify the registry
+            let unsafe_world = world.as_unsafe_world_cell();
+            let mut component_registry =
+                unsafe { unsafe_world.get_resource_mut::<ComponentRegistry>() }.unwrap();
+            let world = unsafe { unsafe_world.world_mut() };
+            // sync all components from the predicted to the confirmed entity and possibly add the PredictedHistory
+            component_registry.batch_sync(
+                &event.components,
+                event.confirmed,
+                event.predicted,
+                world,
+            );
+        })
+    });
+}
+
 /// When the Confirmed component is added, sync components to the Predicted entity
 ///
 /// This is needed in two cases:
@@ -302,12 +335,22 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
 ///   component is added
 /// - when a client spawned on the client transfers authority to the server, the Confirmed
 ///   component can be added even though the entity already had components
+///
+/// We have some ordering constraints related to syncing hierarchy so we don't want to sync components
+/// immediately here (because the ParentSync component might not be able to get mapped properly since the parent entity
+/// might not be predicted yet). Therefore we send a PredictedSyncEvent so that all components can be synced at once.
 fn confirmed_added_sync(
     trigger: Trigger<OnInsert, Confirmed>,
     query: Query<EntityRef>,
     component_registry: Res<ComponentRegistry>,
-    mut commands: Commands,
+    events: Option<ResMut<Events<PredictedSyncEvent>>>,
 ) {
+    // `events` is None while we are inside the `apply_predicted_sync` system
+    // that shouldn't be an issue because the components are being inserted only on Predicted entities
+    // so we don't want to react to them
+    let Some(mut events) = events else {
+        return
+    };
     let confirmed = trigger.entity();
     let entity_ref = query.get(confirmed).unwrap();
     let confirmed_component = entity_ref.get::<Confirmed>().unwrap();
@@ -324,24 +367,14 @@ fn confirmed_added_sync(
     if components.is_empty() {
         return;
     }
-
-    commands.queue(move |world: &mut World| {
-        // NOTE: we cannot use `world.resource_scope::<ComponentRegistry>` because doing the sync
-        //  might trigger other Observers that might also use the ComponentRegistry
-        //  Instead we'll use UnsafeWorldCell since the rest of the world does not modify the registry
-        let unsafe_world = world.as_unsafe_world_cell();
-        let mut component_registry =
-            unsafe { unsafe_world.get_resource_mut::<ComponentRegistry>() }.unwrap();
-        let world = unsafe { unsafe_world.world_mut() };
-        // sync all components from the predicted to the confirmed entity and possibly add the PredictedHistory
-        component_registry.batch_sync(
-            &components,
-            confirmed,
-            predicted,
-            world,
-        );
+    events.send(PredictedSyncEvent {
+        confirmed,
+        predicted,
+        components,
     });
 }
+
+
 
 /// Sync any components that were added to the Confirmed entity onto the Predicted entity
 /// and potentially add a PredictedHistory component
@@ -349,13 +382,23 @@ fn confirmed_added_sync(
 /// We use a global observer which will listen to the Insertion of **any** component on any Confirmed entity.
 /// (using observers to react on insertion is more efficient than using the `Added` filter which iterates
 /// through all confirmed archetypes)
+///
+/// We have some ordering constraints related to syncing hierarchy so we don't want to sync components
+/// immediately here (because the ParentSync component might not be able to get mapped properly since the parent entity
+/// might not be predicted yet). Therefore we send a PredictedSyncEvent so that all components can be synced at once.
 fn added_on_confirmed_sync(
     // NOTE: we use OnInsert and not OnAdd because the confirmed entity might already have the component (for example if the client transferred authority to server)
     trigger: Trigger<OnInsert>,
-    mut commands: Commands,
     component_registry: Res<ComponentRegistry>,
     confirmed_query: Query<&Confirmed>,
+    events: Option<ResMut<Events<PredictedSyncEvent>>>,
 ) {
+    // `events` is None while we are inside the `apply_predicted_sync` system
+    // that shouldn't be an issue because the components are being inserted only on Predicted entities
+    // so we don't want to react to them
+    let Some(mut events) = events else {
+        return
+    };
     // make sure the components were added on the confirmed entity
     let Ok(confirmed_component) = confirmed_query.get(trigger.entity()) else {
         return;
@@ -364,6 +407,7 @@ fn added_on_confirmed_sync(
         return;
     };
     let confirmed = trigger.entity();
+
     // TODO: how do we avoid this allocation?
 
     // TODO: there is a bug where trigger.components() returns all components that were inserted, not just
@@ -372,34 +416,32 @@ fn added_on_confirmed_sync(
     let components: Vec<ComponentId> = trigger.components().iter().filter(|id| {
         component_registry.get_prediction_mode(**id).is_ok_and(|mode| mode != ComponentSyncMode::None)
     }).copied().collect();
-    commands.queue(move |world: &mut World| {
-        // NOTE: we cannot use `world.resource_scope::<ComponentRegistry>` because doing the sync
-        //  might trigger other Observers that might also use the ComponentRegistry
-        //  Instead we'll use UnsafeWorldCell since the rest of the world does not modify the registry
-        let unsafe_world = world.as_unsafe_world_cell();
-        let mut component_registry =
-            unsafe { unsafe_world.get_resource_mut::<ComponentRegistry>() }.unwrap();
-        let world = unsafe { unsafe_world.world_mut() };
-        // sync all components from the predicted to the confirmed entity and possibly add the PredictedHistory
-        component_registry.batch_sync(
-            &components,
-            confirmed,
-            predicted,
-            world,
-        );
+
+    events.send(PredictedSyncEvent {
+        confirmed,
+        predicted,
+        components,
     });
 }
 
-pub(crate) fn add_sync_observers(app: &mut App) {
+pub(crate) fn add_sync_systems(app: &mut App) {
+    // we don't need to automatically update the events because they will be drained every frame
+    app.init_resource::<Events<PredictedSyncEvent>>();
+
     let component_registry = app.world().resource::<ComponentRegistry>();
+
     // Sync components that are added on the Confirmed entity
     let mut observer = Observer::new(added_on_confirmed_sync);
     for component in component_registry.predicted_component_ids() {
         observer = observer.with_component(component);
     }
     app.world_mut().spawn(observer);
+
     // Sync components when the Confirmed component is added
     app.add_observer(confirmed_added_sync);
+
+    // Apply the sync events
+    app.add_systems(PreUpdate, apply_predicted_sync.in_set(PredictionSet::Sync));
 }
 
 #[cfg(test)]

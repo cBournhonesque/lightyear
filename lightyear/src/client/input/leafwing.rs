@@ -177,7 +177,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
                     // TODO: these constraints are only necessary for entities controlled by other players
                     //  make a distinction between other players and local player
                     .after(PredictionSet::SpawnPrediction)
-                    .before(PredictionSet::SpawnHistory),
+                    .before(PredictionSet::Sync),
                 InputSystemSet::ReceiveInputMessages
                     .after(InternalMainSet::<ClientMarker>::EmitEvents),
             )

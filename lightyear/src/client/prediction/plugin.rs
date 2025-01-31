@@ -6,7 +6,7 @@ use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
-use crate::client::prediction::predicted_history::{add_non_networked_component_history, add_prespawned_component_history, add_sync_observers, apply_component_removal_confirmed, apply_component_removal_predicted, handle_tick_event_prediction_history, update_prediction_history};
+use crate::client::prediction::predicted_history::{add_non_networked_component_history, add_prespawned_component_history, add_sync_systems, apply_component_removal_confirmed, apply_component_removal_predicted, handle_tick_event_prediction_history, update_prediction_history};
 use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
@@ -179,8 +179,9 @@ pub enum PredictionSet {
     /// Spawn predicted entities,
     /// We will also use this do despawn predicted entities when confirmed entities are despawned
     SpawnPrediction,
-    /// Add component history for all predicted entities' predicted components
-    SpawnHistory,
+    /// Sync components from the Confirmed entity to the Predicted entity, and potentially
+    /// insert PredictedHistory components
+    Sync,
     RestoreVisualCorrection,
     /// Check if rollback is needed
     CheckRollback,
@@ -220,7 +221,7 @@ pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app:
     app.add_systems(
         PreUpdate,
         (
-            add_non_networked_component_history::<C>.in_set(PredictionSet::SpawnHistory),
+            add_non_networked_component_history::<C>.in_set(PredictionSet::Sync),
             prepare_rollback_non_networked::<C>.in_set(PredictionSet::PrepareRollback),
         ),
     );
@@ -261,7 +262,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
         PreUpdate,
         (
             // handle components being added
-            add_component_history::<C>.in_set(PredictionSet::SpawnHistory),
+            add_component_history::<C>.in_set(PredictionSet::Sync),
         ),
     );
     match prediction_mode {
@@ -310,7 +311,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             app.add_systems(
                 FixedPostUpdate,
                 (
-                    add_prespawned_component_history::<C>.in_set(PredictionSet::SpawnHistory),
+                    add_prespawned_component_history::<C>.in_set(PredictionSet::Sync),
                     // we need to run this during fixed update to know accurately the history for each tick
                     update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
                 ),
@@ -385,7 +386,7 @@ impl Plugin for PredictionPlugin {
                 InternalMainSet::<ClientMarker>::EmitEvents,
                 (
                     PredictionSet::SpawnPrediction,
-                    PredictionSet::SpawnHistory,
+                    PredictionSet::Sync,
                     PredictionSet::RestoreVisualCorrection,
                     PredictionSet::CheckRollback,
                     PredictionSet::PrepareRollback.run_if(is_in_rollback),
@@ -430,7 +431,7 @@ impl Plugin for PredictionPlugin {
                 PredictionSet::EntityDespawn,
                 // for prespawned entities that could be spawned during FixedUpdate, we want to add the history
                 // right away to avoid rollbacks
-                PredictionSet::SpawnHistory,
+                PredictionSet::Sync,
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
             )
@@ -466,7 +467,7 @@ impl Plugin for PredictionPlugin {
 
     // We run this after `build` and `finish` to make sure that all components were registered before we create the observer
     fn cleanup(&self, app: &mut App) {
-        add_sync_observers(app);
+        add_sync_systems(app);
     }
 }
 
