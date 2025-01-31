@@ -1,6 +1,5 @@
-use bevy::prelude::{Component, EventWriter, Res, ResMut};
+use bevy::prelude::{Component, EventWriter, ResMut};
 
-use crate::prelude::ComponentRegistry;
 use crate::shared::events::components::{
     ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, EntityDespawnEvent,
     EntitySpawnEvent,

@@ -76,6 +76,7 @@ pub(crate) fn spawn_predicted_entity(
     }
 }
 
+//
 #[cfg(test)]
 mod tests {
     use crate::client::components::Confirmed;
@@ -88,6 +89,19 @@ mod tests {
     /// https://github.com/cBournhonesque/lightyear/issues/627
     /// Test that when we spawn a parent + child with hierarchy (ParentSync),
     /// the parent-child hierarchy is maintained on the predicted entities
+    ///
+    /// Flow:
+    /// 1) Parent/Child get spawned on client
+    /// 2) All components are inserted on child, including ParentSync (which is mapped correctly)
+    ///    and ShouldBePredicted
+    /// 3) In PredictionSet::Spawn, child-predicted is spawned, and Confirmed is added on child
+    /// 4) Because Confirmed is added, all the components from Confirmed are added to child-predicted.
+    /// 5) The ParentSync component is added to child-predicted but it fails, because parent-predicted
+    ///    hasn't been spawned yet!
+    ///
+    /// The issue is that we want both Predicted/Confirmed to be spawned
+    /// What we could do is:
+    /// -
     #[test]
     fn test_spawn_predicted_with_hierarchy() {
         let mut stepper = BevyStepper::default();
@@ -106,7 +120,7 @@ mod tests {
             })
             .add_child(server_child)
             .id();
-
+        dbg!(server_child, server_parent);
         stepper.frame_step();
         stepper.frame_step();
         stepper.frame_step();
@@ -128,6 +142,7 @@ mod tests {
             .remote_entity_map
             .get_local(server_parent)
             .expect("parent entity was not replicated to client");
+        dbg!(confirmed_child, confirmed_parent);
 
         // check that the parent-child hierarchy is maintained
         assert_eq!(

@@ -5,7 +5,6 @@ use bevy::prelude::*;
 use bevy::utils::{hashbrown, HashMap};
 
 use crate::connection::id::ClientId;
-use crate::prelude::ComponentRegistry;
 use crate::server::connection::ConnectionManager;
 use crate::shared::events::connection::{
     ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,

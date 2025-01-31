@@ -876,7 +876,7 @@ mod tests {
                 },
             ))
             .id();
-
+        dbg!("server spawn");
         stepper.frame_step();
         stepper.frame_step();
 

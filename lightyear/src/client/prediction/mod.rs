@@ -45,6 +45,7 @@ impl Component for Predicted {
                             .get_mut()
                             .confirmed_to_predicted
                             .insert(confirmed, predicted);
+                        dbg!(confirmed, predicted);
                     };
                 }
             },

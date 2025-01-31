@@ -12,9 +12,9 @@ use crate::client::prediction::prespawn::{
 };
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{is_host_server, ComponentRegistry, PreSpawnedPlayerObject};
+use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
-use bevy::prelude::{not, App, Component, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Observer, Plugin, PostUpdate, PreUpdate, Res, Resource, SystemSet};
+use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 use bevy::utils::Duration;

@@ -274,7 +274,7 @@ type RawBufferInsertFn = fn(
     &mut ConnectionEvents,
 ) -> Result<(), ComponentError>;
 
-type SyncFn = fn(&mut ComponentRegistry, Entity, &mut World);
+type SyncFn = fn(&mut ComponentRegistry, confirmed: Entity, predicted: Entity, &World);
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
@@ -492,7 +492,6 @@ mod serialize {
 
 mod prediction {
     use bevy::prelude::Entity;
-    use bevy::ptr::OwningPtr;
     use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
     use super::*;
@@ -546,6 +545,14 @@ mod prediction {
                 )
             });
         }
+
+        pub(crate) fn get_prediction_mode(&self, id: ComponentId) -> Result<ComponentSyncMode, ComponentError> {
+            let kind = self.component_id_to_kind.get(&id).ok_or(ComponentError::NotRegistered)?;
+            Ok(self.prediction_map
+                .get(kind)
+                .map_or(ComponentSyncMode::None, |metadata| metadata.prediction_mode))
+        }
+
         pub(crate) fn prediction_mode<C: Component>(&self) -> ComponentSyncMode {
             let kind = ComponentKind::of::<C>();
             self.prediction_map
@@ -593,7 +600,7 @@ mod prediction {
                     .prediction_map
                     .get(kind)
                     .expect("the component is not part of the protocol");
-                (prediction_metadata.buffer_sync)(self, confirmed, world);
+                (prediction_metadata.buffer_sync)(self, confirmed, predicted, world);
             });
             // insert all the components in the predicted entity
             let mut entity_world_mut = world.entity_mut(predicted);
@@ -604,7 +611,8 @@ mod prediction {
         pub(crate) fn buffer_sync<C: SyncComponent>(
             &mut self,
             confirmed: Entity,
-            world: &mut World,
+            predicted: Entity,
+            world: &World,
         ) {
             let kind = ComponentKind::of::<C>();
             let prediction_metadata = self
@@ -615,12 +623,22 @@ mod prediction {
             // no need to add any value to it because otherwise it would contain a value with the wrong tick
             // since we are running this outside of FixedUpdate
             if prediction_metadata.prediction_mode == ComponentSyncMode::Full {
-                unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs::<PredictionHistory<C>>(PredictionHistory::<C>::default(), world.component_id::<PredictionHistory<C>>().unwrap()) }; }
+                // if the predicted entity already had a PredictionHistory component (for example
+                // if the entity was PreSpawned entity), we don't want to overwrite it.
+                if world.get::<PredictionHistory<C>>(predicted).is_none() {
+                    unsafe {
+                        self.temp_write_buffer.buffer_insert_raw_ptrs(
+                            PredictionHistory::<C>::default(),
+                            world.component_id::<PredictionHistory<C>>().expect("PredictionHistory not registered"))
+                    };
+                }
+            }
 
-            let mut value = world.get_mut::<C>(confirmed).unwrap();
+            let value = world.get::<C>(confirmed).unwrap();
             let mut clone = value.clone();
             world.resource::<PredictionManager>().map_entities(&mut clone, self).unwrap();
-            unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs::<C>(clone, world.component_id::<C>().unwrap()) };
+            dbg!(value, &clone);
+            unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap()) };
         }
     }
 }
@@ -688,9 +706,7 @@ mod replication {
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
-    use bevy::ptr::OwningPtr;
     use bytes::Bytes;
-    use std::alloc::Layout;
 
     type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -1570,7 +1586,6 @@ impl From<TypeId> for ComponentKind {
 #[cfg(test)]
 mod tests {
     use bevy::prelude::{Commands, OnAdd, OnInsert, Query, Trigger};
-    use crate::prelude::server::ConnectionManager;
     use super::*;
     use crate::serialize::writer::Writer;
     use crate::tests::protocol::*;
