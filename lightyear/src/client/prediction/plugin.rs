@@ -462,8 +462,11 @@ impl Plugin for PredictionPlugin {
         // PLUGINS
         app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));
 
-        add_sync_observers(app);
+    }
 
+    // We run this after `build` and `finish` to make sure that all components were registered before we create the observer
+    fn cleanup(&self, app: &mut App) {
+        add_sync_observers(app);
     }
 }
 

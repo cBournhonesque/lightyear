@@ -80,48 +80,48 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                     &mut commands,
                 );
 
-                // if component got added on confirmed side, or if confirmed itself got added (this is useful to handle cases
-                // where the confirmed entity already exists and had the component, for example when authority was transferred
-                // away from the client and the client needs to add prediction)
-                // - full: sync component and add history
-                // - simple/once: sync component
-                if let Some(confirmed_component) = confirmed_component {
-                    if confirmed_component.is_added() || confirmed.is_added() {
-                        trace!(?kind, "Component added on confirmed side");
-                        // safety: we know the entity exists
-                        let mut predicted_entity_mut =
-                            commands.get_entity(predicted_entity).unwrap();
-                        // map any entities from confirmed to predicted
-                        let mut new_component = confirmed_component.deref().clone();
-                        let _ =
-                            manager.map_entities(&mut new_component, component_registry.as_ref());
-                        match component_registry.prediction_mode::<C>() {
-                            ComponentSyncMode::Full => {
-                                debug!("Adding history for {:?}", std::any::type_name::<C>());
-                                // insert history, no need to add any value to it
-                                // because it will be filled by rollback anyway
-                                let history = PredictionHistory::<C>::default();
-                                predicted_entity_mut.insert((new_component, history));
-                            }
-                            ComponentSyncMode::Simple => {
-                                debug!(
-                                    ?kind,
-                                    "Component simple synced between confirmed and predicted"
-                                );
-                                // we only sync the components once, but we don't do rollback so no need for a component history
-                                predicted_entity_mut.insert(new_component);
-                            }
-                            ComponentSyncMode::Once => {
-                                // if this was a prespawned entity, don't override SyncMode::Once components!
-                                if predicted_component.is_none() {
-                                    // we only sync the components once, but we don't do rollback so no need for a component history
-                                    predicted_entity_mut.insert(new_component);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+                // // if component got added on confirmed side, or if confirmed itself got added (this is useful to handle cases
+                // // where the confirmed entity already exists and had the component, for example when authority was transferred
+                // // away from the client and the client needs to add prediction)
+                // // - full: sync component and add history
+                // // - simple/once: sync component
+                // if let Some(confirmed_component) = confirmed_component {
+                //     if confirmed_component.is_added() || confirmed.is_added() {
+                //         trace!(?kind, "Component added on confirmed side");
+                //         // safety: we know the entity exists
+                //         let mut predicted_entity_mut =
+                //             commands.get_entity(predicted_entity).unwrap();
+                //         // map any entities from confirmed to predicted
+                //         let mut new_component = confirmed_component.deref().clone();
+                //         let _ =
+                //             manager.map_entities(&mut new_component, component_registry.as_ref());
+                //         match component_registry.prediction_mode::<C>() {
+                //             ComponentSyncMode::Full => {
+                //                 debug!("Adding history for {:?}", std::any::type_name::<C>());
+                //                 // insert history, no need to add any value to it
+                //                 // because it will be filled by rollback anyway
+                //                 let history = PredictionHistory::<C>::default();
+                //                 predicted_entity_mut.insert((new_component, history));
+                //             }
+                //             ComponentSyncMode::Simple => {
+                //                 debug!(
+                //                     ?kind,
+                //                     "Component simple synced between confirmed and predicted"
+                //                 );
+                //                 // we only sync the components once, but we don't do rollback so no need for a component history
+                //                 predicted_entity_mut.insert(new_component);
+                //             }
+                //             ComponentSyncMode::Once => {
+                //                 // if this was a prespawned entity, don't override SyncMode::Once components!
+                //                 if predicted_component.is_none() {
+                //                     // we only sync the components once, but we don't do rollback so no need for a component history
+                //                     predicted_entity_mut.insert(new_component);
+                //                 }
+                //             }
+                //             _ => {}
+                //         }
+                //     }
+                // }
             }
         }
     }
@@ -319,6 +319,8 @@ fn added_on_confirmed_sync(
     // TODO: how do we avoid this allocation?
     let components: Vec<ComponentId> = trigger.components().iter().copied().collect();
     commands.queue(move |world: &mut World| {
+        // NOTE: we cannot use `world.resource_scope::<ComponentRegistry>` because doing the sync
+        //  might trigger other Observers that might also use the ComponentRegistry
         world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
             // sync all components from the predicted to the confirmed entity and possibly add the PredictedHistory
             component_registry.batch_sync(
@@ -349,14 +351,17 @@ mod tests {
     use crate::tests::stepper::BevyStepper;
     use bevy::ecs::system::RunSystemOnce;
 
-    /// Test adding the component history to the predicted entity
-    /// 1. Add the history for ComponentSyncMode::Full that was added to the confirmed entity
+    /// Test that components are synced from Confirmed to Predicted and that PredictionHistory is
+    /// added correctly
+    ///
+    /// 1. Sync ComponentSyncMode::Full added to the confirmed entity + history is added
     /// 2. Add the history for ComponentSyncMode::Full that was added to the predicted entity
-    /// 3. Don't add the history for ComponentSyncMode::Simple
-    /// 4. Don't add the history for ComponentSyncMode::Once
+    /// 3. Sync ComponentSyncMode::Once added to the confirmed entity but don't add history
+    /// 4. Sync ComponentSyncMode::Simple added to the confirmed entity but don't add history
     /// 5. For components that have MapEntities, the component gets mapped from Confirmed to Predicted
+    /// TODO: 6. Sync pre-existing ComponentSyncMode::Full when Confirmed is added to an entity
     #[test]
-    fn test_add_component_history() {
+    fn test_confirmed_to_predicted_sync() {
         let mut stepper = BevyStepper::default();
         let tick = stepper.client_tick();
         let confirmed = stepper
@@ -530,6 +535,18 @@ mod tests {
             &ComponentMapEntities(predicted),
             "Expected component to be added to predicted entity with entity mapping"
         );
+
+        // TODO: 6. Components are added to the confirmed entity before Confirmed is added
+        // let confirmed_2 = stepper
+        //     .client_app
+        //     .world_mut()
+        //     .spawn((
+        //         ComponentSyncModeFull(1.0),
+        //         ComponentSyncModeSimple(1.0),
+        //         ComponentSyncModeOnce(1.0),
+        //         ComponentMapEntities(confirmed),
+        //     ))
+        //     .id();
     }
 
     /// Test that the history gets updated correctly

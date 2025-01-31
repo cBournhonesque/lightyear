@@ -494,6 +494,7 @@ mod prediction {
     use bevy::prelude::Entity;
     use bevy::ptr::OwningPtr;
     use crate::client::prediction::predicted_history::PredictionHistory;
+    use crate::client::prediction::resource::PredictionManager;
     use super::*;
 
     impl ComponentRegistry {
@@ -615,9 +616,11 @@ mod prediction {
             // since we are running this outside of FixedUpdate
             if prediction_metadata.prediction_mode == ComponentSyncMode::Full {
                 unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs::<PredictionHistory<C>>(PredictionHistory::<C>::default(), world.component_id::<PredictionHistory<C>>().unwrap()) }; }
-            let value = world.get_mut::<C>(confirmed).unwrap();
-            // TODO: apply entity mapping!
-            unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs::<C>(value.clone(), world.component_id::<C>().unwrap()) };
+
+            let mut value = world.get_mut::<C>(confirmed).unwrap();
+            let mut clone = value.clone();
+            world.resource::<PredictionManager>().map_entities(&mut clone, self).unwrap();
+            unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs::<C>(clone, world.component_id::<C>().unwrap()) };
         }
     }
 }
@@ -1566,6 +1569,8 @@ impl From<TypeId> for ComponentKind {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::{Commands, OnAdd, OnInsert, Query, Trigger};
+    use crate::prelude::server::ConnectionManager;
     use super::*;
     use crate::serialize::writer::Writer;
     use crate::tests::protocol::*;
@@ -1590,5 +1595,69 @@ mod tests {
             .deserialize(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
         assert_eq!(component, read);
+    }
+
+    #[derive(Debug, Default, Clone, PartialEq, TypePath, Resource)]
+    struct Buffer(TempWriteBuffer);
+
+
+    /// Make sure that the temporary buffer works properly even if it's being used recursively
+    /// because of observers
+    #[test]
+    fn test_recursive_temp_write_buffer() {
+        let mut world = World::new();
+        world.init_resource::<Buffer>();
+
+        world.add_observer(|trigger: Trigger<OnAdd, ComponentSyncModeFull>, mut commands: Commands| {
+            let entity = trigger.entity();
+            commands.queue(move |world: &mut World| {
+                let component_id_once = world.register_component::<ComponentSyncModeOnce>();
+                let component_id_simple = world.register_component::<ComponentSyncModeSimple>();
+                let unsafe_world = world.as_unsafe_world_cell();
+                let mut buffer =
+                    unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
+                unsafe {
+                    buffer.0.buffer_insert_raw_ptrs::<_>(
+                        ComponentSyncModeOnce(1.0), component_id_once
+                    )
+                }
+                unsafe {
+                    buffer.0.buffer_insert_raw_ptrs::<_>(
+                        ComponentSyncModeSimple(1.0), component_id_simple
+                    )
+                }
+                // we insert both Once and Simple into the entity
+                let mut entity_world_mut =  unsafe { unsafe_world.world_mut() }.entity_mut(entity);
+                buffer.0.batch_insert(&mut entity_world_mut);
+            })
+        });
+        world.add_observer(|trigger: Trigger<OnAdd, ComponentSyncModeOnce>, mut commands: Commands| {
+            let entity = trigger.entity();
+            commands.queue(move |world: &mut World| {
+                let component_id = world.register_component::<ComponentSyncModeSimple>();
+                let unsafe_world = world.as_unsafe_world_cell();
+                let mut buffer =
+                    unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
+                unsafe {
+                    buffer.0.buffer_insert_raw_ptrs::<_>(
+                        ComponentSyncModeSimple(1.0), component_id
+                    )
+                }
+                // we insert only Simple into the entity.
+                // we should NOT also be inserting the components that were previously in the buffer (Once) a second time
+                let mut entity_world_mut =  unsafe { unsafe_world.world_mut() }.entity_mut(entity);
+                buffer.0.batch_insert(&mut entity_world_mut);
+            })
+        });
+        world.add_observer(|trigger: Trigger<OnInsert, ComponentSyncModeSimple>, mut query: Query<&mut ComponentSyncModeFull>| {
+            if let Ok(mut comp) = query.get_mut(trigger.entity()) {
+                comp.0 += 1.0;
+            }
+        });
+        world.spawn(ComponentSyncModeFull(0.0));
+        world.flush();
+
+        // make sure that the ComponentSyncModeSimple was only inserted twice, not three times
+        assert_eq!(world.query::<&ComponentSyncModeFull>().single(&world).0, 2.0);
     }
 }
