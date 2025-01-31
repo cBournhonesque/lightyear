@@ -26,7 +26,8 @@ impl Plugin for ExampleRendererPlugin {
 
         app.add_observer(add_interpolated_bot_visuals);
         app.add_observer(add_predicted_bot_visuals);
-        app.add_systems(Update, (add_bullet_visuals, add_player_visuals));
+        app.add_observer(add_bullet_visuals);
+        app.add_observer(add_player_visuals);
         app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
 
         #[cfg(feature = "client")]
@@ -94,27 +95,28 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
 pub struct VisibleFilter {
     a: Or<(
         With<Predicted>,
+        // to show prespawned entities
         With<PreSpawnedPlayerObject>,
         With<Interpolated>,
         With<ReplicationTarget>,
     )>,
+    // we don't show any replicated (confirmed) entities
+    b: Without<Replicated>
 }
 
 /// Add visuals to newly spawned players
-/// NOTE: we cannot use an observer currently because we have no guarantee about the order in which
-///  the components are synced from the Confirmed to the Predicted entity, so the PlayerId could be synced
-///  before the ColorComponent is present on the Predicted entity
 fn add_player_visuals(
+    trigger: Trigger<OnAdd, PlayerId>,
     query: Query<
-        (Entity, Has<Predicted>, &ColorComponent),
-        (VisibleFilter, Added<PlayerId>, Without<BulletMarker>),
+        (Has<Predicted>, &ColorComponent),
+        (VisibleFilter, Without<BulletMarker>),
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    query.iter().for_each(|(entity, is_predicted, color)| {
-        commands.entity(entity).insert((
+    if let Ok((is_predicted, color)) = query.get(trigger.entity()) {
+        commands.entity(trigger.entity()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
             MeshMaterial2d(materials.add(ColorMaterial {
@@ -124,24 +126,22 @@ fn add_player_visuals(
         ));
         if is_predicted {
             commands
-                .entity(entity)
+                .entity(trigger.entity())
                 .insert(VisualInterpolateStatus::<Transform>::default());
         }
-    })
+    }
 }
 
 /// Add visuals to newly spawned bullets
-/// NOTE: we cannot use an observer currently because we have no guarantee about the order in which
-///  the components are synced from the Confirmed to the Predicted entity, so the BulletMarker could be synced
-///  before the ColorComponent is present on the Predicted entity
 fn add_bullet_visuals(
-    query: Query<(Entity, &ColorComponent), (VisibleFilter, Added<BulletMarker>)>,
+    trigger: Trigger<OnAdd, BulletMarker>,
+    query: Query<&ColorComponent, VisibleFilter>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    query.iter().for_each(|(entity, color)| {
-        commands.entity(entity).insert((
+    if let Ok(color) = query.get(trigger.entity()) {
+        commands.entity(trigger.entity()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
@@ -152,7 +152,7 @@ fn add_bullet_visuals(
             })),
             VisualInterpolateStatus::<Transform>::default(),
         ));
-    });
+    }
 }
 
 /// Add visuals to newly spawned bots

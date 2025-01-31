@@ -293,7 +293,7 @@ pub(crate) fn add_sync_systems(app: &mut App) {
 mod tests {
     use super::*;
     use crate::prelude::client::RollbackState;
-    use crate::prelude::HistoryState;
+    use crate::prelude::{HistoryState, ShouldBePredicted, Tick};
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use bevy::ecs::system::RunSystemOnce;
@@ -575,6 +575,48 @@ mod tests {
             "Expected component to be added to predicted entity with entity mapping"
         );
     }
+
+    // TODO: test that PredictionHistory is added when a component is added to a PrePredicted or PreSpawned entity
+
+    /// Test that components are synced from Confirmed to Predicted simultaneously, not sequentially
+    #[test]
+    fn test_predicted_sync_batch() {
+        let mut stepper = BevyStepper::default_no_init();
+        // make sure that when ComponentSimple is added, ComponentOnce was also added
+        stepper.client_app.add_observer(
+            |trigger: Trigger<OnAdd, ComponentSyncModeSimple>,
+             query: Query<(), With<ComponentSyncModeOnce>>| {
+                assert!(query.get(trigger.entity()).is_ok());
+            },
+        );
+        // make sure that when ComponentOnce is added, ComponentSimple was also added
+        // i.e. both components are added at the same time
+        stepper.client_app.add_observer(
+            |trigger: Trigger<OnAdd, ComponentSyncModeOnce>,
+             query: Query<(), With<ComponentSyncModeSimple>>| {
+                assert!(query.get(trigger.entity()).is_ok());
+            },
+        );
+        stepper.init();
+
+        stepper.client_app.world_mut().spawn((
+            ShouldBePredicted,
+            ComponentSyncModeOnce(1.0),
+            ComponentSyncModeSimple(1.0),
+        ));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the components were synced to the predicted entity
+        assert!(stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<(), (With<ComponentSyncModeOnce>, With<ComponentSyncModeSimple>, With<Predicted>)>()
+            .get_single(stepper.client_app.world())
+            .is_ok());
+
+    }
+
 
     /// Test that the history gets updated correctly
     /// 1. Updating the predicted component for ComponentSyncMode::Full
