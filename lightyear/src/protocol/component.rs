@@ -1,7 +1,8 @@
+use std::alloc::Layout;
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{App, Component, EntityWorldMut, Mut, Reflect, Resource, TypePath, World};
-use bevy::ptr::Ptr;
+use bevy::prelude::{App, Component, Entity, EntityWorldMut, Mut, Reflect, Resource, TypePath, World};
+use bevy::ptr::{OwningPtr, Ptr};
 use bevy::utils::{hashbrown, HashMap};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -138,13 +139,9 @@ pub enum ComponentError {
 /// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct ComponentRegistry {
-    // temporary buffers to store the deserialized data to batch write
-    // Raw storage where we can store the deserialized data bytes
-    raw_bytes: Vec<u8>,
-    // Positions of each component in the `raw_bytes` bufferk
-    component_ptrs_indices: Vec<usize>,
-    // List of component ids
-    component_ids: Vec<ComponentId>,
+    temp_write_buffer: TempWriteBuffer,
+    component_id_to_kind: HashMap<ComponentId, ComponentKind>,
+    kind_to_component_id: HashMap<ComponentKind, ComponentId>,
     pub(crate) replication_map: HashMap<ComponentKind, ReplicationMetadata>,
     interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
     prediction_map: HashMap<ComponentKind, PredictionMetadata>,
@@ -153,10 +150,69 @@ pub struct ComponentRegistry {
     pub(crate) kind_map: TypeMapper<ComponentKind>,
 }
 
+/// Temporary buffer to store component data that we want to insert
+/// using `entity_world_mut.insert_by_ids`
+#[derive(Debug, Default, Clone, PartialEq, TypePath)]
+struct TempWriteBuffer {
+    // temporary buffers to store the deserialized data to batch write
+    // Raw storage where we can store the deserialized data bytes
+    raw_bytes: Vec<u8>,
+    // Positions of each component in the `raw_bytes` bufferk
+    component_ptrs_indices: Vec<usize>,
+    // List of component ids
+    component_ids: Vec<ComponentId>,
+}
+
+impl TempWriteBuffer {
+
+    fn batch_insert(
+        &mut self,
+        entity_world_mut: &mut EntityWorldMut,
+    ) {
+        unsafe {
+            entity_world_mut.insert_by_ids(
+                &self.component_ids,
+                self.component_ptrs_indices
+                    .drain(..)
+                    .map(|index| {
+                        let ptr = NonNull::new_unchecked(self.raw_bytes.as_mut_ptr().add(index));
+                        OwningPtr::new(ptr)
+                    }),
+            )
+        };
+        self.raw_bytes.clear();
+        self.component_ids.clear();
+    }
+
+    /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
+    /// This function is called for all components that will be added to an entity, so that we can
+    /// insert them all at once using `entity_world_mut.insert_by_ids`
+    ///
+    /// SAFETY:
+    /// - the component C must match the `component_id `
+    pub(crate) unsafe fn buffer_insert_raw_ptrs<C: Component>(
+        &mut self,
+        mut component: C,
+        component_id: ComponentId,
+    ) {
+        let layout = Layout::new::<C>();
+        let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
+        // make sure the Drop trait is not called when the `component` variable goes out of scope
+        std::mem::forget(component);
+        let count = layout.size();
+        self.raw_bytes.reserve(count);
+        let space = NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>();
+        space.copy_from_nonoverlapping(ptr, count);
+        let length = self.raw_bytes.len();
+        self.raw_bytes.set_len(length + count);
+        self.component_ptrs_indices.push(length);
+        self.component_ids.push(component_id);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
     pub direction: ChannelDirection,
-    pub component_id: ComponentId,
     pub delta_compression_id: ComponentId,
     pub replicate_once_id: ComponentId,
     pub override_target_id: ComponentId,
@@ -173,10 +229,11 @@ pub struct PredictionMetadata {
     /// to determine if a rollback is needed. Returns true if we should do a rollback.
     /// Will default to a PartialEq::ne implementation, but can be overriden.
     pub should_rollback: unsafe fn(),
+    pub buffer_sync: SyncFn,
 }
 
 impl PredictionMetadata {
-    fn default_from<C: PartialEq>(mode: ComponentSyncMode) -> Self {
+    fn default_from<C: SyncComponent>(mode: ComponentSyncMode) -> Self {
         let should_rollback: ShouldRollbackFn<C> = <C as PartialEq>::ne;
         Self {
             prediction_mode: mode,
@@ -186,6 +243,7 @@ impl PredictionMetadata {
                     should_rollback,
                 )
             },
+            buffer_sync: ComponentRegistry::buffer_sync::<C>,
         }
     }
 }
@@ -201,7 +259,6 @@ type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
 type RawWriteFn = fn(
     &ComponentRegistry,
     &mut Reader,
-    ComponentNetId,
     Tick,
     &mut EntityWorldMut,
     &mut ReceiveEntityMap,
@@ -211,12 +268,13 @@ type RawWriteFn = fn(
 type RawBufferInsertFn = fn(
     &mut ComponentRegistry,
     &mut Reader,
-    ComponentNetId,
     Tick,
     &mut EntityWorldMut,
     &mut ReceiveEntityMap,
     &mut ConnectionEvents,
 ) -> Result<(), ComponentError>;
+
+type SyncFn = fn(&mut ComponentRegistry, Entity, &mut World);
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
@@ -285,17 +343,19 @@ impl ComponentRegistry {
         }
     }
 
-    pub(crate) fn register_component<C: Message + Serialize + DeserializeOwned>(&mut self) {
-        let component_kind = self.kind_map.add::<C>();
-        self.serialize_fns_map
-            .insert(component_kind, ErasedSerializeFns::new::<C>());
+    pub(crate) fn register_component<C: Component + Message + Serialize + DeserializeOwned>(&mut self, world: &mut World) {
+        self.register_component_custom_serde(world, SerializeFns::<C>::default());
     }
 
-    pub(crate) fn register_component_custom_serde<C: Message>(
+    pub(crate) fn register_component_custom_serde<C: Component + Message>(
         &mut self,
+        world: &mut World,
         serialize_fns: SerializeFns<C>,
     ) {
         let component_kind = self.kind_map.add::<C>();
+        let component_id = world.register_component::<C>();
+        self.component_id_to_kind.insert(component_id, component_kind);
+        self.kind_to_component_id.insert(component_kind, component_id);
         self.serialize_fns_map.insert(
             component_kind,
             ErasedSerializeFns::new_custom_serde::<C>(serialize_fns),
@@ -394,16 +454,12 @@ mod serialize {
         pub(crate) fn raw_deserialize<C: Message>(
             &self,
             reader: &mut Reader,
-            net_id: ComponentNetId,
             entity_map: &mut ReceiveEntityMap,
         ) -> Result<C, ComponentError> {
-            let kind = self
-                .kind_map
-                .kind(net_id)
-                .ok_or(ComponentError::NotRegistered)?;
+            let kind = ComponentKind::of::<C>();
             let erased_fns = self
                 .serialize_fns_map
-                .get(kind)
+                .get(&kind)
                 .ok_or(ComponentError::MissingSerializationFns)?;
             // SAFETY: the ErasedFns corresponds to type C
             unsafe { erased_fns.deserialize(reader, entity_map) }.map_err(Into::into)
@@ -415,7 +471,7 @@ mod serialize {
             entity_map: &mut ReceiveEntityMap,
         ) -> Result<C, ComponentError> {
             let net_id = NetId::from_bytes(reader).map_err(SerializationError::from)?;
-            self.raw_deserialize(reader, net_id, entity_map)
+            self.raw_deserialize(reader, entity_map)
         }
 
         pub(crate) fn map_entities<C: 'static>(
@@ -435,9 +491,19 @@ mod serialize {
 }
 
 mod prediction {
+    use bevy::prelude::Entity;
+    use bevy::ptr::OwningPtr;
+    use crate::client::prediction::predicted_history::PredictionHistory;
     use super::*;
 
     impl ComponentRegistry {
+
+        pub(crate) fn predicted_component_ids(&self) -> impl Iterator<Item=ComponentId> + use<'_> {
+            self.prediction_map
+                .keys()
+                .filter_map(|kind| self.kind_to_component_id.get(kind).map(|id| *id))
+        }
+
         pub(crate) fn set_prediction_mode<C: SyncComponent>(&mut self, mode: ComponentSyncMode) {
             let kind = ComponentKind::of::<C>();
             let default_equality_fn = <C as PartialEq>::eq;
@@ -446,7 +512,7 @@ mod prediction {
                 .or_insert_with(|| PredictionMetadata::default_from::<C>(mode));
         }
 
-        pub(crate) fn set_should_rollback<C: Component + PartialEq>(
+        pub(crate) fn set_should_rollback<C: SyncComponent + PartialEq>(
             &mut self,
             should_rollback: ShouldRollbackFn<C>,
         ) {
@@ -461,11 +527,11 @@ mod prediction {
             };
         }
 
-        pub(crate) fn set_linear_correction<C: Component + Linear + PartialEq>(&mut self) {
+        pub(crate) fn set_linear_correction<C: SyncComponent + Linear + PartialEq>(&mut self) {
             self.set_correction(<C as Linear>::lerp);
         }
 
-        pub(crate) fn set_correction<C: Component + PartialEq>(
+        pub(crate) fn set_correction<C: SyncComponent + PartialEq>(
             &mut self,
             correction_fn: LerpFn<C>,
         ) {
@@ -514,6 +580,44 @@ mod prediction {
             let correction_fn: LerpFn<C> =
                 unsafe { std::mem::transmute(prediction_metadata.correction.unwrap()) };
             correction_fn(predicted, corrected, t)
+        }
+
+        /// Clone the components from the confirmed entity to the predicted entity
+        /// All the cloned components are inserted at once.
+        pub(crate) fn batch_sync(&mut self, component_ids: &[ComponentId], confirmed: Entity, predicted: Entity, world: &mut World) {
+            // clone each component to be synced into a temporary buffer
+            component_ids.iter().for_each(|component_id| {
+                let kind = self.component_id_to_kind.get(component_id).unwrap();
+                let prediction_metadata = self
+                    .prediction_map
+                    .get(kind)
+                    .expect("the component is not part of the protocol");
+                (prediction_metadata.buffer_sync)(self, confirmed, world);
+            });
+            // insert all the components in the predicted entity
+            let mut entity_world_mut = world.entity_mut(predicted);
+            self.temp_write_buffer.batch_insert(&mut entity_world_mut);
+        }
+
+        /// Sync a component value from the confirmed entity to the predicted entity
+        pub(crate) fn buffer_sync<C: SyncComponent>(
+            &mut self,
+            confirmed: Entity,
+            world: &mut World,
+        ) {
+            let kind = ComponentKind::of::<C>();
+            let prediction_metadata = self
+                .prediction_map
+                .get(&kind)
+                .expect("the component is not part of the protocol");
+            // for Full components, also insert a PredictionHistory component
+            // no need to add any value to it because otherwise it would contain a value with the wrong tick
+            // since we are running this outside of FixedUpdate
+            if prediction_metadata.prediction_mode == ComponentSyncMode::Full {
+                unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs::<PredictionHistory<C>>(PredictionHistory::<C>::default(), world.component_id::<PredictionHistory<C>>().unwrap()) }; }
+            let value = world.get_mut::<C>(confirmed).unwrap();
+            // TODO: apply entity mapping!
+            unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs::<C>(value.clone(), world.component_id::<C>().unwrap()) };
         }
     }
 }
@@ -588,30 +692,7 @@ mod replication {
     type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
     impl ComponentRegistry {
-        /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
-        /// This function is called for all components that will be added to an entity, so that we can
-        /// insert them all at once using `entity_world_mut.insert_by_ids`
-        ///
-        /// SAFETY:
-        /// - the component C must match the `component_id `
-        pub(crate) unsafe fn buffer_insert_raw_ptrs<C: Component>(
-            &mut self,
-            mut component: C,
-            component_id: ComponentId,
-        ) {
-            let layout = Layout::new::<C>();
-            let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
-            // make sure the Drop trait is not called when the `component` variable goes out of scope
-            std::mem::forget(component);
-            let count = layout.size();
-            self.raw_bytes.reserve(count);
-            let space = NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>();
-            space.copy_from_nonoverlapping(ptr, count);
-            let length = self.raw_bytes.len();
-            self.raw_bytes.set_len(length + count);
-            self.component_ptrs_indices.push(length);
-            self.component_ids.push(component_id);
-        }
+
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
             self.replication_map
                 .get(&kind)
@@ -630,7 +711,6 @@ mod replication {
                 kind,
                 ReplicationMetadata {
                     direction,
-                    component_id: world.register_component::<C>(),
                     delta_compression_id: world.register_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
                     override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
@@ -671,7 +751,6 @@ mod replication {
                 (replication_metadata.buffer_insert_fn)(
                     self,
                     &mut reader,
-                    net_id,
                     tick,
                     entity_world_mut,
                     entity_map,
@@ -686,19 +765,9 @@ mod replication {
             // - Each [`ComponentId`] is from the same world as [`EntityWorldMut`]
             // - Each [`OwningPtr`] is a valid reference to the type represented by [`ComponentId`]
             //   (the data is store in self.raw_bytes)
-            trace!(?self.component_ids, "Inserting components into entity");
-            unsafe {
-                entity_world_mut.insert_by_ids(
-                    self.component_ids.as_slice(),
-                    self.component_ptrs_indices.drain(..).map(|index| {
-                        let ptr = NonNull::new_unchecked(self.raw_bytes.as_mut_ptr().add(index));
-                        OwningPtr::new(ptr)
-                    }),
-                )
-            };
-            // we don't need the raw bytes anymore since the OwningPtrs have been inserted into the entity
-            self.component_ids.clear();
-            self.raw_bytes.clear();
+
+            trace!(?self.temp_write_buffer.component_ids, "Inserting components into entity");
+            self.temp_write_buffer.batch_insert(entity_world_mut);
             Ok(())
         }
 
@@ -723,7 +792,6 @@ mod replication {
             (replication_metadata.write)(
                 self,
                 reader,
-                net_id,
                 tick,
                 entity_world_mut,
                 entity_map,
@@ -737,21 +805,17 @@ mod replication {
         pub(crate) fn buffer_insert<C: Component + PartialEq>(
             &mut self,
             reader: &mut Reader,
-            net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
             entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
-            let kind = self
-                .kind_map
-                .kind(net_id)
+            let kind = ComponentKind::of::<C>();
+            let component_id = self
+                .kind_to_component_id
+                .get(&kind)
                 .ok_or(ComponentError::NotRegistered)?;
-            let replication_metadata = self
-                .replication_map
-                .get(kind)
-                .ok_or(ComponentError::MissingReplicationFns)?;
-            let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
+            let component = self.raw_deserialize::<C>(reader, entity_map)?;
             let entity = entity_world_mut.id();
             debug!("Insert component {} to entity", std::any::type_name::<C>());
 
@@ -769,13 +833,13 @@ mod replication {
                         ))
                         .increment(1);
                     }
-                    events.push_update_component(entity, net_id, tick);
+                    events.push_update_component(entity, kind, tick);
                     *c = component;
                 }
             } else {
                 // TODO: add safety comment
                 unsafe {
-                    self.buffer_insert_raw_ptrs::<C>(component, replication_metadata.component_id)
+                    self.temp_write_buffer.buffer_insert_raw_ptrs::<C>(component, *component_id)
                 };
                 // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
                 #[cfg(feature = "metrics")]
@@ -787,7 +851,7 @@ mod replication {
                     ))
                     .increment(1);
                 }
-                events.push_insert_component(entity, net_id, tick);
+                events.push_insert_component(entity, kind, tick);
             }
             Ok(())
         }
@@ -795,14 +859,14 @@ mod replication {
         pub(crate) fn write<C: Component + PartialEq>(
             &self,
             reader: &mut Reader,
-            net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
             entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
             debug!("Writing component {} to entity", std::any::type_name::<C>());
-            let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
+            let kind = ComponentKind::of::<C>();
+            let component = self.raw_deserialize::<C>(reader, entity_map)?;
             let entity = entity_world_mut.id();
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             if let Some(mut c) = entity_world_mut.get_mut::<C>() {
@@ -817,7 +881,7 @@ mod replication {
                         ))
                         .increment(1);
                     }
-                    events.push_update_component(entity, net_id, tick);
+                    events.push_update_component(entity, kind, tick);
                     *c = component;
                 }
             } else {
@@ -830,7 +894,7 @@ mod replication {
                     ))
                     .increment(1);
                 }
-                events.push_insert_component(entity, net_id, tick);
+                events.push_insert_component(entity, kind, tick);
                 entity_world_mut.insert(component);
             }
             Ok(())
@@ -840,6 +904,8 @@ mod replication {
             &self,
             net_id: ComponentNetId,
             entity_world_mut: &mut EntityWorldMut,
+            tick: Tick,
+            events: &mut ConnectionEvents,
         ) {
             let kind = self.kind_map.kind(net_id).expect("unknown component kind");
             let replication_metadata = self
@@ -849,6 +915,7 @@ mod replication {
             let f = replication_metadata
                 .remove
                 .expect("the component does not have a remove function");
+            events.push_remove_component(entity_world_mut.id(), *kind, tick);
             f(self, entity_world_mut);
         }
 
@@ -887,7 +954,7 @@ mod delta {
             let kind = ComponentKind::of::<C>();
             let delta_kind = ComponentKind::of::<DeltaMessage<C::Delta>>();
             // add the delta as a message
-            self.register_component::<DeltaMessage<C::Delta>>();
+            self.register_component::<DeltaMessage<C::Delta>>(world);
             // add delta-related type-erased functions
             self.delta_fns_map.insert(kind, ErasedDeltaFns::new::<C>());
             // add write/remove functions associated with the delta component's net_id
@@ -903,7 +970,6 @@ mod delta {
                         .get(&kind)
                         .map(|m| m.direction)
                         .unwrap_or(ChannelDirection::Bidirectional),
-                    component_id: world.register_component::<DeltaMessage<C>>(),
                     // NOTE: we set these to 0 because they are never used for the DeltaMessage component
                     delta_compression_id: ComponentId::new(0),
                     replicate_once_id: ComponentId::new(0),
@@ -989,7 +1055,6 @@ mod delta {
         pub(crate) fn write_delta<C: Component + PartialEq + Diffable>(
             &self,
             reader: &mut Reader,
-            net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
             entity_map: &mut ReceiveEntityMap,
@@ -999,9 +1064,10 @@ mod delta {
                 "Writing component delta {} to entity",
                 std::any::type_name::<C>()
             );
+            let kind = ComponentKind::of::<C>();
             let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
             let delta =
-                self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
+                self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
             let entity = entity_world_mut.id();
             match delta.delta_type {
                 DeltaType::Normal { previous_tick } => {
@@ -1036,7 +1102,7 @@ mod delta {
                     *c = new_value;
 
                     // TODO: should we send the event based on the message type (Insert/Update) or based on whether the component was actually inserted?
-                    events.push_update_component(entity, net_id, tick);
+                    events.push_update_component(entity, kind, tick);
                 }
                 DeltaType::FromBase => {
                     let mut new_value = C::base_value();
@@ -1046,11 +1112,11 @@ mod delta {
                         // only apply the update if the component is different, to not trigger change detection
                         if c.as_ref() != &new_value {
                             *c = new_value;
-                            events.push_update_component(entity, net_id, tick);
+                            events.push_update_component(entity, kind, tick);
                         }
                     } else {
                         entity_world_mut.insert(new_value);
-                        events.push_insert_component(entity, net_id, tick);
+                        events.push_insert_component(entity, kind, tick);
                     }
                     // store the component value in the delta component history, so that we can compute
                     // diffs from it
@@ -1075,29 +1141,23 @@ mod delta {
         pub(crate) fn buffer_insert_delta<C: Component + PartialEq + Diffable>(
             &mut self,
             reader: &mut Reader,
-            delta_net_id: ComponentNetId,
             tick: Tick,
             entity_world_mut: &mut EntityWorldMut,
             entity_map: &mut ReceiveEntityMap,
             events: &mut ConnectionEvents,
         ) -> Result<(), ComponentError> {
-            let net_id = self.net_id::<C>();
-            let kind = self
-                .kind_map
-                .kind(net_id)
+            let kind = ComponentKind::of::<C>();
+            let component_id = self
+                .kind_to_component_id
+                .get(&kind)
                 .ok_or(ComponentError::NotRegistered)?;
-            let replication_metadata = self
-                .replication_map
-                .get(kind)
-                .ok_or(ComponentError::MissingReplicationFns)?;
             trace!(
-                ?delta_net_id, ?net_id,
-                component_id = ?replication_metadata.component_id,
+                ?kind, ?component_id,
                 "Writing component delta {} to entity",
                 std::any::type_name::<C>()
             );
             let delta =
-                self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, delta_net_id, entity_map)?;
+                self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
             let entity = entity_world_mut.id();
             match delta.delta_type {
                 DeltaType::Normal { previous_tick } => {
@@ -1114,18 +1174,18 @@ mod delta {
                         // only apply the update if the component is different, to not trigger change detection
                         if c.as_ref() != &new_value {
                             *c = new_value;
-                            events.push_update_component(entity, net_id, tick);
+                            events.push_update_component(entity, kind, tick);
                         }
                     } else {
                         // TODO: add safety comment
                         // use the component id of C, not DeltaMessage<C>
                         unsafe {
-                            self.buffer_insert_raw_ptrs::<C>(
+                            self.temp_write_buffer.buffer_insert_raw_ptrs::<C>(
                                 new_value,
-                                replication_metadata.component_id,
+                                *component_id,
                             )
                         };
-                        events.push_insert_component(entity, net_id, tick);
+                        events.push_insert_component(entity, kind, tick);
                     }
                     // store the component value in the delta component history, so that we can compute
                     // diffs from it
@@ -1356,7 +1416,7 @@ impl AppComponentExt for App {
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
                 if !registry.is_registered::<C>() {
                     debug!("register component {}", std::any::type_name::<C>());
-                    registry.register_component::<C>();
+                    registry.register_component::<C>(world);
                     registry.set_replication_fns::<C>(world, direction);
                 }
             });
@@ -1375,7 +1435,7 @@ impl AppComponentExt for App {
         self.world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
                 if !registry.is_registered::<C>() {
-                    registry.register_component_custom_serde::<C>(serialize_fns);
+                    registry.register_component_custom_serde::<C>(world, serialize_fns);
                 }
                 registry.set_replication_fns::<C>(world, direction);
                 debug!("register component {}", std::any::type_name::<C>());
@@ -1512,8 +1572,9 @@ mod tests {
 
     #[test]
     fn test_custom_serde() {
+        let mut world = World::new();
         let mut registry = ComponentRegistry::default();
-        registry.register_component_custom_serde::<ComponentSyncModeSimple>(SerializeFns {
+        registry.register_component_custom_serde::<ComponentSyncModeSimple>(&mut world, SerializeFns {
             serialize: serialize_component2,
             deserialize: deserialize_component2,
         });

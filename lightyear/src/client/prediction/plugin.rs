@@ -6,22 +6,15 @@ use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
-use crate::client::prediction::predicted_history::{
-    add_non_networked_component_history, add_prespawned_component_history,
-    apply_component_removal_confirmed, apply_component_removal_predicted,
-    handle_tick_event_prediction_history, update_prediction_history,
-};
+use crate::client::prediction::predicted_history::{add_non_networked_component_history, add_prespawned_component_history, add_sync_observers, apply_component_removal_confirmed, apply_component_removal_predicted, handle_tick_event_prediction_history, update_prediction_history};
 use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
+use crate::prelude::{is_host_server, ComponentRegistry, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
-use bevy::prelude::{
-    not, App, Component, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin, PostUpdate, PreUpdate, Res, Resource, SystemSet,
-};
+use bevy::prelude::{not, App, Component, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Observer, Plugin, PostUpdate, PreUpdate, Res, Resource, SystemSet};
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 use bevy::utils::Duration;
@@ -468,6 +461,9 @@ impl Plugin for PredictionPlugin {
 
         // PLUGINS
         app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));
+
+        add_sync_observers(app);
+
     }
 }
 

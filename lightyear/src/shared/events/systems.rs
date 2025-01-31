@@ -13,7 +13,6 @@ use crate::shared::replication::ReplicationReceive;
 
 /// System that gathers the replication events received by the local host and sends them to bevy Events
 pub(crate) fn push_component_events<C: Component, R: ReplicationReceive>(
-    component_registry: Res<ComponentRegistry>,
     mut connection_manager: ResMut<R>,
     mut component_insert_events: EventWriter<ComponentInsertEvent<C, R::EventContext>>,
     mut component_remove_events: EventWriter<ComponentRemoveEvent<C, R::EventContext>>,
@@ -22,19 +21,19 @@ pub(crate) fn push_component_events<C: Component, R: ReplicationReceive>(
     component_insert_events.send_batch(
         connection_manager
             .events()
-            .iter_component_insert::<C>(component_registry.as_ref())
+            .iter_component_insert::<C>()
             .map(|(entity, ctx)| ComponentInsertEvent::new(entity, ctx)),
     );
     component_remove_events.send_batch(
         connection_manager
             .events()
-            .iter_component_remove::<C>(component_registry.as_ref())
+            .iter_component_remove::<C>()
             .map(|(entity, ctx)| ComponentRemoveEvent::new(entity, ctx)),
     );
     component_update_events.send_batch(
         connection_manager
             .events()
-            .iter_component_update::<C>(component_registry.as_ref())
+            .iter_component_update::<C>()
             .map(|(entity, ctx)| ComponentUpdateEvent::new(entity, ctx)),
     );
 }

@@ -1,11 +1,9 @@
 //! Managed the history buffer, which is a buffer of the past predicted component states,
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
 use std::ops::Deref;
-
-use bevy::prelude::{
-    Added, Commands, Component, DetectChanges, Entity, OnRemove, Or, Query, Ref, Res, Trigger,
-    With, Without,
-};
+use bevy::app::App;
+use bevy::ecs::component::ComponentId;
+use bevy::prelude::{Added, Commands, Component, DetectChanges, Entity, Mut, Observer, OnAdd, OnInsert, OnRemove, Or, Query, Ref, Res, Trigger, With, Without, World};
 use tracing::{debug, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
@@ -43,6 +41,7 @@ pub(crate) fn add_non_networked_component_history<C: Component + PartialEq + Clo
         commands.entity(entity).insert(history);
     }
 }
+
 
 /// Add component history for entities that are predicted
 /// There is extra complexity because the component could get added on the Confirmed entity (received from the server), or added to the Predicted entity directly
@@ -295,6 +294,50 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
             }
         }
     }
+}
+
+/// Sync any components that were added to the Confirmed entity onto the Predicted entity
+/// and potentially add a PredictedHistory component
+///
+/// We use a global observer which will listen to the Insertion of **any** component on any Confirmed entity.
+/// (using observers to react on insertion is more efficient than using the `Added` filter which iterates
+/// through all confirmed archetypes)
+fn added_on_confirmed_sync(
+    // NOTE: we use OnInsert and not OnAdd because the confirmed entity might already have the component (for example if the client transferred authority to server)
+    trigger: Trigger<OnInsert>,
+    mut commands: Commands,
+    confirmed_query: Query<&Confirmed>,
+) {
+    // make sure the components were added on the confirmed entity
+    let Ok(confirmed_component) = confirmed_query.get(trigger.entity()) else {
+        return;
+    };
+    let Some(predicted) = confirmed_component.predicted else {
+        return;
+    };
+    let confirmed = trigger.entity();
+    // TODO: how do we avoid this allocation?
+    let components: Vec<ComponentId> = trigger.components().iter().copied().collect();
+    commands.queue(move |world: &mut World| {
+        world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
+            // sync all components from the predicted to the confirmed entity and possibly add the PredictedHistory
+            component_registry.batch_sync(
+                &components,
+                confirmed,
+                predicted,
+                world,
+            );
+        });
+    });
+}
+
+pub(crate) fn add_sync_observers(app: &mut App) {
+    let component_registry = app.world().resource::<ComponentRegistry>();
+    let mut observer = Observer::new(added_on_confirmed_sync);
+    for component in component_registry.predicted_component_ids() {
+        observer = observer.with_component(component);
+    }
+    app.world_mut().spawn(observer);
 }
 
 #[cfg(test)]
