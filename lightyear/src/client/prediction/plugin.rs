@@ -6,7 +6,7 @@ use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
-use crate::client::prediction::predicted_history::{add_non_networked_component_history, add_prespawned_component_history, add_sync_systems, apply_component_removal_confirmed, apply_component_removal_predicted, handle_tick_event_prediction_history, update_prediction_history};
+use crate::client::prediction::predicted_history::{add_prediction_history, add_sync_systems, apply_component_removal_confirmed, apply_component_removal_predicted, handle_tick_event_prediction_history, update_prediction_history};
 use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
@@ -20,7 +20,7 @@ use bevy::transform::TransformSystem;
 use bevy::utils::Duration;
 
 use super::pre_prediction::PrePredictionPlugin;
-use super::predicted_history::{add_component_history, apply_confirmed_update};
+use super::predicted_history::{apply_confirmed_update};
 use super::resource_history::{
     handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
@@ -218,10 +218,10 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 /// Enable rollbacking a component even if the component is not networked
 pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app: &mut App) {
     app.add_observer(apply_component_removal_predicted::<C>);
+    app.add_observer(add_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
         (
-            add_non_networked_component_history::<C>.in_set(PredictionSet::Sync),
             prepare_rollback_non_networked::<C>.in_set(PredictionSet::PrepareRollback),
         ),
     );
@@ -258,13 +258,6 @@ pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
 }
 
 pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {
-    app.add_systems(
-        PreUpdate,
-        (
-            // handle components being added
-            add_component_history::<C>.in_set(PredictionSet::Sync),
-        ),
-    );
     match prediction_mode {
         ComponentSyncMode::Full => {
             #[cfg(feature = "metrics")]
@@ -292,6 +285,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
 
             app.add_observer(apply_component_removal_predicted::<C>);
             app.add_observer(handle_tick_event_prediction_history::<C>);
+            app.add_observer(add_prediction_history::<C>);
             app.add_systems(
                 PreUpdate,
                 // restore to the corrected state (as the visual state might be interpolating
@@ -311,7 +305,6 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             app.add_systems(
                 FixedPostUpdate,
                 (
-                    add_prespawned_component_history::<C>.in_set(PredictionSet::Sync),
                     // we need to run this during fixed update to know accurately the history for each tick
                     update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
                 ),
