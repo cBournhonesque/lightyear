@@ -159,26 +159,43 @@ struct TempWriteBuffer {
     // temporary buffers to store the deserialized data to batch write
     // Raw storage where we can store the deserialized data bytes
     raw_bytes: Vec<u8>,
-    // Positions of each component in the `raw_bytes` bufferk
+    // Positions of each component in the `raw_bytes` buffer
     component_ptrs_indices: Vec<usize>,
     // List of component ids
     component_ids: Vec<ComponentId>,
+    // Position of the `component_ptr_indices` and `component_ids` list
+    // This is needed because we can write into the buffer recursively.
+    // For example if we write component A in the buffer, then call entity_mut_world.insert(A),
+    // we might trigger an observer that inserts(B) in the buffer before it can be cleared
+    cursor: Vec<usize>,
 }
 
 impl TempWriteBuffer {
-    fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
-        dbg!(&self.component_ids);
+    /// Inserts the components that were buffered inside the EntityWorldMut
+    ///
+    /// SAFETY: `buffer_insert_raw_ptrs` must have been called beforehand
+    unsafe fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
+        // apply all commands from start_cursor to end
+        // SAFETY: a value was insert in the cursor in a previous call to `buffer_insert_raw_ptrs`
+        let start = self.cursor.pop().unwrap_or(0);
+        // instead the cursor position for recursive calls so that we only start reading
+        // the buffer from this cursor position
+        self.cursor.push(self.component_ids.len());
+        let start_index = self.component_ptrs_indices[start];
+        // apply all buffer contents from `start` to the end
         unsafe {
             entity_world_mut.insert_by_ids(
-                &self.component_ids,
-                self.component_ptrs_indices.drain(..).map(|index| {
-                    let ptr = NonNull::new_unchecked(self.raw_bytes.as_mut_ptr().add(index));
+                &self.component_ids[start..],
+                self.component_ptrs_indices[start..].iter().map(|index| {
+                    let ptr = NonNull::new_unchecked(self.raw_bytes.as_mut_ptr().add(*index));
                     OwningPtr::new(ptr)
                 }),
             )
         };
-        self.raw_bytes.clear();
-        self.component_ids.clear();
+        // clear the raw bytes that we inserted in the entity_world_mut
+        self.component_ptrs_indices.drain(start..);
+        self.component_ids.drain(start..);
+        self.raw_bytes.drain(start_index..);
     }
 
     /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
@@ -192,6 +209,7 @@ impl TempWriteBuffer {
         mut component: C,
         component_id: ComponentId,
     ) {
+
         let layout = Layout::new::<C>();
         let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
         // make sure the Drop trait is not called when the `component` variable goes out of scope
@@ -620,7 +638,8 @@ mod prediction {
             });
             // insert all the components in the predicted entity
             let mut entity_world_mut = world.entity_mut(predicted);
-            self.temp_write_buffer.batch_insert(&mut entity_world_mut);
+            // SAFETY: we call `buffer_insert_raw_pts` inside the `buffer_sync` function
+            unsafe { self.temp_write_buffer.batch_insert(&mut entity_world_mut) } ;
         }
 
         /// Sync a component value from the confirmed entity to the predicted entity
@@ -815,7 +834,8 @@ mod replication {
             //   (the data is store in self.raw_bytes)
 
             trace!(?self.temp_write_buffer.component_ids, "Inserting components into entity");
-            self.temp_write_buffer.batch_insert(entity_world_mut);
+            // SAFETY: we call `buffer_insert_raw_ptrs` inside the `buffer_insert_fn` function
+            unsafe { self.temp_write_buffer.batch_insert(entity_world_mut) };
             Ok(())
         }
 
@@ -1678,9 +1698,8 @@ mod tests {
                     // we insert both Once and Simple into the entity
                     let mut entity_world_mut =
                         unsafe { unsafe_world.world_mut() }.entity_mut(entity);
-                    dbg!("Command 1 run");
-                    buffer.0.batch_insert(&mut entity_world_mut);
-                    dbg!("End command 1 run");
+                    // SAFETY: we call `buffer_insert_raw_ptrs` above
+                    unsafe { buffer.0.batch_insert(&mut entity_world_mut) } ;
                 })
             },
         );
@@ -1700,9 +1719,8 @@ mod tests {
                     // we should NOT also be inserting the components that were previously in the buffer (Once) a second time
                     let mut entity_world_mut =
                         unsafe { unsafe_world.world_mut() }.entity_mut(entity);
-                    dbg!("Command 2 run");
-                    buffer.0.batch_insert(&mut entity_world_mut);
-                    dbg!("End command 2 run");
+                    // SAFETY: we call `buffer_insert_raw_ptrs` above
+                    unsafe { buffer.0.batch_insert(&mut entity_world_mut) };
                 })
             },
         );
