@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,

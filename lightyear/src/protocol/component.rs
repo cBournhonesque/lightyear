@@ -634,6 +634,16 @@ mod prediction {
                 }
             }
 
+            // TODO: add a test for this! For PreSpawned/PrePredicted we don't want to sync from Confirmed to Predicted
+            // TODO: does this interact well with cases where the component is removed on the predicted entity?
+            // if the predicted entity already has the component, we don't want to sync it:
+            // - if the predicted entity is Predicted/PrePredicted/PreSpawned, we would be overwriting the predicted value, instead
+            //   of letting the rollback systems work
+            // - if the component is ComponentSyncMode::Once, we only need to sync it once
+            // - if the component is ComponentSyncMode::Simple, every component update will be synced via a separate system
+            if world.get::<C>(predicted).is_some() {
+                return;
+            }
             let value = world.get::<C>(confirmed).unwrap();
             let mut clone = value.clone();
             world.resource::<PredictionManager>().map_entities(&mut clone, self).unwrap();
@@ -1281,7 +1291,7 @@ pub trait AppComponentExt {
     fn add_rollback<C: Component + PartialEq + Clone>(&mut self);
 
     /// Enable rollbacks for a resource.
-    fn add_resource_rollback<R: Resource + Clone + Debug>(&mut self);
+    fn add_resource_rollback<R: Resource + Clone>(&mut self);
 
     /// Enable prediction systems for this component.
     /// You can specify the prediction [`ComponentSyncMode`]
@@ -1475,7 +1485,7 @@ impl AppComponentExt for App {
     }
 
     /// Do not use `Time<Fixed>` for `R`. `Time<Fixed>` is already rollbacked.
-    fn add_resource_rollback<R: Resource + Clone + Debug>(&mut self) {
+    fn add_resource_rollback<R: Resource + Clone>(&mut self) {
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_resource_rollback_systems::<R>(self);

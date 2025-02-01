@@ -186,7 +186,7 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
 /// might not be predicted yet). Therefore we send a PredictedSyncEvent so that all components can be synced at once.
 fn confirmed_added_sync(
     trigger: Trigger<OnInsert, Confirmed>,
-    query: Query<EntityRef>,
+    confirmed_query: Query<EntityRef>,
     component_registry: Res<ComponentRegistry>,
     events: Option<ResMut<Events<PredictedSyncEvent>>>,
 ) {
@@ -197,7 +197,7 @@ fn confirmed_added_sync(
         return
     };
     let confirmed = trigger.entity();
-    let entity_ref = query.get(confirmed).unwrap();
+    let entity_ref = confirmed_query.get(confirmed).unwrap();
     let confirmed_component = entity_ref.get::<Confirmed>().unwrap();
     let Some(predicted) = confirmed_component.predicted else {
         return;
