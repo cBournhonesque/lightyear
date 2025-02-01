@@ -101,16 +101,13 @@ pub struct VisibleFilter {
         With<ReplicationTarget>,
     )>,
     // we don't show any replicated (confirmed) entities
-    b: Without<Replicated>
+    b: Without<Replicated>,
 }
 
 /// Add visuals to newly spawned players
 fn add_player_visuals(
     trigger: Trigger<OnAdd, PlayerId>,
-    query: Query<
-        (Has<Predicted>, &ColorComponent),
-        (VisibleFilter, Without<BulletMarker>),
-    >,
+    query: Query<(Has<Predicted>, &ColorComponent), (VisibleFilter, Without<BulletMarker>)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,

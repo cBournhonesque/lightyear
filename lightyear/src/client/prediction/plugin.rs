@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
@@ -7,7 +6,11 @@ use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
-use crate::client::prediction::predicted_history::{add_prediction_history, add_sync_systems, apply_component_removal_confirmed, apply_component_removal_predicted, handle_tick_event_prediction_history, update_prediction_history};
+use crate::client::prediction::predicted_history::{
+    add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
+    apply_component_removal_predicted, handle_tick_event_prediction_history,
+    update_prediction_history,
+};
 use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
@@ -19,9 +22,10 @@ use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 use bevy::utils::Duration;
+use std::fmt::Debug;
 
 use super::pre_prediction::PrePredictionPlugin;
-use super::predicted_history::{apply_confirmed_update};
+use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
     handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
@@ -222,9 +226,7 @@ pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app:
     app.add_observer(add_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
-        (
-            prepare_rollback_non_networked::<C>.in_set(PredictionSet::PrepareRollback),
-        ),
+        (prepare_rollback_non_networked::<C>.in_set(PredictionSet::PrepareRollback),),
     );
     app.add_systems(
         FixedPostUpdate,
@@ -456,7 +458,6 @@ impl Plugin for PredictionPlugin {
 
         // PLUGINS
         app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));
-
     }
 
     // We run this after `build` and `finish` to make sure that all components were registered before we create the observer

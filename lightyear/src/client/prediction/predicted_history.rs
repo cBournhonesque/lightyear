@@ -1,20 +1,21 @@
 //! Managed the history buffer, which is a buffer of the past predicted component states,
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
-use std::ops::Deref;
 use bevy::app::App;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::*;
+use std::ops::Deref;
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
-use crate::prelude::{ComponentRegistry, HistoryBuffer, PrePredicted, PreSpawnedPlayerObject, TickManager};
 use crate::prelude::client::PredictionSet;
+use crate::prelude::{
+    ComponentRegistry, HistoryBuffer, PrePredicted, PreSpawnedPlayerObject, TickManager,
+};
 use crate::shared::tick_manager::TickEvent;
 
 pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
-
 
 /// If ComponentSyncMode::Full, we store every update on the predicted entity in the PredictionHistory
 ///
@@ -122,7 +123,6 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
     }
 }
 
-
 #[derive(Event, Debug)]
 struct PredictedSyncEvent {
     confirmed: Entity,
@@ -130,11 +130,8 @@ struct PredictedSyncEvent {
     components: Vec<ComponentId>,
 }
 
-
 /// Sync components from confirmed entity to predicted entity
-fn apply_predicted_sync(
-    world: &mut World,
-) {
+fn apply_predicted_sync(world: &mut World) {
     world.resource_scope(|world, mut events: Mut<Events<PredictedSyncEvent>>| {
         events.drain().for_each(|event| {
             // NOTE: we cannot use `world.resource_scope::<ComponentRegistry>` because doing the sync
@@ -163,13 +160,22 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
     trigger: Trigger<OnAdd, C>,
     mut commands: Commands,
     // TODO: should we also have With<ShouldBePredicted>?
-    query: Query<(),
-        (Without<PredictionHistory<C>>,
-        Or<(With<Predicted>, With<PrePredicted>, With<PreSpawnedPlayerObject>)>)
+    query: Query<
+        (),
+        (
+            Without<PredictionHistory<C>>,
+            Or<(
+                With<Predicted>,
+                With<PrePredicted>,
+                With<PreSpawnedPlayerObject>,
+            )>,
+        ),
     >,
 ) {
     if query.get(trigger.entity()).is_ok() {
-        commands.entity(trigger.entity()).insert(PredictionHistory::<C>::default());
+        commands
+            .entity(trigger.entity())
+            .insert(PredictionHistory::<C>::default());
     }
 }
 
@@ -193,9 +199,7 @@ fn confirmed_added_sync(
     // `events` is None while we are inside the `apply_predicted_sync` system
     // that shouldn't be an issue because the components are being inserted only on Predicted entities
     // so we don't want to react to them
-    let Some(mut events) = events else {
-        return
-    };
+    let Some(mut events) = events else { return };
     let confirmed = trigger.entity();
     let entity_ref = confirmed_query.get(confirmed).unwrap();
     let confirmed_component = entity_ref.get::<Confirmed>().unwrap();
@@ -206,8 +210,10 @@ fn confirmed_added_sync(
         .archetype()
         .components()
         .filter(|id| {
-        component_registry.get_prediction_mode(*id).is_ok_and(|mode| mode != ComponentSyncMode::None)
-    })
+            component_registry
+                .get_prediction_mode(*id)
+                .is_ok_and(|mode| mode != ComponentSyncMode::None)
+        })
         .collect();
     if components.is_empty() {
         return;
@@ -218,8 +224,6 @@ fn confirmed_added_sync(
         components,
     });
 }
-
-
 
 /// Sync any components that were added to the Confirmed entity onto the Predicted entity
 /// and potentially add a PredictedHistory component
@@ -241,9 +245,7 @@ fn added_on_confirmed_sync(
     // `events` is None while we are inside the `apply_predicted_sync` system
     // that shouldn't be an issue because the components are being inserted only on Predicted entities
     // so we don't want to react to them
-    let Some(mut events) = events else {
-        return
-    };
+    let Some(mut events) = events else { return };
     // make sure the components were added on the confirmed entity
     let Ok(confirmed_component) = confirmed_query.get(trigger.entity()) else {
         return;
@@ -258,9 +260,16 @@ fn added_on_confirmed_sync(
     // TODO: there is a bug where trigger.components() returns all components that were inserted, not just
     //  those that are currently watched by the observer!
     //  so we need to again filter components to only keep those that are predicted!
-    let components: Vec<ComponentId> = trigger.components().iter().filter(|id| {
-        component_registry.get_prediction_mode(**id).is_ok_and(|mode| mode != ComponentSyncMode::None)
-    }).copied().collect();
+    let components: Vec<ComponentId> = trigger
+        .components()
+        .iter()
+        .filter(|id| {
+            component_registry
+                .get_prediction_mode(**id)
+                .is_ok_and(|mode| mode != ComponentSyncMode::None)
+        })
+        .copied()
+        .collect();
 
     events.send(PredictedSyncEvent {
         confirmed,
@@ -611,12 +620,14 @@ mod tests {
         assert!(stepper
             .client_app
             .world_mut()
-            .query_filtered::<(), (With<ComponentSyncModeOnce>, With<ComponentSyncModeSimple>, With<Predicted>)>()
+            .query_filtered::<(), (
+                With<ComponentSyncModeOnce>,
+                With<ComponentSyncModeSimple>,
+                With<Predicted>
+            )>()
             .get_single(stepper.client_app.world())
             .is_ok());
-
     }
-
 
     /// Test that the history gets updated correctly
     /// 1. Updating the predicted component for ComponentSyncMode::Full

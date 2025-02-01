@@ -6,8 +6,8 @@ use bevy::prelude::{Component, Entity, Resource};
 use bevy::utils::HashMap;
 use tracing::trace;
 
-use crate::prelude::{Tick};
-use crate::protocol::component::{ComponentKind};
+use crate::prelude::Tick;
+use crate::protocol::component::ComponentKind;
 use crate::protocol::EventContext;
 
 // TODO: don't make fields pub but instead make accessors

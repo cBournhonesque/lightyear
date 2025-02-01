@@ -99,11 +99,11 @@ mod tests {
     ///    NOTE: we cannot sync the components at this point, because the parent-predicted entity is not spawned
     ///    so the ParentSync component cannot be mapped properly when it's synced to the child-predicted entity!
     ///
-    ///   We want to make sure that the order is
-    ///   - replicate-components -> spawn-prediction (for both child/parent) -> sync components (including ParentSync) -> update hierarchy
-    ///   NOT:
-    ///   - replicate-components -> spawn-prediction (for child) -> sync components (including ParentSync)
-    ///     -> spawn-prediction (for parent) -> sync components -> update hierarchy
+    /// We want to make sure that the order is
+    /// "replicate-components -> spawn-prediction (for both child/parent) -> sync components (including ParentSync) -> update hierarchy"
+    /// instead of
+    /// "replicate-components -> spawn-prediction (for child) -> sync components (including ParentSync)
+    ///   -> spawn-prediction (for parent) -> sync components -> update hierarchy"
     #[test]
     fn test_spawn_predicted_with_hierarchy() {
         let mut stepper = BevyStepper::default();

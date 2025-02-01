@@ -1,11 +1,13 @@
-use std::alloc::Layout;
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{App, Component, Entity, EntityWorldMut, Mut, Reflect, Resource, TypePath, World};
+use bevy::prelude::{
+    App, Component, Entity, EntityWorldMut, Mut, Reflect, Resource, TypePath, World,
+};
 use bevy::ptr::{OwningPtr, Ptr};
 use bevy::utils::{hashbrown, HashMap};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::alloc::Layout;
 use std::any::TypeId;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -164,20 +166,14 @@ struct TempWriteBuffer {
 }
 
 impl TempWriteBuffer {
-
-    fn batch_insert(
-        &mut self,
-        entity_world_mut: &mut EntityWorldMut,
-    ) {
+    fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
         unsafe {
             entity_world_mut.insert_by_ids(
                 &self.component_ids,
-                self.component_ptrs_indices
-                    .drain(..)
-                    .map(|index| {
-                        let ptr = NonNull::new_unchecked(self.raw_bytes.as_mut_ptr().add(index));
-                        OwningPtr::new(ptr)
-                    }),
+                self.component_ptrs_indices.drain(..).map(|index| {
+                    let ptr = NonNull::new_unchecked(self.raw_bytes.as_mut_ptr().add(index));
+                    OwningPtr::new(ptr)
+                }),
             )
         };
         self.raw_bytes.clear();
@@ -343,7 +339,10 @@ impl ComponentRegistry {
         }
     }
 
-    pub(crate) fn register_component<C: Component + Message + Serialize + DeserializeOwned>(&mut self, world: &mut World) {
+    pub(crate) fn register_component<C: Component + Message + Serialize + DeserializeOwned>(
+        &mut self,
+        world: &mut World,
+    ) {
         self.register_component_custom_serde(world, SerializeFns::<C>::default());
     }
 
@@ -354,8 +353,10 @@ impl ComponentRegistry {
     ) {
         let component_kind = self.kind_map.add::<C>();
         let component_id = world.register_component::<C>();
-        self.component_id_to_kind.insert(component_id, component_kind);
-        self.kind_to_component_id.insert(component_kind, component_id);
+        self.component_id_to_kind
+            .insert(component_id, component_kind);
+        self.kind_to_component_id
+            .insert(component_kind, component_id);
         self.serialize_fns_map.insert(
             component_kind,
             ErasedSerializeFns::new_custom_serde::<C>(serialize_fns),
@@ -491,17 +492,18 @@ mod serialize {
 }
 
 mod prediction {
-    use bevy::prelude::Entity;
+    use super::*;
     use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
-    use super::*;
+    use bevy::prelude::Entity;
 
     impl ComponentRegistry {
-
-        pub(crate) fn predicted_component_ids(&self) -> impl Iterator<Item=ComponentId> + use<'_> {
+        pub(crate) fn predicted_component_ids(
+            &self,
+        ) -> impl Iterator<Item = ComponentId> + use<'_> {
             self.prediction_map
                 .keys()
-                .filter_map(|kind| self.kind_to_component_id.get(kind).map(|id| *id))
+                .filter_map(|kind| self.kind_to_component_id.get(kind).copied())
         }
 
         pub(crate) fn set_prediction_mode<C: SyncComponent>(&mut self, mode: ComponentSyncMode) {
@@ -546,9 +548,16 @@ mod prediction {
             });
         }
 
-        pub(crate) fn get_prediction_mode(&self, id: ComponentId) -> Result<ComponentSyncMode, ComponentError> {
-            let kind = self.component_id_to_kind.get(&id).ok_or(ComponentError::NotRegistered)?;
-            Ok(self.prediction_map
+        pub(crate) fn get_prediction_mode(
+            &self,
+            id: ComponentId,
+        ) -> Result<ComponentSyncMode, ComponentError> {
+            let kind = self
+                .component_id_to_kind
+                .get(&id)
+                .ok_or(ComponentError::NotRegistered)?;
+            Ok(self
+                .prediction_map
                 .get(kind)
                 .map_or(ComponentSyncMode::None, |metadata| metadata.prediction_mode))
         }
@@ -592,7 +601,13 @@ mod prediction {
 
         /// Clone the components from the confirmed entity to the predicted entity
         /// All the cloned components are inserted at once.
-        pub(crate) fn batch_sync(&mut self, component_ids: &[ComponentId], confirmed: Entity, predicted: Entity, world: &mut World) {
+        pub(crate) fn batch_sync(
+            &mut self,
+            component_ids: &[ComponentId],
+            confirmed: Entity,
+            predicted: Entity,
+            world: &mut World,
+        ) {
             // clone each component to be synced into a temporary buffer
             component_ids.iter().for_each(|component_id| {
                 let kind = self.component_id_to_kind.get(component_id).unwrap();
@@ -629,7 +644,10 @@ mod prediction {
                     unsafe {
                         self.temp_write_buffer.buffer_insert_raw_ptrs(
                             PredictionHistory::<C>::default(),
-                            world.component_id::<PredictionHistory<C>>().expect("PredictionHistory not registered"))
+                            world
+                                .component_id::<PredictionHistory<C>>()
+                                .expect("PredictionHistory not registered"),
+                        )
                     };
                 }
             }
@@ -646,8 +664,14 @@ mod prediction {
             }
             let value = world.get::<C>(confirmed).unwrap();
             let mut clone = value.clone();
-            world.resource::<PredictionManager>().map_entities(&mut clone, self).unwrap();
-            unsafe { self.temp_write_buffer.buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap()) };
+            world
+                .resource::<PredictionManager>()
+                .map_entities(&mut clone, self)
+                .unwrap();
+            unsafe {
+                self.temp_write_buffer
+                    .buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
+            };
         }
     }
 }
@@ -720,7 +744,6 @@ mod replication {
     type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
     impl ComponentRegistry {
-
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
             self.replication_map
                 .get(&kind)
@@ -817,14 +840,7 @@ mod replication {
                 .replication_map
                 .get(kind)
                 .ok_or(ComponentError::MissingReplicationFns)?;
-            (replication_metadata.write)(
-                self,
-                reader,
-                tick,
-                entity_world_mut,
-                entity_map,
-                events,
-            )?;
+            (replication_metadata.write)(self, reader, tick, entity_world_mut, entity_map, events)?;
             Ok(*kind)
         }
 
@@ -867,7 +883,8 @@ mod replication {
             } else {
                 // TODO: add safety comment
                 unsafe {
-                    self.temp_write_buffer.buffer_insert_raw_ptrs::<C>(component, *component_id)
+                    self.temp_write_buffer
+                        .buffer_insert_raw_ptrs::<C>(component, *component_id)
                 };
                 // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
                 #[cfg(feature = "metrics")]
@@ -1094,8 +1111,7 @@ mod delta {
             );
             let kind = ComponentKind::of::<C>();
             let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
-            let delta =
-                self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
+            let delta = self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
             let entity = entity_world_mut.id();
             match delta.delta_type {
                 DeltaType::Normal { previous_tick } => {
@@ -1180,12 +1196,12 @@ mod delta {
                 .get(&kind)
                 .ok_or(ComponentError::NotRegistered)?;
             trace!(
-                ?kind, ?component_id,
+                ?kind,
+                ?component_id,
                 "Writing component delta {} to entity",
                 std::any::type_name::<C>()
             );
-            let delta =
-                self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
+            let delta = self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
             let entity = entity_world_mut.id();
             match delta.delta_type {
                 DeltaType::Normal { previous_tick } => {
@@ -1208,10 +1224,8 @@ mod delta {
                         // TODO: add safety comment
                         // use the component id of C, not DeltaMessage<C>
                         unsafe {
-                            self.temp_write_buffer.buffer_insert_raw_ptrs::<C>(
-                                new_value,
-                                *component_id,
-                            )
+                            self.temp_write_buffer
+                                .buffer_insert_raw_ptrs::<C>(new_value, *component_id)
                         };
                         events.push_insert_component(entity, kind, tick);
                     }
@@ -1594,19 +1608,22 @@ impl From<TypeId> for ComponentKind {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::{Commands, OnAdd, OnInsert, Query, Trigger};
     use super::*;
     use crate::serialize::writer::Writer;
     use crate::tests::protocol::*;
+    use bevy::prelude::{Commands, OnAdd, OnInsert, Query, Trigger};
 
     #[test]
     fn test_custom_serde() {
         let mut world = World::new();
         let mut registry = ComponentRegistry::default();
-        registry.register_component_custom_serde::<ComponentSyncModeSimple>(&mut world, SerializeFns {
-            serialize: serialize_component2,
-            deserialize: deserialize_component2,
-        });
+        registry.register_component_custom_serde::<ComponentSyncModeSimple>(
+            &mut world,
+            SerializeFns {
+                serialize: serialize_component2,
+                deserialize: deserialize_component2,
+            },
+        );
         let mut component = ComponentSyncModeSimple(1.0);
         let mut writer = Writer::default();
         registry
@@ -1624,7 +1641,6 @@ mod tests {
     #[derive(Debug, Default, Clone, PartialEq, TypePath, Resource)]
     struct Buffer(TempWriteBuffer);
 
-
     /// Make sure that the temporary buffer works properly even if it's being used recursively
     /// because of observers
     #[test]
@@ -1632,56 +1648,68 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<Buffer>();
 
-        world.add_observer(|trigger: Trigger<OnAdd, ComponentSyncModeFull>, mut commands: Commands| {
-            let entity = trigger.entity();
-            commands.queue(move |world: &mut World| {
-                let component_id_once = world.register_component::<ComponentSyncModeOnce>();
-                let component_id_simple = world.register_component::<ComponentSyncModeSimple>();
-                let unsafe_world = world.as_unsafe_world_cell();
-                let mut buffer =
-                    unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
-                unsafe {
-                    buffer.0.buffer_insert_raw_ptrs::<_>(
-                        ComponentSyncModeOnce(1.0), component_id_once
-                    )
+        world.add_observer(
+            |trigger: Trigger<OnAdd, ComponentSyncModeFull>, mut commands: Commands| {
+                let entity = trigger.entity();
+                commands.queue(move |world: &mut World| {
+                    let component_id_once = world.register_component::<ComponentSyncModeOnce>();
+                    let component_id_simple = world.register_component::<ComponentSyncModeSimple>();
+                    let unsafe_world = world.as_unsafe_world_cell();
+                    let mut buffer = unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
+                    unsafe {
+                        buffer.0.buffer_insert_raw_ptrs::<_>(
+                            ComponentSyncModeOnce(1.0),
+                            component_id_once,
+                        )
+                    }
+                    unsafe {
+                        buffer.0.buffer_insert_raw_ptrs::<_>(
+                            ComponentSyncModeSimple(1.0),
+                            component_id_simple,
+                        )
+                    }
+                    // we insert both Once and Simple into the entity
+                    let mut entity_world_mut =
+                        unsafe { unsafe_world.world_mut() }.entity_mut(entity);
+                    buffer.0.batch_insert(&mut entity_world_mut);
+                })
+            },
+        );
+        world.add_observer(
+            |trigger: Trigger<OnAdd, ComponentSyncModeOnce>, mut commands: Commands| {
+                let entity = trigger.entity();
+                commands.queue(move |world: &mut World| {
+                    let component_id = world.register_component::<ComponentSyncModeSimple>();
+                    let unsafe_world = world.as_unsafe_world_cell();
+                    let mut buffer = unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
+                    unsafe {
+                        buffer
+                            .0
+                            .buffer_insert_raw_ptrs::<_>(ComponentSyncModeSimple(1.0), component_id)
+                    }
+                    // we insert only Simple into the entity.
+                    // we should NOT also be inserting the components that were previously in the buffer (Once) a second time
+                    let mut entity_world_mut =
+                        unsafe { unsafe_world.world_mut() }.entity_mut(entity);
+                    buffer.0.batch_insert(&mut entity_world_mut);
+                })
+            },
+        );
+        world.add_observer(
+            |trigger: Trigger<OnInsert, ComponentSyncModeSimple>,
+             mut query: Query<&mut ComponentSyncModeFull>| {
+                if let Ok(mut comp) = query.get_mut(trigger.entity()) {
+                    comp.0 += 1.0;
                 }
-                unsafe {
-                    buffer.0.buffer_insert_raw_ptrs::<_>(
-                        ComponentSyncModeSimple(1.0), component_id_simple
-                    )
-                }
-                // we insert both Once and Simple into the entity
-                let mut entity_world_mut =  unsafe { unsafe_world.world_mut() }.entity_mut(entity);
-                buffer.0.batch_insert(&mut entity_world_mut);
-            })
-        });
-        world.add_observer(|trigger: Trigger<OnAdd, ComponentSyncModeOnce>, mut commands: Commands| {
-            let entity = trigger.entity();
-            commands.queue(move |world: &mut World| {
-                let component_id = world.register_component::<ComponentSyncModeSimple>();
-                let unsafe_world = world.as_unsafe_world_cell();
-                let mut buffer =
-                    unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
-                unsafe {
-                    buffer.0.buffer_insert_raw_ptrs::<_>(
-                        ComponentSyncModeSimple(1.0), component_id
-                    )
-                }
-                // we insert only Simple into the entity.
-                // we should NOT also be inserting the components that were previously in the buffer (Once) a second time
-                let mut entity_world_mut =  unsafe { unsafe_world.world_mut() }.entity_mut(entity);
-                buffer.0.batch_insert(&mut entity_world_mut);
-            })
-        });
-        world.add_observer(|trigger: Trigger<OnInsert, ComponentSyncModeSimple>, mut query: Query<&mut ComponentSyncModeFull>| {
-            if let Ok(mut comp) = query.get_mut(trigger.entity()) {
-                comp.0 += 1.0;
-            }
-        });
+            },
+        );
         world.spawn(ComponentSyncModeFull(0.0));
         world.flush();
 
         // make sure that the ComponentSyncModeSimple was only inserted twice, not three times
-        assert_eq!(world.query::<&ComponentSyncModeFull>().single(&world).0, 2.0);
+        assert_eq!(
+            world.query::<&ComponentSyncModeFull>().single(&world).0,
+            2.0
+        );
     }
 }
