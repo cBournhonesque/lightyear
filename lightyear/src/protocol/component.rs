@@ -167,22 +167,28 @@ struct TempWriteBuffer {
     // This is needed because we can write into the buffer recursively.
     // For example if we write component A in the buffer, then call entity_mut_world.insert(A),
     // we might trigger an observer that inserts(B) in the buffer before it can be cleared
-    cursor: Vec<usize>,
+    cursor: usize,
 }
 
 impl TempWriteBuffer {
+    fn is_empty(&self) -> bool {
+        self.cursor == self.component_ids.len()
+    }
     // TODO: also write a similar function for component removals, to handle recursive removals!
-    
+
     /// Inserts the components that were buffered inside the EntityWorldMut
     ///
     /// SAFETY: `buffer_insert_raw_ptrs` must have been called beforehand
     unsafe fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
+        if self.is_empty() {
+            return;
+        }
         // apply all commands from start_cursor to end
         // SAFETY: a value was insert in the cursor in a previous call to `buffer_insert_raw_ptrs`
-        let start = self.cursor.pop().unwrap_or(0);
-        // instead the cursor position for recursive calls so that we only start reading
-        // the buffer from this cursor position
-        self.cursor.push(self.component_ids.len());
+        let start = self.cursor;
+        // set the cursor position so that recursive calls only start reading the buffer from this
+        // position
+        self.cursor = self.component_ids.len();
         let start_index = self.component_ptrs_indices[start];
         // apply all buffer contents from `start` to the end
         unsafe {
@@ -198,6 +204,7 @@ impl TempWriteBuffer {
         self.component_ptrs_indices.drain(start..);
         self.component_ids.drain(start..);
         self.raw_bytes.drain(start_index..);
+        self.cursor = start;
     }
 
     /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it

@@ -13,9 +13,9 @@ use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
 use crate::shared::replication::components::{InitialReplicated, Replicated, ReplicationGroupId};
 #[cfg(test)]
 use crate::utils::captures::Captures;
+use crate::utils::collections::HashSet;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, EntityWorldMut, World};
-use crate::utils::collections::{HashSet};
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};

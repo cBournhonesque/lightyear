@@ -165,7 +165,6 @@ impl MessageRegistry {
         reader: &mut Reader,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<(), MessageError> {
-        dbg!("receive_event_internal", std::any::type_name::<E>());
         let kind = MessageKind::of::<E>();
         let receive_metadata = self
             .message_receive_map

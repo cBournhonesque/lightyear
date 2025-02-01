@@ -83,7 +83,7 @@ mod tests {
     use crate::prelude::server::SyncTarget;
     use crate::prelude::{client, server, ClientId, NetworkTarget};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-    use bevy::ecs::hierarchy::{ChildOf};
+    use bevy::ecs::hierarchy::ChildOf;
     use bevy::prelude::default;
 
     /// https://github.com/cBournhonesque/lightyear/issues/627
@@ -143,7 +143,7 @@ mod tests {
             .remote_entity_map
             .get_local(server_parent)
             .expect("parent entity was not replicated to client");
-        dbg!(confirmed_child, confirmed_parent);
+        // dbg!(confirmed_child, confirmed_parent);
 
         // check that the parent-child hierarchy is maintained
         assert_eq!(
