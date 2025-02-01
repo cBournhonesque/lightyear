@@ -6,8 +6,8 @@ use bevy::prelude::{Component, Entity, Resource};
 use crate::utils::collections::HashMap;
 use tracing::trace;
 
-use crate::prelude::{ComponentRegistry, Tick};
-use crate::protocol::component::ComponentNetId;
+use crate::prelude::Tick;
+use crate::protocol::component::ComponentKind;
 use crate::protocol::EventContext;
 
 // TODO: don't make fields pub but instead make accessors
@@ -23,13 +23,13 @@ pub struct ConnectionEvents {
 
     // TODO: key by entity or by kind?
     // TODO: include the actual value in the event, or just the type? let's just include the type for now
-    pub component_inserts: HashMap<ComponentNetId, Vec<Entity>>,
+    pub component_inserts: HashMap<ComponentKind, Vec<Entity>>,
     // pub insert_components: HashMap<Entity, Vec<P::Components>>,
-    pub component_removes: HashMap<ComponentNetId, Vec<Entity>>,
+    pub component_removes: HashMap<ComponentKind, Vec<Entity>>,
     // TODO: here as well, we could only include the type.. we already apply the changes to the entity directly, so users could keep track of changes
     //  let's just start with the kind...
     //  also, normally the updates are sequenced
-    pub component_updates: HashMap<ComponentNetId, Vec<Entity>>,
+    pub component_updates: HashMap<ComponentKind, Vec<Entity>>,
     // // TODO: what happens if we receive on the same frame an Update for tick 4 and update for tick 10?
     // //  can we just discard the older one? what about for inserts/removes?
     // pub component_updates: EntityHashMap<Entity, HashMap<P::ComponentKinds, Tick>>,
@@ -101,7 +101,7 @@ impl ConnectionEvents {
     pub(crate) fn push_insert_component(
         &mut self,
         entity: Entity,
-        kind: ComponentNetId,
+        kind: ComponentKind,
         tick: Tick,
     ) {
         trace!(?entity, ?kind, "Received insert component");
@@ -113,7 +113,7 @@ impl ConnectionEvents {
     pub(crate) fn push_remove_component(
         &mut self,
         entity: Entity,
-        kind: ComponentNetId,
+        kind: ComponentKind,
         tick: Tick,
     ) {
         trace!(?entity, ?kind, "Received remove component");
@@ -126,7 +126,7 @@ impl ConnectionEvents {
     pub(crate) fn push_update_component(
         &mut self,
         entity: Entity,
-        kind: ComponentNetId,
+        kind: ComponentKind,
         tick: Tick,
     ) {
         trace!(?entity, ?kind, "Received update component");
@@ -187,7 +187,6 @@ pub trait IterComponentUpdateEvent<Ctx: EventContext = ()> {
     /// Find all the updates of component C
     fn iter_component_update<'a, 'b: 'a, C: Component>(
         &'a mut self,
-        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + 'a>;
 
     // /// Find all the updates of component C for a given entity
@@ -199,9 +198,8 @@ pub trait IterComponentUpdateEvent<Ctx: EventContext = ()> {
 impl IterComponentUpdateEvent for ConnectionEvents {
     fn iter_component_update<'a, 'b: 'a, C: Component>(
         &'a mut self,
-        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, ())> + 'a> {
-        let component_kind = component_registry.net_id::<C>();
+        let component_kind = ComponentKind::of::<C>();
         if let Some(data) = self.component_updates.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
@@ -233,7 +231,6 @@ impl IterComponentUpdateEvent for ConnectionEvents {
 pub trait IterComponentRemoveEvent<Ctx: EventContext = ()> {
     fn iter_component_remove<'a, 'b: 'a, C: Component>(
         &'a mut self,
-        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + 'a>;
 }
 
@@ -241,9 +238,8 @@ pub trait IterComponentRemoveEvent<Ctx: EventContext = ()> {
 impl IterComponentRemoveEvent for ConnectionEvents {
     fn iter_component_remove<'a, 'b: 'a, C: Component>(
         &'a mut self,
-        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, ())> + 'a> {
-        let component_kind = component_registry.net_id::<C>();
+        let component_kind = ComponentKind::of::<C>();
         if let Some(data) = self.component_removes.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
@@ -254,16 +250,14 @@ impl IterComponentRemoveEvent for ConnectionEvents {
 pub trait IterComponentInsertEvent<Ctx: EventContext = ()> {
     fn iter_component_insert<'a, 'b: 'a, C: Component>(
         &'a mut self,
-        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + 'a>;
 }
 
 impl IterComponentInsertEvent for ConnectionEvents {
     fn iter_component_insert<'a, 'b: 'a, C: Component>(
         &mut self,
-        component_registry: &ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
-        let component_kind = component_registry.net_id::<C>();
+        let component_kind = ComponentKind::of::<C>();
         if let Some(data) = self.component_inserts.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }

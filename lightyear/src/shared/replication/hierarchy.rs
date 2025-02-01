@@ -323,7 +323,7 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
                 .after(InternalMainSet::<R::SetMarker>::Receive)
                 // we want update_parent to run in the same frame that ParentSync is propagated
                 // to the predicted/interpolated entities
-                .after(PredictionSet::SpawnHistory)
+                .after(PredictionSet::Sync)
                 .after(InterpolationSet::SpawnHistory),
         );
     }
