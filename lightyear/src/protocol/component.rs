@@ -171,6 +171,8 @@ struct TempWriteBuffer {
 }
 
 impl TempWriteBuffer {
+    // TODO: also write a similar function for component removals, to handle recursive removals!
+    
     /// Inserts the components that were buffered inside the EntityWorldMut
     ///
     /// SAFETY: `buffer_insert_raw_ptrs` must have been called beforehand
