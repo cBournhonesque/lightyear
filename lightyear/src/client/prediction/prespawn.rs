@@ -51,7 +51,7 @@ impl Plugin for PreSpawnedPlayerObjectPlugin {
             // TODO: find a way to exclude predicted history from the hash
             InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash
                 .in_set(PredictionSet::All)
-                .before(PredictionSet::SpawnHistory),
+                .before(PredictionSet::Sync),
         );
 
         app.add_systems(
@@ -876,7 +876,6 @@ mod tests {
                 },
             ))
             .id();
-
         stepper.frame_step();
         stepper.frame_step();
 

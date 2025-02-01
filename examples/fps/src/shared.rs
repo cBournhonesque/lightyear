@@ -34,7 +34,7 @@ impl Plugin for SharedPlugin {
         // registry types for reflection
         app.register_type::<PlayerId>();
         // debug systems
-        // app.add_systems(FixedPostUpdate, fixed_update_log);
+        // app.add_systems(FixedLast, fixed_update_log);
         // app.add_systems(FixedLast, log_predicted_bot_transform);
 
         // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule

@@ -727,8 +727,7 @@ impl GroupChannel {
             // removals
             trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
             for kind in actions.remove {
-                events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
-                component_registry.raw_remove(kind, &mut local_entity_mut);
+                component_registry.raw_remove(kind, &mut local_entity_mut, remote_tick, events);
             }
 
             // updates

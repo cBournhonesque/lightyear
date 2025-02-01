@@ -34,7 +34,7 @@ impl Plugin for Avian3dPlugin {
                 // run physics before spawning the prediction history for prespawned entities
                 // we want all avian-added components (Rotation, etc.) to be inserted before we try
                 // to spawn the history, so that the history is spawned at the correct time for all components
-                PredictionSet::SpawnHistory,
+                PredictionSet::Sync,
                 // run physics before updating the prediction history
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick,
