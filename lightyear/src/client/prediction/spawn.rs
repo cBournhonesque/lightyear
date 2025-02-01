@@ -122,7 +122,6 @@ mod tests {
             })
             .add_child(server_child)
             .id();
-        dbg!(server_child, server_parent);
         stepper.frame_step();
         stepper.frame_step();
         stepper.frame_step();
