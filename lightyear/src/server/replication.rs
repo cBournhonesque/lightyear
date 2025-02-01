@@ -928,13 +928,13 @@ pub(crate) mod send {
                         if replicate_once {
                             trace!(?entity,
                                 "not replicating updates for {:?} because it is marked as replicate_once",
-                                "COMPONENT_KIND"
+                                component_kind
                             );
-                            return;
+                        } else {
+                            // otherwise send an update for all components that changed since the
+                            // last update we have ack-ed
+                            update_target.union(target);
                         }
-                        // otherwise send an update for all components that changed since the
-                        // last update we have ack-ed
-                        update_target.union(target);
                     }
 
                     let new_connected_clients = sender.new_connected_clients();
