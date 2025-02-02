@@ -928,13 +928,13 @@ pub(crate) mod send {
                         if replicate_once {
                             trace!(?entity,
                                 "not replicating updates for {:?} because it is marked as replicate_once",
-                                "COMPONENT_KIND"
+                                component_kind
                             );
-                            return;
+                        } else {
+                            // otherwise send an update for all components that changed since the
+                            // last update we have ack-ed
+                            update_target.union(target);
                         }
-                        // otherwise send an update for all components that changed since the
-                        // last update we have ack-ed
-                        update_target.union(target);
                     }
 
                     let new_connected_clients = sender.new_connected_clients();
@@ -2887,6 +2887,67 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
+            let client_entity = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .entity(client_entity)
+                    .get::<ComponentSyncModeFull>()
+                    .expect("component missing"),
+                &ComponentSyncModeFull(1.0)
+            );
+
+            // update component
+            stepper
+                .server_app
+                .world_mut()
+                .entity_mut(server_entity)
+                .insert(ComponentSyncModeFull(2.0));
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the component was not updated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .entity(client_entity)
+                    .get::<ComponentSyncModeFull>()
+                    .expect("component missing"),
+                &ComponentSyncModeFull(1.0)
+            );
+        }
+
+        #[test]
+        fn test_component_update_replicate_once_new_client() {
+            let mut stepper = BevyStepper::default_no_init();
+
+            // spawn an entity on server (before the client is connected)
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn((
+                    Replicate::default(),
+                    ComponentSyncModeFull(1.0),
+                    ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
+                ))
+                .id();
+            stepper.frame_step();
+
+            // a client connects
+            stepper.init();
+            stepper.frame_step();
+            stepper.frame_step();
+
             let client_entity = stepper
                 .client_app
                 .world()

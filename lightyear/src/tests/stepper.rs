@@ -1,10 +1,6 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
-
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig, NetConfig,
-    NetworkingState, PredictionConfig, SyncConfig,
+    Authentication, ClientCommands, ClientConfig, ClientTransport, NetConfig, NetworkingState,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
@@ -162,7 +158,9 @@ impl BevyStepper {
         };
         let client_config = ClientConfig::default();
 
-        Self::new(shared_config, client_config, frame_duration)
+        let mut stepper = Self::new(shared_config, client_config, frame_duration);
+        stepper.build();
+        stepper
     }
 
     pub(crate) fn interpolation_tick(&mut self) -> Tick {
@@ -213,6 +211,8 @@ impl BevyStepper {
         self.client_app.cleanup();
         self.server_app.finish();
         self.server_app.cleanup();
+    }
+    pub(crate) fn init(&mut self) {
         let _ = self
             .server_app
             .world_mut()
@@ -221,9 +221,6 @@ impl BevyStepper {
             .client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
-    }
-    pub(crate) fn init(&mut self) {
-        self.build();
         self.wait_for_connection();
         self.wait_for_sync();
     }
