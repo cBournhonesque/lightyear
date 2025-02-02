@@ -1,7 +1,6 @@
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, ClientTransport, NetConfig,
-    NetworkingState,
+    Authentication, ClientCommands, ClientConfig, ClientTransport, NetConfig, NetworkingState,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
@@ -212,7 +211,6 @@ impl BevyStepper {
         self.client_app.cleanup();
         self.server_app.finish();
         self.server_app.cleanup();
-
     }
     pub(crate) fn init(&mut self) {
         let _ = self
