@@ -197,12 +197,10 @@ pub(crate) mod send {
     #[reflect(Component)]
     #[require(
         Replicating,
+        ReplicationMarker,
         AuthorityPeer,
-        SyncTarget,
         NetworkRelevanceMode,
-        ControlledBy,
         ReplicationGroup,
-        ReplicateHierarchy
     )]
     pub struct ReplicationTarget {
         /// Which clients should this entity be replicated to
@@ -1106,9 +1104,9 @@ pub(crate) mod send {
         use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+        use crate::utils::collections::HashSet;
         use bevy::ecs::system::RunSystemOnce;
         use bevy::prelude::{default, EventReader, Resource, Update};
-        use crate::utils::collections::HashSet;
 
         // TODO: test entity spawn newly connected client
 

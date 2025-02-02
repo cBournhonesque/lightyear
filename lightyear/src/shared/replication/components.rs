@@ -11,6 +11,14 @@ use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 
+/// Marker that indicates that this entity is to be replicated.
+///
+/// This is not confused with `Replicating` which is only present on the entity when the entity
+/// is currently being replicated. (removing `Replicating` pauses replication updates).
+///
+/// `ReplicationMarker` is required by `ReplicateToServer` and `ReplicationTarget`
+struct ReplicationMarker;
+
 /// Marker component that indicates that the entity was initially spawned via replication
 /// (it was being replicated from a remote world)
 ///
@@ -87,29 +95,19 @@ pub enum TargetEntity {
     Preexisting(Entity),
 }
 
-/// Component that defines how the hierarchy of an entity (parent/children) should be replicated
+/// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
 ///
-/// If the component is absent, the [`ChildOf`](bevy::prelude::ChildOf)/[`Children`](bevy::prelude::Children) components will not be replicated.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+/// When `DisableReplicateHierarchy` is added to an entity, we will stop replicating their children.
+///
+/// If the component is added on an entity with `Replicate`, it's children will be replicated using
+/// the same replication settings as the Parent.
+/// This is achieved via the marker component `ReplicateLikeParent` added on each child.
+/// You can remove the `ReplicateLikeParent` component to disable this on a child entity. You can then
+/// add the replication components on the child to replicate it independently from the parents.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct ReplicateHierarchy {
-    /// If true, the direct [`Children`](bevy::prelude::Children) of this entity will be replicated
-    pub enabled: bool,
-    /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
-    ///
-    /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
-    /// and `ParentSync` components to the children yourself
-    pub recursive: bool,
-}
+pub struct DisableReplicateHierarchy;
 
-impl Default for ReplicateHierarchy {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            recursive: true,
-        }
-    }
-}
 
 // TODO: do we need this? or do we just check if delta compression fn is present in the registry?
 /// If this component is present, the component will be replicated via delta-compression.

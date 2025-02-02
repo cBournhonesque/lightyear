@@ -16,23 +16,23 @@ use crate::shared::replication::components::ReplicateHierarchy;
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
-/// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
-/// The `ParentSync` component will be updated automatically when the `ChildOf` component changes,
-/// and the entity's hierarchy will automatically be updated when the `ParentSync` component changes.
-///
-/// Updates entity's `ChildOf` component on change.
-/// Removes the parent if `None`.
-#[derive(Component, Default, Reflect, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
-#[reflect(Component)]
-pub struct ParentSync(Option<Entity>);
-
-impl MapEntities for ParentSync {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        if let Some(entity) = &mut self.0 {
-            *entity = entity_mapper.map_entity(*entity);
-        }
-    }
-}
+// /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
+// /// The `ParentSync` component will be updated automatically when the `ChildOf` component changes,
+// /// and the entity's hierarchy will automatically be updated when the `ParentSync` component changes.
+// ///
+// /// Updates entity's `ChildOf` component on change.
+// /// Removes the parent if `None`.
+// #[derive(Component, Default, Reflect, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+// #[reflect(Component)]
+// pub struct ParentSync(Option<Entity>);
+//
+// impl MapEntities for ParentSync {
+//     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+//         if let Some(entity) = &mut self.0 {
+//             *entity = entity_mapper.map_entity(*entity);
+//         }
+//     }
+// }
 
 pub struct HierarchySendPlugin<R> {
     _marker: std::marker::PhantomData<R>,
@@ -46,42 +46,28 @@ impl<R> Default for HierarchySendPlugin<R> {
     }
 }
 
+/// Marker component that indicates that this entity should be replicated similarly to its parent.
+#[derive(Component)]
+pub struct ReplicateLikeParent;
+
 impl<R: ReplicationSend> HierarchySendPlugin<R> {
-    /// If `replicate.replicate_hierarchy` is true, replicate the entire hierarchy of the entity:
-    /// Propagate any changes to the Replicate settings of the root of the hierarchy to all children
-    /// Also add the `ParentSync` component to the children
+    /// If `replicate.replicate_hierarchy` is true, we insert a `ReplicateLikeParent` component on all children
+    /// of the entity. That child will use the same replication settings as the parent.
+    /// If you want to modify how a child gets replicated, you can remove the `ReplicateLikeParent` component
+    /// and add the usual `Replicate` bundle
     fn propagate_replicate(
         mut commands: Commands,
         // query the root parent of the hierarchy
         parent_query: Query<
             (
                 Entity,
-                &ReplicationGroup,
                 Ref<ReplicateHierarchy>,
-                Option<&PrePredicted>,
-                Option<&ReplicationTarget>,
-                Option<&ReplicateToServer>,
-                Option<&SyncTarget>,
-                Option<&ControlledBy>,
-                Option<&NetworkRelevanceMode>,
-                Option<&HasAuthority>,
-                Option<&AuthorityPeer>,
-                Has<Replicated>,
             ),
             (
                 Without<ChildOf>,
                 With<Children>,
-                // TODO also handle when a component is removed, it should be removed for children
-                //   maybe do all this via observers?
-                Or<(
-                    Changed<Children>,
-                    Changed<ReplicateHierarchy>,
-                    Changed<ReplicationTarget>,
-                    Changed<SyncTarget>,
-                    Changed<ControlledBy>,
-                    Changed<NetworkRelevanceMode>,
-                    Changed<AuthorityPeer>,
-                )>,
+                With<Replicating>,
+                Changed<ReplicateHierarchy>,
             ),
         >,
         children_query: Query<&Children>,
@@ -133,45 +119,12 @@ impl<R: ReplicationSend> HierarchySendPlugin<R> {
                     commands.entity(child).insert(PrePredicted::default());
                 }
             }
-            if let Some(replication_target) = replication_target {
-                commands.entity(child).insert(replication_target.clone());
-            }
-            if let Some(replicate_to_server) = replicate_to_server {
-                commands.entity(child).insert(*replicate_to_server);
-            }
-            if let Some(controlled_by) = controlled_by {
-                commands.entity(child).insert(controlled_by.clone());
-            }
-            if let Some(sync_target) = sync_target {
-                commands.entity(child).insert(sync_target.clone());
-            }
-            if let Some(vis) = visibility_mode {
-                commands.entity(child).insert(*vis);
-            }
-            if let Some(has_authority) = has_authority {
-                debug!("Adding HasAuthority on child: {child:?} (parent: {parent_entity:?})");
-                commands.entity(child).insert(*has_authority);
-            }
-            if let Some(authority_peer) = authority_peer {
-                commands.entity(child).insert(*authority_peer);
-            }
         };
 
         for (
             parent_entity,
-            parent_group,
             replicate_hierarchy,
-            pre_predicted,
-            replication_target,
-            replicate_to_server,
-            sync_target,
-            controlled_by,
-            visibility_mode,
-            has_authority,
-            authority_peer,
-            is_replicated,
-        ) in parent_query.iter()
-        {
+        ) in parent_query.iter() {
             if !replicate_hierarchy.enabled {
                 continue;
             }
@@ -333,7 +286,7 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
 mod tests {
     use std::ops::Deref;
 
-    use bevy::ecs::hierarchy::{Children, ChildOf};
+    use bevy::ecs::hierarchy::{ChildOf, Children};
     use bevy::prelude::{default, Entity, With};
 
     use crate::prelude::server::{Replicate, ReplicationTarget};
