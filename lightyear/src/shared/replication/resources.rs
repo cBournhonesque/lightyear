@@ -180,7 +180,6 @@ pub(crate) mod send {
 }
 
 pub(crate) mod receive {
-
     use crate::shared::events::components::MessageEvent;
     use crate::shared::message::MessageSend;
 
@@ -343,7 +342,6 @@ mod tests {
             .server_app
             .world_mut()
             .insert_resource(Resource1(1.0));
-        dbg!("SHOULD SEND RESOURCE MESSAGE");
         stepper.frame_step();
         stepper.frame_step();
 

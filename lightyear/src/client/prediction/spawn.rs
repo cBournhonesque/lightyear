@@ -143,7 +143,7 @@ mod tests {
             .remote_entity_map
             .get_local(server_parent)
             .expect("parent entity was not replicated to client");
-        dbg!(confirmed_child, confirmed_parent);
+        // dbg!(confirmed_child, confirmed_parent);
 
         // check that the parent-child hierarchy is maintained
         assert_eq!(
