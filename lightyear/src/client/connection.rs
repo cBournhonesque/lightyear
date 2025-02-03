@@ -2,9 +2,9 @@
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Event, Resource, World};
+use bevy::utils::Duration;
 #[cfg(feature = "leafwing")]
 use bevy::utils::HashMap;
-use bevy::utils::Duration;
 use bytes::Bytes;
 use tracing::{debug, trace, trace_span};
 

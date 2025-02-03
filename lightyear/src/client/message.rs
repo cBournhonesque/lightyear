@@ -1,8 +1,6 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 
-use bevy::ecs::system::{
-    FilteredResourcesMutParamBuilder, ParamBuilder,
-};
+use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
 use bevy::prelude::{
     App, Commands, FilteredResourcesMut, IntoSystemConfigs, Plugin, PreUpdate, ResMut,
     SystemParamBuilder,
@@ -26,7 +24,10 @@ impl Plugin for ClientMessagePlugin {
 
     /// Add the system after all messages have been added to the MessageRegistry
     fn cleanup(&self, app: &mut App) {
-        let message_registry = app.world_mut().remove_resource::<MessageRegistry>().unwrap();
+        let message_registry = app
+            .world_mut()
+            .remove_resource::<MessageRegistry>()
+            .unwrap();
         // Use FilteredResourceMut SystemParam to register the access dynamically to the
         // Messages in the MessageRegistry
         let read_messages = (

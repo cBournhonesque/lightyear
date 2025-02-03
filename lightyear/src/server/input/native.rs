@@ -112,38 +112,40 @@ fn receive_input_message<A: UserAction>(
     };
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_input_messages.get_mut(&net) {
-            message_list.drain(..).for_each(|(message_bytes, target, channel_kind)| {
-                let mut reader = Reader::from(message_bytes);
-                match message_registry.deserialize::<InputMessage<A>>(
-                    &mut reader,
-                    &mut connection
-                        .replication_receiver
-                        .remote_entity_map
-                        .remote_to_local,
-                ) {
-                    Ok(message) => {
-                        trace!("Received input message: {:?}", message);
-                        input_buffers
-                            .buffers
-                            .entry(*client_id)
-                            .or_default()
-                            .1
-                            .update_from_message(message);
-                        if target != NetworkTarget::None {
-                            // NOTE: we can re-send the same bytes directly because InputMessage does not include any Entity references
-                            connection.messages_to_rebroadcast.push((
-                                // TODO: avoid clone, or use bytes?
-                                reader.consume(),
-                                target,
-                                channel_kind,
-                            ));
+            message_list
+                .drain(..)
+                .for_each(|(message_bytes, target, channel_kind)| {
+                    let mut reader = Reader::from(message_bytes);
+                    match message_registry.deserialize::<InputMessage<A>>(
+                        &mut reader,
+                        &mut connection
+                            .replication_receiver
+                            .remote_entity_map
+                            .remote_to_local,
+                    ) {
+                        Ok(message) => {
+                            trace!("Received input message: {:?}", message);
+                            input_buffers
+                                .buffers
+                                .entry(*client_id)
+                                .or_default()
+                                .1
+                                .update_from_message(message);
+                            if target != NetworkTarget::None {
+                                // NOTE: we can re-send the same bytes directly because InputMessage does not include any Entity references
+                                connection.messages_to_rebroadcast.push((
+                                    // TODO: avoid clone, or use bytes?
+                                    reader.consume(),
+                                    target,
+                                    channel_kind,
+                                ));
+                            }
+                        }
+                        Err(e) => {
+                            error!("Error deserializing input message: {:?}", e);
                         }
                     }
-                    Err(e) => {
-                        error!("Error deserializing input message: {:?}", e);
-                    }
-                }
-            })
+                })
         }
     }
 }

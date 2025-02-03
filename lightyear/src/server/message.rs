@@ -16,12 +16,14 @@ use tracing::{error, trace};
 pub struct ServerMessagePlugin;
 
 impl Plugin for ServerMessagePlugin {
-    fn build(&self, app: &mut App) {
-    }
+    fn build(&self, app: &mut App) {}
 
     /// Add the system after all messages have been added to the MessageRegistry
     fn cleanup(&self, app: &mut App) {
-        let message_registry = app.world_mut().remove_resource::<MessageRegistry>().unwrap();
+        let message_registry = app
+            .world_mut()
+            .remove_resource::<MessageRegistry>()
+            .unwrap();
         // Use FilteredResourceMut SystemParam to register the access dynamically to the
         // Messages in the MessageRegistry
         let read_messages = (
