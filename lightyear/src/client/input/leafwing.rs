@@ -749,8 +749,8 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
         return;
     };
 
-    if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
-        for message_bytes in message_list {
+    if let Some(message_list) = connection.received_leafwing_input_messages.get_mut(&net) {
+        message_list.drain(..).for_each(|message_bytes| {
             let mut reader = Reader::from(message_bytes);
             match message_registry.deserialize::<InputMessage<A>>(
                 &mut reader,
@@ -829,7 +829,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                     error!(?e, "could not deserialize leafwing input message");
                 }
             }
-        }
+        })
     }
 }
 
