@@ -82,8 +82,6 @@ pub type ComponentUpdateEvent<C> = crate::shared::events::components::ComponentU
 pub type ComponentInsertEvent<C> = crate::shared::events::components::ComponentInsertEvent<C, ()>;
 /// Bevy [`Event`] emitted on the client when a ComponentRemove replication message is received
 pub type ComponentRemoveEvent<C> = crate::shared::events::components::ComponentRemoveEvent<C, ()>;
-/// Bevy [`Event`] emitted on the client when a (non-replication) message is received
-pub type MessageEvent<M> = crate::shared::events::message::ReceiveMessage<M>;
 
 #[cfg(test)]
 mod tests {
@@ -113,6 +111,9 @@ mod tests {
     // TODO: - the server can re-broadcast the event to another client
     #[test]
     fn test_client_send_event_buffered() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::ERROR)
+            .init();
         let mut stepper = HostServerStepper::default();
 
         stepper.server_app.init_resource::<Counter>();

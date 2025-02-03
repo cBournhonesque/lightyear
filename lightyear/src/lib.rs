@@ -90,22 +90,22 @@ The full list is available [here](client::events) for the client, and [here](ser
 
 Since they are Bevy events, you can use the Bevy event system to react to them.
 ```rust
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::server::*;
-
-# #[derive(Serialize, Deserialize)]
-# struct MyMessage;
-
-fn receive_message(mut message_reader: EventReader<MessageEvent<MyMessage>>) {
-    for message_event in message_reader.read() {
-       // the message itself
-       let message = message_event.message();
-       // the client who sent the message
-       let client = message_event.from;
-    }
-}
-```
+* use bevy::prelude::*;
+* use lightyear::prelude::*;
+* use lightyear::prelude::server::*;
+*
+* # #[derive(Serialize, Deserialize)]
+* # struct MyMessage;
+*
+* fn receive_message(mut message_reader: EventReader<ReceiveMessage<MyMessage>>) {
+*     for message_event in message_reader.read() {
+*        // the message itself
+*        let message = message_event.message();
+*        // the client who sent the message
+*        let client = message_event.from;
+*     }
+* }
+* ```
 
 ### Starting replication
 
@@ -240,7 +240,8 @@ pub mod prelude {
         pub use crate::client::events::DisconnectEvent as ClientDisconnectEvent;
         pub use crate::client::events::EntityDespawnEvent as ClientEntityDespawnEvent;
         pub use crate::client::events::EntitySpawnEvent as ClientEntitySpawnEvent;
-        pub use crate::client::events::MessageEvent as ClientMessageEvent;
+        pub use crate::client::message::ReceiveMessage as ClientReceiveMessage;
+        pub use crate::client::message::SendMessage as ClientSendMessage;
         pub use crate::client::replication::send::Replicate as ClientReplicate;
 
         pub use crate::client::connection::ConnectionManager as ClientConnectionManager;
@@ -252,7 +253,8 @@ pub mod prelude {
         pub use crate::server::events::DisconnectEvent as ServerDisconnectEvent;
         pub use crate::server::events::EntityDespawnEvent as ServerEntityDespawnEvent;
         pub use crate::server::events::EntitySpawnEvent as ServerEntitySpawnEvent;
-        pub use crate::server::events::MessageEvent as ServerMessageEvent;
+        pub use crate::server::message::ReceiveMessage as ServerReceiveMessage;
+        pub use crate::server::message::SendMessage as ServerSendMessage;
 
         pub use crate::server::connection::ConnectionManager as ServerConnectionManager;
 
@@ -269,7 +271,7 @@ pub mod prelude {
         pub use crate::client::error::ClientError;
         pub use crate::client::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
-            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
+            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
         };
         #[cfg(feature = "leafwing")]
         pub use crate::client::input::leafwing::LeafwingInputConfig;
@@ -283,6 +285,7 @@ pub mod prelude {
         };
         pub use crate::client::io::config::ClientTransport;
         pub use crate::client::io::Io;
+        pub use crate::client::message::ReceiveMessage;
         pub use crate::client::networking::{ClientCommands, NetworkingState};
         pub use crate::client::plugin::ClientPlugins;
         pub use crate::client::prediction::correction::Correction;
@@ -314,7 +317,7 @@ pub mod prelude {
         pub use crate::server::error::ServerError;
         pub use crate::server::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
-            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
+            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
         };
         pub use crate::server::io::config::ServerTransport;
         pub use crate::server::io::Io;

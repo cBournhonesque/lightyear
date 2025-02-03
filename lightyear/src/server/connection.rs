@@ -517,7 +517,7 @@ pub struct Connection {
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: Vec<(NetId, Bytes, NetworkTarget, ChannelKind)>,
+    pub(crate) received_messages: Vec<(Bytes, NetworkTarget, ChannelKind)>,
     pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
@@ -728,13 +728,6 @@ impl Connection {
             .iter_mut()
             .try_for_each(|(channel_kind, channel)| {
                 while let Some((tick, single_data)) = channel.receiver.read_message() {
-                    // let channel_name = self
-                    //     .message_manager
-                    //     .channel_registry
-                    //     .name(&channel_kind)
-                    //     .unwrap_or("unknown");
-                    // let _span_channel = trace_span!("channel", channel = channel_name).entered();
-
                     trace!(?channel_kind, ?tick, ?single_data, "received message");
                     let mut reader = Reader::from(single_data);
                     // TODO: get const type ids
@@ -794,7 +787,7 @@ impl Connection {
                             }
                             MessageType::Normal | MessageType::Event => {
                                 self.received_messages
-                                    .push((net_id, bytes, target, *channel_kind));
+                                    .push((bytes, target, *channel_kind));
                             }
                         }
                     }
@@ -851,7 +844,7 @@ impl Connection {
                 .push((bytes, target, channel_kind)),
             MessageType::Normal | MessageType::Event => {
                 self.received_messages
-                    .push((net_id, bytes, target, channel_kind))
+                    .push((bytes, target, channel_kind))
             }
         }
         Ok(())

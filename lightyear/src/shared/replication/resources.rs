@@ -226,22 +226,22 @@ pub(crate) mod receive {
         if is_bidirectional {
             app.add_systems(
                 PreUpdate,
-                handle_resource_message_bidirectional::<R>
+                handle_resource_message_bidirectional::<R, S::SetMarker>
                     .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
             );
         } else {
             app.add_systems(
                 PreUpdate,
-                handle_resource_message::<R>
+                handle_resource_message::<R, S::SetMarker>
                     .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
             );
         }
     }
 
-    fn handle_resource_message<R: Resource + Message>(
+    fn handle_resource_message<R: Resource + Message, Marker: Message>(
         mut commands: Commands,
-        mut update_message: ResMut<Events<ReceiveMessage<R>>>,
-        mut remove_message: EventReader<ReceiveMessage<DespawnResource<R>>>,
+        mut update_message: ResMut<Events<ReceiveMessage<R, Marker>>>,
+        mut remove_message: EventReader<ReceiveMessage<DespawnResource<R>, Marker>>,
         mut resource: Option<ResMut<R>>,
     ) {
         for message in update_message.drain() {
@@ -260,10 +260,10 @@ pub(crate) mod receive {
         }
     }
 
-    fn handle_resource_message_bidirectional<R: Resource + Message>(
+    fn handle_resource_message_bidirectional<R: Resource + Message, Marker: Message>(
         mut commands: Commands,
-        mut update_message: ResMut<Events<ReceiveMessage<R>>>,
-        mut remove_message: EventReader<ReceiveMessage<DespawnResource<R>>>,
+        mut update_message: ResMut<Events<ReceiveMessage<R, Marker>>>,
+        mut remove_message: EventReader<ReceiveMessage<DespawnResource<R>, Marker>>,
         mut resource: Option<ResMut<R>>,
     ) {
         for message in update_message.drain() {

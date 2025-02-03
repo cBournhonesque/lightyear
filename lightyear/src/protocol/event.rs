@@ -1,10 +1,9 @@
 use crate::client::config::ClientConfig;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, ClientId, Message, MessageRegistry};
-use crate::protocol::message::{
-    MessageError, MessageKind, MessageMetadata, MessageRegistration, MessageType, ReceiveMessageFn,
-};
+use crate::protocol::message::{MessageError, MessageKind, MessageRegistration, MessageType, Metadata, ReceiveMessageFn, ReceiveMessageMetadata};
 use crate::protocol::registry::NetId;
+use crate::protocol::serialize::ErasedSerializeFns;
 use crate::protocol::SerializeFns;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
@@ -73,10 +72,10 @@ pub(crate) fn register_event_receive<E: Event + Message>(
         let receive_message_fn: ReceiveMessageFn = MessageRegistry::receive_event_internal::<E>;
         app.world_mut()
             .resource_mut::<MessageRegistry>()
-            .message_receive_map
+            .receive_metadata
             .insert(
                 message_kind,
-                MessageMetadata {
+                ReceiveMessageMetadata {
                     message_type: MessageType::Event,
                     component_id,
                     receive_message_fn,
@@ -154,7 +153,7 @@ impl MessageRegistry {
     ) -> Result<(), MessageError> {
         let kind = MessageKind::of::<E>();
         let receive_metadata = self
-            .message_receive_map
+            .receive_metadata
             .get(&kind)
             .ok_or(MessageError::NotRegistered)?;
         match receive_metadata.message_type {
@@ -204,7 +203,12 @@ impl AppEventInternalExt for App {
     ) -> MessageRegistration<'_, E> {
         let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
         if !registry.is_registered::<E>() {
-            registry.add_message::<E>();
+            let message_kind = registry.kind_map.add::<E>();
+            registry.serialize_fns_map
+                .insert(message_kind, ErasedSerializeFns::new::<E>());
+            registry.metadata.insert(message_kind, Metadata {
+                message_type
+            });
         }
         debug!("register event {}", std::any::type_name::<E>());
         register_event_receive::<E>(self, direction);

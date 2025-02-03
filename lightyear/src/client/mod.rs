@@ -23,7 +23,7 @@ pub mod diagnostics;
 mod easings;
 
 pub(crate) mod io;
-pub(crate) mod message;
+pub mod message;
 pub mod networking;
 pub mod replication;
 

@@ -1,4 +1,5 @@
 use crate::prelude::server::is_stopped;
+use crate::prelude::Message;
 use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
@@ -10,6 +11,13 @@ use bevy::prelude::{
     not, Commands, FilteredResourcesMut, IntoSystemConfigs, ResMut, SystemParamBuilder,
 };
 use tracing::{error, trace};
+
+/// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
+#[allow(type_alias_bounds)]
+pub type ReceiveMessage<M: Message> = crate::shared::events::message::ReceiveMessage<M, ServerMarker>;
+
+#[allow(type_alias_bounds)]
+pub type SendMessage<M: Message> = crate::shared::events::message::SendMessage<M, ServerMarker>;
 
 /// Plugin that adds functionality related to receiving messages from clients
 #[derive(Default)]
@@ -29,7 +37,7 @@ impl Plugin for ServerMessagePlugin {
         let read_messages = (
             FilteredResourcesMutParamBuilder::new(|builder| {
                 message_registry
-                    .message_receive_map
+                    .receive_metadata
                     .values()
                     .filter(|metadata| {
                         metadata.message_type == MessageType::Normal
@@ -66,10 +74,9 @@ fn read_messages(
     // re-borrow to allow split borrows
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         connection.received_messages.drain(..).for_each(
-            |(net_id, message_bytes, target, channel_kind)| {
+            |(message_bytes, target, channel_kind)| {
                 let mut reader = Reader::from(message_bytes);
                 match message_registry.receive_message(
-                    net_id,
                     &mut commands,
                     &mut events,
                     *client_id,
@@ -88,10 +95,9 @@ fn read_messages(
                                 channel_kind,
                             ));
                         }
-                        trace!("Received message! NetId: {net_id:?}");
                     }
                     Err(e) => {
-                        error!("Could not deserialize message (NetId: {net_id:?}): {e:?}");
+                        error!("Could not deserialize message: {e:?}");
                     }
                 }
             },
@@ -117,7 +123,7 @@ mod tests {
     /// System to check that we received the message on the server
     fn count_messages(
         mut counter: ResMut<Counter>,
-        mut events: EventReader<crate::client::events::MessageEvent<StringMessage>>,
+        mut events: EventReader<crate::client::message::ReceiveMessage<StringMessage>>,
     ) {
         for event in events.read() {
             assert_eq!(event.message().0, "a".to_string());
@@ -160,3 +166,4 @@ mod tests {
         assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
     }
 }
+

@@ -17,7 +17,7 @@ pub(crate) mod io;
 
 pub mod plugin;
 
-pub(crate) mod message;
+pub mod message;
 pub(crate) mod prediction;
 
 pub mod clients;

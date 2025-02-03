@@ -9,7 +9,7 @@ use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 pub(crate) mod receive {
     use super::*;
-    use crate::prelude::client::MessageEvent;
+    use crate::client::message::ReceiveMessage;
     use crate::prelude::{
         client::{is_connected, is_synced},
         is_host_server, ClientConnectionManager, Replicated, ReplicationGroup, ShouldBePredicted,
@@ -64,7 +64,7 @@ pub(crate) mod receive {
     fn handle_authority_change(
         mut commands: Commands,
         entities: &Entities,
-        mut messages: ResMut<Events<MessageEvent<AuthorityChange>>>,
+        mut messages: ResMut<Events<ReceiveMessage<AuthorityChange>>>,
     ) {
         for message_event in messages.drain() {
             let message = message_event.message;

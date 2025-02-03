@@ -35,7 +35,6 @@ use crate::server::error::ServerError;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::private::InternalEventSend;
 use crate::shared::events::EventSend;
-use crate::shared::message::{private::InternalMessageSend, MessageSend};
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::delta::DeltaManager;
@@ -238,11 +237,6 @@ impl ConnectionManager {
     pub fn map_entities_to_remote<M: Message + MapEntities>(&mut self, message: &mut M) {
         let mapper = &mut self.replication_receiver.remote_entity_map.local_to_remote;
         message.map_entities(mapper);
-    }
-
-    /// Send a [`Message`] to the server using a specific [`Channel`]
-    pub fn send_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
-        self.send_message_to_target::<C, M>(message, NetworkTarget::None)
     }
 
     /// Send a [`Event`] to the server using a specific [`Channel`].
@@ -578,37 +572,7 @@ impl InternalEventSend for ConnectionManager {
     }
 }
 
-impl MessageSend for ConnectionManager {}
 
-impl InternalMessageSend for ConnectionManager {
-    type Error = ClientError;
-
-    /// Send a message to the server via a channel.
-    ///
-    /// The NetworkTarget will be serialized with the message, so that the server knows
-    /// how to route the message to the correct target.
-    fn erased_send_message_to_target<M: Message>(
-        &mut self,
-        message: &M,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ClientError> {
-        // write the target first
-        // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-        target.to_bytes(&mut self.writer)?;
-        // then write the message
-        self.message_registry.serialize(
-            message,
-            &mut self.writer,
-            &mut self.replication_receiver.remote_entity_map.local_to_remote,
-        )?;
-        let message_bytes = self.writer.split();
-
-        // TODO: emit logs/metrics about the message being buffered?
-        self.messages_to_send.push((message_bytes, channel_kind));
-        Ok(())
-    }
-}
 
 impl ReplicationPeer for ConnectionManager {
     type Events = ConnectionEvents;

@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::server::MessageEvent;
+use crate::prelude::server::ReceiveMessage;
 use crate::prelude::{server::is_started, InputMessage, MessageRegistry, Mode, TickManager};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
@@ -97,7 +97,7 @@ fn receive_input_message<A: LeafwingUserAction>(
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<Option<&mut InputBuffer<A>>>,
     mut commands: Commands,
-    mut events: EventWriter<MessageEvent<InputMessage<A>>>,
+    mut events: EventWriter<ReceiveMessage<InputMessage<A>>>,
 ) {
     let kind = MessageKind::of::<InputMessage<A>>();
     let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
@@ -201,7 +201,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 ));
                             }
                         }
-                        events.send(MessageEvent::new(message, *client_id));
+                        events.send(ReceiveMessage::new(message, *client_id));
                     }
                     Err(e) => {
                         error!(?e, "could not deserialize leafwing input message");

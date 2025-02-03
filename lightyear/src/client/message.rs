@@ -1,17 +1,29 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
+use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel};
+use crate::channel::receivers::ChannelReceive;
+use crate::client::connection::ConnectionManager;
+use crate::client::error::ClientError;
+use crate::prelude::client::{ClientConnection, NetClient};
+use crate::prelude::{client::is_connected, Channel, ChannelKind, ClientId, InputChannel, MainSet, Message, MessageSend};
+use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
+use crate::protocol::registry::NetId;
+use crate::serialize::reader::Reader;
+use crate::serialize::{SerializationError, ToBytes};
+use crate::shared::message::private::InternalMessageSend;
+use crate::shared::replication::network_target::NetworkTarget;
+use crate::shared::sets::{ClientMarker, InternalMainSet};
 use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
 use bevy::prelude::*;
 use byteorder::WriteBytesExt;
 use bytes::Bytes;
 use tracing::error;
 
-use crate::client::connection::ConnectionManager;
-use crate::prelude::{client::is_connected, ClientId, MainSet};
-use crate::protocol::message::{MessageRegistry, MessageType};
-use crate::serialize::reader::Reader;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::replication::network_target::NetworkTarget;
-use crate::shared::sets::{ClientMarker, InternalMainSet};
+/// Bevy [`Event`] emitted on the client when a (non-replication) message is received
+#[allow(type_alias_bounds)]
+pub type ReceiveMessage<M: Message> = crate::shared::events::message::ReceiveMessage<M, ClientMarker>;
+
+#[allow(type_alias_bounds)]
+pub type SendMessage<M: Message> = crate::shared::events::message::SendMessage<M, ClientMarker>;
 
 pub struct ClientMessagePlugin;
 
@@ -31,7 +43,7 @@ impl Plugin for ClientMessagePlugin {
         let send_messages = (
             FilteredResourcesMutParamBuilder::new(|builder| {
                 message_registry
-                    .send_messages
+                    .send_metadata
                     .iter()
                     .filter(|metadata| {
                         metadata.message_type == MessageType::Normal
@@ -50,7 +62,7 @@ impl Plugin for ClientMessagePlugin {
         let read_messages = (
             FilteredResourcesMutParamBuilder::new(|builder| {
                 message_registry
-                    .message_receive_map
+                    .receive_metadata
                     .values()
                     .filter(|metadata| {
                         metadata.message_type == MessageType::Normal
@@ -82,6 +94,45 @@ impl Plugin for ClientMessagePlugin {
         );
 
         app.insert_resource(message_registry);
+    }
+}
+
+impl ConnectionManager {
+    /// Send a [`Message`] to the server using a specific [`Channel`]
+    pub fn send_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::None)
+    }
+}
+
+impl MessageSend for ConnectionManager {}
+
+impl InternalMessageSend for ConnectionManager {
+    type Error = ClientError;
+
+    /// Send a message to the server via a channel.
+    ///
+    /// The NetworkTarget will be serialized with the message, so that the server knows
+    /// how to route the message to the correct target.
+    fn erased_send_message_to_target<M: Message>(
+        &mut self,
+        message: &M,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<(), ClientError> {
+        // write the target first
+        // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
+        target.to_bytes(&mut self.writer)?;
+        // then write the message
+        self.message_registry.serialize(
+            message,
+            &mut self.writer,
+            &mut self.replication_receiver.remote_entity_map.local_to_remote,
+        )?;
+        let message_bytes = self.writer.split();
+
+        // TODO: emit logs/metrics about the message being buffered?
+        self.messages_to_send.push((message_bytes, channel_kind));
+        Ok(())
     }
 }
 
@@ -133,6 +184,22 @@ fn send_messages(
     ).inspect_err(|e| error!("Could not buffer message to send: {:?}", e));
 }
 
+/// In host-server, we read from the ClientSend and immediately write to the
+/// ServerReceive events
+/// TODO: handle rebroadcast
+fn host_server_send_messages(
+    mut client_send_events: FilteredResourcesMut,
+    mut server_receive_events: FilteredResourcesMut,
+    message_registry: ResMut<MessageRegistry>,
+    client: Res<ClientConnection>,
+) {
+    message_registry.send_host_server_messages(
+        &mut client_send_events,
+        &mut server_receive_events,
+        client.id(),
+    );
+}
+
 /// Read the messages received from the server and handle them:
 /// - Messages: send a MessageEvent
 /// - Events: send them to EventWriter or trigger them
@@ -142,28 +209,38 @@ fn read_messages(
     message_registry: ResMut<MessageRegistry>,
     mut connection: ResMut<ConnectionManager>,
 ) {
+    // TODO: we could completely split out the MessageManager out of the connection manager!
     // enable split-borrows
     let connection = connection.as_mut();
     connection
-        .received_messages
-        .drain(..)
-        .for_each(|(net_id, message)| {
-            let mut reader = Reader::from(message);
-            let _ = message_registry
-                // we have to re-decode the net id
-                .receive_message(
-                    net_id,
-                    &mut commands,
-                    &mut events,
-                    // TODO: include the client that rebroadcasted the message?
-                    ClientId::Local(0),
-                    &mut reader,
-                    &mut connection
-                        .replication_receiver
-                        .remote_entity_map
-                        .remote_to_local,
-                )
-                .inspect_err(|e| error!("Could not deserialize message: {:?}", e));
+        .message_manager
+        .channels
+        .iter_mut()
+        // TODO: separate internal from external channels in MessageManager?
+        .filter(|(kind, _)| {
+            **kind != ChannelKind::of::<PingChannel>()
+            && **kind != ChannelKind::of::<PongChannel>()
+            && **kind != ChannelKind::of::<EntityActionsChannel>()
+            && **kind != ChannelKind::of::<EntityUpdatesChannel>()
+            && **kind != ChannelKind::of::<InputChannel>()
+        })
+        .for_each(|(kind, channel)| {
+            while let Some((tick, bytes)) = channel.receiver.read_message() {
+                let _ = message_registry
+                    // we have to re-decode the net id
+                    .receive_message(
+                        &mut commands,
+                        &mut events,
+                        // TODO: include the client that rebroadcasted the message?
+                        ClientId::Local(0),
+                        &mut Reader::from(bytes),
+                        &mut connection
+                            .replication_receiver
+                            .remote_entity_map
+                            .remote_to_local,
+                    )
+                    .inspect_err(|e| error!("Could not deserialize message: {:?}", e));
+            }
         });
 }
 
@@ -171,9 +248,11 @@ fn read_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::{ClientSendMessage, ServerReceiveMessage};
     use crate::serialize::writer::Writer;
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, StringMessage};
+    use crate::tests::stepper::BevyStepper;
     use bevy::prelude::{EventReader, Resource, Update};
 
     #[test]
@@ -197,7 +276,7 @@ mod tests {
     /// System to check that we received the message on the server
     fn count_messages(
         mut counter: ResMut<Counter>,
-        mut events: EventReader<crate::server::events::MessageEvent<StringMessage>>,
+        mut events: EventReader<ServerReceiveMessage<StringMessage>>,
     ) {
         for event in events.read() {
             assert_eq!(event.message().0, "a".to_string());
@@ -228,4 +307,22 @@ mod tests {
         // verify that the server received the message
         assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
     }
+
+    #[test]
+    fn client_send_message_via_send_event() {
+        let mut stepper = BevyStepper::default();
+
+        stepper.server_app.init_resource::<Counter>();
+        stepper.server_app.add_systems(Update, count_messages);
+
+        // Send the message by writing to the SendMessage<M> Events
+        stepper.client_app.world_mut().resource_mut::<Events<ClientSendMessage<StringMessage>>>()
+            .send(ClientSendMessage::new::<Channel1>(StringMessage("a".to_string())));
+
+        stepper.frame_step();
+
+        // verify that the server received the message
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+    }
 }
+
