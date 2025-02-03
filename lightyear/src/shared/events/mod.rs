@@ -8,6 +8,7 @@ pub mod components;
 pub(crate) mod connection;
 pub mod plugin;
 pub mod systems;
+pub mod message;
 
 /// Shared trait between client and server to send messages to a target
 pub trait EventSend: private::InternalEventSend {

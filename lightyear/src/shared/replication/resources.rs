@@ -180,8 +180,7 @@ pub(crate) mod send {
 }
 
 pub(crate) mod receive {
-
-    use crate::shared::events::components::MessageEvent;
+    use crate::shared::events::message::MessageEvent;
     use crate::shared::message::MessageSend;
 
     use crate::shared::replication::ReplicationPeer;

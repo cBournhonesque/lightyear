@@ -10,7 +10,7 @@ use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::ToBytes;
 use crate::server::input::native::InputBuffers;
-use crate::shared::events::components::MessageEvent;
+use crate::shared::events::message::MessageEvent;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use crate::shared::replication::resources::DespawnResource;
 use bevy::ecs::entity::MapEntities;

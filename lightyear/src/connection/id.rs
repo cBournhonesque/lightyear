@@ -14,6 +14,8 @@ pub enum ClientId {
     Steam(u64),
     /// A local client to use when running in HostServer mode
     Local(u64),
+    ///
+    Server,
 }
 
 impl ToBytes for ClientId {
@@ -35,6 +37,9 @@ impl ToBytes for ClientId {
                 buffer.write_u8(2)?;
                 buffer.write_u64::<NetworkEndian>(*id)?;
             }
+            ClientId::Server => {
+                buffer.write_u8(3)?;
+            }
         }
         Ok(())
     }
@@ -47,6 +52,7 @@ impl ToBytes for ClientId {
             0 => Ok(ClientId::Netcode(buffer.read_u64::<NetworkEndian>()?)),
             1 => Ok(ClientId::Steam(buffer.read_u64::<NetworkEndian>()?)),
             2 => Ok(ClientId::Local(buffer.read_u64::<NetworkEndian>()?)),
+            3 => Ok(ClientId::Server),
             _ => Err(SerializationError::InvalidValue),
         }
     }
@@ -60,6 +66,7 @@ impl ClientId {
             ClientId::Netcode(x) => *x,
             ClientId::Steam(x) => *x,
             ClientId::Local(x) => *x,
+            ClientId::Server => 0,
         }
     }
 
