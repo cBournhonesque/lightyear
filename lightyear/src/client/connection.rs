@@ -2,7 +2,9 @@
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Event, Resource, World};
-use bevy::utils::{Duration, HashMap};
+use bevy::utils::Duration;
+#[cfg(feature = "leafwing")]
+use bevy::utils::HashMap;
 use bytes::Bytes;
 use tracing::{debug, trace, trace_span};
 
@@ -82,7 +84,7 @@ pub struct ConnectionManager {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
+    pub(crate) received_messages: Vec<(NetId, Bytes)>,
     pub(crate) writer: Writer,
 
     /// Internal buffer of the messages that we want to send.
@@ -118,7 +120,7 @@ impl Default for ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            received_messages: HashMap::default(),
+            received_messages: Vec::default(),
             writer: Writer::with_capacity(0),
             messages_to_send: Vec::default(),
         }
@@ -169,7 +171,7 @@ impl ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            received_messages: HashMap::default(),
+            received_messages: Vec::default(),
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_send: Vec::default(),
         }
@@ -444,11 +446,9 @@ impl ConnectionManager {
                             MessageType::NativeInput => {
                                 todo!()
                             }
+                            // TODO: should we handle these right here in this system?
                             MessageType::Normal | MessageType::Event => {
-                                self.received_messages
-                                    .entry(net_id)
-                                    .or_default()
-                                    .push(single_data);
+                                self.received_messages.push((net_id, single_data));
                             }
                         }
                     }
@@ -486,10 +486,7 @@ impl ConnectionManager {
                 todo!()
             }
             MessageType::Normal | MessageType::Event => {
-                self.received_messages
-                    .entry(net_id)
-                    .or_default()
-                    .push(single_data);
+                self.received_messages.push((net_id, single_data));
             }
         }
         Ok(())

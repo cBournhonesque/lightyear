@@ -1,11 +1,14 @@
 use crate::prelude::server::is_stopped;
-use crate::protocol::message::MessageRegistry;
+use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::app::{App, Plugin, PreUpdate};
-use bevy::prelude::{not, Commands, IntoSystemConfigs, Mut, ResMut, World};
+use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
+use bevy::prelude::{
+    not, Commands, FilteredResourcesMut, IntoSystemConfigs, ResMut, SystemParamBuilder,
+};
 use tracing::{error, trace};
 
 /// Plugin that adds functionality related to receiving messages from clients
@@ -13,174 +16,88 @@ use tracing::{error, trace};
 pub struct ServerMessagePlugin;
 
 impl Plugin for ServerMessagePlugin {
-    fn build(&self, app: &mut App) {
+    fn build(&self, app: &mut App) {}
+
+    /// Add the system after all messages have been added to the MessageRegistry
+    fn cleanup(&self, app: &mut App) {
+        let message_registry = app
+            .world_mut()
+            .remove_resource::<MessageRegistry>()
+            .unwrap();
+        // Use FilteredResourceMut SystemParam to register the access dynamically to the
+        // Messages in the MessageRegistry
+        let read_messages = (
+            FilteredResourcesMutParamBuilder::new(|builder| {
+                message_registry
+                    .message_receive_map
+                    .values()
+                    .filter(|metadata| {
+                        metadata.message_type == MessageType::Normal
+                            || metadata.message_type == MessageType::Event
+                    })
+                    .for_each(|metadata| {
+                        builder.add_write_by_id(metadata.component_id);
+                    });
+            }),
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+        )
+            .build_state(app.world_mut())
+            .build_system(read_messages);
         app.add_systems(
             PreUpdate,
             read_messages
                 .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
                 .run_if(not(is_stopped)),
         );
+        app.world_mut().insert_resource(message_registry);
     }
 }
 
 /// Read the messages received from the clients and emit the MessageEvent events
 /// Also rebroadcast the messages if needed
-fn read_messages(mut commands: Commands, mut connection_manager: ResMut<ConnectionManager>) {
+fn read_messages(
+    mut events: FilteredResourcesMut,
+    mut commands: Commands,
+    message_registry: ResMut<MessageRegistry>,
+    mut connection_manager: ResMut<ConnectionManager>,
+) {
     // re-borrow to allow split borrows
     for (client_id, connection) in connection_manager.connections.iter_mut() {
-        connection
-            .received_messages
-            .iter_mut()
-            .for_each(|(net_id, message_list)| {
-                message_list
-                    .drain(..)
-                    .for_each(|(message_bytes, target, channel_kind)| {
-                        let mut reader = Reader::from(message_bytes);
-                        // make copies to avoid `connection_manager` to be moved inside the closure
-                        let net_id = *net_id;
-                        let client_id = *client_id;
-                        commands.queue(move |world: &mut World| {
-                            // NOTE: removing the resources is a bit risky... however we use the world
-                            // only to get the Events<MessageEvent<M>> so it should be ok
-                            world.resource_scope(|world, registry: Mut<MessageRegistry>| {
-                                world.resource_scope(
-                                    |world, mut manager: Mut<ConnectionManager>| {
-                                            let connection =
-                                                manager.connection_mut(client_id).unwrap();
-                                            match registry.receive_message(
-                                                net_id,
-                                                world,
-                                                client_id,
-                                                &mut reader,
-                                                &mut connection
-                                                    .replication_receiver
-                                                    .remote_entity_map
-                                                    .remote_to_local,
-                                            ) {
-                                                Ok(_) => {
-                                                    // rebroadcast
-                                                    if target != NetworkTarget::None {
-                                                        connection.messages_to_rebroadcast.push((
-                                                            reader.consume(),
-                                                            target,
-                                                            channel_kind,
-                                                        ));
-                                                    }
-                                                    trace!("Received message! NetId: {net_id:?}");
-                                                }
-                                                Err(e) => {
-                                                    error!("Could not deserialize message (NetId: {net_id:?}): {e:?}");
-                                                }
-                                            }
-                                    },
-                                )
-                            });
-                        })
-                    })
-            });
+        connection.received_messages.drain(..).for_each(
+            |(net_id, message_bytes, target, channel_kind)| {
+                let mut reader = Reader::from(message_bytes);
+                match message_registry.receive_message(
+                    net_id,
+                    &mut commands,
+                    &mut events,
+                    *client_id,
+                    &mut reader,
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
+                ) {
+                    Ok(_) => {
+                        // rebroadcast
+                        if target != NetworkTarget::None {
+                            connection.messages_to_rebroadcast.push((
+                                reader.consume(),
+                                target,
+                                channel_kind,
+                            ));
+                        }
+                        trace!("Received message! NetId: {net_id:?}");
+                    }
+                    Err(e) => {
+                        error!("Could not deserialize message (NetId: {net_id:?}): {e:?}");
+                    }
+                }
+            },
+        );
     }
 }
-
-// impl ServerMessage {
-//     pub(crate) fn emit_send_logs(&self, channel_name: &str) {
-//         match self {
-//             ServerMessage::Message(message) => {
-//                 let message_name = message.name();
-//                 trace!(channel = ?channel_name, message = ?message_name, kind = ?message.kind(), "Sending message");
-//                 #[cfg(metrics)]
-//                 metrics::counter!("send_message", "channel" => channel_name, "message" => message_name).increment(1);
-//             }
-//             ServerMessage::Replication(message) => {
-//                 let _span = info_span!("send replication message", channel = ?channel_name, group_id = ?message.group_id);
-//                 #[cfg(metrics)]
-//                 metrics::counter!("send_replication_actions").increment(1);
-//                 match &message.data {
-//                     ReplicationMessageData::Actions(m) => {
-//                         for (entity, actions) in &m.actions {
-//                             let _span = info_span!("send replication actions", ?entity);
-//                             if actions.spawn {
-//                                 trace!("Send entity spawn");
-//                                 #[cfg(metrics)]
-//                                 metrics::counter!("send_entity_spawn").increment(1);
-//                             }
-//                             if actions.despawn {
-//                                 trace!("Send entity despawn");
-//                                 #[cfg(metrics)]
-//                                 metrics::counter!("send_entity_despawn").increment(1);
-//                             }
-//                             if !actions.insert.is_empty() {
-//                                 let components = actions
-//                                     .insert
-//                                     .iter()
-//                                     .map(|c| c.into())
-//                                     .collect::<Vec<P::ComponentKinds>>();
-//                                 trace!(?components, "Sending component insert");
-//                                 #[cfg(metrics)]
-//                                 {
-//                                     for component in components {
-//                                         metrics::counter!("send_component_insert", "component" => kind).increment(1);
-//                                     }
-//                                 }
-//                             }
-//                             if !actions.remove.is_empty() {
-//                                 trace!(?actions.remove, "Sending component remove");
-//                                 #[cfg(metrics)]
-//                                 {
-//                                     for kind in actions.remove {
-//                                         metrics::counter!("send_component_remove", "component" => kind).increment(1);
-//                                     }
-//                                 }
-//                             }
-//                             if !actions.updates.is_empty() {
-//                                 let components = actions
-//                                     .updates
-//                                     .iter()
-//                                     .map(|c| c.into())
-//                                     .collect::<Vec<P::ComponentKinds>>();
-//                                 trace!(?components, "Sending component update");
-//                                 #[cfg(metrics)]
-//                                 {
-//                                     for component in components {
-//                                         metrics::counter!("send_component_update", "component" => kind).increment(1);
-//                                     }
-//                                 }
-//                             }
-//                         }
-//                     }
-//                     ReplicationMessageData::Updates(m) => {
-//                         for (entity, updates) in &m.updates {
-//                             let _span = info_span!("send replication updates", ?entity);
-//                             let components = updates
-//                                 .iter()
-//                                 .map(|c| c.into())
-//                                 .collect::<Vec<P::ComponentKinds>>();
-//                             trace!(?components, "Sending component update");
-//                             #[cfg(metrics)]
-//                             {
-//                                 for component in components {
-//                                     metrics::counter!("send_component_update", "component" => kind)
-//                                         .increment(1);
-//                                 }
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//             ServerMessage::Sync(message) => match message {
-//                 SyncMessage::Ping(_) => {
-//                     trace!(channel = ?channel_name, "Sending ping");
-//                     #[cfg(metrics)]
-//                     metrics::counter!("send_ping", "channel" => channel_name).increment(1);
-//                 }
-//                 SyncMessage::Pong(_) => {
-//                     trace!(channel = ?channel_name, "Sending pong");
-//                     #[cfg(metrics)]
-//                     metrics::counter!("send_pong", "channel" => channel_name).increment(1);
-//                 }
-//             },
-//         }
-//     }
-// }
 
 // TODO: another option is to add ClientMessage and ServerMessage to ProtocolMessage
 // then we can keep the shared logic in connection.mod. We just lose 1 bit everytime...

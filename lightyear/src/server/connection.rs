@@ -516,7 +516,7 @@ pub struct Connection {
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
+    pub(crate) received_messages: Vec<(NetId, Bytes, NetworkTarget, ChannelKind)>,
     pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
@@ -573,7 +573,7 @@ impl Connection {
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             events: ConnectionEvents::default(),
-            received_messages: HashMap::default(),
+            received_messages: Vec::default(),
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
@@ -777,22 +777,23 @@ impl Connection {
                         //  I don't think so... maybe the sender should map_entities themselves?
                         //  or it matters for input messages?
                         // TODO: avoid clone with Arc<[u8]>?
-                        let data = (reader.consume(), target, *channel_kind);
+                        let bytes = reader.consume();
                         match message_registry.message_type(net_id) {
                             #[cfg(feature = "leafwing")]
                             MessageType::LeafwingInput => self
                                 .received_leafwing_input_messages
                                 .entry(net_id)
                                 .or_default()
-                                .push(data),
+                                .push((bytes, target, *channel_kind)),
                             MessageType::NativeInput => {
                                 self.received_input_messages
                                     .entry(net_id)
                                     .or_default()
-                                    .push(data);
+                                    .push((bytes, target, *channel_kind));
                             }
                             MessageType::Normal | MessageType::Event => {
-                                self.received_messages.entry(net_id).or_default().push(data);
+                                self.received_messages
+                                    .push((net_id, bytes, target, *channel_kind));
                             }
                         }
                     }
@@ -834,22 +835,22 @@ impl Connection {
         // rebroadcasted to other clients after we have converted the entities from the
         // client World to the server World
         // TODO: avoid clone with Arc<[u8]>?
-        let data = (reader.consume(), target, channel_kind);
+        let bytes = reader.consume();
         match message_registry.message_type(net_id) {
             #[cfg(feature = "leafwing")]
             MessageType::LeafwingInput => self
                 .received_leafwing_input_messages
                 .entry(net_id)
                 .or_default()
-                .push(data),
-            MessageType::NativeInput => {
-                self.received_input_messages
-                    .entry(net_id)
-                    .or_default()
-                    .push(data);
-            }
+                .push((bytes, target, channel_kind)),
+            MessageType::NativeInput => self
+                .received_input_messages
+                .entry(net_id)
+                .or_default()
+                .push((bytes, target, channel_kind)),
             MessageType::Normal | MessageType::Event => {
-                self.received_messages.entry(net_id).or_default().push(data);
+                self.received_messages
+                    .push((net_id, bytes, target, channel_kind))
             }
         }
         Ok(())

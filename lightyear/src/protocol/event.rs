@@ -11,7 +11,7 @@ use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use bevy::app::App;
-use bevy::prelude::{Event, Events, World};
+use bevy::prelude::{Commands, Event, Events, FilteredResourcesMut};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -68,9 +68,20 @@ pub(crate) fn register_event_receive<E: Event + Message>(
     let is_server = app.world().get_resource::<ServerConfig>().is_some();
     let register_fn = |app: &mut App| {
         app.add_event::<E>();
+        let message_kind = MessageKind::of::<E>();
+        let component_id = app.world_mut().register_resource::<Events<E>>();
+        let receive_message_fn: ReceiveMessageFn = MessageRegistry::receive_event_internal::<E>;
         app.world_mut()
             .resource_mut::<MessageRegistry>()
-            .add_receive_event_metadata::<E>();
+            .message_receive_map
+            .insert(
+                message_kind,
+                MessageMetadata {
+                    message_type: MessageType::Event,
+                    component_id,
+                    receive_message_fn,
+                },
+            );
     };
     match direction {
         ChannelDirection::ClientToServer => {
@@ -91,17 +102,6 @@ pub(crate) fn register_event_receive<E: Event + Message>(
 }
 
 impl MessageRegistry {
-    pub(crate) fn add_receive_event_metadata<E: Event>(&mut self) {
-        let message_kind = MessageKind::of::<E>();
-        let send_message_fn: ReceiveMessageFn = Self::receive_event_internal::<E>;
-        self.message_receive_map.insert(
-            message_kind,
-            MessageMetadata {
-                message_type: MessageType::Event,
-                receive_message_fn: send_message_fn,
-            },
-        );
-    }
     pub(crate) fn serialize_event<E: Event + Message>(
         &self,
         event: &E,
@@ -143,29 +143,15 @@ impl MessageRegistry {
         let event = unsafe { erased_fns.deserialize(reader, entity_map) }?;
         Ok((event, event_replication_mode))
     }
-    pub(crate) fn add_event_receive_metadata<E: Message + Event>(
-        &mut self,
-        message_type: MessageType,
-    ) {
-        let message_kind = MessageKind::of::<E>();
-        let send_message_fn: ReceiveMessageFn = Self::receive_event_internal::<E>;
-        self.message_receive_map.insert(
-            message_kind,
-            MessageMetadata {
-                message_type,
-                receive_message_fn: send_message_fn,
-            },
-        );
-    }
 
     fn receive_event_internal<E: Message + Event>(
         &self,
-        world: &mut World,
+        commands: &mut Commands,
+        events: &mut FilteredResourcesMut,
         from: ClientId,
         reader: &mut Reader,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<(), MessageError> {
-        dbg!("receive_event_internal", std::any::type_name::<E>());
         let kind = MessageKind::of::<E>();
         let receive_metadata = self
             .message_receive_map
@@ -177,11 +163,15 @@ impl MessageRegistry {
                 let (event, mode) = self.deserialize_event::<E>(reader, entity_map)?;
                 match mode {
                     EventReplicationMode::Buffer => {
-                        let mut events = world.resource_mut::<Events<E>>();
+                        let events = events
+                            .get_mut_by_id(receive_metadata.component_id)
+                            .ok_or(MessageError::NotRegistered)?;
+                        // SAFETY
+                        let mut events = unsafe { events.with_type::<Events<E>>() };
                         events.send(event);
                     }
                     EventReplicationMode::Trigger => {
-                        world.trigger(event);
+                        commands.trigger(event);
                     }
                 }
             }
