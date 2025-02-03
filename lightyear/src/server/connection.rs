@@ -48,6 +48,7 @@ use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::components::ReplicationGroupId;
 use crate::shared::replication::delta::DeltaManager;
+use crate::shared::replication::entity_map::SendEntityMap;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -378,7 +379,7 @@ impl ConnectionManager {
                 self.message_registry.serialize(
                     message,
                     &mut self.writer,
-                    Some(&mut c.replication_receiver.remote_entity_map.local_to_remote),
+                    &mut c.replication_receiver.remote_entity_map.local_to_remote,
                 )?;
                 let message_bytes = self.writer.split();
                 // for local clients, we don't want to buffer messages in the MessageManager since
@@ -410,7 +411,7 @@ impl ConnectionManager {
                     event,
                     event_replication_mode,
                     &mut self.writer,
-                    Some(&mut c.replication_receiver.remote_entity_map.local_to_remote),
+                    &mut c.replication_receiver.remote_entity_map.local_to_remote,
                 )?;
                 let message_bytes = self.writer.split();
                 // for local clients, we don't want to buffer messages in the MessageManager since
@@ -493,7 +494,7 @@ impl ConnectionManager {
             .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
         // TODO: add SendEntityMap here!
         // We store the Bytes in a hashmap, maybe more efficient to write the replication message directly?
-        component_registry.serialize(data, &mut self.writer, None)?;
+        component_registry.serialize(data, &mut self.writer, &mut SendEntityMap::default())?;
         let raw_data = self.writer.split();
         self.connection_mut(client_id)?
             .replication_sender
@@ -516,7 +517,7 @@ pub struct Connection {
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
+    pub(crate) received_messages: Vec<(NetId, Bytes, NetworkTarget, ChannelKind)>,
     pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
@@ -573,7 +574,7 @@ impl Connection {
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             events: ConnectionEvents::default(),
-            received_messages: HashMap::default(),
+            received_messages: Vec::default(),
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
@@ -777,22 +778,23 @@ impl Connection {
                         //  I don't think so... maybe the sender should map_entities themselves?
                         //  or it matters for input messages?
                         // TODO: avoid clone with Arc<[u8]>?
-                        let data = (reader.consume(), target, *channel_kind);
+                        let bytes = reader.consume();
                         match message_registry.message_type(net_id) {
                             #[cfg(feature = "leafwing")]
                             MessageType::LeafwingInput => self
                                 .received_leafwing_input_messages
                                 .entry(net_id)
                                 .or_default()
-                                .push(data),
+                                .push((bytes, target, *channel_kind)),
                             MessageType::NativeInput => {
                                 self.received_input_messages
                                     .entry(net_id)
                                     .or_default()
-                                    .push(data);
+                                    .push((bytes, target, *channel_kind));
                             }
                             MessageType::Normal | MessageType::Event => {
-                                self.received_messages.entry(net_id).or_default().push(data);
+                                self.received_messages
+                                    .push((net_id, bytes, target, *channel_kind));
                             }
                         }
                     }
@@ -834,22 +836,22 @@ impl Connection {
         // rebroadcasted to other clients after we have converted the entities from the
         // client World to the server World
         // TODO: avoid clone with Arc<[u8]>?
-        let data = (reader.consume(), target, channel_kind);
+        let bytes = reader.consume();
         match message_registry.message_type(net_id) {
             #[cfg(feature = "leafwing")]
             MessageType::LeafwingInput => self
                 .received_leafwing_input_messages
                 .entry(net_id)
                 .or_default()
-                .push(data),
-            MessageType::NativeInput => {
-                self.received_input_messages
-                    .entry(net_id)
-                    .or_default()
-                    .push(data);
-            }
+                .push((bytes, target, channel_kind)),
+            MessageType::NativeInput => self
+                .received_input_messages
+                .entry(net_id)
+                .or_default()
+                .push((bytes, target, channel_kind)),
             MessageType::Normal | MessageType::Event => {
-                self.received_messages.entry(net_id).or_default().push(data);
+                self.received_messages
+                    .push((net_id, bytes, target, channel_kind))
             }
         }
         Ok(())
@@ -994,7 +996,7 @@ impl ConnectionManager {
                         component_data,
                         &mut self.writer,
                         kind,
-                        None,
+                        &mut SendEntityMap::default(),
                     )?;
                 }
             } else {
@@ -1002,7 +1004,7 @@ impl ConnectionManager {
                     component_data,
                     &mut self.writer,
                     kind,
-                    None,
+                    &mut SendEntityMap::default(),
                 )?;
             };
             raw_data = Some(self.writer.split());
@@ -1028,7 +1030,6 @@ impl ConnectionManager {
                                 &mut self.writer,
                                 kind,
                                 // we do this to avoid split-borrow errors...
-                                Some(
                                     &mut self
                                         .connections
                                         .get_mut(&client_id)
@@ -1036,7 +1037,6 @@ impl ConnectionManager {
                                         .replication_receiver
                                         .remote_entity_map
                                         .local_to_remote,
-                                ),
                             )?;
                         }
                     } else {
@@ -1045,7 +1045,6 @@ impl ConnectionManager {
                             &mut self.writer,
                             kind,
                             // we do this to avoid split-borrow errors...
-                            Some(
                                 &mut self
                                     .connections
                                     .get_mut(&client_id)
@@ -1053,7 +1052,6 @@ impl ConnectionManager {
                                     .replication_receiver
                                     .remote_entity_map
                                     .local_to_remote,
-                            ),
                         )?;
                     };
                     // write a new message for each client, because we need to do entity mapping
@@ -1132,7 +1130,7 @@ impl ConnectionManager {
                     // we serialize once and re-use the result for all clients
                     // serialize only if there is at least one client that needs the update
                     if existing_bytes.is_none() || registry.erased_is_map_entities(kind) {
-                        registry.erased_serialize(component, &mut self.writer, kind, Some(&mut connection.replication_receiver.remote_entity_map.local_to_remote))?;
+                        registry.erased_serialize(component, &mut self.writer, kind, &mut connection.replication_receiver.remote_entity_map.local_to_remote)?;
                         // we re-serialize every time if there is entity mapping
                         existing_bytes = Some(self.writer.split());
                     }
@@ -1192,7 +1190,7 @@ impl InternalEventSend for ConnectionManager {
                 event,
                 EventReplicationMode::Buffer,
                 &mut self.writer,
-                None,
+                &mut SendEntityMap::default(),
             )?;
             let message_bytes = self.writer.split();
             self.buffer_message_bytes(message_bytes, channel_kind, target)?;
@@ -1218,7 +1216,7 @@ impl InternalEventSend for ConnectionManager {
                 event,
                 EventReplicationMode::Trigger,
                 &mut self.writer,
-                None,
+                &mut SendEntityMap::default(),
             )?;
             let message_bytes = self.writer.split();
             self.buffer_message_bytes(message_bytes, channel_kind, target)?;
@@ -1247,7 +1245,7 @@ impl InternalMessageSend for ConnectionManager {
             self.buffer_map_entities_message(message, channel_kind, target)?;
         } else {
             self.message_registry
-                .serialize(message, &mut self.writer, None)?;
+                .serialize(message, &mut self.writer, &mut SendEntityMap::default())?;
             let message_bytes = self.writer.split();
             self.buffer_message_bytes(message_bytes, channel_kind, target)?;
         }

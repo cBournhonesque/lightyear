@@ -32,7 +32,7 @@ impl Plugin for ServerEventsPlugin {
             .add_systems(
                 PreUpdate,
                 // TODO: check if this should be between Receive and EmitEvents
-                emit_connect_events.in_set(InternalMainSet::<ServerMarker>::EmitEvents),
+                emit_connect_events.in_set(InternalMainSet::<ServerMarker>::ReceiveEvents),
             );
     }
 }
@@ -88,7 +88,7 @@ pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         push_component_events::<C, ConnectionManager>
-            .in_set(InternalMainSet::<ServerMarker>::EmitEvents),
+            .in_set(InternalMainSet::<ServerMarker>::ReceiveEvents),
     );
 }
 
@@ -277,7 +277,7 @@ pub type ComponentRemoveEvent<C> =
     crate::shared::events::components::ComponentRemoveEvent<C, ClientId>;
 
 /// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
-pub type MessageEvent<M> = crate::shared::events::message::MessageEvent<M>;
+pub type MessageEvent<M> = crate::shared::events::message::ReceiveMessage<M>;
 
 #[cfg(test)]
 mod tests {

@@ -39,7 +39,7 @@ impl Plugin for ExampleServerPlugin {
             PreUpdate,
             // This system will replicate the inputs of a client to other
             // clients so that a client can predict other clients.
-            replicate_inputs.after(MainSet::EmitEvents),
+            replicate_inputs.after(MainSet::ReceiveEvents),
         );
         app.add_systems(FixedUpdate, handle_character_actions);
         app.add_systems(Update, handle_connections);

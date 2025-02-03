@@ -180,7 +180,7 @@ pub(crate) mod send {
 }
 
 pub(crate) mod receive {
-    use crate::shared::events::message::MessageEvent;
+    use crate::shared::events::message::ReceiveMessage;
     use crate::shared::message::MessageSend;
 
     use crate::shared::replication::ReplicationPeer;
@@ -206,7 +206,7 @@ pub(crate) mod receive {
             app.configure_sets(
                 PreUpdate,
                 InternalReplicationSet::<R::SetMarker>::ReceiveResourceUpdates
-                    .after(InternalMainSet::<R::SetMarker>::EmitEvents),
+                    .after(InternalMainSet::<R::SetMarker>::ReceiveEvents),
             );
             // TODO: have a way to delete a resource if it was spawned via connection?
             //  i.e. when we receive a resource, create an entity/resource with DespawnTracker<R>
@@ -240,8 +240,8 @@ pub(crate) mod receive {
 
     fn handle_resource_message<R: Resource + Message>(
         mut commands: Commands,
-        mut update_message: ResMut<Events<MessageEvent<R>>>,
-        mut remove_message: EventReader<MessageEvent<DespawnResource<R>>>,
+        mut update_message: ResMut<Events<ReceiveMessage<R>>>,
+        mut remove_message: EventReader<ReceiveMessage<DespawnResource<R>>>,
         mut resource: Option<ResMut<R>>,
     ) {
         for message in update_message.drain() {
@@ -262,8 +262,8 @@ pub(crate) mod receive {
 
     fn handle_resource_message_bidirectional<R: Resource + Message>(
         mut commands: Commands,
-        mut update_message: ResMut<Events<MessageEvent<R>>>,
-        mut remove_message: EventReader<MessageEvent<DespawnResource<R>>>,
+        mut update_message: ResMut<Events<ReceiveMessage<R>>>,
+        mut remove_message: EventReader<ReceiveMessage<DespawnResource<R>>>,
         mut resource: Option<ResMut<R>>,
     ) {
         for message in update_message.drain() {
@@ -342,7 +342,6 @@ mod tests {
             .server_app
             .world_mut()
             .insert_resource(Resource1(1.0));
-        dbg!("SHOULD SEND RESOURCE MESSAGE");
         stepper.frame_step();
         stepper.frame_step();
 

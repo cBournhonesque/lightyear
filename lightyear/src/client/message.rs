@@ -1,13 +1,13 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
-
-use bevy::prelude::{App, Commands, IntoSystemConfigs, Mut, Plugin, PreUpdate, ResMut, World};
+use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
+use bevy::prelude::*;
 use byteorder::WriteBytesExt;
 use bytes::Bytes;
 use tracing::error;
 
 use crate::client::connection::ConnectionManager;
-use crate::prelude::{client::is_connected, ClientId};
-use crate::protocol::message::MessageRegistry;
+use crate::prelude::{client::is_connected, ClientId, MainSet};
+use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
@@ -16,13 +16,72 @@ use crate::shared::sets::{ClientMarker, InternalMainSet};
 pub struct ClientMessagePlugin;
 
 impl Plugin for ClientMessagePlugin {
-    fn build(&self, app: &mut App) {
+    fn build(&self, app: &mut App) {}
+
+    /// Add the system after all messages have been added to the MessageRegistry
+    fn cleanup(&self, app: &mut App) {
+        // temporarily remove message_registry from the app to enable split borrows
+        let message_registry = app
+            .world_mut()
+            .remove_resource::<MessageRegistry>()
+            .unwrap();
+
+        // Use FilteredResourceMut SystemParam to register the access dynamically to the
+        // Messages in the MessageRegistry
+        let send_messages = (
+            FilteredResourcesMutParamBuilder::new(|builder| {
+                message_registry
+                    .send_messages
+                    .iter()
+                    .filter(|metadata| {
+                        metadata.message_type == MessageType::Normal
+                            || metadata.message_type == MessageType::Event
+                    })
+                    .for_each(|metadata| {
+                        builder.add_write_by_id(metadata.component_id);
+                    });
+            }),
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+        ).build_state(app.world_mut())
+            .build_system(send_messages);
+
+        let read_messages = (
+            FilteredResourcesMutParamBuilder::new(|builder| {
+                message_registry
+                    .message_receive_map
+                    .values()
+                    .filter(|metadata| {
+                        metadata.message_type == MessageType::Normal
+                            || metadata.message_type == MessageType::Event
+                    })
+                    .for_each(|metadata| {
+                        builder.add_write_by_id(metadata.component_id);
+                    });
+            }),
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+        )
+            .build_state(app.world_mut())
+            .build_system(read_messages);
         app.add_systems(
             PreUpdate,
             read_messages
-                .in_set(InternalMainSet::<ClientMarker>::EmitEvents)
+                .in_set(InternalMainSet::<ClientMarker>::ReceiveEvents)
                 .run_if(is_connected),
         );
+        app.add_systems(
+            PostUpdate,
+            send_messages.in_set(InternalMainSet::<ClientMarker>::SendEvents)
+        );
+        app.configure_sets(PostUpdate, InternalMainSet::<ClientMarker>::SendEvents
+            .in_set(MainSet::SendEvents)
+            .before(InternalMainSet::<ClientMarker>::Send)
+        );
+
+        app.insert_resource(message_registry);
     }
 }
 
@@ -57,41 +116,54 @@ impl ToBytes for ClientMessage {
     }
 }
 
+/// Read the messages that were buffered as SendMessage<E>
+/// and buffer them to be written in the various channels
+fn send_messages(
+    mut send_events: FilteredResourcesMut,
+    commands: Commands,
+    message_registry: ResMut<MessageRegistry>,
+    mut connection: ResMut<ConnectionManager>,
+) {
+    let connection = connection.as_mut();
+    let _ = message_registry.send_messages(
+        &mut send_events,
+        &mut connection.message_manager,
+        &mut connection.replication_receiver.remote_entity_map.local_to_remote,
+        true,
+    ).inspect_err(|e| error!("Could not buffer message to send: {:?}", e));
+}
+
 /// Read the messages received from the server and handle them:
 /// - Messages: send a MessageEvent
 /// - Events: send them to EventWriter or trigger them
-fn read_messages(mut commands: Commands, mut connection: ResMut<ConnectionManager>) {
+fn read_messages(
+    mut events: FilteredResourcesMut,
+    mut commands: Commands,
+    message_registry: ResMut<MessageRegistry>,
+    mut connection: ResMut<ConnectionManager>,
+) {
+    // enable split-borrows
+    let connection = connection.as_mut();
     connection
         .received_messages
-        .iter_mut()
-        .for_each(|(net_id, message_list)| {
-            message_list.drain(..).for_each(|message| {
-                let mut reader = Reader::from(message);
-                // make copies to avoid `connection` to be moved inside the closure
-                let net_id = *net_id;
-                commands.queue(move |world: &mut World| {
-                    // NOTE: removing the resources is a bit risky... however we use the world
-                    // only to get the Events<MessageEvent<M>> so it should be ok
-                    world.resource_scope(|world, registry: Mut<MessageRegistry>| {
-                        world.resource_scope(|world, mut manager: Mut<ConnectionManager>| {
-                            let _ = registry
-                                // we have to re-decode the net id
-                                .receive_message(
-                                    net_id,
-                                    world,
-                                    // TODO: include the client that rebroadcasted the message?
-                                    ClientId::Local(0),
-                                    &mut reader,
-                                    &mut manager
-                                        .replication_receiver
-                                        .remote_entity_map
-                                        .remote_to_local,
-                                )
-                                .inspect_err(|e| error!("Could not deserialize message: {:?}", e));
-                        })
-                    });
-                });
-            })
+        .drain(..)
+        .for_each(|(net_id, message)| {
+            let mut reader = Reader::from(message);
+            let _ = message_registry
+                // we have to re-decode the net id
+                .receive_message(
+                    net_id,
+                    &mut commands,
+                    &mut events,
+                    // TODO: include the client that rebroadcasted the message?
+                    ClientId::Local(0),
+                    &mut reader,
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
+                )
+                .inspect_err(|e| error!("Could not deserialize message: {:?}", e));
         });
 }
 

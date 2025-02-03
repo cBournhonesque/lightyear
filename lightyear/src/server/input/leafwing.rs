@@ -110,8 +110,8 @@ fn receive_input_message<A: LeafwingUserAction>(
     // re-borrow to allow split borrows
     let connection_manager = connection_manager.deref_mut();
     for (client_id, connection) in connection_manager.connections.iter_mut() {
-        if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
-            for (message_bytes, target, channel_kind) in message_list {
+        if let Some(message_list) = connection.received_leafwing_input_messages.get_mut(&net) {
+            message_list.drain(..).for_each(|(message_bytes, target, channel_kind)| {
                 let mut reader = Reader::from(message_bytes);
                 match message_registry.deserialize::<InputMessage<A>>(
                     &mut reader,
@@ -187,12 +187,12 @@ fn receive_input_message<A: LeafwingUserAction>(
                             if let Ok(()) = message_registry.serialize(
                                 &message,
                                 &mut connection_manager.writer,
-                                Some(
+
                                     &mut connection
                                         .replication_receiver
                                         .remote_entity_map
                                         .local_to_remote,
-                                ),
+                                ,
                             ) {
                                 connection.messages_to_rebroadcast.push((
                                     reader.consume(),
@@ -207,7 +207,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                         error!(?e, "could not deserialize leafwing input message");
                     }
                 }
-            }
+            })
         }
     }
 }

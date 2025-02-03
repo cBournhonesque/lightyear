@@ -1,9 +1,9 @@
-use crate::prelude::{ClientId, Message, NetworkTarget};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget};
 use bevy::prelude::Event;
 
 /// This event is emitted whenever we receive a message from the remote
 #[derive(Event, Debug)]
-pub struct MessageEvent<M: Message> {
+pub struct ReceiveMessage<M: Message> {
     pub message: M,
     // TODO: this is not ideal. Should we have PeerId that is either ClientId or Server?
     /// The client that sent the message.
@@ -11,7 +11,7 @@ pub struct MessageEvent<M: Message> {
     pub from: ClientId,
 }
 
-impl<M: Message> MessageEvent<M> {
+impl<M: Message> ReceiveMessage<M> {
     pub fn new(message: M, from: ClientId) -> Self {
         Self { message, from }
     }
@@ -28,14 +28,15 @@ impl<M: Message> MessageEvent<M> {
 /// Write to this event to buffer a message to be sent
 /// The `ConnectionManager` will read these events and send them through the transport
 #[derive(Event, Debug)]
-pub struct SendMessageEvent<M: Message> {
+pub struct SendMessage<M: Message> {
     pub message: M,
+    pub channel: ChannelKind,
     pub to: NetworkTarget,
 }
 
-impl<M: Message> SendMessageEvent<M> {
-    pub fn new(message: M, to: NetworkTarget) -> Self {
-        Self { message, to }
+impl<M: Message> SendMessage<M> {
+    pub fn new<C: Channel>(message: M, to: NetworkTarget) -> Self {
+        Self { message, channel: ChannelKind::of::<C>(), to }
     }
 
     pub fn message(&self) -> &M {

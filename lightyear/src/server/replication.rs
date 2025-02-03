@@ -43,7 +43,7 @@ pub(crate) mod receive {
                     PreUpdate,
                     ServerReplicationSet::ClientReplication
                         .run_if(is_started)
-                        .after(InternalMainSet::<ServerMarker>::EmitEvents),
+                        .after(InternalMainSet::<ServerMarker>::ReceiveEvents),
                 );
         }
     }

@@ -49,7 +49,7 @@ impl Plugin for ClientNetworkingPlugin {
                         // do not receive packets when running in host-server mode
                         .run_if(not(is_host_server)),
                     // we still want to emit events when running in host-server mode
-                    InternalMainSet::<ClientMarker>::EmitEvents.in_set(MainSet::EmitEvents),
+                    InternalMainSet::<ClientMarker>::ReceiveEvents.in_set(MainSet::ReceiveEvents),
                 )
                     .chain()
                     .run_if(not(is_disconnected)),
@@ -60,7 +60,8 @@ impl Plugin for ClientNetworkingPlugin {
                 // we don't send packets every frame, but on a timer instead
                 (
                     SyncSet.run_if(not(is_host_server)),
-                    InternalMainSet::<ClientMarker>::Send.in_set(MainSet::Send),
+
+                    (InternalMainSet::<ClientMarker>::Send).in_set(MainSet::Send),
                 )
                     .run_if(not(is_disconnected))
                     .chain(),
@@ -555,14 +556,10 @@ mod utils {
 
 #[cfg(test)]
 mod tests {
-
-    use std::time::Duration;
-
     use bevy::prelude::*;
 
     use crate::{
-        client::config::ClientConfig,
-        prelude::{client::ClientCommands, server::*, SharedConfig, TickConfig},
+        prelude::{client::ClientCommands, server::*},
         tests::host_server_stepper::HostServerStepper,
     };
 
@@ -586,15 +583,7 @@ mod tests {
 
     #[test]
     fn test_host_server_connect_event() {
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let client_config = ClientConfig::default();
-
-        let mut stepper = HostServerStepper::new(shared_config, client_config, frame_duration);
+        let mut stepper = HostServerStepper::default_no_init();
 
         stepper
             .server_app

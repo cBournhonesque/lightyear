@@ -44,7 +44,7 @@ pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         push_component_events::<C, ConnectionManager>
-            .in_set(InternalMainSet::<ClientMarker>::EmitEvents),
+            .in_set(InternalMainSet::<ClientMarker>::ReceiveEvents),
     );
 }
 
@@ -83,7 +83,7 @@ pub type ComponentInsertEvent<C> = crate::shared::events::components::ComponentI
 /// Bevy [`Event`] emitted on the client when a ComponentRemove replication message is received
 pub type ComponentRemoveEvent<C> = crate::shared::events::components::ComponentRemoveEvent<C, ()>;
 /// Bevy [`Event`] emitted on the client when a (non-replication) message is received
-pub type MessageEvent<M> = crate::shared::events::message::MessageEvent<M>;
+pub type MessageEvent<M> = crate::shared::events::message::ReceiveMessage<M>;
 
 #[cfg(test)]
 mod tests {

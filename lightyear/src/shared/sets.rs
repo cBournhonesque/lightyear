@@ -48,15 +48,17 @@ pub enum InternalReplicationSet<M> {
 /// Main SystemSets used by lightyear to receive and send data
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum InternalMainSet<M> {
-    /// Systems that receive data (buffer any data received from transport, and read
-    /// data from the buffers)
-    ///
+    /// Systems that receives data from the remote peers
     /// Runs in `PreUpdate`.
     Receive,
-    /// Systems that emit networking-related events
+    /// Systems that writes networking events (ReceiveMessage, ConnectionEvent, etc.)
     /// Runs in `PreUpdate`, after `Receive`
-    EmitEvents,
+    ReceiveEvents,
 
+    /// Systems that reads networking events (SendMessage) and buffers them
+    /// so that they can be sent over the network.
+    /// Runs in `PostUpdate`, before `Send`
+    SendEvents,
     /// SystemSet where we actually send packets over the network.
     ///
     /// Runs in `PostUpdate`
@@ -66,17 +68,18 @@ pub(crate) enum InternalMainSet<M> {
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum MainSet {
-    /// Systems that receive data (buffer any data received from transport, and read
-    /// data from the buffers)
-    ///
+    /// Systems that receives data from the remote peers
     /// Runs in `PreUpdate`.
     Receive,
-    /// Systems that emit networking-related events
+    /// Systems that writes networking events (ReceiveMessage, ConnectionEvent, etc.)
     /// Runs in `PreUpdate`, after `Receive`
-    EmitEvents,
+    ReceiveEvents,
 
+    /// Systems that reads networking events (SendMessage) and buffers them
+    /// so that they can be sent over the network.
+    /// Runs in `PostUpdate`, before `Send`
+    SendEvents,
     /// SystemSet where we actually send packets over the network.
-    /// Runs every frame.
     ///
     /// Runs in `PostUpdate`
     Send,

@@ -413,7 +413,7 @@ mod serialize {
             &self,
             component: &mut C,
             writer: &mut Writer,
-            entity_map: Option<&mut SendEntityMap>,
+            entity_map: &mut SendEntityMap,
         ) -> Result<(), ComponentError> {
             let kind = ComponentKind::of::<C>();
             let erased_fns = self
@@ -436,7 +436,7 @@ mod serialize {
             component: Ptr,
             writer: &mut Writer,
             kind: ComponentKind,
-            entity_map: Option<&mut SendEntityMap>,
+            entity_map: &mut SendEntityMap,
         ) -> Result<(), ComponentError> {
             let erased_fns = self
                 .serialize_fns_map
@@ -1062,7 +1062,7 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
-            entity_map: Option<&mut SendEntityMap>,
+            entity_map: &mut SendEntityMap,
         ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
@@ -1083,7 +1083,7 @@ mod delta {
             writer: &mut Writer,
             // kind for C, not for C::Delta
             kind: ComponentKind,
-            entity_map: Option<&mut SendEntityMap>,
+            entity_map: &mut SendEntityMap,
         ) -> Result<(), ComponentError> {
             let delta_fns = self
                 .delta_fns_map
@@ -1610,6 +1610,7 @@ impl From<TypeId> for ComponentKind {
 mod tests {
     use super::*;
     use crate::serialize::writer::Writer;
+    use crate::shared::replication::entity_map::SendEntityMap;
     use crate::tests::protocol::*;
     use bevy::prelude::{Commands, OnAdd, OnInsert, Query, Trigger};
 
@@ -1627,7 +1628,7 @@ mod tests {
         let mut component = ComponentSyncModeSimple(1.0);
         let mut writer = Writer::default();
         registry
-            .serialize(&mut component, &mut writer, None)
+            .serialize(&mut component, &mut writer, &mut SendEntityMap::default())
             .unwrap();
         let data = writer.to_bytes();
 

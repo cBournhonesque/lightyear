@@ -1,10 +1,8 @@
 //! Stepper to run tests in host-server mode (client and server are in the same app)
-use std::net::SocketAddr;
-use std::str::FromStr;
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::input::InputPlugin;
-use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
+use bevy::prelude::{default, App, Commands, Mut, Real, Time, World};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::Duration;
@@ -12,8 +10,8 @@ use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig, NetConfig,
-    PredictionConfig, SyncConfig,
+    Authentication, ClientCommands, ClientConfig, ClientTransport, NetConfig
+    ,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
@@ -53,7 +51,9 @@ impl HostServerStepper {
         };
         let client_config = ClientConfig::default();
 
-        Self::new(shared_config, client_config, frame_duration)
+        let mut stepper = Self::new(shared_config, client_config, frame_duration);
+        stepper.build();
+        stepper
     }
 
     pub fn new(
@@ -229,9 +229,14 @@ impl HostServerStepper {
     pub(crate) fn server_tick(&self) -> Tick {
         self.server_app.world().resource::<TickManager>().tick()
     }
-    pub(crate) fn init(&mut self) {
+
+    pub(crate) fn build(&mut self) {
+        self.client_app.finish();
+        self.client_app.cleanup();
         self.server_app.finish();
         self.server_app.cleanup();
+    }
+    pub(crate) fn init(&mut self) {
         let _ = self
             .server_app
             .world_mut()
@@ -239,8 +244,6 @@ impl HostServerStepper {
                 commands.start_server();
                 commands.connect_client();
             });
-        self.client_app.finish();
-        self.client_app.cleanup();
         let _ = self
             .client_app
             .world_mut()

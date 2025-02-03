@@ -44,7 +44,7 @@ type ErasedSerializeFn = unsafe fn(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
     writer: &mut Writer,
-    entity_map: Option<&mut SendEntityMap>,
+    entity_map: &mut SendEntityMap,
 ) -> Result<(), SerializationError>;
 
 /// Type of the serialize function without entity mapping
@@ -69,7 +69,7 @@ unsafe fn erased_serialize_fn<M: Message>(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
     writer: &mut Writer,
-    entity_map: Option<&mut SendEntityMap>,
+    entity_map: &mut SendEntityMap,
 ) -> Result<(), SerializationError> {
     let typed_serialize_fns = erased_serialize_fn.typed::<M>();
     if let Some(map_entities) = erased_serialize_fn.send_map_entities {
@@ -79,7 +79,7 @@ unsafe fn erased_serialize_fn<M: Message>(
         unsafe {
             map_entities(
                 PtrMut::from(&mut new_message),
-                entity_map.expect("entity map is required to serialize this message"),
+                entity_map,
             );
         }
         (typed_serialize_fns.serialize)(&new_message, writer)
@@ -203,7 +203,7 @@ impl ErasedSerializeFns {
         &self,
         message: &M,
         writer: &mut Writer,
-        entity_map: Option<&mut SendEntityMap>,
+        entity_map: &mut SendEntityMap,
     ) -> Result<(), SerializationError> {
         erased_serialize_fn::<M>(self, Ptr::from(message), writer, entity_map)
     }
@@ -273,7 +273,7 @@ mod tests {
                 &registry,
                 Ptr::from(&message),
                 &mut writer,
-                Some(&mut SendEntityMap::default()),
+                &mut SendEntityMap::default(),
             )
         };
 
@@ -314,7 +314,7 @@ mod tests {
                 &registry,
                 Ptr::from(&message),
                 &mut writer,
-                Some(&mut entity_map),
+                &mut entity_map,
             )
         };
 

@@ -1,6 +1,7 @@
 use crate::client::config::ClientConfig;
 use crate::inputs::native::InputMessage;
 use crate::packet::message::Message;
+use crate::packet::message_manager::MessageManager;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{client, server, ClientId};
 use crate::prelude::{ChannelDirection, UserAction};
@@ -10,11 +11,13 @@ use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::ToBytes;
 use crate::server::input::native::InputBuffers;
-use crate::shared::events::message::MessageEvent;
+use crate::shared::events::message::{ReceiveMessage, SendMessage};
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use crate::shared::replication::resources::DespawnResource;
+use bevy::ecs::change_detection::MutUntyped;
+use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{App, Events, Resource, TypePath, World};
+use bevy::prelude::{App, Commands, Events, FilteredResourcesMut, Resource, TypePath, World};
 use bevy::utils::HashMap;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -32,6 +35,8 @@ pub enum MessageError {
     MissingSerializationFns,
     #[error(transparent)]
     Serialization(#[from] crate::serialize::SerializationError),
+    #[error(transparent)]
+    Packet(#[from] crate::packet::error::PacketError),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -100,6 +105,9 @@ pub(crate) enum MessageType {
 /// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct MessageRegistry {
+    /// metadata needed to send a message
+    /// We use a Vec instead of a HashMap because we need to iterate through all SendMessage<E> events
+    pub(crate) send_messages: Vec<SendMessageMetadata>,
     /// metadata needed to receive a message
     pub(crate) message_receive_map: HashMap<MessageKind, MessageMetadata>,
     pub(crate) serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
@@ -108,18 +116,40 @@ pub struct MessageRegistry {
 
 pub(crate) type ReceiveMessageFn = fn(
     &MessageRegistry,
-    &mut World,
+    &mut Commands,
+    &mut FilteredResourcesMut,
     ClientId,
     &mut Reader,
     &mut ReceiveEntityMap,
 ) -> Result<(), MessageError>;
 
+type SendMessageFn = fn(
+    &MessageRegistry,
+    send_events: MutUntyped,
+    message_manager: &mut MessageManager,
+    entity_map: &mut SendEntityMap,
+    client_to_server: bool,
+) -> Result<(), MessageError>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MessageMetadata {
     pub(crate) message_type: MessageType,
+    /// ComponentId of the Events<MessageEvent<M>> resource
+    pub(crate) component_id: ComponentId,
     pub(crate) receive_message_fn: ReceiveMessageFn,
 }
 
+#[derive(Debug, Clone, PartialEq, TypePath)]
+pub struct SendMessageMetadata {
+    kind: MessageKind,
+    pub(crate) message_type: MessageType,
+    pub(crate) component_id: ComponentId,
+    pub(crate) send_message_fn: SendMessageFn,
+}
+
+
+
+/// Register the message-receive metadata for a given message M
 fn register_message_receive<M: Message>(
     app: &mut App,
     direction: ChannelDirection,
@@ -128,10 +158,23 @@ fn register_message_receive<M: Message>(
     let is_client = app.world().get_resource::<ClientConfig>().is_some();
     let is_server = app.world().get_resource::<ServerConfig>().is_some();
     let register_fn = |app: &mut App| {
-        app.add_event::<MessageEvent<M>>();
+        app.add_event::<ReceiveMessage<M>>();
+        let message_kind = MessageKind::of::<M>();
+        let component_id = app
+            .world_mut()
+            .register_resource::<Events<ReceiveMessage<M>>>();
+        let receive_message_fn: ReceiveMessageFn = MessageRegistry::receive_message_internal::<M>;
         app.world_mut()
             .resource_mut::<MessageRegistry>()
-            .add_receive_message_metadata::<M>(message_type);
+            .message_receive_map
+            .insert(
+                message_kind,
+                MessageMetadata {
+                    message_type,
+                    component_id,
+                    receive_message_fn,
+                },
+            );
     };
     match direction {
         ChannelDirection::ClientToServer => {
@@ -378,16 +421,52 @@ impl MessageRegistry {
             .insert(message_kind, ErasedSerializeFns::new::<M>());
     }
 
-    pub(crate) fn add_receive_message_metadata<M: Message>(&mut self, message_type: MessageType) {
-        let message_kind = MessageKind::of::<M>();
-        let send_message_fn: ReceiveMessageFn = Self::receive_message_internal::<M>;
-        self.message_receive_map.insert(
-            message_kind,
-            MessageMetadata {
-                message_type,
-                receive_message_fn: send_message_fn,
-            },
-        );
+    /// Gather all messages present in the various `SendMessage<M>` `send_events`
+    /// and buffer them in the `MessageManager`
+    pub(crate) fn send_messages(
+        &self,
+        send_events: &mut FilteredResourcesMut,
+        manager: &mut MessageManager,
+        entity_map: &mut SendEntityMap,
+        client_to_server: bool,
+    ) -> Result<(), MessageError> {
+        self.send_messages.iter().try_for_each(|metadata| {
+            let send_events = send_events.get_mut_by_id(metadata.component_id).expect("SendEvent<M> resource should be registered");
+            (metadata.send_message_fn)(
+                self,
+                send_events,
+                manager,
+                entity_map,
+                client_to_server
+            )
+        })
+    }
+
+    fn send_message_internal<M: Message>(
+        &self,
+        send_events: MutUntyped,
+        message_manager: &mut MessageManager,
+        entity_map: &mut SendEntityMap,
+        client_to_server: bool,
+    ) -> Result<(), MessageError> {
+        // SAFETY: the PtrMut corresponds to the correct resource
+        let mut reader = unsafe { send_events.with_type::<Events<SendMessage<M>>>() };
+        let res = reader.update_drain().try_for_each(|event| {
+            // client->server, include the target in the message for rebroadcasting
+            // server->client, no need to include the target
+            if client_to_server {
+                event.to.to_bytes(&mut message_manager.writer)?;
+            }
+            self.serialize::<M>(
+                &event.message,
+                &mut message_manager.writer,
+                entity_map
+            )?;
+            let message_bytes = message_manager.writer.split();
+            message_manager.buffer_send(message_bytes, event.channel)?;
+            Ok(())
+        });
+        res
     }
 
     /// Receive a message from the remote
@@ -397,7 +476,9 @@ impl MessageRegistry {
     pub(crate) fn receive_message(
         &self,
         net_id: NetId,
-        world: &mut World,
+        // TODO: this param is unneeded, maybe have a separate EventRegistry?
+        commands: &mut Commands,
+        resources: &mut FilteredResourcesMut,
         from: ClientId,
         reader: &mut Reader,
         entity_map: &mut ReceiveEntityMap,
@@ -410,13 +491,14 @@ impl MessageRegistry {
             .message_receive_map
             .get(kind)
             .ok_or(MessageError::NotRegistered)?;
-        (metadata.receive_message_fn)(self, world, from, reader, entity_map)
+        (metadata.receive_message_fn)(self, commands, resources, from, reader, entity_map)
     }
 
     /// Internal function of type ReceiveMessageFn (used for type-erasure)
     fn receive_message_internal<M: Message>(
         &self,
-        world: &mut World,
+        commands: &mut Commands,
+        events: &mut FilteredResourcesMut,
         from: ClientId,
         reader: &mut Reader,
         entity_map: &mut ReceiveEntityMap,
@@ -429,9 +511,13 @@ impl MessageRegistry {
         match receive_metadata.message_type {
             MessageType::Normal => {
                 // we deserialize the message and send a MessageEvent
-                let mut events = world.resource_mut::<Events<MessageEvent<M>>>();
                 let message = self.deserialize::<M>(reader, entity_map)?;
-                events.send(MessageEvent::new(message, from));
+                let events = events
+                    .get_mut_by_id(receive_metadata.component_id)
+                    .ok_or(MessageError::NotRegistered)?;
+                // SAFETY: the component_id corresponds to the Events<MessageEvent<M>> resource
+                let mut events = unsafe { events.with_type::<Events<ReceiveMessage<M>>>() };
+                events.send(ReceiveMessage::new(message, from));
             }
             _ => unreachable!(),
         }
@@ -472,11 +558,12 @@ impl MessageRegistry {
         erased_fns.map_entities.is_some()
     }
 
+
     pub(crate) fn serialize<M: Message>(
         &self,
         message: &M,
         writer: &mut Writer,
-        entity_map: Option<&mut SendEntityMap>,
+        entity_map: &mut SendEntityMap,
     ) -> Result<(), MessageError> {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
@@ -579,7 +666,7 @@ mod tests {
 
         let message = Resource1(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&message, &mut writer, None).unwrap();
+        registry.serialize(&message, &mut writer, &mut SendEntityMap::default()).unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
@@ -600,7 +687,7 @@ mod tests {
         let mut map = SendEntityMap::default();
         map.insert(Entity::from_raw(0), Entity::from_raw(1));
         registry
-            .serialize(&message, &mut writer, Some(&mut map))
+            .serialize(&message, &mut writer, &mut map)
             .unwrap();
         let data = writer.to_bytes();
 
@@ -621,7 +708,7 @@ mod tests {
 
         let message = Resource2(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&message, &mut writer, None).unwrap();
+        registry.serialize(&message, &mut writer, &mut SendEntityMap::default()).unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
