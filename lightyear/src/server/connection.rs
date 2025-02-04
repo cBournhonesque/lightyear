@@ -475,7 +475,6 @@ pub struct Connection {
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_triggers: Vec<(Bytes, NetworkTarget, ChannelKind)>,
     pub(crate) received_messages: Vec<(Bytes, NetworkTarget, ChannelKind)>,
     pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
@@ -535,7 +534,6 @@ impl Connection {
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             events: ConnectionEvents::default(),
-            received_triggers: Vec::default(),
             received_messages: Vec::default(),
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
@@ -747,12 +745,9 @@ impl Connection {
                                     .or_default()
                                     .push((bytes, target, *channel_kind));
                             }
-                            MessageType::Normal => {
+                            MessageType::Normal | MessageType::Trigger => {
                                 self.received_messages
                                     .push((bytes, target, *channel_kind));
-                            }
-                            MessageType::Trigger => {
-                                self.received_triggers.push((bytes, target, *channel_kind));
                             }
                         }
                     }
@@ -807,12 +802,9 @@ impl Connection {
                 .entry(net_id)
                 .or_default()
                 .push((bytes, target, channel_kind)),
-            MessageType::Normal => {
+            MessageType::Normal | MessageType::Trigger => {
                 self.received_messages
                     .push((bytes, target, channel_kind))
-            }
-            MessageType::Trigger => {
-                self.received_triggers.push((bytes, target, channel_kind))
             }
         }
         Ok(())

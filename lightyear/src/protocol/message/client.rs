@@ -43,6 +43,8 @@ pub struct ReceiveTriggerMetadata {
     pub(crate) receive_trigger_fn: ReceiveTriggerFn,
 }
 
+
+
 #[derive(Debug, Clone, PartialEq, TypePath)]
 pub(crate) struct SendMessageMetadata {
     kind: MessageKind,
@@ -61,12 +63,9 @@ pub(crate) type ReceiveMessageFn = fn(
 ) -> Result<(), MessageError>;
 
 type ReceiveTriggerFn = fn(
-    receive_metadata: &ReceiveTriggerMetadata,
-    serialize_metadata: &ErasedSerializeFns,
+    receive_events: MutUntyped,
     commands: &mut Commands,
-    reader: &mut Reader,
-    entity_map: &mut ReceiveEntityMap,
-) -> Result<(), MessageError>;
+);
 
 
 type SendMessageFn = fn(
@@ -124,7 +123,7 @@ impl MessageRegistry {
     }
 
     pub(crate) fn register_client_trigger_receive<E: Event + Message>(app: &mut App) {
-        let message_kind = MessageKind::of::<E>();
+        let message_kind = MessageKind::of::<TriggerMessage<E>>();
         let component_id = app
             .world_mut()
             .resource_id::<Events<ClientReceiveMessage<TriggerMessage<E>>>>().unwrap();
@@ -262,35 +261,21 @@ impl MessageRegistry {
 
     pub(crate) fn client_receive_trigger(
         &self,
+        client_receive_events: MutUntyped,
+        receive_metadata: &ReceiveTriggerMetadata,
         commands: &mut Commands,
-        reader: &mut Reader,
-        entity_map: &mut ReceiveEntityMap,
-    ) -> Result<(), MessageError> {
-        let net_id = NetId::from_bytes(reader)?;
-        let kind = self
-            .kind_map
-            .kind(net_id)
-            .ok_or(MessageError::NotRegistered)?;
-        let receive_metadata = self
-            .client_messages
-            .receive_trigger
-            .get(kind)
-            .ok_or(MessageError::NotRegistered)?;
-        let serialize_metadata = self.serialize_fns_map.get(kind).ok_or(MessageError::NotRegistered)?;
-        (receive_metadata.receive_trigger_fn)(receive_metadata, serialize_metadata, commands, reader, entity_map)
+    ) {
+        (receive_metadata.receive_trigger_fn)(client_receive_events, commands);
     }
 
     pub(crate) fn client_receive_trigger_typed<E: Event + Message>(
-        receive_metadata: &ReceiveTriggerMetadata,
-        serialize_metadata: &ErasedSerializeFns,
+        client_receive_events: MutUntyped,
         commands: &mut Commands,
-        reader: &mut Reader,
-        entity_map: &mut ReceiveEntityMap,
-    ) -> Result<(), MessageError> {
-        // we deserialize the message and send a MessageEvent
-        let message = unsafe { serialize_metadata.deserialize::<TriggerMessage<E>>(reader, entity_map)? };
-        commands.trigger_targets(ClientReceiveMessage::new(message.event, ClientId::Server), message.target_entities);
-        Ok(())
+    ) {
+        let mut events = unsafe { client_receive_events.with_type::<Events<ClientReceiveMessage<TriggerMessage<E>>>>() };
+        events.drain().for_each(|event| {
+            commands.trigger_targets(ClientReceiveMessage::new(event.message.event, event.from), event.message.target_entities);
+        });
     }
 }
 

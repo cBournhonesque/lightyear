@@ -88,9 +88,25 @@ impl Plugin for ServerMessagePlugin {
             .build_state(app.world_mut())
             .build_system(read_messages);
 
+        let read_triggers = (
+            FilteredResourcesMutParamBuilder::new(|builder| {
+                message_registry
+                    .server_messages
+                    .receive_trigger
+                    .values()
+                    .for_each(|metadata| {
+                        builder.add_write_by_id(metadata.component_id);
+                    });
+            }),
+            ParamBuilder,
+            ParamBuilder,
+        )
+            .build_state(app.world_mut())
+            .build_system(read_triggers);
+
         app.add_systems(
             PreUpdate,
-            (read_messages, read_triggers)
+            (read_messages, read_triggers).chain()
                 .in_set(InternalMainSet::<ServerMarker>::ReceiveEvents)
                 .run_if(not(is_stopped)),
         );
@@ -180,40 +196,19 @@ fn read_messages(
 /// Read the messages received from the clients and emit the MessageEvent events
 /// Also rebroadcast the messages if needed
 fn read_triggers(
+    mut server_receive_events: FilteredResourcesMut,
     mut commands: Commands,
-    message_registry: ResMut<MessageRegistry>,
-    mut connection_manager: ResMut<ConnectionManager>,
+    message_registry: Res<MessageRegistry>,
 ) {
-    for (client_id, connection) in connection_manager.connections.iter_mut() {
-        connection.received_triggers.drain(..).for_each(
-            |(message_bytes, target, channel_kind)| {
-                let mut reader = Reader::from(message_bytes);
-                match message_registry.server_receive_trigger(
-                    &mut commands,
-                    &mut reader,
-                    *client_id,
-                    &mut connection
-                        .replication_receiver
-                        .remote_entity_map
-                        .remote_to_local,
-                ) {
-                    Ok(_) => {
-                        // rebroadcast
-                        if target != NetworkTarget::None {
-                            connection.messages_to_rebroadcast.push((
-                                reader.consume(),
-                                target,
-                                channel_kind,
-                            ));
-                        }
-                    }
-                    Err(e) => {
-                        error!("Could not deserialize message: {e:?}");
-                    }
-                }
-            },
-        );
-    }
+    message_registry.server_messages.receive_trigger.values().for_each(|receive_metadata| {
+        let events = server_receive_events.get_mut_by_id(receive_metadata.component_id).unwrap();
+        message_registry
+            .server_receive_trigger(
+                events,
+                receive_metadata,
+                &mut commands
+            );
+    })
 }
 
 impl ConnectionManager {
@@ -301,13 +296,13 @@ impl InternalMessageSend for ConnectionManager {
 
 #[cfg(test)]
 mod tests {
+    use crate::prelude::server::ServerTriggerExt;
     use crate::prelude::{ClientReceiveMessage, NetworkTarget, ServerSendMessage};
     use crate::shared::message::MessageSend;
     use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{Channel1, StringMessage};
-    use crate::tests::stepper::BevyStepper;
+    use crate::tests::protocol::{Channel1, IntegerEvent, StringMessage};
     use bevy::app::Update;
-    use bevy::prelude::{EventReader, Events, ResMut, Resource};
+    use bevy::prelude::{EventReader, Events, ResMut, Resource, Trigger};
 
     #[derive(Resource, Default)]
     struct Counter(usize);
@@ -323,9 +318,17 @@ mod tests {
         }
     }
 
+    /// System to check that we received the message on the server
+    fn count_messages_observer(
+        trigger: Trigger<ClientReceiveMessage<IntegerEvent>>,
+        mut counter: ResMut<Counter>,
+    ) {
+        counter.0 += trigger.event().message.0 as usize;
+    }
+
     /// Send a message via ConnectionManager to an external client and the local client
     #[test]
-    fn server_send_message_to_local_client() {
+    fn server_send_message() {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_max_level(tracing::Level::ERROR)
         //     .init();
@@ -356,28 +359,9 @@ mod tests {
         assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
     }
 
-    /// Send a message via event
-    #[test]
-    fn server_send_message_via_send_event() {
-        let mut stepper = BevyStepper::default();
-
-        stepper.client_app.init_resource::<Counter>();
-        stepper.client_app.add_systems(Update, count_messages);
-
-        // Send the message by writing to the SendMessage<M> Events
-        stepper.server_app.world_mut().resource_mut::<Events<ServerSendMessage<StringMessage>>>()
-            .send(ServerSendMessage::new_with_target::<Channel1>(StringMessage("a".to_string()), NetworkTarget::All));
-
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // verify that the client received the message
-        assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
-    }
-
     /// Send a message via events to an external client and the local client
     #[test]
-    fn server_send_message_via_send_event_local() {
+    fn server_send_message_via_event() {
         let mut stepper = HostServerStepper::default();
 
         stepper.server_app.init_resource::<Counter>();
@@ -400,6 +384,32 @@ mod tests {
 
         // verify that the other client received the message
         assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
+    }
+
+    /// Send a trigger via events to an external client and the local client
+    #[test]
+    fn server_send_trigger_via_event() {
+        let mut stepper = HostServerStepper::default();
+
+        stepper.server_app.init_resource::<Counter>();
+        stepper.client_app.init_resource::<Counter>();
+        stepper.server_app.add_observer(count_messages_observer);
+        stepper.client_app.add_observer(count_messages_observer);
+
+        // send a trigger from the host-server server to all clients
+        stepper
+            .server_app
+            .world_mut()
+            .server_trigger::<Channel1>(IntegerEvent(10), NetworkTarget::All);
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // verify that the local-client received the trigger
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 10);
+
+        // verify that the other client received the trigger
+        assert_eq!(stepper.client_app.world().resource::<Counter>().0, 10);
     }
 }
 

@@ -92,9 +92,26 @@ impl Plugin for ClientMessagePlugin {
             .build_state(app.world_mut())
             .build_system(read_messages);
 
+        let read_triggers = (
+            FilteredResourcesMutParamBuilder::new(|builder| {
+                message_registry
+                    .client_messages
+                    .receive_trigger
+                    .values()
+                    .for_each(|metadata| {
+                        builder.add_write_by_id(metadata.component_id);
+                    });
+            }),
+            ParamBuilder,
+            ParamBuilder,
+        )
+            .build_state(app.world_mut())
+            .build_system(read_triggers);
+
         app.add_systems(
             PreUpdate,
             (read_messages, read_triggers)
+                .chain()
                 .in_set(InternalMainSet::<ClientMarker>::ReceiveEvents)
                 .run_if(is_connected),
         );
@@ -222,7 +239,7 @@ fn send_messages_local(
 /// - Messages: send a MessageEvent
 /// - Events: send them to EventWriter or trigger them
 fn read_messages(
-    mut events: FilteredResourcesMut,
+    mut client_receive_events: FilteredResourcesMut,
     message_registry: ResMut<MessageRegistry>,
     mut connection: ResMut<ConnectionManager>,
 ) {
@@ -249,9 +266,9 @@ fn read_messages(
             let _ = message_registry
                 // we have to re-decode the net id
                 .client_receive_message(
-                    &mut events,
+                    &mut client_receive_events,
                     // TODO: include the client that rebroadcasted the message?
-                    ClientId::Local(0),
+                    ClientId::Server,
                     &mut Reader::from(bytes),
                     &mut connection
                         .replication_receiver
@@ -266,42 +283,18 @@ fn read_messages(
 /// - Messages: send a MessageEvent
 /// - Events: send them to EventWriter or trigger them
 fn read_triggers(
+    mut client_receive_events: FilteredResourcesMut,
     mut commands: Commands,
-    message_registry: ResMut<MessageRegistry>,
-    mut connection: ResMut<ConnectionManager>,
+    message_registry: Res<MessageRegistry>,
 ) {
-    // TODO: we could completely split out the MessageManager out of the connection manager!
-    // enable split-borrows
-    let connection = connection.as_mut();
-    // TODO: switch to directly reading from the message manager!
-    //     connection
-    //         .message_manager
-    //         .channels
-    //         .iter_mut()
-    //         // TODO: separate internal from external channels in MessageManager?
-    //         .filter(|(kind, _)| {
-    //             **kind != ChannelKind::of::<PingChannel>()
-    //             && **kind != ChannelKind::of::<PongChannel>()
-    //             && **kind != ChannelKind::of::<EntityActionsChannel>()
-    //             && **kind != ChannelKind::of::<EntityUpdatesChannel>()
-    //             && **kind != ChannelKind::of::<InputChannel>()
-    //         })
-    connection
-        .received_triggers
-        .drain(..)
-        .for_each(|(_, bytes)| {
-            let _ = message_registry
-                // we have to re-decode the net id
-                .client_receive_trigger(
-                    &mut commands,
-                    &mut Reader::from(bytes),
-                    &mut connection
-                        .replication_receiver
-                        .remote_entity_map
-                        .remote_to_local,
-                )
-                .inspect_err(|e| error!("Could not deserialize message: {:?}", e));
-        });
+    message_registry.client_messages.receive_trigger.values().for_each(| receive_metadata| {
+        let events = client_receive_events.get_mut_by_id(receive_metadata.component_id).unwrap();
+        message_registry.client_receive_trigger(
+                events,
+                receive_metadata,
+                &mut commands
+            );
+    })
 }
 
 
@@ -411,6 +404,7 @@ mod tests {
         assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
     }
 
+    /// Send a replicated trigger from both the non-local and local client
     #[test]
     fn client_send_trigger_via_send_event() {
         let mut stepper = HostServerStepper::default();
@@ -426,6 +420,15 @@ mod tests {
 
         // verify that the server received the message
         assert_eq!(stepper.server_app.world().resource::<Counter>().0, 10);
+
+        // Send the message from the local client
+        stepper.server_app.world_mut().client_trigger::<Channel1>(IntegerEvent(10));
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // verify that the server received the message
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 20);
     }
 }
 

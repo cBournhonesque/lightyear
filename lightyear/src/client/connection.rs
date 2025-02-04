@@ -80,7 +80,6 @@ pub struct ConnectionManager {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_triggers: Vec<(NetId, Bytes)>,
     pub(crate) received_messages: Vec<(NetId, Bytes)>,
     pub(crate) writer: Writer,
 
@@ -117,7 +116,6 @@ impl Default for ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            received_triggers: Vec::default(),
             received_messages: Vec::default(),
             writer: Writer::with_capacity(0),
             messages_to_send: Vec::default(),
@@ -169,7 +167,6 @@ impl ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            received_triggers: Vec::default(),
             received_messages: Vec::default(),
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_send: Vec::default(),
@@ -443,11 +440,8 @@ impl ConnectionManager {
                                 todo!()
                             }
                             // TODO: should we handle these right here in this system?
-                            MessageType::Normal => {
+                            MessageType::Normal | MessageType::Trigger => {
                                 self.received_messages.push((net_id, single_data));
-                            }
-                            MessageType::Trigger => {
-                                self.received_triggers.push((net_id, single_data));
                             }
                         }
                     }
@@ -484,11 +478,8 @@ impl ConnectionManager {
             MessageType::NativeInput => {
                 todo!()
             }
-            MessageType::Normal => {
+            MessageType::Normal | MessageType::Trigger => {
                 self.received_messages.push((net_id, single_data));
-            }
-            MessageType::Trigger => {
-                self.received_triggers.push((net_id, single_data));
             }
         }
         Ok(())
