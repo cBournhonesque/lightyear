@@ -30,7 +30,7 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{
     ComponentError, ComponentKind, ComponentNetId, ComponentRegistry,
 };
-use crate::protocol::event::EventReplicationMode;
+// use crate::protocol::event::EventReplicationMode;
 use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
@@ -164,51 +164,51 @@ impl ConnectionManager {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
     }
 
-    /// Send an event to all clients in a room
-    pub fn send_event_to_room<C: Channel, E: Event + Message>(
-        &mut self,
-        event: &E,
-        room_id: RoomId,
-        room_manager: &RoomManager,
-    ) -> Result<(), ServerError> {
-        let room = room_manager
-            .get_room(room_id)
-            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
-        let target = NetworkTarget::Only(room.clients.iter().copied().collect());
-        self.send_event_to_target::<C, E>(event, target)
-    }
+    // /// Send an event to all clients in a room
+    // pub fn send_event_to_room<C: Channel, E: Event + Message>(
+    //     &mut self,
+    //     event: &E,
+    //     room_id: RoomId,
+    //     room_manager: &RoomManager,
+    // ) -> Result<(), ServerError> {
+    //     let room = room_manager
+    //         .get_room(room_id)
+    //         .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
+    //     let target = NetworkTarget::Only(room.clients.iter().copied().collect());
+    //     self.send_event_to_target::<C, E>(event, target)
+    // }
+    //
+    // /// Send an event to a single client
+    // pub fn send_event<C: Channel, E: Event + Message>(
+    //     &mut self,
+    //     client_id: ClientId,
+    //     event: &E,
+    // ) -> Result<(), ServerError> {
+    //     self.send_event_to_target::<C, E>(event, NetworkTarget::Single(client_id))
+    // }
 
-    /// Send an event to a single client
-    pub fn send_event<C: Channel, E: Event + Message>(
-        &mut self,
-        client_id: ClientId,
-        event: &E,
-    ) -> Result<(), ServerError> {
-        self.send_event_to_target::<C, E>(event, NetworkTarget::Single(client_id))
-    }
-
-    /// Trigger an event to all clients in a room
-    pub fn trigger_event_to_room<C: Channel, E: Event + Message>(
-        &mut self,
-        event: &E,
-        room_id: RoomId,
-        room_manager: &RoomManager,
-    ) -> Result<(), ServerError> {
-        let room = room_manager
-            .get_room(room_id)
-            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
-        let target = NetworkTarget::Only(room.clients.iter().copied().collect());
-        self.trigger_event_to_target::<C, E>(event, target)
-    }
-
-    /// Trigger an event to a single client
-    pub fn trigger_event<C: Channel, E: Event + Message>(
-        &mut self,
-        client_id: ClientId,
-        event: &E,
-    ) -> Result<(), ServerError> {
-        self.trigger_event_to_target::<C, E>(event, NetworkTarget::Single(client_id))
-    }
+    // /// Trigger an event to all clients in a room
+    // pub fn trigger_event_to_room<C: Channel, E: Event + Message>(
+    //     &mut self,
+    //     event: &E,
+    //     room_id: RoomId,
+    //     room_manager: &RoomManager,
+    // ) -> Result<(), ServerError> {
+    //     let room = room_manager
+    //         .get_room(room_id)
+    //         .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
+    //     let target = NetworkTarget::Only(room.clients.iter().copied().collect());
+    //     self.trigger_event_to_target::<C, E>(event, target)
+    // }
+    //
+    // /// Trigger an event to a single client
+    // pub fn trigger_event<C: Channel, E: Event + Message>(
+    //     &mut self,
+    //     client_id: ClientId,
+    //     event: &E,
+    // ) -> Result<(), ServerError> {
+    //     self.trigger_event_to_target::<C, E>(event, NetworkTarget::Single(client_id))
+    // }
 
     /// Update the priority of a `ReplicationGroup` that is replicated to a given client
     pub fn update_priority(
@@ -393,37 +393,37 @@ impl ConnectionManager {
             })
     }
 
-    /// Buffer a `MapEntities` message to remote clients.
-    /// We cannot serialize the message once, we need to instead map the message for each client
-    /// using the `EntityMap` of that connection.
-    fn buffer_map_entities_event<E: Event + Message>(
-        &mut self,
-        event: &E,
-        event_replication_mode: EventReplicationMode,
-        channel: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ServerError> {
-        self.connections
-            .iter_mut()
-            .filter(|(id, _)| target.targets(id))
-            .try_for_each(|(_, c)| {
-                self.message_registry.serialize_event(
-                    event,
-                    event_replication_mode,
-                    &mut self.writer,
-                    &mut c.replication_receiver.remote_entity_map.local_to_remote,
-                )?;
-                let message_bytes = self.writer.split();
-                // for local clients, we don't want to buffer messages in the MessageManager since
-                // there is no io
-                if c.is_local_client() {
-                    c.local_messages_to_send.push(message_bytes);
-                } else {
-                    c.buffer_message(message_bytes, channel)?;
-                }
-                Ok::<(), ServerError>(())
-            })
-    }
+    // /// Buffer a `MapEntities` message to remote clients.
+    // /// We cannot serialize the message once, we need to instead map the message for each client
+    // /// using the `EntityMap` of that connection.
+    // fn buffer_map_entities_event<E: Event + Message>(
+    //     &mut self,
+    //     event: &E,
+    //     event_replication_mode: EventReplicationMode,
+    //     channel: ChannelKind,
+    //     target: NetworkTarget,
+    // ) -> Result<(), ServerError> {
+    //     self.connections
+    //         .iter_mut()
+    //         .filter(|(id, _)| target.targets(id))
+    //         .try_for_each(|(_, c)| {
+    //             self.message_registry.serialize_event(
+    //                 event,
+    //                 event_replication_mode,
+    //                 &mut self.writer,
+    //                 &mut c.replication_receiver.remote_entity_map.local_to_remote,
+    //             )?;
+    //             let message_bytes = self.writer.split();
+    //             // for local clients, we don't want to buffer messages in the MessageManager since
+    //             // there is no io
+    //             if c.is_local_client() {
+    //                 c.local_messages_to_send.push(message_bytes);
+    //             } else {
+    //                 c.buffer_message(message_bytes, channel)?;
+    //             }
+    //             Ok::<(), ServerError>(())
+    //         })
+    // }
 
     /// Buffer all the replication messages to send.
     /// Keep track of the bevy Change Tick: when a message is acked, we know that we only have to send
@@ -1160,63 +1160,63 @@ impl ConnectionManager {
     }
 }
 
-impl EventSend for ConnectionManager {}
-
-impl InternalEventSend for ConnectionManager {
-    type Error = ServerError;
-
-    fn erased_send_event_to_target<E: Event>(
-        &mut self,
-        event: &E,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), Self::Error> {
-        if self.message_registry.is_map_entities::<E>() {
-            self.buffer_map_entities_event(
-                event,
-                EventReplicationMode::Buffer,
-                channel_kind,
-                target,
-            )?;
-        } else {
-            self.message_registry.serialize_event(
-                event,
-                EventReplicationMode::Buffer,
-                &mut self.writer,
-                &mut SendEntityMap::default(),
-            )?;
-            let message_bytes = self.writer.split();
-            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
-        }
-        Ok(())
-    }
-
-    fn erased_trigger_event_to_target<E: Event + Message>(
-        &mut self,
-        event: &E,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), Self::Error> {
-        if self.message_registry.is_map_entities::<E>() {
-            self.buffer_map_entities_event(
-                event,
-                EventReplicationMode::Trigger,
-                channel_kind,
-                target,
-            )?;
-        } else {
-            self.message_registry.serialize_event(
-                event,
-                EventReplicationMode::Trigger,
-                &mut self.writer,
-                &mut SendEntityMap::default(),
-            )?;
-            let message_bytes = self.writer.split();
-            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
-        }
-        Ok(())
-    }
-}
+// impl EventSend for ConnectionManager {}
+//
+// impl InternalEventSend for ConnectionManager {
+//     type Error = ServerError;
+//
+//     fn erased_send_event_to_target<E: Event>(
+//         &mut self,
+//         event: &E,
+//         channel_kind: ChannelKind,
+//         target: NetworkTarget,
+//     ) -> Result<(), Self::Error> {
+//         if self.message_registry.is_map_entities::<E>() {
+//             self.buffer_map_entities_event(
+//                 event,
+//                 EventReplicationMode::Buffer,
+//                 channel_kind,
+//                 target,
+//             )?;
+//         } else {
+//             self.message_registry.serialize_event(
+//                 event,
+//                 EventReplicationMode::Buffer,
+//                 &mut self.writer,
+//                 &mut SendEntityMap::default(),
+//             )?;
+//             let message_bytes = self.writer.split();
+//             self.buffer_message_bytes(message_bytes, channel_kind, target)?;
+//         }
+//         Ok(())
+//     }
+//
+//     fn erased_trigger_event_to_target<E: Event + Message>(
+//         &mut self,
+//         event: &E,
+//         channel_kind: ChannelKind,
+//         target: NetworkTarget,
+//     ) -> Result<(), Self::Error> {
+//         if self.message_registry.is_map_entities::<E>() {
+//             self.buffer_map_entities_event(
+//                 event,
+//                 EventReplicationMode::Trigger,
+//                 channel_kind,
+//                 target,
+//             )?;
+//         } else {
+//             self.message_registry.serialize_event(
+//                 event,
+//                 EventReplicationMode::Trigger,
+//                 &mut self.writer,
+//                 &mut SendEntityMap::default(),
+//             )?;
+//             let message_bytes = self.writer.split();
+//             self.buffer_message_bytes(message_bytes, channel_kind, target)?;
+//         }
+//         Ok(())
+//     }
+// }
 
 impl MessageSend for ConnectionManager {}
 

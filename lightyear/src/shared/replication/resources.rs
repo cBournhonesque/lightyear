@@ -480,11 +480,6 @@ mod tests {
         stepper.frame_step();
         stepper.frame_step();
 
-        dbg!(
-            "CLIENT RESOURCE: {:?}",
-            stepper.client_app.world().resource::<Resource1>()
-        );
-
         // check that the update was replicated
         assert_eq!(stepper.client_app.world().resource::<Resource1>().0, 2.0);
         assert_eq!(stepper.server_app.world().resource::<Resource1>().0, 2.0);

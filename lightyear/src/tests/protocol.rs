@@ -208,7 +208,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // events
-        app.register_event::<IntegerEvent>(ChannelDirection::Bidirectional);
+        // app.register_event::<IntegerEvent>(ChannelDirection::Bidirectional);
         // messages
         app.register_message::<StringMessage>(ChannelDirection::Bidirectional);
         app.register_message::<EntityMessage>(ChannelDirection::Bidirectional)

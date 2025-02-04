@@ -10,7 +10,7 @@ use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
 use bevy::prelude::{
     not, Commands, FilteredResourcesMut, IntoSystemConfigs, ResMut, SystemParamBuilder,
 };
-use tracing::{error, trace};
+use tracing::error;
 
 /// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
 #[allow(type_alias_bounds)]
@@ -37,12 +37,9 @@ impl Plugin for ServerMessagePlugin {
         let read_messages = (
             FilteredResourcesMutParamBuilder::new(|builder| {
                 message_registry
-                    .receive_metadata
+                    .messages
+                    .server_receive
                     .values()
-                    .filter(|metadata| {
-                        metadata.message_type == MessageType::Normal
-                            || metadata.message_type == MessageType::Event
-                    })
                     .for_each(|metadata| {
                         builder.add_write_by_id(metadata.component_id);
                     });
@@ -76,7 +73,7 @@ fn read_messages(
         connection.received_messages.drain(..).for_each(
             |(message_bytes, target, channel_kind)| {
                 let mut reader = Reader::from(message_bytes);
-                match message_registry.receive_message(
+                match message_registry.server_receive_message(
                     &mut commands,
                     &mut events,
                     *client_id,

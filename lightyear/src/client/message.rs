@@ -5,8 +5,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::error::ClientError;
 use crate::prelude::client::{ClientConnection, NetClient};
 use crate::prelude::{client::is_connected, Channel, ChannelKind, ClientId, InputChannel, MainSet, Message, MessageSend};
-use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
-use crate::protocol::registry::NetId;
+use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::message::private::InternalMessageSend;
@@ -43,12 +42,9 @@ impl Plugin for ClientMessagePlugin {
         let send_messages = (
             FilteredResourcesMutParamBuilder::new(|builder| {
                 message_registry
-                    .send_metadata
+                    .messages
+                    .client_send
                     .iter()
-                    .filter(|metadata| {
-                        metadata.message_type == MessageType::Normal
-                            || metadata.message_type == MessageType::Event
-                    })
                     .for_each(|metadata| {
                         builder.add_write_by_id(metadata.component_id);
                     });
@@ -62,12 +58,9 @@ impl Plugin for ClientMessagePlugin {
         let read_messages = (
             FilteredResourcesMutParamBuilder::new(|builder| {
                 message_registry
-                    .receive_metadata
+                    .messages
+                    .client_receive
                     .values()
-                    .filter(|metadata| {
-                        metadata.message_type == MessageType::Normal
-                            || metadata.message_type == MessageType::Event
-                    })
                     .for_each(|metadata| {
                         builder.add_write_by_id(metadata.component_id);
                     });
@@ -176,24 +169,23 @@ fn send_messages(
     mut connection: ResMut<ConnectionManager>,
 ) {
     let connection = connection.as_mut();
-    let _ = message_registry.send_messages(
+    let _ = message_registry.client_send_messages(
         &mut send_events,
         &mut connection.message_manager,
         &mut connection.replication_receiver.remote_entity_map.local_to_remote,
-        true,
     ).inspect_err(|e| error!("Could not buffer message to send: {:?}", e));
 }
 
 /// In host-server, we read from the ClientSend and immediately write to the
 /// ServerReceive events
 /// TODO: handle rebroadcast
-fn host_server_send_messages(
+fn send_messages_local(
     mut client_send_events: FilteredResourcesMut,
     mut server_receive_events: FilteredResourcesMut,
     message_registry: ResMut<MessageRegistry>,
     client: Res<ClientConnection>,
 ) {
-    message_registry.send_host_server_messages(
+    message_registry.client_send_messages_local(
         &mut client_send_events,
         &mut server_receive_events,
         client.id(),
@@ -228,7 +220,7 @@ fn read_messages(
             while let Some((tick, bytes)) = channel.receiver.read_message() {
                 let _ = message_registry
                     // we have to re-decode the net id
-                    .receive_message(
+                    .client_receive_message(
                         &mut commands,
                         &mut events,
                         // TODO: include the client that rebroadcasted the message?

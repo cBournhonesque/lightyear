@@ -85,10 +85,8 @@ pub type ComponentRemoveEvent<C> = crate::shared::events::components::ComponentR
 
 #[cfg(test)]
 mod tests {
-    use crate::client::connection::ConnectionManager;
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{Channel1, IntegerEvent};
-    use bevy::prelude::{EventReader, ResMut, Resource, Trigger, Update};
+    use crate::tests::protocol::IntegerEvent;
+    use bevy::prelude::{EventReader, ResMut, Resource, Trigger};
 
     #[derive(Resource, Default)]
     struct Counter(usize);
@@ -105,82 +103,82 @@ mod tests {
         counter.0 += 1;
     }
 
-    /// Check that client sending an event works correctly:
-    /// - the event gets buffered to EventWriter on the server
-    /// - it works for the Local client in HostServer mode (the server still receives the event)
-    // TODO: - the server can re-broadcast the event to another client
-    #[test]
-    fn test_client_send_event_buffered() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::ERROR)
-            .init();
-        let mut stepper = HostServerStepper::default();
-
-        stepper.server_app.init_resource::<Counter>();
-        stepper.server_app.add_systems(Update, count_events);
-
-        // client send event to server
-        stepper
-            .client_app
-            .world_mut()
-            .resource_mut::<ConnectionManager>()
-            .send_event::<Channel1, _>(&IntegerEvent(2))
-            .unwrap();
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // verify that the server received the message
-        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
-
-        // local client send event to server
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<ConnectionManager>()
-            .send_event::<Channel1, _>(&IntegerEvent(2))
-            .unwrap();
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // verify that the server received the message
-        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 2);
-    }
-
-    /// Check that client sending an event works correctly:
-    /// - the event gets triggered
-    /// - it works for the Local client in HostServer mode (the server still receives the event)
-    // TODO: - the server can re-broadcast the event to another client
-    #[test]
-    fn test_client_send_event_triggered() {
-        let mut stepper = HostServerStepper::default();
-
-        stepper.server_app.init_resource::<Counter>();
-        stepper.server_app.add_observer(observe_events);
-
-        // client send event to server
-        stepper
-            .client_app
-            .world_mut()
-            .resource_mut::<ConnectionManager>()
-            .trigger_event::<Channel1, _>(&IntegerEvent(2))
-            .unwrap();
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // verify that the server received the message
-        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
-
-        // local client send event to server
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<ConnectionManager>()
-            .trigger_event::<Channel1, _>(&IntegerEvent(2))
-            .unwrap();
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // verify that the server received the message
-        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 2);
-    }
+    // /// Check that client sending an event works correctly:
+    // /// - the event gets buffered to EventWriter on the server
+    // /// - it works for the Local client in HostServer mode (the server still receives the event)
+    // // TODO: - the server can re-broadcast the event to another client
+    // #[test]
+    // fn test_client_send_event_buffered() {
+    //     tracing_subscriber::FmtSubscriber::builder()
+    //         .with_max_level(tracing::Level::ERROR)
+    //         .init();
+    //     let mut stepper = HostServerStepper::default();
+    //
+    //     stepper.server_app.init_resource::<Counter>();
+    //     stepper.server_app.add_systems(Update, count_events);
+    //
+    //     // client send event to server
+    //     stepper
+    //         .client_app
+    //         .world_mut()
+    //         .resource_mut::<ConnectionManager>()
+    //         .send_event::<Channel1, _>(&IntegerEvent(2))
+    //         .unwrap();
+    //     stepper.frame_step();
+    //     stepper.frame_step();
+    //
+    //     // verify that the server received the message
+    //     assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+    //
+    //     // local client send event to server
+    //     stepper
+    //         .server_app
+    //         .world_mut()
+    //         .resource_mut::<ConnectionManager>()
+    //         .send_event::<Channel1, _>(&IntegerEvent(2))
+    //         .unwrap();
+    //     stepper.frame_step();
+    //     stepper.frame_step();
+    //
+    //     // verify that the server received the message
+    //     assert_eq!(stepper.server_app.world().resource::<Counter>().0, 2);
+    // }
+    //
+    // /// Check that client sending an event works correctly:
+    // /// - the event gets triggered
+    // /// - it works for the Local client in HostServer mode (the server still receives the event)
+    // // TODO: - the server can re-broadcast the event to another client
+    // #[test]
+    // fn test_client_send_event_triggered() {
+    //     let mut stepper = HostServerStepper::default();
+    //
+    //     stepper.server_app.init_resource::<Counter>();
+    //     stepper.server_app.add_observer(observe_events);
+    //
+    //     // client send event to server
+    //     stepper
+    //         .client_app
+    //         .world_mut()
+    //         .resource_mut::<ConnectionManager>()
+    //         .trigger_event::<Channel1, _>(&IntegerEvent(2))
+    //         .unwrap();
+    //     stepper.frame_step();
+    //     stepper.frame_step();
+    //
+    //     // verify that the server received the message
+    //     assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+    //
+    //     // local client send event to server
+    //     stepper
+    //         .server_app
+    //         .world_mut()
+    //         .resource_mut::<ConnectionManager>()
+    //         .trigger_event::<Channel1, _>(&IntegerEvent(2))
+    //         .unwrap();
+    //     stepper.frame_step();
+    //     stepper.frame_step();
+    //
+    //     // verify that the server received the message
+    //     assert_eq!(stepper.server_app.world().resource::<Counter>().0, 2);
+    // }
 }
