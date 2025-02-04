@@ -1,7 +1,7 @@
 //! Specify how a Server sends/receives messages with a Client
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{Component, Entity, Event, Resource, World};
+use bevy::prelude::{Component, Entity, Resource, World};
 use bevy::ptr::Ptr;
 use bevy::utils::{hashbrown, hashbrown::hash_map::Entry};
 use bevy::utils::{Duration, HashMap};
@@ -30,8 +30,9 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{
     ComponentError, ComponentKind, ComponentNetId, ComponentRegistry,
 };
+use crate::protocol::message::registry::{MessageRegistry, MessageType};
 // use crate::protocol::event::EventReplicationMode;
-use crate::protocol::message::{MessageError, MessageRegistry, MessageType};
+use crate::protocol::message::MessageError;
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
@@ -41,9 +42,7 @@ use crate::server::error::ServerError;
 use crate::server::events::{ConnectEvent, ServerEvents};
 use crate::server::relevance::error::RelevanceError;
 use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::events::private::InternalEventSend;
-use crate::shared::events::EventSend;
-use crate::shared::message::{private::InternalMessageSend, MessageSend};
+use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::components::ReplicationGroupId;
@@ -230,51 +229,32 @@ impl ConnectionManager {
     }
 
     /// Find the list of connected clients that match the provided [`NetworkTarget`]
-    pub(crate) fn connected_targets(
-        &self,
-        target: NetworkTarget,
-    ) -> Box<dyn Iterator<Item = ClientId>> {
-        // TODO: avoid extra allocations ...
+    pub(crate) fn connected_targets<'a: 'b, 'b>(
+        &'a self,
+        target: &'b NetworkTarget,
+    ) -> Box<dyn Iterator<Item = &'a Connection> + 'b> {
+        // TODO: avoid extra allocations ... maybe by putting the list of connected clients in a separate resource?
         match target {
             NetworkTarget::All => {
-                // TODO: maybe only send stuff when the client is time-synced ?
-                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
-                Box::new(connected_clients.into_iter())
+                Box::new(self.connections.values())
             }
             NetworkTarget::AllExceptSingle(client_id) => {
-                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
-                Box::new(
-                    connected_clients
-                        .into_iter()
-                        .filter(move |id| *id != client_id),
-                )
+                Box::new(self.connections.values().filter(move |c| c.client_id != *client_id))
             }
             NetworkTarget::AllExcept(client_ids) => {
-                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
-                Box::new(
-                    connected_clients
-                        .into_iter()
-                        .filter(move |id| !client_ids.contains(id)),
-                )
+                Box::new(self.connections.values().filter(move |c| !client_ids.contains(&c.client_id)))
             }
             NetworkTarget::Single(client_id) => {
-                if self.connections.contains_key(&client_id) {
-                    Box::new(std::iter::once(client_id))
-                } else {
-                    Box::new(std::iter::empty())
-                }
+                Box::new(self.connections.get(client_id).into_iter())
             }
             NetworkTarget::Only(client_ids) => {
-                let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
-                Box::new(
-                    connected_clients
-                        .into_iter()
-                        .filter(move |id| client_ids.contains(id)),
-                )
+                Box::new(self.connections.values().filter(move |c| client_ids.contains(&c.client_id)))
             }
             NetworkTarget::None => Box::new(std::iter::empty()),
         }
     }
+
+
 
     pub fn connection(&self, client_id: ClientId) -> Result<&Connection, ServerError> {
         self.connections
@@ -341,57 +321,9 @@ impl ConnectionManager {
         };
     }
 
-    pub(crate) fn buffer_message_bytes(
-        &mut self,
-        message: Bytes,
-        channel: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ServerError> {
-        self.connections
-            .iter_mut()
-            .filter(|(id, _)| target.targets(id))
-            .try_for_each(|(_, c)| {
-                // for local clients, we don't want to buffer messages in the MessageManager since
-                // there is no io
-                if c.is_local_client() {
-                    c.local_messages_to_send.push(message.clone())
-                } else {
-                    // NOTE: this clone is O(1), it just increments the reference count
-                    c.buffer_message(message.clone(), channel)?;
-                }
-                Ok::<(), ServerError>(())
-            })
-    }
 
-    /// Buffer a `MapEntities` message to remote clients.
-    /// We cannot serialize the message once, we need to instead map the message for each client
-    /// using the `EntityMap` of that connection.
-    fn buffer_map_entities_message<M: Message>(
-        &mut self,
-        message: &M,
-        channel: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ServerError> {
-        self.connections
-            .iter_mut()
-            .filter(|(id, _)| target.targets(id))
-            .try_for_each(|(_, c)| {
-                self.message_registry.serialize(
-                    message,
-                    &mut self.writer,
-                    &mut c.replication_receiver.remote_entity_map.local_to_remote,
-                )?;
-                let message_bytes = self.writer.split();
-                // for local clients, we don't want to buffer messages in the MessageManager since
-                // there is no io
-                if c.is_local_client() {
-                    c.local_messages_to_send.push(message_bytes);
-                } else {
-                    c.buffer_message(message_bytes, channel)?;
-                }
-                Ok::<(), ServerError>(())
-            })
-    }
+
+
 
     // /// Buffer a `MapEntities` message to remote clients.
     // /// We cannot serialize the message once, we need to instead map the message for each client
@@ -503,9 +435,35 @@ impl ConnectionManager {
     }
 }
 
+/// Find the list of connected clients that match the provided [`NetworkTarget`]
+pub(crate) fn connected_targets_mut<'a: 'b, 'b>(
+    connections: &'a mut HashMap<ClientId, Connection>,
+    target: &'b NetworkTarget,
+) -> Box<dyn Iterator<Item = &'a mut Connection> + 'b> {
+    // TODO: avoid extra allocations ... maybe by putting the list of connected clients in a separate resource?
+    match target {
+        NetworkTarget::All => {
+            Box::new(connections.values_mut())
+        }
+        NetworkTarget::AllExceptSingle(client_id) => {
+            Box::new(connections.values_mut().filter(move |c| c.client_id != *client_id))
+        }
+        NetworkTarget::AllExcept(client_ids) => {
+            Box::new(connections.values_mut().filter(move |c| !client_ids.contains(&c.client_id)))
+        }
+        NetworkTarget::Single(client_id) => {
+            Box::new(connections.get_mut(client_id).into_iter())
+        }
+        NetworkTarget::Only(client_ids) => {
+            Box::new(connections.values_mut().filter(move |c| client_ids.contains(&c.client_id)))
+        }
+        NetworkTarget::None => Box::new(std::iter::empty()),
+    }
+}
+
 /// Wrapper that handles the connection between the server and a client
 pub struct Connection {
-    client_id: ClientId,
+    pub(crate) client_id: ClientId,
     /// We create one entity per connected client, so that users
     /// can store metadata about the client using the ECS
     pub(crate) entity: Entity,
@@ -517,12 +475,13 @@ pub struct Connection {
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
+    pub(crate) received_triggers: Vec<(Bytes, NetworkTarget, ChannelKind)>,
     pub(crate) received_messages: Vec<(Bytes, NetworkTarget, ChannelKind)>,
     pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages:
         HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
-    writer: Writer,
+    pub(crate) writer: Writer,
     // messages that we have received that need to be rebroadcasted to other clients
     pub(crate) messages_to_rebroadcast: Vec<(Bytes, NetworkTarget, ChannelKind)>,
     /// True if this connection corresponds to a local client when running in host-server mode
@@ -530,6 +489,8 @@ pub struct Connection {
     /// Messages to send to the local client (we don't buffer them in the MessageManager because there is no io)
     pub(crate) local_messages_to_send: Vec<Bytes>,
 }
+
+
 
 impl Connection {
     pub(crate) fn new(
@@ -574,6 +535,7 @@ impl Connection {
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             events: ConnectionEvents::default(),
+            received_triggers: Vec::default(),
             received_messages: Vec::default(),
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
@@ -785,9 +747,12 @@ impl Connection {
                                     .or_default()
                                     .push((bytes, target, *channel_kind));
                             }
-                            MessageType::Normal | MessageType::Event => {
+                            MessageType::Normal => {
                                 self.received_messages
                                     .push((bytes, target, *channel_kind));
+                            }
+                            MessageType::Trigger => {
+                                self.received_triggers.push((bytes, target, *channel_kind));
                             }
                         }
                     }
@@ -842,9 +807,12 @@ impl Connection {
                 .entry(net_id)
                 .or_default()
                 .push((bytes, target, channel_kind)),
-            MessageType::Normal | MessageType::Event => {
+            MessageType::Normal => {
                 self.received_messages
                     .push((bytes, target, channel_kind))
+            }
+            MessageType::Trigger => {
+                self.received_triggers.push((bytes, target, channel_kind))
             }
         }
         Ok(())
@@ -865,6 +833,26 @@ impl Connection {
         trace!("Received server packet with tick: {:?}", tick);
         Ok(())
     }
+
+    /// Helper function to prepare component insert for components for which we know the type
+    pub(crate) fn prepare_typed_component_insert<C: Component>(
+        &mut self,
+        entity: Entity,
+        group_id: ReplicationGroupId,
+        component_registry: &ComponentRegistry,
+        data: &mut C,
+    ) -> Result<(), ServerError> {
+        let net_id = component_registry
+            .get_net_id::<C>()
+            .ok_or::<ServerError>(ComponentError::NotRegistered.into())?;
+        // TODO: add SendEntityMap here!
+        // We store the Bytes in a hashmap, maybe more efficient to write the replication message directly?
+        component_registry.serialize(data, &mut self.writer, &mut SendEntityMap::default())?;
+        let raw_data = self.writer.split();
+        self.replication_sender
+            .prepare_component_insert(entity, group_id, raw_data);
+        Ok(())
+    }
 }
 
 impl ConnectionManager {
@@ -874,7 +862,7 @@ impl ConnectionManager {
         group_id: ReplicationGroupId,
         target: NetworkTarget,
     ) -> Result<(), ServerError> {
-        self.connected_targets(target).try_for_each(|client_id| {
+        connected_targets_mut(&mut self.connections, &target).try_for_each(|connection| {
             // trace!(
             //     ?entity,
             //     ?client_id,
@@ -883,13 +871,12 @@ impl ConnectionManager {
             // );
 
             // convert the entity to a network entity (possibly mapped)
-            entity = self
-                .connection_mut(client_id)?
+            entity = connection
                 .replication_receiver
                 .remote_entity_map
                 .to_remote(entity);
 
-            self.connection_mut(client_id)?
+            connection
                 .replication_sender
                 .prepare_entity_despawn(entity, group_id);
             Ok(())
@@ -905,9 +892,8 @@ impl ConnectionManager {
     ) -> Result<(), ServerError> {
         let group_id = group.group_id(Some(entity));
         debug!(?entity, ?kind, "Sending RemoveComponent");
-        self.connected_targets(target).try_for_each(|client_id| {
-            entity = self
-                .connection_mut(client_id)?
+        connected_targets_mut(&mut self.connections,&target).try_for_each(|connection| {
+            entity = connection
                 .replication_receiver
                 .remote_entity_map
                 .to_remote(entity);
@@ -918,7 +904,7 @@ impl ConnectionManager {
             //  - Frame 3: action
             //  - Frame 4: send
             //  then we won't send the frame-2 update because we only collect changes since frame 3
-            self.connection_mut(client_id)?
+            connection
                 .replication_sender
                 .prepare_component_remove(entity, group_id, kind);
             Ok(())
@@ -1002,11 +988,9 @@ impl ConnectionManager {
             };
             raw_data = Some(self.writer.split());
         }
-        self.connected_targets(actual_target)
-            .try_for_each(|client_id| {
+        for connection in connected_targets_mut(&mut self.connections, &actual_target) {
                 // convert the entity to a network entity (in case we need to map it)
-                let entity = self
-                    .connection_mut(client_id)?
+                let entity = connection
                     .replication_receiver
                     .remote_entity_map
                     .to_remote(entity);
@@ -1023,10 +1007,7 @@ impl ConnectionManager {
                                 &mut self.writer,
                                 kind,
                                 // we do this to avoid split-borrow errors...
-                                    &mut self
-                                        .connections
-                                        .get_mut(&client_id)
-                                        .ok_or(ServerError::ClientIdNotFound(client_id))?
+                                    &mut connection
                                         .replication_receiver
                                         .remote_entity_map
                                         .local_to_remote,
@@ -1038,10 +1019,7 @@ impl ConnectionManager {
                             &mut self.writer,
                             kind,
                             // we do this to avoid split-borrow errors...
-                                &mut self
-                                    .connections
-                                    .get_mut(&client_id)
-                                    .ok_or(ServerError::ClientIdNotFound(client_id))?
+                                &mut connection
                                     .replication_receiver
                                     .remote_entity_map
                                     .local_to_remote,
@@ -1064,11 +1042,11 @@ impl ConnectionManager {
                 //     .entry(group)
                 //     .or_default()
                 //     .update_collect_changes_since_this_tick(system_current_tick);
-                self.connection_mut(client_id)?
+                connection
                     .replication_sender
                     .prepare_component_insert(entity, group_id, raw_data.clone().unwrap());
-                Ok(())
-            })
+        }
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1087,8 +1065,7 @@ impl ConnectionManager {
     ) -> Result<(), ServerError> {
         let mut num_targets = 0;
         let mut existing_bytes: Option<Bytes> = None;
-        self.connected_targets(target).try_for_each(|client_id| {
-            let connection = self.connections.get_mut(&client_id).ok_or(ServerError::ClientIdNotFound(client_id))?;
+        connected_targets_mut(&mut self.connections,&target).try_for_each(|connection| {
             let send_tick = connection
                 .replication_sender
                 .group_channels
@@ -1118,14 +1095,15 @@ impl ConnectionManager {
 
 
                 if delta_compression {
-                    connection.replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut self.writer, &mut self.delta_manager, tick, &mut connection.replication_receiver.remote_entity_map)?;
+                    connection.replication_sender.prepare_delta_component_update(entity, group_id, kind, component, registry, &mut connection.writer, &mut self.delta_manager, tick, &mut connection
+                        .replication_receiver.remote_entity_map)?;
                 } else {
                     // we serialize once and re-use the result for all clients
                     // serialize only if there is at least one client that needs the update
                     if existing_bytes.is_none() || registry.erased_is_map_entities(kind) {
-                        registry.erased_serialize(component, &mut self.writer, kind, &mut connection.replication_receiver.remote_entity_map.local_to_remote)?;
+                        registry.erased_serialize(component, &mut connection.writer, kind, &mut connection.replication_receiver.remote_entity_map.local_to_remote)?;
                         // we re-serialize every time if there is entity mapping
-                        existing_bytes = Some(self.writer.split());
+                        existing_bytes = Some(connection.writer.split());
                     }
                     let raw_data = existing_bytes.clone().unwrap();
                     // use the network entity
@@ -1218,33 +1196,7 @@ impl ConnectionManager {
 //     }
 // }
 
-impl MessageSend for ConnectionManager {}
 
-impl InternalMessageSend for ConnectionManager {
-    type Error = ServerError;
-
-    /// Serialize the message and buffer it to be sent in each `Connection`.
-    ///
-    /// - If the message is not `MapEntities`, we can serialize it once and reuse the same bytes
-    ///   for all `Connections`.
-    /// - If it is `MapEntities`, we need to map it in each connection.
-    fn erased_send_message_to_target<M: Message>(
-        &mut self,
-        message: &M,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ServerError> {
-        if self.message_registry.is_map_entities::<M>() {
-            self.buffer_map_entities_message(message, channel_kind, target)?;
-        } else {
-            self.message_registry
-                .serialize(message, &mut self.writer, &mut SendEntityMap::default())?;
-            let message_bytes = self.writer.split();
-            self.buffer_message_bytes(message_bytes, channel_kind, target)?;
-        }
-        Ok(())
-    }
-}
 
 impl ReplicationPeer for ConnectionManager {
     type Events = ServerEvents;

@@ -1,11 +1,8 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
-use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel};
-use crate::channel::receivers::ChannelReceive;
 use crate::client::connection::ConnectionManager;
 use crate::client::error::ClientError;
 use crate::prelude::client::{ClientConnection, NetClient};
-use crate::prelude::{client::is_connected, Channel, ChannelKind, ClientId, InputChannel, MainSet, Message, MessageSend};
-use crate::protocol::message::{MessageRegistry, MessageType};
+use crate::prelude::{client::is_connected, is_host_server, Channel, ChannelKind, ClientId, MainSet, Message, MessageRegistry, MessageSend};
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::message::private::InternalMessageSend;
@@ -42,8 +39,8 @@ impl Plugin for ClientMessagePlugin {
         let send_messages = (
             FilteredResourcesMutParamBuilder::new(|builder| {
                 message_registry
-                    .messages
-                    .client_send
+                    .client_messages
+                    .send
                     .iter()
                     .for_each(|metadata| {
                         builder.add_write_by_id(metadata.component_id);
@@ -55,11 +52,20 @@ impl Plugin for ClientMessagePlugin {
         ).build_state(app.world_mut())
             .build_system(send_messages);
 
-        let read_messages = (
+        let send_messages_local = (
             FilteredResourcesMutParamBuilder::new(|builder| {
                 message_registry
-                    .messages
-                    .client_receive
+                    .client_messages
+                    .send
+                    .iter()
+                    .for_each(|metadata| {
+                        builder.add_write_by_id(metadata.component_id);
+                    });
+            }),
+            FilteredResourcesMutParamBuilder::new(|builder| {
+                message_registry
+                    .server_messages
+                    .receive
                     .values()
                     .for_each(|metadata| {
                         builder.add_write_by_id(metadata.component_id);
@@ -67,19 +73,39 @@ impl Plugin for ClientMessagePlugin {
             }),
             ParamBuilder,
             ParamBuilder,
+        ).build_state(app.world_mut())
+            .build_system(send_messages_local);
+
+        let read_messages = (
+            FilteredResourcesMutParamBuilder::new(|builder| {
+                message_registry
+                    .client_messages
+                    .receive
+                    .values()
+                    .for_each(|metadata| {
+                        builder.add_write_by_id(metadata.component_id);
+                    });
+            }),
+            ParamBuilder,
             ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(read_messages);
+
         app.add_systems(
             PreUpdate,
-            read_messages
+            (read_messages, read_triggers)
                 .in_set(InternalMainSet::<ClientMarker>::ReceiveEvents)
                 .run_if(is_connected),
         );
         app.add_systems(
             PostUpdate,
-            send_messages.in_set(InternalMainSet::<ClientMarker>::SendEvents)
+            (
+                // we run SendEvents even if the client is disconnected, so that any buffered
+                // messages get drained
+                send_messages.in_set(InternalMainSet::<ClientMarker>::SendEvents).run_if(not(is_host_server)),
+                send_messages_local.in_set(InternalMainSet::<ClientMarker>::SendEvents).run_if(is_host_server),
+            )
         );
         app.configure_sets(PostUpdate, InternalMainSet::<ClientMarker>::SendEvents
             .in_set(MainSet::SendEvents)
@@ -197,6 +223,49 @@ fn send_messages_local(
 /// - Events: send them to EventWriter or trigger them
 fn read_messages(
     mut events: FilteredResourcesMut,
+    message_registry: ResMut<MessageRegistry>,
+    mut connection: ResMut<ConnectionManager>,
+) {
+    // TODO: we could completely split out the MessageManager out of the connection manager!
+    // enable split-borrows
+    let connection = connection.as_mut();
+    // TODO: switch to directly reading from the message manager!
+    //     connection
+    //         .message_manager
+    //         .channels
+    //         .iter_mut()
+    //         // TODO: separate internal from external channels in MessageManager?
+    //         .filter(|(kind, _)| {
+    //             **kind != ChannelKind::of::<PingChannel>()
+    //             && **kind != ChannelKind::of::<PongChannel>()
+    //             && **kind != ChannelKind::of::<EntityActionsChannel>()
+    //             && **kind != ChannelKind::of::<EntityUpdatesChannel>()
+    //             && **kind != ChannelKind::of::<InputChannel>()
+    //         })
+    connection
+        .received_messages
+        .drain(..)
+        .for_each(|(_, bytes)| {
+            let _ = message_registry
+                // we have to re-decode the net id
+                .client_receive_message(
+                    &mut events,
+                    // TODO: include the client that rebroadcasted the message?
+                    ClientId::Local(0),
+                    &mut Reader::from(bytes),
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
+                )
+                .inspect_err(|e| error!("Could not deserialize message: {:?}", e));
+        });
+}
+
+/// Read the messages received from the server and handle them:
+/// - Messages: send a MessageEvent
+/// - Events: send them to EventWriter or trigger them
+fn read_triggers(
     mut commands: Commands,
     message_registry: ResMut<MessageRegistry>,
     mut connection: ResMut<ConnectionManager>,
@@ -204,35 +273,34 @@ fn read_messages(
     // TODO: we could completely split out the MessageManager out of the connection manager!
     // enable split-borrows
     let connection = connection.as_mut();
+    // TODO: switch to directly reading from the message manager!
+    //     connection
+    //         .message_manager
+    //         .channels
+    //         .iter_mut()
+    //         // TODO: separate internal from external channels in MessageManager?
+    //         .filter(|(kind, _)| {
+    //             **kind != ChannelKind::of::<PingChannel>()
+    //             && **kind != ChannelKind::of::<PongChannel>()
+    //             && **kind != ChannelKind::of::<EntityActionsChannel>()
+    //             && **kind != ChannelKind::of::<EntityUpdatesChannel>()
+    //             && **kind != ChannelKind::of::<InputChannel>()
+    //         })
     connection
-        .message_manager
-        .channels
-        .iter_mut()
-        // TODO: separate internal from external channels in MessageManager?
-        .filter(|(kind, _)| {
-            **kind != ChannelKind::of::<PingChannel>()
-            && **kind != ChannelKind::of::<PongChannel>()
-            && **kind != ChannelKind::of::<EntityActionsChannel>()
-            && **kind != ChannelKind::of::<EntityUpdatesChannel>()
-            && **kind != ChannelKind::of::<InputChannel>()
-        })
-        .for_each(|(kind, channel)| {
-            while let Some((tick, bytes)) = channel.receiver.read_message() {
-                let _ = message_registry
-                    // we have to re-decode the net id
-                    .client_receive_message(
-                        &mut commands,
-                        &mut events,
-                        // TODO: include the client that rebroadcasted the message?
-                        ClientId::Local(0),
-                        &mut Reader::from(bytes),
-                        &mut connection
-                            .replication_receiver
-                            .remote_entity_map
-                            .remote_to_local,
-                    )
-                    .inspect_err(|e| error!("Could not deserialize message: {:?}", e));
-            }
+        .received_triggers
+        .drain(..)
+        .for_each(|(_, bytes)| {
+            let _ = message_registry
+                // we have to re-decode the net id
+                .client_receive_trigger(
+                    &mut commands,
+                    &mut Reader::from(bytes),
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
+                )
+                .inspect_err(|e| error!("Could not deserialize message: {:?}", e));
         });
 }
 
@@ -240,10 +308,11 @@ fn read_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::client::ClientTriggerExt;
     use crate::prelude::{ClientSendMessage, ServerReceiveMessage};
     use crate::serialize::writer::Writer;
     use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{Channel1, StringMessage};
+    use crate::tests::protocol::{Channel1, IntegerEvent, StringMessage};
     use crate::tests::stepper::BevyStepper;
     use bevy::prelude::{EventReader, Resource, Update};
 
@@ -274,6 +343,13 @@ mod tests {
             assert_eq!(event.message().0, "a".to_string());
             counter.0 += 1;
         }
+    }
+    /// System to check that we received the message on the server
+    fn count_messages_observer(
+        trigger: Trigger<ServerReceiveMessage<IntegerEvent>>,
+        mut counter: ResMut<Counter>,
+    ) {
+        counter.0 += trigger.event().message.0 as usize;
     }
 
     #[test]
@@ -315,6 +391,41 @@ mod tests {
 
         // verify that the server received the message
         assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+    }
+
+    #[test]
+    fn client_send_message_via_send_event_as_host_server() {
+        let mut stepper = HostServerStepper::default();
+
+        stepper.server_app.init_resource::<Counter>();
+        stepper.server_app.add_systems(Update, count_messages);
+
+        // Send the message by writing to the SendMessage<M> Events
+        stepper.server_app.world_mut().resource_mut::<Events<ClientSendMessage<StringMessage>>>()
+            .send(ClientSendMessage::new::<Channel1>(StringMessage("a".to_string())));
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // verify that the server received the message
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
+    }
+
+    #[test]
+    fn client_send_trigger_via_send_event() {
+        let mut stepper = HostServerStepper::default();
+
+        stepper.server_app.init_resource::<Counter>();
+        stepper.server_app.add_observer(count_messages_observer);
+
+        // Send the message by writing to the SendMessage<M> Events
+        stepper.client_app.world_mut().client_trigger::<Channel1>(IntegerEvent(10));
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // verify that the server received the message
+        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 10);
     }
 }
 

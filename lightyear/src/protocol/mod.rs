@@ -25,6 +25,7 @@ pub(crate) mod event;
 pub(crate) mod registry;
 pub(crate) mod serialize;
 
+
 pub use serialize::SerializeFns;
 
 /// Data that can be used in an Event

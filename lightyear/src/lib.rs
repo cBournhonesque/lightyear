@@ -90,22 +90,22 @@ The full list is available [here](client::events) for the client, and [here](ser
 
 Since they are Bevy events, you can use the Bevy event system to react to them.
 ```rust
-* use bevy::prelude::*;
-* use lightyear::prelude::*;
-* use lightyear::prelude::server::*;
-*
-* # #[derive(Serialize, Deserialize)]
-* # struct MyMessage;
-*
-* fn receive_message(mut message_reader: EventReader<ReceiveMessage<MyMessage>>) {
-*     for message_event in message_reader.read() {
-*        // the message itself
-*        let message = message_event.message();
-*        // the client who sent the message
-*        let client = message_event.from;
-*     }
-* }
-* ```
+use bevy::prelude::*;
+use lightyear::prelude::*;
+use lightyear::prelude::server::*;
+
+# #[derive(Serialize, Deserialize)]
+# struct MyMessage;
+
+fn receive_message(mut message_reader: EventReader<ServerReceiveMessage<MyMessage>>) {
+    for message_event in message_reader.read() {
+       // the message itself
+       let message = message_event.message();
+       // the client who sent the message
+       let client = message_event.from;
+    }
+}
+```
 
 ### Starting replication
 
@@ -199,7 +199,7 @@ pub mod prelude {
     pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
     pub use crate::protocol::component::{AppComponentExt, ComponentRegistry, Linear};
     // pub use crate::protocol::event::AppEventExt;
-    pub use crate::protocol::message::{AppMessageExt, MessageRegistry};
+    pub use crate::protocol::message::{registry::{AppMessageExt, MessageRegistry}, resource::AppResourceExt};
     pub use crate::protocol::serialize::AppSerializeExt;
     pub use crate::shared::config::{Mode, SharedConfig};
     pub use crate::shared::events::EventSend;
@@ -303,6 +303,7 @@ pub mod prelude {
         };
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::client::{SocketConfig, SteamConfig};
+        pub use crate::protocol::message::client::ClientTriggerExt;
     }
     pub mod server {
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
@@ -311,6 +312,7 @@ pub mod prelude {
         pub use crate::connection::server::{IoConfig, NetConfig, NetServer, ServerConnection};
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::{SocketConfig, SteamConfig};
+        pub use crate::protocol::message::server::ServerTriggerExt;
         pub use crate::server::clients::ControlledEntities;
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
         pub use crate::server::connection::ConnectionManager;

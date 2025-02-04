@@ -14,6 +14,7 @@ pub enum NetworkTarget {
     None,
     /// Message sent to all clients except one
     AllExceptSingle(ClientId),
+    // TODO: use small vec
     /// Message sent to all clients except for these
     AllExcept(Vec<ClientId>),
     /// Message sent to all clients

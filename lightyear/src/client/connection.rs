@@ -1,7 +1,7 @@
 //! Specify how a Client sends/receives messages with a Server
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Event, Resource, World};
+use bevy::prelude::{Resource, World};
 use bevy::utils::Duration;
 #[cfg(feature = "leafwing")]
 use bevy::utils::HashMap;
@@ -22,23 +22,20 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::packet::priority_manager::PriorityConfig;
 use crate::prelude::client::PredictionConfig;
-use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationConfig};
+use crate::prelude::{ChannelKind, ClientId, Message, MessageRegistry, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
+use crate::protocol::message::registry::MessageType;
 // use crate::protocol::event::EventReplicationMode;
-use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::server::error::ServerError;
 use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::events::private::InternalEventSend;
-use crate::shared::events::EventSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::{EntityActionsMessage, EntityUpdatesMessage, ReplicationSend};
@@ -83,6 +80,7 @@ pub struct ConnectionManager {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
+    pub(crate) received_triggers: Vec<(NetId, Bytes)>,
     pub(crate) received_messages: Vec<(NetId, Bytes)>,
     pub(crate) writer: Writer,
 
@@ -119,6 +117,7 @@ impl Default for ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
+            received_triggers: Vec::default(),
             received_messages: Vec::default(),
             writer: Writer::with_capacity(0),
             messages_to_send: Vec::default(),
@@ -170,6 +169,7 @@ impl ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
+            received_triggers: Vec::default(),
             received_messages: Vec::default(),
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_send: Vec::default(),
@@ -287,6 +287,8 @@ impl ConnectionManager {
         Ok(())
     }
 
+    // TODO: alternative, if we are running in host-server mode,
+    //  use a special local transport and still buffer things inside the MessageManager?
     /// Send packets that are ready to be sent.
     /// In host-server mode:
     /// - go through messages_to_send and make the server's ConnectionManager receive them
@@ -441,8 +443,11 @@ impl ConnectionManager {
                                 todo!()
                             }
                             // TODO: should we handle these right here in this system?
-                            MessageType::Normal | MessageType::Event => {
+                            MessageType::Normal => {
                                 self.received_messages.push((net_id, single_data));
+                            }
+                            MessageType::Trigger => {
+                                self.received_triggers.push((net_id, single_data));
                             }
                         }
                     }
@@ -479,8 +484,11 @@ impl ConnectionManager {
             MessageType::NativeInput => {
                 todo!()
             }
-            MessageType::Normal | MessageType::Event => {
+            MessageType::Normal => {
                 self.received_messages.push((net_id, single_data));
+            }
+            MessageType::Trigger => {
+                self.received_triggers.push((net_id, single_data));
             }
         }
         Ok(())

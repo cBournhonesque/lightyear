@@ -47,6 +47,7 @@ impl Plugin for ClientNetworkingPlugin {
                     InternalMainSet::<ClientMarker>::Receive
                         .in_set(MainSet::Receive)
                         // do not receive packets when running in host-server mode
+                        // the messages from the server will be transmitted directly
                         .run_if(not(is_host_server)),
                     // we still want to emit events when running in host-server mode
                     InternalMainSet::<ClientMarker>::ReceiveEvents.in_set(MainSet::ReceiveEvents),
@@ -60,8 +61,7 @@ impl Plugin for ClientNetworkingPlugin {
                 // we don't send packets every frame, but on a timer instead
                 (
                     SyncSet.run_if(not(is_host_server)),
-
-                    (InternalMainSet::<ClientMarker>::Send).in_set(MainSet::Send),
+                    InternalMainSet::<ClientMarker>::Send.in_set(MainSet::Send),
                 )
                     .run_if(not(is_disconnected))
                     .chain(),
