@@ -7,7 +7,6 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::server::ReceiveMessage;
 use crate::prelude::{
     server::is_started, InputMessage, MessageRegistry, Mode, ServerReceiveMessage, TickManager,
 };

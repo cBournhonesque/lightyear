@@ -283,8 +283,7 @@ mod tests {
     use crate::protocol::channel::ChannelKind;
     use crate::protocol::component::ComponentKind;
     use crate::tests::protocol::{
-        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce,
-        StringMessage,
+        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, StringMessage,
     };
 
     #[test]

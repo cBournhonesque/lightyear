@@ -20,10 +20,8 @@
 //!     Right,
 //! }
 //!
-//! fn main() {
-//!   let mut app = App::new();
-//!   app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
-//! }
+//! let mut app = App::new();
+//! app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
 //! ```
 //!
 //! ### Usage
@@ -160,7 +158,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         // PLUGINS
         app.add_plugins(InputManagerPlugin::<A>::default());
         // RESOURCES
-        app.insert_resource(self.config.clone());
+        app.insert_resource(self.config);
 
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
@@ -468,9 +466,9 @@ fn get_non_rollback_action_state<A: LeafwingUserAction>(
 ///
 /// We are using the InputBuffer instead of the PredictedHistory because they are a bit different:
 /// - the PredictedHistory is updated at PreUpdate whenever we receive a server message; but here we update every tick
-/// (both for the player's inputs and for the remote player's inputs if we send them every tick)
+///   (both for the player's inputs and for the remote player's inputs if we send them every tick)
 /// - on rollback, we erase the PredictedHistory (because we are going to rollback to compute a new one), but inputs
-/// are different, they shouldn't be erased or overriden since they are not generated from doing the rollback!
+///   are different, they shouldn't be erased or overriden since they are not generated from doing the rollback!
 ///
 /// For actions from other players (with no InputMap), we replicate the ActionState so we have the
 /// correct ActionState value at the rollback tick. To add even more precision during the rollback,
@@ -576,7 +574,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
         ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
             .try_into()
             .unwrap();
-    num_tick = num_tick * input_config.packet_redundancy;
+    num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<A>::new(tick);
     for (entity, input_buffer, predicted, pre_predicted) in input_buffer_query.iter() {
         trace!(
@@ -678,7 +676,7 @@ fn send_input_messages<A: LeafwingUserAction>(
             );
         }
         connection
-            .send_message::<InputChannel, InputMessage<A>>(&mut message)
+            .send_message::<InputChannel, InputMessage<A>>(&message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             });
@@ -749,6 +747,8 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
         return;
     };
 
+    // enable split borrows
+    let connection = connection.as_mut();
     if let Some(message_list) = connection.received_leafwing_input_messages.get_mut(&net) {
         message_list.drain(..).for_each(|message_bytes| {
             let mut reader = Reader::from(message_bytes);
