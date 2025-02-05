@@ -1,7 +1,6 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
-use crate::client::networking::ClientCommands;
-use bevy::ecs::system::RunSystemOnce;
-use bevy::prelude::{default, App, Commands, PluginGroup, Real, Time};
+use crate::client::networking::ClientCommandsExt;
+use bevy::prelude::{default, App, PluginGroup, Real, Time};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::Duration;
@@ -12,7 +11,7 @@ use crate::prelude::client::{
     Authentication, ClientConfig, ClientTransport, InterpolationConfig, NetClient, NetConfig,
     PredictionConfig, SyncConfig,
 };
-use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
+use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
@@ -198,16 +197,16 @@ impl MultiBevyStepper {
         let _ = self
             .server_app
             .world_mut()
-            .run_system_once(|mut commands: Commands| commands.start_server());
+            .start_server();
         let _ = self
             .client_app_1
             .world_mut()
-            .run_system_once(|mut commands: Commands| commands.connect_client());
+            .connect_client();
 
         let _ = self
             .client_app_2
             .world_mut()
-            .run_system_once(|mut commands: Commands| commands.connect_client());
+            .connect_client();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
