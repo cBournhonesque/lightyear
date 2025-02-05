@@ -88,15 +88,15 @@ fn add_action_diff_buffer<A: LeafwingUserAction>(
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: LeafwingUserAction>(
     message_registry: Res<MessageRegistry>,
-    // TODO: use EventReader?
-    mut received_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
+    // we use an EventReader and not an event because the user might want to re-broadcast the inputs
+    mut received_inputs: EventReader<ServerReceiveMessage<InputMessage<A>>>,
     connection_manager: Res<ConnectionManager>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<Option<&mut InputBuffer<A>>>,
     mut commands: Commands,
 ) {
-    received_inputs.drain().for_each(|event| {
-        let message = event.message;
+    received_inputs.read().for_each(|event| {
+        let message = &event.message;
         let client_id = event.from;
         trace!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
 

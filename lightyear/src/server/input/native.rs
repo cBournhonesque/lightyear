@@ -97,10 +97,11 @@ fn handle_client_disconnect<A: UserAction>(
 /// Read the message received from the client and emit the MessageEvent event
 fn receive_input_message<A: UserAction>(
     message_registry: Res<MessageRegistry>,
-    mut received_messages: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
+    // we use an EventReader in case the user wants to read the inputs in another system
+    mut received_messages: EventReader<ServerReceiveMessage<InputMessage<A>>>,
     mut input_buffers: ResMut<InputBuffers<A>>,
 ) {
-    received_messages.drain().for_each(|event| {
+    received_messages.read().for_each(|event| {
         trace!("Received input message: {:?}", event);
         let client = event.from;
         input_buffers
@@ -108,7 +109,7 @@ fn receive_input_message<A: UserAction>(
             .entry(event.from)
             .or_default()
             .1
-            .update_from_message(event.message);
+            .update_from_message(&event.message);
         // TODO: allow automatic rebroadcast?
     });
 }
