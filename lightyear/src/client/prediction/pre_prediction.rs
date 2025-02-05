@@ -156,6 +156,7 @@ mod tests {
     use crate::prelude::server;
     use crate::prelude::server::AuthorityPeer;
     use crate::prelude::{client, ClientId};
+    use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{ComponentClientToServer, ComponentSyncModeFull};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
@@ -355,5 +356,38 @@ mod tests {
             .world()
             .get::<Confirmed>(confirmed_entity)
             .is_some());
+    }
+
+    #[test]
+    fn test_pre_prediction_host_server() {
+        let mut stepper = HostServerStepper::default();
+
+        // spawn a pre-predicted entity on the client
+        let predicted_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                client::Replicate::default(),
+                ComponentSyncModeFull(1.0),
+                PrePredicted::default(),
+            ))
+            .id();
+
+        stepper.frame_step();
+
+        // since we're running in host-stepper mode, the Predicted component should also have been added
+        // (but not Confirmed)
+        let confirmed_entity = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<Predicted>>()
+            .get_single(stepper.server_app.world())
+            .unwrap();
+
+        // need to step multiple times because the server entity doesn't handle messages from future ticks
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
     }
 }
