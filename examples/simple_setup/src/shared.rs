@@ -5,7 +5,6 @@ use bevy::utils::Duration;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use lightyear::prelude::*;
-use lightyear::shared::config::Mode;
 
 pub const FIXED_TIMESTEP_HZ: f64 = 64.0;
 

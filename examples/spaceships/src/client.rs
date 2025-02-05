@@ -102,6 +102,11 @@ fn handle_new_player(
             ]));
         } else {
             info!("Remote player replicated to us: {entity:?} {player:?}");
+            // inserting an input buffer for other clients so that we can predict them properly
+            // (the server will send other player's inputs to us; we will receive them on time thanks to input delay)
+            commands
+                .entity(entity)
+                .insert(InputBuffer::<PlayerActions>::default());
         }
         let client_id = connection.id();
         info!(?entity, ?client_id, "adding physics to predicted player");

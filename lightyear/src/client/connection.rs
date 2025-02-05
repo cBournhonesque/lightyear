@@ -25,8 +25,6 @@ use crate::prelude::client::PredictionConfig;
 use crate::prelude::{ChannelKind, ClientId, Message, MessageRegistry, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
-use crate::protocol::message::registry::MessageType;
-// use crate::protocol::event::EventReplicationMode;
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
@@ -408,25 +406,9 @@ impl ConnectionManager {
                         self.replication_receiver.recv_updates(updates, tick);
                     } else {
                         // TODO: this code is copy-pasted from self.receive_message because of borrow checker limitations
-                        // identify the type of message
                         let net_id = NetId::from_bytes(&mut reader)?;
                         let single_data = reader.consume();
-                        match self.message_registry.message_type(net_id) {
-                            #[cfg(feature = "leafwing")]
-                            MessageType::LeafwingInput => {
-                                self.received_leafwing_input_messages
-                                    .entry(net_id)
-                                    .or_default()
-                                    .push(single_data);
-                            }
-                            MessageType::NativeInput => {
-                                todo!()
-                            }
-                            // TODO: should we handle these right here in this system?
-                            MessageType::Normal | MessageType::Trigger => {
-                                self.received_messages.push((net_id, single_data));
-                            }
-                        }
+                        self.received_messages.push((net_id, single_data));
                     }
                 }
                 Ok::<(), SerializationError>(())
@@ -450,21 +432,7 @@ impl ConnectionManager {
         // identify the type of message
         let net_id = NetId::from_bytes(&mut reader)?;
         let single_data = reader.consume();
-        match self.message_registry.message_type(net_id) {
-            #[cfg(feature = "leafwing")]
-            MessageType::LeafwingInput => {
-                self.received_leafwing_input_messages
-                    .entry(net_id)
-                    .or_default()
-                    .push(single_data);
-            }
-            MessageType::NativeInput => {
-                todo!()
-            }
-            MessageType::Normal | MessageType::Trigger => {
-                self.received_messages.push((net_id, single_data));
-            }
-        }
+        self.received_messages.push((net_id, single_data));
         Ok(())
     }
 

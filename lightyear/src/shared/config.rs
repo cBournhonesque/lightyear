@@ -14,7 +14,6 @@ pub struct SharedConfig {
     pub tick: TickConfig,
 }
 
-
 impl Default for SharedConfig {
     fn default() -> Self {
         Self {

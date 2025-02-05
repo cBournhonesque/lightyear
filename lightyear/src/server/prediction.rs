@@ -1,7 +1,10 @@
 //! Handles logic related to prespawning entities
 
 use crate::prelude::server::{AuthorityCommandExt, AuthorityPeer};
-use crate::prelude::{is_host_server, ComponentRegistry, NetworkIdentityState, PrePredicted, PreSpawnedPlayerObject, Replicated, ServerConnectionManager, TickManager};
+use crate::prelude::{
+    is_host_server, ComponentRegistry, NetworkIdentityState, PrePredicted, PreSpawnedPlayerObject,
+    Replicated, ServerConnectionManager, TickManager,
+};
 use crate::shared::replication::prespawn::compute_default_hash;
 use bevy::ecs::component::Components;
 use bevy::prelude::*;

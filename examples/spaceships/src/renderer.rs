@@ -13,6 +13,7 @@ use leafwing_input_manager::action_state::ActionState;
 use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
+use lightyear::prelude::Replicating;
 use lightyear::shared::tick_manager;
 use lightyear::shared::tick_manager::Tick;
 use lightyear::shared::tick_manager::TickManager;
@@ -45,7 +46,6 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.add_systems(
             PostUpdate,
             (
-                add_player_label,
                 update_player_label,
                 draw_confirmed_shadows.run_if(move || draw_shadows),
                 draw_predicted_entities,
@@ -55,6 +55,7 @@ impl Plugin for SpaceshipsRendererPlugin {
                 .chain()
                 .after(bevy::transform::TransformSystem::TransformPropagate),
         );
+        app.add_observer(add_player_label);
 
         app.add_systems(FixedPreUpdate, insert_bullet_mesh);
 
@@ -113,11 +114,13 @@ fn init_camera(mut commands: Commands) {
 }
 
 fn add_player_label(
+    trigger: Trigger<OnAdd, Player>,
     mut commands: Commands,
-    q: Query<(Entity, &Player, &Score), (With<Predicted>, Added<Collider>)>,
+    // add the label on both client and server
+    q: Query<(Entity, &Player, &Score), Or<(With<Predicted>, With<Replicating>)>>,
 ) {
-    for (e, player, score) in q.iter() {
-        debug!("Adding visual bits to {e:?}");
+    if let Ok((e, player, score)) = q.get(trigger.entity()) {
+        error!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
             Visibility::default(),
             Transform::default(),
@@ -141,7 +144,11 @@ fn update_player_label(
             &InputBuffer<PlayerActions>,
             &Score,
         ),
-        Or<(Changed<Player>, Changed<Score>)>,
+        Or<(
+            Changed<Player>,
+            Changed<Score>,
+            Changed<InputBuffer<PlayerActions>>,
+        )>,
     >,
     tick_manager: Res<TickManager>,
 ) {

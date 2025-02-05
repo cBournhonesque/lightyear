@@ -372,7 +372,7 @@ mod lobby {
                     AppState::Game => {}
                 };
                 match state.get() {
-                    NetworkingState::Disconnected => {
+                    NetworkingState::Disconnected | NetworkingState::Disconnecting => {
                         if ui.button("Join lobby list").clicked() {
                             // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
                             // - the new host must run in host-server

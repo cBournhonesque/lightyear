@@ -8,7 +8,10 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::is_synced;
-use crate::prelude::{is_host_server, HasAuthority, NetworkIdentityState, ReplicateHierarchy, Replicating, ReplicationGroup, ShouldBePredicted, TickManager};
+use crate::prelude::{
+    is_host_server, HasAuthority, NetworkIdentityState, ReplicateHierarchy, Replicating,
+    ReplicationGroup, ShouldBePredicted, TickManager,
+};
 use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};

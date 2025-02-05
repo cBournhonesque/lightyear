@@ -30,8 +30,7 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{
     ComponentError, ComponentKind, ComponentNetId, ComponentRegistry,
 };
-use crate::protocol::message::registry::{MessageRegistry, MessageType};
-// use crate::protocol::event::EventReplicationMode;
+use crate::protocol::message::registry::MessageRegistry;
 use crate::protocol::message::MessageError;
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
@@ -627,23 +626,7 @@ impl Connection {
                         //  or it matters for input messages?
                         // TODO: avoid clone with Arc<[u8]>?
                         let bytes = reader.consume();
-                        match message_registry.message_type(net_id) {
-                            #[cfg(feature = "leafwing")]
-                            MessageType::LeafwingInput => self
-                                .received_leafwing_input_messages
-                                .entry(net_id)
-                                .or_default()
-                                .push((bytes, target, *channel_kind)),
-                            MessageType::NativeInput => {
-                                self.received_input_messages
-                                    .entry(net_id)
-                                    .or_default()
-                                    .push((bytes, target, *channel_kind));
-                            }
-                            MessageType::Normal | MessageType::Trigger => {
-                                self.received_messages.push((bytes, target, *channel_kind));
-                            }
-                        }
+                        self.received_messages.push((bytes, target, *channel_kind));
                     }
                 }
                 Ok::<(), SerializationError>(())
@@ -684,22 +667,7 @@ impl Connection {
         // client World to the server World
         // TODO: avoid clone with Arc<[u8]>?
         let bytes = reader.consume();
-        match message_registry.message_type(net_id) {
-            #[cfg(feature = "leafwing")]
-            MessageType::LeafwingInput => self
-                .received_leafwing_input_messages
-                .entry(net_id)
-                .or_default()
-                .push((bytes, target, channel_kind)),
-            MessageType::NativeInput => self
-                .received_input_messages
-                .entry(net_id)
-                .or_default()
-                .push((bytes, target, channel_kind)),
-            MessageType::Normal | MessageType::Trigger => {
-                self.received_messages.push((bytes, target, channel_kind))
-            }
-        }
+        self.received_messages.push((bytes, target, channel_kind));
         Ok(())
     }
 
