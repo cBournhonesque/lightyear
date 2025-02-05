@@ -69,7 +69,6 @@ impl Plugin for ClientNetworkingPlugin {
                 (listen_io_state, (receive_packets, receive).chain())
                     .in_set(InternalMainSet::<ClientMarker>::Receive),
             )
-            // TODO: make HostServer a computed state?
             .add_systems(
                 PostUpdate,
                 (
@@ -343,12 +342,8 @@ fn listen_io_state(
         }
     }
     if disconnect {
-        debug!("Going to NetworkingState::Disconnected because of io error.");
-        next_state.set(NetworkingState::Disconnected);
-        // TODO: do we need to disconnect here? we disconnect in the OnEnter(Disconnected) system anyway
-        let _ = netclient
-            .disconnect()
-            .inspect_err(|e| debug!("error disconnecting netclient: {e:?}"));
+        debug!("Going to NetworkingState::Disconnecting because of io error.");
+        next_state.set(NetworkingState::Disconnecting);
     }
 }
 
@@ -517,7 +512,7 @@ fn connect(world: &mut World) {
     }
 }
 
-pub trait ClientCommands {
+pub trait ClientCommandsExt {
     /// Start the connection process
     fn connect_client(&mut self);
 
@@ -525,13 +520,25 @@ pub trait ClientCommands {
     fn disconnect_client(&mut self);
 }
 
-impl ClientCommands for Commands<'_, '_> {
+impl ClientCommandsExt for Commands<'_, '_> {
     fn connect_client(&mut self) {
-        self.insert_resource(NextState::Pending(NetworkingState::Connecting));
+        self.queue(|world: &mut World| world.connect_client());
     }
 
     fn disconnect_client(&mut self) {
-        self.insert_resource(NextState::Pending(NetworkingState::Disconnecting));
+        self.queue(|world: &mut World| world.disconnect_client());
+    }
+}
+
+impl ClientCommandsExt for World {
+    fn connect_client(&mut self) {
+        self.resource_mut::<NextState<NetworkingState>>()
+            .set(NetworkingState::Connecting);
+    }
+
+    fn disconnect_client(&mut self) {
+        self.resource_mut::<NextState<NetworkingState>>()
+            .set(NetworkingState::Disconnecting);
     }
 }
 
@@ -540,7 +547,7 @@ mod tests {
     use bevy::prelude::*;
 
     use crate::{
-        prelude::{client::ClientCommands, server},
+        prelude::{client::ClientCommandsExt, server},
         tests::host_server_stepper::HostServerStepper,
     };
 
@@ -586,14 +593,11 @@ mod tests {
             .server_app
             .init_resource::<CheckCounter>()
             .add_systems(Update, receive_disconnect_event);
-        let mut client_world = stepper.client_app.world_mut();
-        client_world.commands().disconnect_client();
+        stepper.client_app.world_mut().disconnect_client();
         stepper.frame_step();
         stepper.frame_step();
 
-        client_world = stepper.server_app.world_mut();
-        client_world.commands().disconnect_client();
-
+        stepper.server_app.world_mut().disconnect_client();
         stepper.frame_step();
         stepper.frame_step();
         assert_eq!(stepper.server_app.world().resource::<CheckCounter>().0, 2); // 2 because local client as well as external client disconnect

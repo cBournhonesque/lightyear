@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;
-use lightyear::prelude::server::ServerCommands;
+use lightyear::prelude::server::ServerCommandsExt;
 use lightyear::prelude::*;
 
 use crate::protocol::*;

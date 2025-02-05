@@ -732,3 +732,79 @@ pub(crate) mod connection {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::client::networking::ClientCommandsExt;
+    use crate::connection::server::ServerConnections;
+    use crate::prelude::client;
+    use crate::prelude::server::{NetServer, ServerCommandsExt};
+    use crate::tests::stepper::BevyStepper;
+    use bevy::prelude::State;
+    use tracing::{error, trace};
+
+    // TODO: investigate why this test is not working!
+    /// Check that if the client disconnects during the handshake, the server
+    /// gets rid of the client connection properly
+    #[test]
+    #[ignore]
+    fn test_client_disconnect_when_failing_handshake() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_env_filter("crate=error,lightyear=error,bevy=trace")
+            .with_max_level(tracing::Level::ERROR)
+            .init();
+        let mut stepper = BevyStepper::default_no_init();
+
+        let _ = stepper.server_app.world_mut().start_server();
+        let _ = stepper.client_app.world_mut().connect_client();
+
+        // Wait until the server sees a single client
+        for _ in 0..100 {
+            if stepper
+                .server_app
+                .world_mut()
+                .resource_mut::<ServerConnections>()
+                .servers[0]
+                .connected_client_ids()
+                .len()
+                != 0
+            {
+                break;
+            }
+            stepper.frame_step();
+        }
+
+        // TODO: how come this is necessary for the client to be able to enter the Disconnecting state?
+        //  if this is commented then the client does not enter Disconnecting state!
+        for _ in 0..30 {
+            stepper.frame_step();
+        }
+
+        trace!(
+            "Client NetworkingState: {:?}",
+            stepper
+                .client_app
+                .world()
+                .resource::<State<client::NetworkingState>>()
+                .get()
+        );
+        // Immediately disconnect the client
+        let _ = stepper.client_app.world_mut().disconnect_client();
+
+        // Wait for the client to time out
+        for _ in 0..10000 {
+            stepper.frame_step();
+        }
+
+        // The server should have successfully timed out the client
+        assert_eq!(
+            stepper
+                .server_app
+                .world_mut()
+                .resource_mut::<ServerConnections>()
+                .servers[0]
+                .connected_client_ids(),
+            vec![]
+        );
+    }
+}
