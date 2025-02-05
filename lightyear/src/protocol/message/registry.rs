@@ -58,7 +58,11 @@ impl AppMessageInternalExt for App {
         direction: ChannelDirection,
         message_type: MessageType,
     ) -> MessageRegistration<'_, M> {
-        self.register_message_internal_custom_serde::<M>(direction, message_type, SerializeFns::<M>::default())
+        self.register_message_internal_custom_serde::<M>(
+            direction,
+            message_type,
+            SerializeFns::<M>::default(),
+        )
     }
 
     fn register_message_internal_custom_serde<M: Message>(
@@ -84,7 +88,6 @@ impl AppMessageInternalExt for App {
         }
     }
 }
-
 
 /// Add a message to the list of messages that can be sent
 pub trait AppMessageExt {
@@ -122,8 +125,6 @@ impl AppMessageExt for App {
         self.register_message_internal_custom_serde(direction, MessageType::Normal, serialize_fns)
     }
 }
-
-
 
 /// Register the message-receive metadata for a given message M
 pub(crate) fn register_message<M: Message>(
@@ -355,12 +356,16 @@ mod tests {
     fn test_serde() {
         let mut registry = MessageRegistry::default();
         registry.kind_map.add::<Resource1>();
-        registry.serialize_fns_map
-            .insert(MessageKind::of::<Resource1>(), ErasedSerializeFns::new::<Resource1>());
+        registry.serialize_fns_map.insert(
+            MessageKind::of::<Resource1>(),
+            ErasedSerializeFns::new::<Resource1>(),
+        );
 
         let message = Resource1(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&message, &mut writer, &mut SendEntityMap::default()).unwrap();
+        registry
+            .serialize(&message, &mut writer, &mut SendEntityMap::default())
+            .unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
@@ -374,17 +379,17 @@ mod tests {
     fn test_serde_map() {
         let mut registry = MessageRegistry::default();
         registry.kind_map.add::<ComponentMapEntities>();
-        registry.serialize_fns_map
-            .insert(MessageKind::of::<ComponentMapEntities>(), ErasedSerializeFns::new::<ComponentMapEntities>());
+        registry.serialize_fns_map.insert(
+            MessageKind::of::<ComponentMapEntities>(),
+            ErasedSerializeFns::new::<ComponentMapEntities>(),
+        );
         registry.add_map_entities::<ComponentMapEntities>();
 
         let message = ComponentMapEntities(Entity::from_raw(0));
         let mut writer = Writer::default();
         let mut map = SendEntityMap::default();
         map.insert(Entity::from_raw(0), Entity::from_raw(1));
-        registry
-            .serialize(&message, &mut writer, &mut map)
-            .unwrap();
+        registry.serialize(&message, &mut writer, &mut map).unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);
@@ -404,7 +409,9 @@ mod tests {
 
         let message = Resource2(1.0);
         let mut writer = Writer::default();
-        registry.serialize(&message, &mut writer, &mut SendEntityMap::default()).unwrap();
+        registry
+            .serialize(&message, &mut writer, &mut SendEntityMap::default())
+            .unwrap();
         let data = writer.to_bytes();
 
         let mut reader = Reader::from(data);

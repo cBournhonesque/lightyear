@@ -198,11 +198,12 @@ pub mod prelude {
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
     pub use crate::protocol::component::{AppComponentExt, ComponentRegistry, Linear};
-    // pub use crate::protocol::event::AppEventExt;
-    pub use crate::protocol::message::{registry::{AppMessageExt, MessageRegistry}, resource::AppResourceExt};
+    pub use crate::protocol::message::{
+        registry::{AppMessageExt, MessageRegistry},
+        resource::AppResourceExt,
+    };
     pub use crate::protocol::serialize::AppSerializeExt;
     pub use crate::shared::config::{Mode, SharedConfig};
-    pub use crate::shared::events::EventSend;
     #[cfg(feature = "leafwing")]
     pub use crate::shared::input::leafwing::LeafwingInputPlugin;
     pub use crate::shared::input::native::InputPlugin;

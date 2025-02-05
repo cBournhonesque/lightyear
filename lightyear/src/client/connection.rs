@@ -236,23 +236,6 @@ impl ConnectionManager {
         message.map_entities(mapper);
     }
 
-    // /// Send a [`Event`] to the server using a specific [`Channel`].
-    // /// The event will be buffered via EventWriter.
-    // pub fn send_event<C: Channel, E: Event + Message>(
-    //     &mut self,
-    //     event: &E,
-    // ) -> Result<(), ClientError> {
-    //     self.send_event_to_target::<C, E>(event, NetworkTarget::None)
-    // }
-    //
-    // /// Trigger a [`Message`] to the server using a specific [`Channel`]
-    // pub fn trigger_event<C: Channel, E: Event + Message>(
-    //     &mut self,
-    //     event: &E,
-    // ) -> Result<(), ClientError> {
-    //     self.trigger_event_to_target::<C, E>(event, NetworkTarget::None)
-    // }
-
     pub(crate) fn buffer_replication_messages(
         &mut self,
         tick: Tick,
@@ -518,60 +501,6 @@ impl ConnectionManager {
         Ok(())
     }
 }
-
-// impl EventSend for ConnectionManager {}
-//
-// impl InternalEventSend for ConnectionManager {
-//     type Error = ClientError;
-//
-//     fn erased_send_event_to_target<E: Event>(
-//         &mut self,
-//         event: &E,
-//         channel_kind: ChannelKind,
-//         target: NetworkTarget,
-//     ) -> Result<(), Self::Error> {
-//         // write the target first
-//         // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-//         target.to_bytes(&mut self.writer)?;
-//         // then write the message
-//         self.message_registry.serialize_event(
-//             event,
-//             EventReplicationMode::Buffer,
-//             &mut self.writer,
-//             &mut self.replication_receiver.remote_entity_map.local_to_remote,
-//         )?;
-//         let message_bytes = self.writer.split();
-//
-//         // TODO: emit logs/metrics about the message being buffered?
-//         self.messages_to_send.push((message_bytes, channel_kind));
-//         Ok(())
-//     }
-//
-//     fn erased_trigger_event_to_target<E: Event + Message>(
-//         &mut self,
-//         event: &E,
-//         channel_kind: ChannelKind,
-//         target: NetworkTarget,
-//     ) -> Result<(), Self::Error> {
-//         // write the target first
-//         // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-//         target.to_bytes(&mut self.writer)?;
-//         // then write the message
-//         self.message_registry.serialize_event(
-//             event,
-//             EventReplicationMode::Trigger,
-//             &mut self.writer,
-//             &mut self.replication_receiver.remote_entity_map.local_to_remote,
-//         )?;
-//         let message_bytes = self.writer.split();
-//
-//         // TODO: emit logs/metrics about the message being buffered?
-//         self.messages_to_send.push((message_bytes, channel_kind));
-//         Ok(())
-//     }
-// }
-
-
 
 impl ReplicationPeer for ConnectionManager {
     type Events = ConnectionEvents;

@@ -283,7 +283,7 @@ mod tests {
     use crate::protocol::channel::ChannelKind;
     use crate::protocol::component::ComponentKind;
     use crate::tests::protocol::{
-        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, IntegerEvent,
+        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce,
         StringMessage,
     };
 
@@ -325,77 +325,4 @@ mod tests {
         assert!(data.contains(&(entity_1, client_1)));
         assert!(data.contains(&(entity_2, client_2)));
     }
-
-    #[derive(Resource, Default)]
-    struct Counter(usize);
-
-    fn count_events(mut counter: ResMut<Counter>, mut events: EventReader<IntegerEvent>) {
-        for event in events.read() {
-            assert_eq!(event.0, 2);
-            counter.0 += 1;
-        }
-    }
-
-    fn observe_events(trigger: Trigger<IntegerEvent>, mut counter: ResMut<Counter>) {
-        assert_eq!(trigger.event().0, 2);
-        counter.0 += 1;
-    }
-
-    // /// Check that sending an event to clients works correctly:
-    // /// - the event gets buffered to EventWriter
-    // /// - it works for the Local client in HostServer mode
-    // #[test]
-    // fn test_server_send_event_buffered() {
-    //     let mut stepper = HostServerStepper::default();
-    //
-    //     stepper.client_app.init_resource::<Counter>();
-    //     stepper.client_app.add_systems(Update, count_events);
-    //     // for the local client
-    //     stepper.server_app.init_resource::<Counter>();
-    //     stepper.server_app.add_systems(Update, count_events);
-    //
-    //     stepper
-    //         .server_app
-    //         .world_mut()
-    //         .resource_mut::<ConnectionManager>()
-    //         .send_event_to_target::<Channel1, _>(&IntegerEvent(2), NetworkTarget::All)
-    //         .unwrap();
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // verify that the local-client received the message
-    //     assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
-    //
-    //     // verify that the other client received the message
-    //     assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
-    // }
-    //
-    // /// Check that sending an event to clients works correctly:
-    // /// - the event gets triggered
-    // /// - it works for the Local client in HostServer mode
-    // #[test]
-    // fn test_server_send_event_triggered() {
-    //     let mut stepper = HostServerStepper::default();
-    //
-    //     stepper.client_app.init_resource::<Counter>();
-    //     stepper.client_app.add_observer(observe_events);
-    //     // for the local client
-    //     stepper.server_app.init_resource::<Counter>();
-    //     stepper.server_app.add_observer(observe_events);
-    //
-    //     stepper
-    //         .server_app
-    //         .world_mut()
-    //         .resource_mut::<ConnectionManager>()
-    //         .trigger_event_to_target::<Channel1, _>(&IntegerEvent(2), NetworkTarget::All)
-    //         .unwrap();
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // verify that the local-client received the message
-    //     assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
-    //
-    //     // verify that the other client received the message
-    //     assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
-    // }
 }

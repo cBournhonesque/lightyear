@@ -25,7 +25,6 @@ pub enum MessageError {
     Packet(#[from] crate::packet::error::PacketError),
 }
 
-
 /// [`MessageKind`] is an internal wrapper around the type of the message
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
 pub struct MessageKind(TypeId);

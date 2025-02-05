@@ -1,7 +1,10 @@
-use crate::prelude::server::{is_stopped, ServerError};
-use crate::prelude::{is_host_server, ChannelKind, MainSet, Message, MessageRegistry, MessageSend};
+use crate::prelude::server::{is_stopped, RoomId, RoomManager, ServerError};
+use crate::prelude::{
+    is_host_server, Channel, ChannelKind, ClientId, MainSet, Message, MessageRegistry, MessageSend,
+};
 use crate::serialize::reader::Reader;
 use crate::server::connection::ConnectionManager;
+use crate::server::relevance::error::RelevanceError;
 use crate::shared::message::private::InternalMessageSend;
 use crate::shared::replication::entity_map::SendEntityMap;
 use crate::shared::replication::network_target::NetworkTarget;
@@ -13,7 +16,8 @@ use tracing::error;
 
 /// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
 #[allow(type_alias_bounds)]
-pub type ReceiveMessage<M: Message> = crate::shared::events::message::ReceiveMessage<M, ServerMarker>;
+pub type ReceiveMessage<M: Message> =
+    crate::shared::events::message::ReceiveMessage<M, ServerMarker>;
 
 #[allow(type_alias_bounds)]
 pub type SendMessage<M: Message> = crate::shared::events::message::SendMessage<M, ServerMarker>;
@@ -45,7 +49,8 @@ impl Plugin for ServerMessagePlugin {
             }),
             ParamBuilder,
             ParamBuilder,
-        ).build_state(app.world_mut())
+        )
+            .build_state(app.world_mut())
             .build_system(send_messages);
 
         let send_messages_local = (
@@ -69,7 +74,8 @@ impl Plugin for ServerMessagePlugin {
             }),
             ParamBuilder,
             ParamBuilder,
-        ).build_state(app.world_mut())
+        )
+            .build_state(app.world_mut())
             .build_system(send_messages_local);
 
         let read_messages = (
@@ -106,7 +112,8 @@ impl Plugin for ServerMessagePlugin {
 
         app.add_systems(
             PreUpdate,
-            (read_messages, read_triggers).chain()
+            (read_messages, read_triggers)
+                .chain()
                 .in_set(InternalMainSet::<ServerMarker>::ReceiveEvents)
                 .run_if(not(is_stopped)),
         );
@@ -115,13 +122,19 @@ impl Plugin for ServerMessagePlugin {
             (
                 // we run SendEvents even if the server is stopped, so that any buffered
                 // messages get drained
-                send_messages.in_set(InternalMainSet::<ServerMarker>::SendEvents).run_if(not(is_host_server)),
-                send_messages_local.in_set(InternalMainSet::<ServerMarker>::SendEvents).run_if(is_host_server),
-            )
+                send_messages
+                    .in_set(InternalMainSet::<ServerMarker>::SendEvents)
+                    .run_if(not(is_host_server)),
+                send_messages_local
+                    .in_set(InternalMainSet::<ServerMarker>::SendEvents)
+                    .run_if(is_host_server),
+            ),
         );
-        app.configure_sets(PostUpdate, InternalMainSet::<ServerMarker>::SendEvents
-            .in_set(MainSet::SendEvents)
-            .before(InternalMainSet::<ServerMarker>::Send)
+        app.configure_sets(
+            PostUpdate,
+            InternalMainSet::<ServerMarker>::SendEvents
+                .in_set(MainSet::SendEvents)
+                .before(InternalMainSet::<ServerMarker>::Send),
         );
         app.world_mut().insert_resource(message_registry);
     }
@@ -132,10 +145,9 @@ fn send_messages(
     message_registry: ResMut<MessageRegistry>,
     mut connection_manager: ResMut<ConnectionManager>,
 ) {
-    let _ = message_registry.server_send_messages(
-        &mut send_events,
-        connection_manager.as_mut()
-    ).inspect_err(|e| error!("Could not buffer message to send: {:?}", e));
+    let _ = message_registry
+        .server_send_messages(&mut send_events, connection_manager.as_mut())
+        .inspect_err(|e| error!("Could not buffer message to send: {:?}", e));
 }
 
 /// In host-server, we read from the ServerSend and immediately write to the
@@ -147,11 +159,13 @@ fn send_messages_local(
     message_registry: ResMut<MessageRegistry>,
     mut connection_manager: ResMut<ConnectionManager>,
 ) {
-    let _ = message_registry.server_send_messages_local(
-        &mut server_send_events,
-        &mut client_receive_events,
-        connection_manager.as_mut()
-    ).inspect_err(|e| error!("Could not buffer message to send: {:?}", e));
+    let _ = message_registry
+        .server_send_messages_local(
+            &mut server_send_events,
+            &mut client_receive_events,
+            connection_manager.as_mut(),
+        )
+        .inspect_err(|e| error!("Could not buffer message to send: {:?}", e));
 }
 
 /// Read the messages received from the clients and emit the MessageEvent events
@@ -162,8 +176,10 @@ fn read_messages(
     mut connection_manager: ResMut<ConnectionManager>,
 ) {
     for (client_id, connection) in connection_manager.connections.iter_mut() {
-        connection.received_messages.drain(..).for_each(
-            |(message_bytes, target, channel_kind)| {
+        connection
+            .received_messages
+            .drain(..)
+            .for_each(|(message_bytes, target, channel_kind)| {
                 let mut reader = Reader::from(message_bytes);
                 match message_registry.server_receive_message(
                     &mut events,
@@ -188,8 +204,7 @@ fn read_messages(
                         error!("Could not deserialize message: {e:?}");
                     }
                 }
-            },
-        );
+            });
     }
 }
 
@@ -200,18 +215,42 @@ fn read_triggers(
     mut commands: Commands,
     message_registry: Res<MessageRegistry>,
 ) {
-    message_registry.server_messages.receive_trigger.values().for_each(|receive_metadata| {
-        let events = server_receive_events.get_mut_by_id(receive_metadata.component_id).unwrap();
-        message_registry
-            .server_receive_trigger(
-                events,
-                receive_metadata,
-                &mut commands
-            );
-    })
+    message_registry
+        .server_messages
+        .receive_trigger
+        .values()
+        .for_each(|receive_metadata| {
+            let events = server_receive_events
+                .get_mut_by_id(receive_metadata.component_id)
+                .unwrap();
+            message_registry.server_receive_trigger(events, receive_metadata, &mut commands);
+        })
 }
 
 impl ConnectionManager {
+    /// Send a message to all clients in a room
+    pub fn send_message_to_room<C: Channel, M: Message>(
+        &mut self,
+        message: &M,
+        room_id: RoomId,
+        room_manager: &RoomManager,
+    ) -> Result<(), ServerError> {
+        let room = room_manager
+            .get_room(room_id)
+            .ok_or::<ServerError>(RelevanceError::RoomIdNotFound(room_id).into())?;
+        let target = NetworkTarget::Only(room.clients.iter().copied().collect());
+        self.send_message_to_target::<C, M>(message, target)
+    }
+
+    /// Queues up a message to be sent to a client
+    pub fn send_message<C: Channel, M: Message>(
+        &mut self,
+        client_id: ClientId,
+        message: &M,
+    ) -> Result<(), ServerError> {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Single(client_id))
+    }
+
     pub(crate) fn buffer_message_bytes(
         &mut self,
         message: Bytes,
@@ -233,7 +272,6 @@ impl ConnectionManager {
                 Ok::<(), ServerError>(())
             })
     }
-
 
     /// Buffer a `MapEntities` message to remote clients.
     /// We cannot serialize the message once, we need to instead map the message for each client
@@ -264,6 +302,28 @@ impl ConnectionManager {
                 Ok::<(), ServerError>(())
             })
     }
+
+    // TODO: find a way to make this work
+    // /// Trigger a [`Message`] to the server using a specific [`Channel`]
+    // pub fn trigger_event<C: Channel, E: Event + Message>(
+    //     &mut self,
+    //     event: &E,
+    //     client_id: ClientId
+    // ) -> Result<(), ServerError> {
+    //     self.trigger_event_to_target::<C, E>(event, NetworkTarget::Single(client_id))
+    // }
+    //
+    // /// Trigger a [`Message`] to the server using a specific [`Channel`]
+    // pub fn trigger_event_to_target<C: Channel, E: Event + Message>(
+    //     &mut self,
+    //     event: &E,
+    //     target: NetworkTarget,
+    // ) -> Result<(), ServerError> {
+    //     self.send_message_to_target::<C, TriggerMessage<E>>(&TriggerMessage {
+    //         event: event,
+    //         target_entities: vec![],
+    //     }, target)
+    // }
 }
 
 impl MessageSend for ConnectionManager {}
@@ -285,8 +345,11 @@ impl InternalMessageSend for ConnectionManager {
         if self.message_registry.is_map_entities::<M>() {
             self.buffer_map_entities_message(message, channel_kind, target)?;
         } else {
-            self.message_registry
-                .serialize(message, &mut self.writer, &mut SendEntityMap::default())?;
+            self.message_registry.serialize(
+                message,
+                &mut self.writer,
+                &mut SendEntityMap::default(),
+            )?;
             let message_bytes = self.writer.split();
             self.buffer_message_bytes(message_bytes, channel_kind, target)?;
         }
@@ -374,7 +437,10 @@ mod tests {
             .server_app
             .world_mut()
             .resource_mut::<Events<ServerSendMessage<StringMessage>>>()
-            .send(ServerSendMessage::new_with_target::<Channel1>(StringMessage("a".to_string()), NetworkTarget::All));
+            .send(ServerSendMessage::new_with_target::<Channel1>(
+                StringMessage("a".to_string()),
+                NetworkTarget::All,
+            ));
 
         stepper.frame_step();
         stepper.frame_step();
@@ -411,5 +477,6 @@ mod tests {
         // verify that the other client received the trigger
         assert_eq!(stepper.client_app.world().resource::<Counter>().0, 10);
     }
-}
 
+    // TODO: send_trigger via ConnectionManager
+}

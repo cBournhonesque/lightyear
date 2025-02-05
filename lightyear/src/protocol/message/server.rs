@@ -1,5 +1,8 @@
 use super::MessageKind;
-use crate::prelude::{Channel, ClientId, ClientReceiveMessage, Message, NetworkTarget, ServerConnectionManager, ServerReceiveMessage, ServerSendMessage};
+use crate::prelude::{
+    Channel, ClientId, ClientReceiveMessage, Message, NetworkTarget, ServerConnectionManager,
+    ServerReceiveMessage, ServerSendMessage,
+};
 use crate::protocol::message::registry::MessageRegistry;
 use crate::protocol::message::trigger::TriggerMessage;
 use crate::protocol::message::MessageError;
@@ -26,7 +29,6 @@ pub(crate) struct MessageMetadata {
     pub(crate) receive: HashMap<MessageKind, ReceiveMessageMetadata>,
     pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerMetadata>,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceiveMessageMetadata {
@@ -59,11 +61,7 @@ pub(crate) type ReceiveMessageFn = fn(
     &mut ReceiveEntityMap,
 ) -> Result<(), MessageError>;
 
-type ReceiveTriggerFn = fn(
-    server_receive_events: MutUntyped,
-    commands: &mut Commands,
-);
-
+type ReceiveTriggerFn = fn(server_receive_events: MutUntyped, commands: &mut Commands);
 
 type SendMessageFn = fn(
     &MessageRegistry,
@@ -79,13 +77,13 @@ type SendLocalMessageFn = fn(
 ) -> Result<(), MessageError>;
 
 impl MessageRegistry {
-
     pub(crate) fn register_server_send<M: Message>(app: &mut App) {
         app.insert_resource(Events::<ServerSendMessage<M>>::default());
         let message_kind = MessageKind::of::<M>();
         let component_id = app
             .world_mut()
-            .resource_id::<Events<ServerSendMessage<M>>>().unwrap();
+            .resource_id::<Events<ServerSendMessage<M>>>()
+            .unwrap();
         app.world_mut()
             .resource_mut::<MessageRegistry>()
             .server_messages
@@ -103,7 +101,8 @@ impl MessageRegistry {
         let message_kind = MessageKind::of::<M>();
         let component_id = app
             .world_mut()
-            .resource_id::<Events<ServerReceiveMessage<M>>>().unwrap();
+            .resource_id::<Events<ServerReceiveMessage<M>>>()
+            .unwrap();
         app.world_mut()
             .resource_mut::<MessageRegistry>()
             .server_messages
@@ -121,7 +120,8 @@ impl MessageRegistry {
         let message_kind = MessageKind::of::<TriggerMessage<E>>();
         let component_id = app
             .world_mut()
-            .resource_id::<Events<ServerReceiveMessage<TriggerMessage<E>>>>().unwrap();
+            .resource_id::<Events<ServerReceiveMessage<TriggerMessage<E>>>>()
+            .unwrap();
         app.world_mut()
             .resource_mut::<MessageRegistry>()
             .server_messages
@@ -144,15 +144,19 @@ impl MessageRegistry {
         connection_manager: &mut ServerConnectionManager,
     ) -> Result<(), MessageError> {
         self.server_messages.send.iter().try_for_each(|metadata| {
-            let send_event = send_events.get_mut_by_id(metadata.component_id).expect("SendEvent<M> resource should be registered");
-            let receive_event = receive_events.get_mut_by_id(self.client_messages.receive.get(&metadata.kind).unwrap().component_id)
+            let send_event = send_events
+                .get_mut_by_id(metadata.component_id)
+                .expect("SendEvent<M> resource should be registered");
+            let receive_event = receive_events
+                .get_mut_by_id(
+                    self.client_messages
+                        .receive
+                        .get(&metadata.kind)
+                        .unwrap()
+                        .component_id,
+                )
                 .expect("ReceiveEvent<M> resource should be registered");
-            (metadata.send_local_fn)(
-                self,
-                send_event,
-                receive_event,
-                connection_manager,
-            )
+            (metadata.send_local_fn)(self, send_event, receive_event, connection_manager)
         })
     }
 
@@ -170,29 +174,51 @@ impl MessageRegistry {
             if self.is_map_entities::<M>() {
                 // we have to serialize the message separately for all clients
                 // because of entity mapping
-                for connection in  crate::server::connection::connected_targets_mut(&mut connection_manager.connections, &event.to).filter(|c| !c.is_local_client()) {
+                for connection in crate::server::connection::connected_targets_mut(
+                    &mut connection_manager.connections,
+                    &event.to,
+                )
+                .filter(|c| !c.is_local_client())
+                {
                     self.serialize::<M>(
                         &event.message,
                         &mut connection.writer,
-                        &mut connection.replication_receiver.remote_entity_map.local_to_remote,
+                        &mut connection
+                            .replication_receiver
+                            .remote_entity_map
+                            .local_to_remote,
                     )?;
                     let bytes = connection.writer.split();
-                    connection.message_manager.buffer_send(bytes, event.channel).map_err(MessageError::from)?;
+                    connection
+                        .message_manager
+                        .buffer_send(bytes, event.channel)
+                        .map_err(MessageError::from)?;
                 }
             } else {
                 // we can serialize once for all non-local clients
                 self.serialize::<M>(
                     &event.message,
                     &mut connection_manager.writer,
-                    &mut SendEntityMap::default()
+                    &mut SendEntityMap::default(),
                 )?;
                 let bytes = connection_manager.writer.split();
-                for connection in crate::server::connection::connected_targets_mut(&mut connection_manager.connections, &event.to).filter(|c| !c.is_local_client()) {
+                for connection in crate::server::connection::connected_targets_mut(
+                    &mut connection_manager.connections,
+                    &event.to,
+                )
+                .filter(|c| !c.is_local_client())
+                {
                     // this clone is O(1), it just increments the reference count
-                    connection.message_manager.buffer_send(bytes.clone(), event.channel).map_err(MessageError::from)?;
+                    connection
+                        .message_manager
+                        .buffer_send(bytes.clone(), event.channel)
+                        .map_err(MessageError::from)?;
                 }
             }
-            writer.send(ClientReceiveMessage::<M>::new(event.message, ClientId::Server));
+            writer.send(ClientReceiveMessage::<M>::new(
+                event.message,
+                ClientId::Server,
+            ));
             Ok(())
         });
         res
@@ -206,12 +232,10 @@ impl MessageRegistry {
         connection_manager: &mut ServerConnectionManager,
     ) -> Result<(), MessageError> {
         self.server_messages.send.iter().try_for_each(|metadata| {
-            let send_events = send_events.get_mut_by_id(metadata.component_id).expect("SendEvent<M> resource should be registered");
-            (metadata.send_fn)(
-                self,
-                send_events,
-                connection_manager,
-            )
+            let send_events = send_events
+                .get_mut_by_id(metadata.component_id)
+                .expect("SendEvent<M> resource should be registered");
+            (metadata.send_fn)(self, send_events, connection_manager)
         })
     }
 
@@ -226,26 +250,41 @@ impl MessageRegistry {
             // we have to serialize the message separately for all clients
             // because of entity mapping
             if self.is_map_entities::<M>() {
-                for connection in crate::server::connection::connected_targets_mut(&mut connection_manager.connections, &event.to) {
+                for connection in crate::server::connection::connected_targets_mut(
+                    &mut connection_manager.connections,
+                    &event.to,
+                ) {
                     self.serialize::<M>(
                         &event.message,
                         &mut connection.writer,
-                        &mut connection.replication_receiver.remote_entity_map.local_to_remote,
+                        &mut connection
+                            .replication_receiver
+                            .remote_entity_map
+                            .local_to_remote,
                     )?;
                     let bytes = connection.writer.split();
-                    connection.message_manager.buffer_send(bytes, event.channel).map_err(MessageError::from)?;
+                    connection
+                        .message_manager
+                        .buffer_send(bytes, event.channel)
+                        .map_err(MessageError::from)?;
                 }
             } else {
                 // we can serialize once for all clients
                 self.serialize::<M>(
                     &event.message,
                     &mut connection_manager.writer,
-                    &mut SendEntityMap::default()
+                    &mut SendEntityMap::default(),
                 )?;
                 let bytes = connection_manager.writer.split();
-                for connection in crate::server::connection::connected_targets_mut(&mut connection_manager.connections, &event.to) {
+                for connection in crate::server::connection::connected_targets_mut(
+                    &mut connection_manager.connections,
+                    &event.to,
+                ) {
                     // this clone is O(1), it just increments the reference count
-                    connection.message_manager.buffer_send(bytes.clone(), event.channel).map_err(MessageError::from)?;
+                    connection
+                        .message_manager
+                        .buffer_send(bytes.clone(), event.channel)
+                        .map_err(MessageError::from)?;
                 }
             }
             Ok(())
@@ -270,8 +309,18 @@ impl MessageRegistry {
             .receive
             .get(kind)
             .ok_or(MessageError::NotRegistered)?;
-        let serialize_metadata = self.serialize_fns_map.get(kind).ok_or(MessageError::NotRegistered)?;
-        (receive_metadata.receive_message_fn)(receive_metadata, serialize_metadata, resources, from, reader, entity_map)
+        let serialize_metadata = self
+            .serialize_fns_map
+            .get(kind)
+            .ok_or(MessageError::NotRegistered)?;
+        (receive_metadata.receive_message_fn)(
+            receive_metadata,
+            serialize_metadata,
+            resources,
+            from,
+            reader,
+            entity_map,
+        )
     }
 
     /// Internal function of type ReceiveMessageFn (used for type-erasure)
@@ -307,9 +356,14 @@ impl MessageRegistry {
         server_receive_events: MutUntyped,
         commands: &mut Commands,
     ) {
-        let mut events = unsafe { server_receive_events.with_type::<Events<ServerReceiveMessage<TriggerMessage<E>>>>() };
+        let mut events = unsafe {
+            server_receive_events.with_type::<Events<ServerReceiveMessage<TriggerMessage<E>>>>()
+        };
         events.drain().for_each(|event| {
-            commands.trigger_targets(ServerReceiveMessage::new(event.message.event, event.from), event.message.target_entities);
+            commands.trigger_targets(
+                ServerReceiveMessage::new(event.message.event, event.from),
+                event.message.target_entities,
+            );
         });
     }
 }
@@ -318,7 +372,12 @@ impl MessageRegistry {
 pub trait ServerTriggerExt {
     fn server_trigger<C: Channel>(&mut self, event: impl Event, to: NetworkTarget);
 
-    fn server_trigger_with_targets<C: Channel>(&mut self, event: impl Event, to: NetworkTarget, targets: Vec<Entity>);
+    fn server_trigger_with_targets<C: Channel>(
+        &mut self,
+        event: impl Event,
+        to: NetworkTarget,
+        targets: Vec<Entity>,
+    );
 }
 
 impl ServerTriggerExt for Commands<'_, '_> {
@@ -326,11 +385,19 @@ impl ServerTriggerExt for Commands<'_, '_> {
         self.server_trigger_with_targets::<C>(event, to, vec![]);
     }
 
-    fn server_trigger_with_targets<C: Channel>(&mut self, event: impl Event, to: NetworkTarget, targets: Vec<Entity>) {
-        self.send_event(ServerSendMessage::new_with_target::<C>(TriggerMessage {
-            event,
-            target_entities: targets
-        }, to));
+    fn server_trigger_with_targets<C: Channel>(
+        &mut self,
+        event: impl Event,
+        to: NetworkTarget,
+        targets: Vec<Entity>,
+    ) {
+        self.send_event(ServerSendMessage::new_with_target::<C>(
+            TriggerMessage {
+                event,
+                target_entities: targets,
+            },
+            to,
+        ));
     }
 }
 
@@ -339,10 +406,18 @@ impl ServerTriggerExt for World {
         self.server_trigger_with_targets::<C>(event, to, vec![]);
     }
 
-    fn server_trigger_with_targets<C: Channel>(&mut self, event: impl Event, to: NetworkTarget, targets: Vec<Entity>) {
-        self.send_event(ServerSendMessage::new_with_target::<C>(TriggerMessage {
-            event,
-            target_entities: targets
-        }, to));
+    fn server_trigger_with_targets<C: Channel>(
+        &mut self,
+        event: impl Event,
+        to: NetworkTarget,
+        targets: Vec<Entity>,
+    ) {
+        self.send_event(ServerSendMessage::new_with_target::<C>(
+            TriggerMessage {
+                event,
+                target_entities: targets,
+            },
+            to,
+        ));
     }
 }

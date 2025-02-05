@@ -1,7 +1,6 @@
 /// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
 use std::fmt::Debug;
 
-
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 

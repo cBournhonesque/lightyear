@@ -664,64 +664,69 @@ pub(crate) mod send {
         trace!(?entity, ?target, "Prepare entity spawn to client");
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         //  (i.e. before we received an ack?)
-        let _ = crate::server::connection::connected_targets_mut(&mut connection_manager.connections, &target)
-            .try_for_each(|connection| {
-                let client_id = connection.client_id;
-                // convert the entity to a network entity (possibly mapped)
-                // this can happen in the case of PrePrediction where the spawned entity has been pre-mapped
-                // to the client's confirmed entity!
-                let entity = connection
-                    .replication_receiver
-                    .remote_entity_map
-                    .to_remote(entity);
+        let _ = crate::server::connection::connected_targets_mut(
+            &mut connection_manager.connections,
+            &target,
+        )
+        .try_for_each(|connection| {
+            let client_id = connection.client_id;
+            // convert the entity to a network entity (possibly mapped)
+            // this can happen in the case of PrePrediction where the spawned entity has been pre-mapped
+            // to the client's confirmed entity!
+            let entity = connection
+                .replication_receiver
+                .remote_entity_map
+                .to_remote(entity);
 
-                // let the client know that this entity is controlled by them
-                if controlled_by.is_some_and(|c| c.targets(&client_id)) {
-                    connection.prepare_typed_component_insert(
-                        entity,
-                        group_id,
-                        component_registry,
-                        &mut Controlled,
-                    )?;
-                }
-                // if we need to do prediction/interpolation, send a marker component to indicate that to the client
-                if sync_target.is_some_and(|sync| sync.prediction.targets(&client_id)) {
-                    // TODO: the serialized data is always the same; cache it somehow?
-                    connection.prepare_typed_component_insert(
-                        entity,
-                        group_id,
-                        component_registry,
-                        &mut ShouldBePredicted,
-                    )?;
-                }
-                if sync_target.is_some_and(|sync| sync.interpolation.targets(&client_id)) {
-                    connection.prepare_typed_component_insert(
-                        entity,
-                        group_id,
-                        component_registry,
-                        &mut ShouldBeInterpolated,
-                    )?;
-                }
+            // let the client know that this entity is controlled by them
+            if controlled_by.is_some_and(|c| c.targets(&client_id)) {
+                connection.prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &mut Controlled,
+                )?;
+            }
+            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
+            if sync_target.is_some_and(|sync| sync.prediction.targets(&client_id)) {
+                // TODO: the serialized data is always the same; cache it somehow?
+                connection.prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &mut ShouldBePredicted,
+                )?;
+            }
+            if sync_target.is_some_and(|sync| sync.interpolation.targets(&client_id)) {
+                connection.prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &mut ShouldBeInterpolated,
+                )?;
+            }
 
-                if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
-                    connection
-                        .replication_sender
-                        .prepare_entity_spawn_reuse(entity, group_id, *remote_entity);
-                } else {
-                    connection
-                        .replication_sender
-                        .prepare_entity_spawn(entity, group_id);
-                }
-
-                // also set the priority for the group when we spawn it
+            if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
+                connection.replication_sender.prepare_entity_spawn_reuse(
+                    entity,
+                    group_id,
+                    *remote_entity,
+                );
+            } else {
                 connection
                     .replication_sender
-                    .update_base_priority(group_id, priority);
-                Ok(())
-            })
-            .inspect_err(|e: &ServerError| {
-                error!("error sending entity spawn: {:?}", e);
-            });
+                    .prepare_entity_spawn(entity, group_id);
+            }
+
+            // also set the priority for the group when we spawn it
+            connection
+                .replication_sender
+                .update_base_priority(group_id, priority);
+            Ok(())
+        })
+        .inspect_err(|e: &ServerError| {
+            error!("error sending entity spawn: {:?}", e);
+        });
     }
 
     /// Despawn entities when the entity gets despawned on local world

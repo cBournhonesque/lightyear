@@ -1,9 +1,7 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
 use crate::client::networking::ClientCommands;
 use bevy::ecs::system::RunSystemOnce;
-use bevy::prelude::{
-    default, App, Commands, PluginGroup, Real, Time,
-};
+use bevy::prelude::{default, App, Commands, PluginGroup, Real, Time};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::Duration;
@@ -11,8 +9,8 @@ use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientConfig, ClientTransport, InterpolationConfig,
-    NetClient, NetConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientConfig, ClientTransport, InterpolationConfig, NetClient, NetConfig,
+    PredictionConfig, SyncConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;

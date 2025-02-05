@@ -68,9 +68,6 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
     }
 }
 
-
-
-
 pub trait AppResourceExt {
     /// Registers the resource in the Registry
     /// This resource can now be sent over the network.
@@ -91,8 +88,6 @@ pub trait AppResourceExt {
 }
 
 impl AppResourceExt for App {
-
-
     /// Register a resource to be automatically replicated over the network
     fn register_resource<R: Resource + Message + Serialize + DeserializeOwned>(
         &mut self,

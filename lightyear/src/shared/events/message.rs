@@ -2,7 +2,6 @@ use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget};
 use bevy::prelude::Event;
 use std::marker::PhantomData;
 
-
 // Note: we cannot simply use `ReceiveMessage<M>` because we would have no way of differentiating
 // between the client or the server receiving a message in host-server mode
 /// This event is emitted whenever we receive a message from the remote
@@ -18,7 +17,11 @@ pub struct ReceiveMessage<M: Message, Marker: 'static> {
 
 impl<M: Message, Marker: 'static> ReceiveMessage<M, Marker> {
     pub fn new(message: M, from: ClientId) -> Self {
-        Self { message, from, marker: PhantomData }
+        Self {
+            message,
+            from,
+            marker: PhantomData,
+        }
     }
 
     pub fn message(&self) -> &M {
@@ -46,7 +49,12 @@ impl<M: Message, Marker: 'static> SendMessage<M, Marker> {
     }
 
     pub fn new_with_target<C: Channel>(message: M, to: NetworkTarget) -> Self {
-        Self { message, channel: ChannelKind::of::<C>(), to, marker: PhantomData }
+        Self {
+            message,
+            channel: ChannelKind::of::<C>(),
+            to,
+            marker: PhantomData,
+        }
     }
 
     pub fn message(&self) -> &M {

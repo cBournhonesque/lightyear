@@ -14,7 +14,7 @@ pub enum ClientId {
     Steam(u64),
     /// A local client to use when running in HostServer mode
     Local(u64),
-    ///
+    /// Refers to the server
     Server,
 }
 

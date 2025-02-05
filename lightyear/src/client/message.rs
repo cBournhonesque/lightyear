@@ -1,8 +1,12 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
+
 use crate::client::connection::ConnectionManager;
 use crate::client::error::ClientError;
 use crate::prelude::client::{ClientConnection, NetClient};
-use crate::prelude::{client::is_connected, is_host_server, Channel, ChannelKind, ClientId, MainSet, Message, MessageRegistry, MessageSend};
+use crate::prelude::{
+    client::is_connected, is_host_server, Channel, ChannelKind, ClientId, MainSet, Message,
+    MessageRegistry, MessageSend,
+};
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::message::private::InternalMessageSend;
@@ -16,7 +20,8 @@ use tracing::error;
 
 /// Bevy [`Event`] emitted on the client when a (non-replication) message is received
 #[allow(type_alias_bounds)]
-pub type ReceiveMessage<M: Message> = crate::shared::events::message::ReceiveMessage<M, ClientMarker>;
+pub type ReceiveMessage<M: Message> =
+    crate::shared::events::message::ReceiveMessage<M, ClientMarker>;
 
 #[allow(type_alias_bounds)]
 pub type SendMessage<M: Message> = crate::shared::events::message::SendMessage<M, ClientMarker>;
@@ -49,7 +54,8 @@ impl Plugin for ClientMessagePlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
-        ).build_state(app.world_mut())
+        )
+            .build_state(app.world_mut())
             .build_system(send_messages);
 
         let send_messages_local = (
@@ -73,7 +79,8 @@ impl Plugin for ClientMessagePlugin {
             }),
             ParamBuilder,
             ParamBuilder,
-        ).build_state(app.world_mut())
+        )
+            .build_state(app.world_mut())
             .build_system(send_messages_local);
 
         let read_messages = (
@@ -120,13 +127,19 @@ impl Plugin for ClientMessagePlugin {
             (
                 // we run SendEvents even if the client is disconnected, so that any buffered
                 // messages get drained
-                send_messages.in_set(InternalMainSet::<ClientMarker>::SendEvents).run_if(not(is_host_server)),
-                send_messages_local.in_set(InternalMainSet::<ClientMarker>::SendEvents).run_if(is_host_server),
-            )
+                send_messages
+                    .in_set(InternalMainSet::<ClientMarker>::SendEvents)
+                    .run_if(not(is_host_server)),
+                send_messages_local
+                    .in_set(InternalMainSet::<ClientMarker>::SendEvents)
+                    .run_if(is_host_server),
+            ),
         );
-        app.configure_sets(PostUpdate, InternalMainSet::<ClientMarker>::SendEvents
-            .in_set(MainSet::SendEvents)
-            .before(InternalMainSet::<ClientMarker>::Send)
+        app.configure_sets(
+            PostUpdate,
+            InternalMainSet::<ClientMarker>::SendEvents
+                .in_set(MainSet::SendEvents)
+                .before(InternalMainSet::<ClientMarker>::Send),
         );
 
         app.insert_resource(message_registry);
@@ -138,6 +151,27 @@ impl ConnectionManager {
     pub fn send_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::None)
     }
+
+    // TODO: find a way to make this work
+    // /// Trigger a [`Message`] to the server using a specific [`Channel`]
+    // pub fn trigger_event<C: Channel, E: Event + Message>(
+    //     &mut self,
+    //     event: &E,
+    // ) -> Result<(), ClientError> {
+    //     self.trigger_event_to_target::<C, E>(event, NetworkTarget::None)
+    // }
+    //
+    // /// Trigger a [`Message`] to the server using a specific [`Channel`]
+    // pub fn trigger_event_to_target<C: Channel, E: Event + Message>(
+    //     &mut self,
+    //     event: &E,
+    //     target: NetworkTarget,
+    // ) -> Result<(), ClientError> {
+    //     self.send_message_to_target::<C, TriggerMessage<E>>(&TriggerMessage {
+    //         event: Cow::Borrowed(event),
+    //         target_entities: vec![],
+    //     }, target)
+    // }
 }
 
 impl MessageSend for ConnectionManager {}
@@ -212,11 +246,16 @@ fn send_messages(
     mut connection: ResMut<ConnectionManager>,
 ) {
     let connection = connection.as_mut();
-    let _ = message_registry.client_send_messages(
-        &mut send_events,
-        &mut connection.message_manager,
-        &mut connection.replication_receiver.remote_entity_map.local_to_remote,
-    ).inspect_err(|e| error!("Could not buffer message to send: {:?}", e));
+    let _ = message_registry
+        .client_send_messages(
+            &mut send_events,
+            &mut connection.message_manager,
+            &mut connection
+                .replication_receiver
+                .remote_entity_map
+                .local_to_remote,
+        )
+        .inspect_err(|e| error!("Could not buffer message to send: {:?}", e));
 }
 
 /// In host-server, we read from the ClientSend and immediately write to the
@@ -287,16 +326,17 @@ fn read_triggers(
     mut commands: Commands,
     message_registry: Res<MessageRegistry>,
 ) {
-    message_registry.client_messages.receive_trigger.values().for_each(| receive_metadata| {
-        let events = client_receive_events.get_mut_by_id(receive_metadata.component_id).unwrap();
-        message_registry.client_receive_trigger(
-                events,
-                receive_metadata,
-                &mut commands
-            );
-    })
+    message_registry
+        .client_messages
+        .receive_trigger
+        .values()
+        .for_each(|receive_metadata| {
+            let events = client_receive_events
+                .get_mut_by_id(receive_metadata.component_id)
+                .unwrap();
+            message_registry.client_receive_trigger(events, receive_metadata, &mut commands);
+        })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -377,8 +417,13 @@ mod tests {
         stepper.server_app.add_systems(Update, count_messages);
 
         // Send the message by writing to the SendMessage<M> Events
-        stepper.client_app.world_mut().resource_mut::<Events<ClientSendMessage<StringMessage>>>()
-            .send(ClientSendMessage::new::<Channel1>(StringMessage("a".to_string())));
+        stepper
+            .client_app
+            .world_mut()
+            .resource_mut::<Events<ClientSendMessage<StringMessage>>>()
+            .send(ClientSendMessage::new::<Channel1>(StringMessage(
+                "a".to_string(),
+            )));
 
         stepper.frame_step();
 
@@ -394,8 +439,13 @@ mod tests {
         stepper.server_app.add_systems(Update, count_messages);
 
         // Send the message by writing to the SendMessage<M> Events
-        stepper.server_app.world_mut().resource_mut::<Events<ClientSendMessage<StringMessage>>>()
-            .send(ClientSendMessage::new::<Channel1>(StringMessage("a".to_string())));
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<Events<ClientSendMessage<StringMessage>>>()
+            .send(ClientSendMessage::new::<Channel1>(StringMessage(
+                "a".to_string(),
+            )));
 
         stepper.frame_step();
         stepper.frame_step();
@@ -413,7 +463,10 @@ mod tests {
         stepper.server_app.add_observer(count_messages_observer);
 
         // Send the message by writing to the SendMessage<M> Events
-        stepper.client_app.world_mut().client_trigger::<Channel1>(IntegerEvent(10));
+        stepper
+            .client_app
+            .world_mut()
+            .client_trigger::<Channel1>(IntegerEvent(10));
 
         stepper.frame_step();
         stepper.frame_step();
@@ -422,7 +475,10 @@ mod tests {
         assert_eq!(stepper.server_app.world().resource::<Counter>().0, 10);
 
         // Send the message from the local client
-        stepper.server_app.world_mut().client_trigger::<Channel1>(IntegerEvent(10));
+        stepper
+            .server_app
+            .world_mut()
+            .client_trigger::<Channel1>(IntegerEvent(10));
 
         stepper.frame_step();
         stepper.frame_step();
@@ -430,5 +486,6 @@ mod tests {
         // verify that the server received the message
         assert_eq!(stepper.server_app.world().resource::<Counter>().0, 20);
     }
-}
 
+    // TODO: send_trigger via ConnectionManager
+}

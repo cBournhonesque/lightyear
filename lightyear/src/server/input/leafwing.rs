@@ -8,7 +8,9 @@ use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::server::ReceiveMessage;
-use crate::prelude::{server::is_started, InputMessage, MessageRegistry, Mode, TickManager};
+use crate::prelude::{
+    server::is_started, InputMessage, MessageRegistry, Mode, ServerReceiveMessage, TickManager,
+};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::server::config::ServerConfig;
@@ -97,7 +99,7 @@ fn receive_input_message<A: LeafwingUserAction>(
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<Option<&mut InputBuffer<A>>>,
     mut commands: Commands,
-    mut events: EventWriter<ReceiveMessage<InputMessage<A>>>,
+    mut events: EventWriter<ServerReceiveMessage<InputMessage<A>>>,
 ) {
     let kind = MessageKind::of::<InputMessage<A>>();
     let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
@@ -187,12 +189,10 @@ fn receive_input_message<A: LeafwingUserAction>(
                             if let Ok(()) = message_registry.serialize(
                                 &message,
                                 &mut connection_manager.writer,
-
                                     &mut connection
                                         .replication_receiver
                                         .remote_entity_map
                                         .local_to_remote,
-                                ,
                             ) {
                                 connection.messages_to_rebroadcast.push((
                                     reader.consume(),
@@ -201,7 +201,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 ));
                             }
                         }
-                        events.send(ReceiveMessage::new(message, *client_id));
+                        events.send(ServerReceiveMessage::new(message, *client_id));
                     }
                     Err(e) => {
                         error!(?e, "could not deserialize leafwing input message");

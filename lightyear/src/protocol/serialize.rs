@@ -77,10 +77,7 @@ unsafe fn erased_serialize_fn<M: Message>(
         let clone_fn: CloneFn<M> = std::mem::transmute(erased_serialize_fn.erased_clone.unwrap());
         let mut new_message = clone_fn(message);
         unsafe {
-            map_entities(
-                PtrMut::from(&mut new_message),
-                entity_map,
-            );
+            map_entities(PtrMut::from(&mut new_message), entity_map);
         }
         (typed_serialize_fns.serialize)(&new_message, writer)
     } else {

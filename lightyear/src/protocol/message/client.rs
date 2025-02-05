@@ -1,6 +1,8 @@
 use super::MessageKind;
 use crate::packet::message_manager::MessageManager;
-use crate::prelude::{Channel, ClientId, ClientReceiveMessage, ClientSendMessage, Message, ServerReceiveMessage};
+use crate::prelude::{
+    Channel, ClientId, ClientReceiveMessage, ClientSendMessage, Message, ServerReceiveMessage,
+};
 use crate::protocol::message::registry::MessageRegistry;
 use crate::protocol::message::trigger::TriggerMessage;
 use crate::protocol::message::MessageError;
@@ -28,7 +30,6 @@ pub(crate) struct MessageMetadata {
     pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerMetadata>,
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceiveMessageMetadata {
     /// ComponentId of the Events<ReceiveMessage<M>> resource
@@ -42,8 +43,6 @@ pub struct ReceiveTriggerMetadata {
     pub(crate) component_id: ComponentId,
     pub(crate) receive_trigger_fn: ReceiveTriggerFn,
 }
-
-
 
 #[derive(Debug, Clone, PartialEq, TypePath)]
 pub(crate) struct SendMessageMetadata {
@@ -62,11 +61,7 @@ pub(crate) type ReceiveMessageFn = fn(
     &mut ReceiveEntityMap,
 ) -> Result<(), MessageError>;
 
-type ReceiveTriggerFn = fn(
-    receive_events: MutUntyped,
-    commands: &mut Commands,
-);
-
+type ReceiveTriggerFn = fn(receive_events: MutUntyped, commands: &mut Commands);
 
 type SendMessageFn = fn(
     &MessageRegistry,
@@ -75,13 +70,8 @@ type SendMessageFn = fn(
     entity_map: &mut SendEntityMap,
 ) -> Result<(), MessageError>;
 
-type SendHostServerMessageFn = fn(
-    &MessageRegistry,
-    send_events: MutUntyped,
-    receive_events: MutUntyped,
-    sender: ClientId,
-);
-
+type SendHostServerMessageFn =
+    fn(&MessageRegistry, send_events: MutUntyped, receive_events: MutUntyped, sender: ClientId);
 
 impl MessageRegistry {
     pub(crate) fn register_client_send<M: Message>(app: &mut App) {
@@ -89,7 +79,8 @@ impl MessageRegistry {
         let message_kind = MessageKind::of::<M>();
         let component_id = app
             .world_mut()
-            .resource_id::<Events<ClientSendMessage<M>>>().unwrap();
+            .resource_id::<Events<ClientSendMessage<M>>>()
+            .unwrap();
         app.world_mut()
             .resource_mut::<MessageRegistry>()
             .client_messages
@@ -100,7 +91,6 @@ impl MessageRegistry {
                 send_fn: MessageRegistry::client_send_message_typed::<M>,
                 send_host_server_fn: MessageRegistry::client_send_host_server_typed::<M>,
             });
-
     }
 
     pub(crate) fn register_client_receive<M: Message>(app: &mut App) {
@@ -108,7 +98,8 @@ impl MessageRegistry {
         let message_kind = MessageKind::of::<M>();
         let component_id = app
             .world_mut()
-            .resource_id::<Events<ClientReceiveMessage<M>>>().unwrap();
+            .resource_id::<Events<ClientReceiveMessage<M>>>()
+            .unwrap();
         app.world_mut()
             .resource_mut::<MessageRegistry>()
             .client_messages
@@ -126,7 +117,8 @@ impl MessageRegistry {
         let message_kind = MessageKind::of::<TriggerMessage<E>>();
         let component_id = app
             .world_mut()
-            .resource_id::<Events<ClientReceiveMessage<TriggerMessage<E>>>>().unwrap();
+            .resource_id::<Events<ClientReceiveMessage<TriggerMessage<E>>>>()
+            .unwrap();
         app.world_mut()
             .resource_mut::<MessageRegistry>()
             .client_messages
@@ -149,15 +141,19 @@ impl MessageRegistry {
         sender: ClientId,
     ) {
         self.client_messages.send.iter().for_each(|metadata| {
-            let send_event = send_events.get_mut_by_id(metadata.component_id).expect("SendEvent<M> resource should be registered");
-            let receive_event = receive_events.get_mut_by_id(self.server_messages.receive.get(&metadata.kind).unwrap().component_id)
+            let send_event = send_events
+                .get_mut_by_id(metadata.component_id)
+                .expect("SendEvent<M> resource should be registered");
+            let receive_event = receive_events
+                .get_mut_by_id(
+                    self.server_messages
+                        .receive
+                        .get(&metadata.kind)
+                        .unwrap()
+                        .component_id,
+                )
                 .expect("ReceiveEvent<M> resource should be registered");
-            (metadata.send_host_server_fn)(
-                self,
-                send_event,
-                receive_event,
-                sender,
-            )
+            (metadata.send_host_server_fn)(self, send_event, receive_event, sender)
         })
     }
 
@@ -186,13 +182,10 @@ impl MessageRegistry {
         entity_map: &mut SendEntityMap,
     ) -> Result<(), MessageError> {
         self.client_messages.send.iter().try_for_each(|metadata| {
-            let send_events = send_events.get_mut_by_id(metadata.component_id).expect("SendEvent<M> resource should be registered");
-            (metadata.send_fn)(
-                self,
-                send_events,
-                manager,
-                entity_map,
-            )
+            let send_events = send_events
+                .get_mut_by_id(metadata.component_id)
+                .expect("SendEvent<M> resource should be registered");
+            (metadata.send_fn)(self, send_events, manager, entity_map)
         })
     }
 
@@ -206,11 +199,7 @@ impl MessageRegistry {
         let mut reader = unsafe { send_events.with_type::<Events<ClientSendMessage<M>>>() };
         let res = reader.drain().try_for_each(|event| {
             event.to.to_bytes(&mut message_manager.writer)?;
-            self.serialize::<M>(
-                &event.message,
-                &mut message_manager.writer,
-                entity_map
-            )?;
+            self.serialize::<M>(&event.message, &mut message_manager.writer, entity_map)?;
             let message_bytes = message_manager.writer.split();
             message_manager.buffer_send(message_bytes, event.channel)?;
             Ok(())
@@ -235,8 +224,18 @@ impl MessageRegistry {
             .receive
             .get(kind)
             .ok_or(MessageError::NotRegistered)?;
-        let serialize_metadata = self.serialize_fns_map.get(kind).ok_or(MessageError::NotRegistered)?;
-        (receive_metadata.receive_message_fn)(receive_metadata, serialize_metadata, resources, from, reader, entity_map)
+        let serialize_metadata = self
+            .serialize_fns_map
+            .get(kind)
+            .ok_or(MessageError::NotRegistered)?;
+        (receive_metadata.receive_message_fn)(
+            receive_metadata,
+            serialize_metadata,
+            resources,
+            from,
+            reader,
+            entity_map,
+        )
     }
 
     /// Internal function of type ReceiveMessageFn (used for type-erasure)
@@ -272,9 +271,14 @@ impl MessageRegistry {
         client_receive_events: MutUntyped,
         commands: &mut Commands,
     ) {
-        let mut events = unsafe { client_receive_events.with_type::<Events<ClientReceiveMessage<TriggerMessage<E>>>>() };
+        let mut events = unsafe {
+            client_receive_events.with_type::<Events<ClientReceiveMessage<TriggerMessage<E>>>>()
+        };
         events.drain().for_each(|event| {
-            commands.trigger_targets(ClientReceiveMessage::new(event.message.event, event.from), event.message.target_entities);
+            commands.trigger_targets(
+                ClientReceiveMessage::new(event.message.event, event.from),
+                event.message.target_entities,
+            );
         });
     }
 }
@@ -294,7 +298,7 @@ impl ClientTriggerExt for Commands<'_, '_> {
     fn client_trigger_with_targets<C: Channel>(&mut self, event: impl Event, targets: Vec<Entity>) {
         self.send_event(ClientSendMessage::new::<C>(TriggerMessage {
             event,
-            target_entities: targets
+            target_entities: targets,
         }));
     }
 }
@@ -307,7 +311,7 @@ impl ClientTriggerExt for World {
     fn client_trigger_with_targets<C: Channel>(&mut self, event: impl Event, targets: Vec<Entity>) {
         self.send_event(ClientSendMessage::new::<C>(TriggerMessage {
             event,
-            target_entities: targets
+            target_entities: targets,
         }));
     }
 }
