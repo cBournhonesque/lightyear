@@ -99,10 +99,8 @@ impl HostServerStepper {
                 .with_key(private_key),
             io: server_io,
         };
-        let mut shared_host_server = shared_config;
-        shared_host_server.mode = Mode::HostServer;
         let config = ServerConfig {
-            shared: shared_host_server,
+            shared: shared_config,
             net: vec![net_config],
             ping: PingConfig {
                 // send pings every tick, so that the acks are received every frame
@@ -115,7 +113,7 @@ impl HostServerStepper {
 
         // Add the ClientPlugin to the server_app, to make it host-server mode!
         let mut host_server_client_config = client_config.clone();
-        host_server_client_config.shared = shared_host_server;
+        host_server_client_config.shared = shared_config;
         host_server_client_config.net = NetConfig::Local {
             id: LOCAL_CLIENT_ID,
         };
@@ -198,7 +196,6 @@ impl HostServerStepper {
 
     pub(crate) fn set_client_tick(&mut self, tick: Tick) {
         let new_time = WrappedTime::from_duration(self.tick_duration * (tick.0 as u32));
-
         self.client_app
             .world_mut()
             .resource_mut::<TimeManager>()
@@ -211,7 +208,6 @@ impl HostServerStepper {
 
     pub(crate) fn set_server_tick(&mut self, tick: Tick) {
         let new_time = WrappedTime::from_duration(self.tick_duration * (tick.0 as u32));
-
         self.server_app
             .world_mut()
             .resource_mut::<TimeManager>()

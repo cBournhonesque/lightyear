@@ -5,17 +5,11 @@ use bevy::color::palettes::basic::GREEN;
 use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
-use bevy::render::primitives::Aabb;
-use bevy::render::RenderPlugin;
-use lightyear::client::components::Confirmed;
 use lightyear::client::interpolation::VisualInterpolationPlugin;
-use lightyear::prelude::client::{
-    Interpolated, InterpolationSet, Predicted, PredictionSet, VisualInterpolateStatus,
-};
+use lightyear::prelude::client::{Interpolated, Predicted, VisualInterpolateStatus};
 use lightyear::prelude::server::ReplicationTarget;
 use lightyear::prelude::{NetworkIdentity, PreSpawnedPlayerObject, Replicated};
-use lightyear::transport::io::IoDiagnosticsPlugin;
-use lightyear_avian::prelude::{AabbEnvelopeHolder, LagCompensationHistory};
+use lightyear_avian::prelude::AabbEnvelopeHolder;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;

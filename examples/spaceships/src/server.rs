@@ -97,7 +97,7 @@ fn init(mut commands: Commands) {
 
 pub(crate) fn replicate_inputs(
     mut connection: ResMut<ConnectionManager>,
-    mut input_events: ResMut<Events<MessageEvent<InputMessage<PlayerActions>>>>,
+    mut input_events: ResMut<Events<ServerReceiveMessage<InputMessage<PlayerActions>>>>,
 ) {
     for mut event in input_events.drain() {
         let client_id = event.from();

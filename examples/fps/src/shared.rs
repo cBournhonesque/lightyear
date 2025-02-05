@@ -14,7 +14,6 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::server::{Replicate, ReplicationTarget, SyncTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
-use lightyear::shared::plugin::Identity;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;

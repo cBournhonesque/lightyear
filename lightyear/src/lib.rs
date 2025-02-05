@@ -203,13 +203,14 @@ pub mod prelude {
         resource::AppResourceExt,
     };
     pub use crate::protocol::serialize::AppSerializeExt;
-    pub use crate::shared::config::{Mode, SharedConfig};
+    pub use crate::shared::config::SharedConfig;
+    pub use crate::shared::identity::{AppIdentityExt, NetworkIdentity, NetworkIdentityState};
     #[cfg(feature = "leafwing")]
     pub use crate::shared::input::leafwing::LeafwingInputPlugin;
     pub use crate::shared::input::native::InputPlugin;
     pub use crate::shared::message::MessageSend;
     pub use crate::shared::ping::manager::PingConfig;
-    pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
+    pub use crate::shared::plugin::SharedPlugin;
     pub use crate::shared::replication::authority::HasAuthority;
     pub use crate::shared::replication::components::{
         DeltaCompression, DisabledComponents, NetworkRelevanceMode, OverrideTargetComponent,
@@ -287,7 +288,7 @@ pub mod prelude {
         pub use crate::client::io::config::ClientTransport;
         pub use crate::client::io::Io;
         pub use crate::client::message::ReceiveMessage;
-        pub use crate::client::networking::{ClientCommands, NetworkingState};
+        pub use crate::client::networking::{ClientCommands, ConnectedState, NetworkingState};
         pub use crate::client::plugin::ClientPlugins;
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::despawn::PredictionDespawnCommandsExt;

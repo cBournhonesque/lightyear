@@ -521,7 +521,7 @@ pub fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Cl
     let app = new_gui_app(settings.client.inspector);
 
     let client_config = ClientConfig {
-        shared: shared_config(lightyear::shared::config::Mode::Separate),
+        shared: shared_config(),
         net: net_config,
         replication: ReplicationConfig {
             send_interval: REPLICATION_INTERVAL,
@@ -555,7 +555,7 @@ pub fn server_app(
     });
     net_configs.extend(extra_net_configs);
     let server_config = ServerConfig {
-        shared: shared_config(lightyear::shared::config::Mode::Separate),
+        shared: shared_config(),
         net: net_configs,
         replication: ReplicationConfig {
             send_interval: REPLICATION_INTERVAL,
@@ -581,7 +581,7 @@ pub fn combined_app(
     });
     net_configs.extend(extra_net_configs);
     let server_config = ServerConfig {
-        shared: shared_config(lightyear::shared::config::Mode::HostServer),
+        shared: shared_config(),
         net: net_configs,
         replication: ReplicationConfig {
             send_interval: REPLICATION_INTERVAL,
@@ -592,7 +592,7 @@ pub fn combined_app(
 
     // client config
     let client_config = ClientConfig {
-        shared: shared_config(lightyear::shared::config::Mode::HostServer),
+        shared: shared_config(),
         net: client_net_config,
         ..default()
     };

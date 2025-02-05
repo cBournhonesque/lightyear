@@ -8,11 +8,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::is_synced;
-use crate::prelude::server::{NetworkingState, ServerConfig};
-use crate::prelude::{
-    is_host_server_ref, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
-    ShouldBePredicted, TickManager,
-};
+use crate::prelude::{is_host_server, HasAuthority, NetworkIdentityState, ReplicateHierarchy, Replicating, ReplicationGroup, ShouldBePredicted, TickManager};
 use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -81,6 +77,7 @@ impl PrePredictionPlugin {
         trigger: Trigger<OnAdd, PrePredicted>,
         mut commands: Commands,
         prediction_manager: Res<PredictionManager>,
+        identity: Option<Res<State<NetworkIdentityState>>>,
         // TODO: should we fetch the value of PrePredicted to confirm that it matches what we expect?
     ) {
         let predicted_map = unsafe {
@@ -106,45 +103,42 @@ impl PrePredictionPlugin {
             });
         } else {
             let predicted_entity = trigger.entity();
-            // PrePredicted was added by the client:
-            // Spawn a Confirmed entity and update the mapping
-            commands.queue(move |world: &mut World| {
-                // TODO: check host_server via sub state
+            if is_host_server(identity) {
                 // for host-server, we don't want to spawn a separate entity because
                 //  the confirmed/predicted/server entity are the same! Instead we just want
                 //  to remove PrePredicted and add Predicted
-                if is_host_server_ref(
-                    world.get_resource_ref::<ServerConfig>(),
-                    world.get_resource_ref::<State<NetworkingState>>(),
-                ) {
+                commands.queue(move |world: &mut World| {
                     // world.entity_mut(predicted_entity).remove::<PrePredicted>();
                     world.entity_mut(predicted_entity).insert(Predicted {
                         confirmed_entity: Some(predicted_entity),
                     });
-                    return;
-                }
-
-                let tick = world.resource::<TickManager>().tick();
-                let confirmed_entity = world
-                    .spawn(Confirmed {
-                        predicted: Some(predicted_entity),
-                        interpolated: None,
-                        tick,
-                    })
-                    .id();
-                debug!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-predicted: {predicted_entity:?}");
-                world
-                    .entity_mut(predicted_entity)
-                    .get_mut::<PrePredicted>()
-                    .unwrap()
-                    .confirmed_entity = Some(confirmed_entity);
-                world
-                    .resource_mut::<PredictionManager>()
-                    .predicted_entity_map
-                    .get_mut()
-                    .confirmed_to_predicted
-                    .insert(confirmed_entity, predicted_entity);
-            });
+                });
+            } else {
+                // PrePredicted was added by the client:
+                // Spawn a Confirmed entity and update the mapping
+                commands.queue(move |world: &mut World| {
+                    let tick = world.resource::<TickManager>().tick();
+                    let confirmed_entity = world
+                        .spawn(Confirmed {
+                            predicted: Some(predicted_entity),
+                            interpolated: None,
+                            tick,
+                        })
+                        .id();
+                    debug!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-predicted: {predicted_entity:?}");
+                    world
+                        .entity_mut(predicted_entity)
+                        .get_mut::<PrePredicted>()
+                        .unwrap()
+                        .confirmed_entity = Some(confirmed_entity);
+                    world
+                        .resource_mut::<PredictionManager>()
+                        .predicted_entity_map
+                        .get_mut()
+                        .confirmed_to_predicted
+                        .insert(confirmed_entity, predicted_entity);
+                });
+            }
         }
     }
 }
