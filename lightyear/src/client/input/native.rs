@@ -177,8 +177,8 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             )
                 .chain(),
         );
-        // SYSTEMS
 
+        // SYSTEMS
         // Host server mode only!
         app.add_systems(
             FixedPreUpdate,

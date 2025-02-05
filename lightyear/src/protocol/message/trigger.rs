@@ -1,7 +1,7 @@
 use crate::client::config::ClientConfig;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, Deserialize, Message, MessageRegistry};
-use crate::protocol::message::registry::{AppMessageInternalExt, MessageType};
+use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::protocol::SerializeFns;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
@@ -76,7 +76,6 @@ impl AppTriggerExt for App {
     ) {
         self.register_message_internal_custom_serde::<TriggerMessage<E>>(
             direction,
-            MessageType::Trigger,
             serialize_fns,
         );
         // TODO: need to call map_entities for the trigger targets to be mapped correctly!

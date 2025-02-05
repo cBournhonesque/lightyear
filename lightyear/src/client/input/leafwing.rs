@@ -864,6 +864,7 @@ mod tests {
             ..default()
         };
         let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
+        stepper.build();
         stepper.init();
         stepper
     }
