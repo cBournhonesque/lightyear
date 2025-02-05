@@ -363,7 +363,6 @@ fn on_connect(
     netcode: Res<ClientConnection>,
     mut query: Query<&mut ReplicateToServer>,
 ) {
-
     // Set all the ReplicateToServer ticks to changed, so that we replicate existing entities to the server
     for mut replicate in query.iter_mut() {
         // TODO: ideally set is_added instead of simply changed
@@ -533,11 +532,13 @@ impl ClientCommandsExt for Commands<'_, '_> {
 
 impl ClientCommandsExt for World {
     fn connect_client(&mut self) {
-        self.resource_mut::<NextState<NetworkingState>>().set(NetworkingState::Connecting);
+        self.resource_mut::<NextState<NetworkingState>>()
+            .set(NetworkingState::Connecting);
     }
 
     fn disconnect_client(&mut self) {
-        self.resource_mut::<NextState<NetworkingState>>().set(NetworkingState::Disconnecting);
+        self.resource_mut::<NextState<NetworkingState>>()
+            .set(NetworkingState::Disconnecting);
     }
 }
 

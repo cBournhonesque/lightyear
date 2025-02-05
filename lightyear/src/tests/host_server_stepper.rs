@@ -2,9 +2,7 @@
 
 use crate::client::networking::ClientCommandsExt;
 use crate::connection::netcode::generate_key;
-use crate::prelude::client::{
-    Authentication, ClientConfig, ClientTransport, NetConfig,
-};
+use crate::prelude::client::{Authentication, ClientConfig, ClientTransport, NetConfig};
 use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
@@ -239,10 +237,7 @@ impl HostServerStepper {
                 commands.start_server();
                 commands.connect_client();
             });
-        let _ = self
-            .client_app
-            .world_mut()
-            .connect_client();
+        let _ = self.client_app.world_mut().connect_client();
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self
@@ -265,10 +260,7 @@ impl HostServerStepper {
                 commands.start_server();
                 commands.connect_client();
             });
-        let _ = self
-            .client_app
-            .world_mut()
-            .connect_client();
+        let _ = self.client_app.world_mut().connect_client();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
@@ -292,10 +284,7 @@ impl HostServerStepper {
                 commands.stop_server();
                 commands.disconnect_client();
             });
-        let _ = self
-            .client_app
-            .world_mut()
-            .disconnect_client();
+        let _ = self.client_app.world_mut().disconnect_client();
 
         // Advance the world to let the disconnection process complete
         for _ in 0..100 {

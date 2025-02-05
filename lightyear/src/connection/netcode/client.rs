@@ -755,14 +755,8 @@ mod tests {
             .init();
         let mut stepper = BevyStepper::default_no_init();
 
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .start_server();
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .connect_client();
+        let _ = stepper.server_app.world_mut().start_server();
+        let _ = stepper.client_app.world_mut().connect_client();
 
         // Wait until the server sees a single client
         for _ in 0..100 {
@@ -780,19 +774,22 @@ mod tests {
             stepper.frame_step();
         }
 
-
         // TODO: how come this is necessary for the client to be able to enter the Disconnecting state?
         //  if this is commented then the client does not enter Disconnecting state!
         for _ in 0..30 {
             stepper.frame_step();
         }
 
-        trace!("Client NetworkingState: {:?}", stepper.client_app.world().resource::<State<client::NetworkingState>>().get());
+        trace!(
+            "Client NetworkingState: {:?}",
+            stepper
+                .client_app
+                .world()
+                .resource::<State<client::NetworkingState>>()
+                .get()
+        );
         // Immediately disconnect the client
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .disconnect_client();
+        let _ = stepper.client_app.world_mut().disconnect_client();
 
         // Wait for the client to time out
         for _ in 0..10000 {

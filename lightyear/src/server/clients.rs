@@ -337,10 +337,7 @@ mod tests {
         );
 
         // client disconnects
-        stepper
-            .client_app
-            .world_mut()
-            .disconnect_client();
+        stepper.client_app.world_mut().disconnect_client();
 
         // TODO: why do we need to run frame_step twice for this to work?
         stepper.frame_step();

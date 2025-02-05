@@ -194,19 +194,10 @@ impl MultiBevyStepper {
     }
 
     pub fn init(&mut self) {
-        let _ = self
-            .server_app
-            .world_mut()
-            .start_server();
-        let _ = self
-            .client_app_1
-            .world_mut()
-            .connect_client();
+        let _ = self.server_app.world_mut().start_server();
+        let _ = self.client_app_1.world_mut().connect_client();
 
-        let _ = self
-            .client_app_2
-            .world_mut()
-            .connect_client();
+        let _ = self.client_app_2.world_mut().connect_client();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
