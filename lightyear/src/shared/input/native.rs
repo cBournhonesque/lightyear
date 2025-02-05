@@ -24,9 +24,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         // TODO: this adds a receive_message fn that is never used! Because we have custom handling
         //  of native input message in ConnectionManager.receive()
-        app.register_message_internal::<InputMessage<A>>(
-            ChannelDirection::ClientToServer,
-        );
+        app.register_message_internal::<InputMessage<A>>(ChannelDirection::ClientToServer);
         let is_client = app.world().get_resource::<ClientConfig>().is_some();
         let is_server = app.world().get_resource::<ServerConfig>().is_some();
         assert!(is_client || is_server, "Either ClientConfig or ServerConfig must be present! Make sure that your SharedPlugin is registered after the ClientPlugins/ServerPlugins");

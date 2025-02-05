@@ -74,10 +74,7 @@ impl AppTriggerExt for App {
         direction: ChannelDirection,
         serialize_fns: SerializeFns<TriggerMessage<E>>,
     ) {
-        self.register_message_internal_custom_serde::<TriggerMessage<E>>(
-            direction,
-            serialize_fns,
-        );
+        self.register_message_internal_custom_serde::<TriggerMessage<E>>(direction, serialize_fns);
         // TODO: need to call map_entities for the trigger targets to be mapped correctly!
         register_trigger::<E>(self, direction);
     }

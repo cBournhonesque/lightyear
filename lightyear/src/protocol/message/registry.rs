@@ -55,10 +55,7 @@ impl AppMessageInternalExt for App {
         &mut self,
         direction: ChannelDirection,
     ) -> MessageRegistration<'_, M> {
-        self.register_message_internal_custom_serde::<M>(
-            direction,
-            SerializeFns::<M>::default(),
-        )
+        self.register_message_internal_custom_serde::<M>(direction, SerializeFns::<M>::default())
     }
 
     fn register_message_internal_custom_serde<M: Message>(
@@ -121,10 +118,7 @@ impl AppMessageExt for App {
 }
 
 /// Register the message-receive metadata for a given message M
-pub(crate) fn register_message<M: Message>(
-    app: &mut App,
-    direction: ChannelDirection,
-) {
+pub(crate) fn register_message<M: Message>(app: &mut App, direction: ChannelDirection) {
     let is_client = app.world().get_resource::<ClientConfig>().is_some();
     let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
@@ -150,7 +144,6 @@ pub(crate) fn register_message<M: Message>(
         }
     }
 }
-
 
 /// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
 /// A [`Message`] is any type that is serializable and deserializable.

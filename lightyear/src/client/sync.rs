@@ -14,7 +14,6 @@ use crate::shared::tick_manager::{Tick, TickEvent};
 use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
 
-
 /// SystemSet that holds systems that update the client's tick/time to match the server's tick/time
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct SyncSet;

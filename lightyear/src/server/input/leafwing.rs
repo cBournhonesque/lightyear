@@ -68,11 +68,10 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
 
     // TODO: this doesn't work! figure out how to make sure that InputManagerPlugin is called
     fn finish(&self, app: &mut App) {
-        if !app.is_plugin_added::<InputManagerPlugin::<A>>() {
+        if !app.is_plugin_added::<InputManagerPlugin<A>>() {
             app.add_plugins(InputManagerPlugin::<A>::server());
         }
     }
-
 }
 
 /// For each entity that has an action-state, insert an InputBuffer, to store

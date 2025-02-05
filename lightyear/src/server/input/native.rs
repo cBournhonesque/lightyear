@@ -5,7 +5,9 @@ use bevy::utils::HashMap;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
 use crate::prelude::server::DisconnectEvent;
-use crate::prelude::{server::is_started, ClientId, MessageRegistry, ServerReceiveMessage, TickManager, UserAction};
+use crate::prelude::{
+    server::is_started, ClientId, MessageRegistry, ServerReceiveMessage, TickManager, UserAction,
+};
 use crate::server::events::InputEvent;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
@@ -91,7 +93,6 @@ fn handle_client_disconnect<A: UserAction>(
 ) {
     input_buffers.buffers.remove(&trigger.event().client_id);
 }
-
 
 /// Read the message received from the client and emit the MessageEvent event
 fn receive_input_message<A: UserAction>(
