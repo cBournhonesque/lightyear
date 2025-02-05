@@ -70,14 +70,15 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
+    }
 
-        // TODO: register this in Plugin::finish by checking if the client plugin is already registered?
-        if app.world().resource::<ServerConfig>().shared.mode != Mode::HostServer {
-            // we don't want to add this plugin in HostServer mode because it's already added on the client side
-            // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
+    // TODO: this doesn't work! figure out how to make sure that InputManagerPlugin is called
+    fn finish(&self, app: &mut App) {
+        if !app.is_plugin_added::<InputManagerPlugin::<A>>() {
             app.add_plugins(InputManagerPlugin::<A>::server());
         }
     }
+
 }
 
 /// For each entity that has an action-state, insert an InputBuffer, to store

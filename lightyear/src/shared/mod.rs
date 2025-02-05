@@ -18,3 +18,4 @@ pub mod input;
 pub(crate) mod message;
 pub mod run_conditions;
 pub mod time_manager;
+pub mod identity;
