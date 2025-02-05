@@ -14,6 +14,7 @@ use lightyear::client::connection;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear::server::input::leafwing::InputSystemSet;
 use lightyear::shared::tick_manager;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
@@ -39,7 +40,7 @@ impl Plugin for ExampleServerPlugin {
             PreUpdate,
             // This system will replicate the inputs of a client to other
             // clients so that a client can predict other clients.
-            replicate_inputs.after(MainSet::ReceiveEvents),
+            replicate_inputs.after(InputSystemSet::ReceiveInputs),
         );
         app.add_systems(FixedUpdate, handle_character_actions);
         app.add_systems(Update, handle_connections);
@@ -101,20 +102,21 @@ fn init(mut commands: Commands) {
     // ));
 }
 
+/// When we receive the input of a client, broadcast it to other clients
+/// so that they can predict this client's movements accurately
 pub(crate) fn replicate_inputs(
-    mut connection: ResMut<ConnectionManager>,
-    mut input_events: ResMut<Events<MessageEvent<InputMessage<CharacterAction>>>>,
+    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<CharacterAction>>>>,
+    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<CharacterAction>>>,
 ) {
-    for mut event in input_events.drain() {
-        let client_id = event.from();
-        // Rebroadcast the input to other clients.
-        connection
-            .send_message_to_target::<InputChannel, _>(
-                &mut event.message,
-                NetworkTarget::AllExceptSingle(client_id),
-            )
-            .unwrap()
-    }
+    // rebroadcast the input to other clients
+    // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
+    // so that the server had the time to process the inputs
+    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+        ServerSendMessage::new_with_target::<InputChannel>(
+            ev.message,
+            NetworkTarget::AllExceptSingle(ev.from),
+        )
+    }));
 }
 
 /// Spawn a character whenever a new client has connected.

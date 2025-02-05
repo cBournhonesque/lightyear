@@ -94,7 +94,7 @@ impl MessageRegistry {
     }
 
     pub(crate) fn register_client_receive<M: Message>(app: &mut App) {
-        app.insert_resource(Events::<ClientReceiveMessage<M>>::default());
+        app.add_event::<ClientReceiveMessage<M>>();
         let message_kind = MessageKind::of::<M>();
         let component_id = app
             .world_mut()

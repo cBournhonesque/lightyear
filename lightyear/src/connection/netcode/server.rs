@@ -681,7 +681,10 @@ impl<Ctx> NetcodeServer<Ctx> {
             return Err(Error::UnknownClient(id::ClientId::Netcode(id)));
         };
         if conn.is_connected() {
-            return Err(Error::ClientIdInUse(id::ClientId::Netcode(id)));
+            // TODO: most of the time this error can happen because we receive older 'ConnectionResponse' messages
+            // even though the client is already connected. Should we just ignore this error?
+            // return Err(Error::ClientIdInUse(id::ClientId::Netcode(id)));
+            return Ok(());
         };
 
         if self.num_connected_clients() >= MAX_CLIENTS {
@@ -736,14 +739,13 @@ impl<Ctx> NetcodeServer<Ctx> {
             }
         }
     }
-    fn send_packets(&mut self, io: &mut Io) -> Result<()> {
+    fn send_keepalives(&mut self, io: &mut Io) -> Result<()> {
         for id in self.conn_cache.ids() {
             let Some(client) = self.conn_cache.clients.get_mut(&id) else {
                 self.handle_client_error(Error::ClientNotFound(id::ClientId::Netcode(id)));
                 continue;
             };
             if !client.is_connected() {
-                self.handle_client_error(Error::ClientNotConnected(id::ClientId::Netcode(id)));
                 continue;
             }
             if client.last_send_time + self.cfg.keep_alive_send_rate >= self.time {
@@ -850,7 +852,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         let (sender, receiver) = io.split();
         self.check_for_timeouts();
         self.recv_packets(sender, receiver)?;
-        self.send_packets(io)?;
+        self.send_keepalives(io)?;
         Ok(self.client_errors.drain(..).collect())
     }
     /// Receives a packet from a client, if one is available in the queue.
