@@ -6,9 +6,7 @@ use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::client::interpolation::VisualInterpolationPlugin;
-use lightyear::prelude::client::{
-    Interpolated, Predicted, VisualInterpolateStatus,
-};
+use lightyear::prelude::client::{Interpolated, Predicted, VisualInterpolateStatus};
 use lightyear::prelude::server::ReplicationTarget;
 use lightyear::prelude::{NetworkIdentity, PreSpawnedPlayerObject, Replicated};
 use lightyear_avian::prelude::AabbEnvelopeHolder;
