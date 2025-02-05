@@ -749,10 +749,6 @@ mod tests {
     #[test]
     #[ignore]
     fn test_client_disconnect_when_failing_handshake() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_env_filter("crate=error,lightyear=error,bevy=trace")
-            .with_max_level(tracing::Level::ERROR)
-            .init();
         let mut stepper = BevyStepper::default_no_init();
 
         let _ = stepper.server_app.world_mut().start_server();
