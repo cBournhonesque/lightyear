@@ -1,10 +1,10 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
+
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
+use bevy::utils::{hashbrown, HashMap};
 
 use crate::connection::id::ClientId;
-use crate::prelude::ComponentRegistry;
 use crate::server::connection::ConnectionManager;
 use crate::shared::events::connection::{
     ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
@@ -32,7 +32,7 @@ impl Plugin for ServerEventsPlugin {
             .add_systems(
                 PreUpdate,
                 // TODO: check if this should be between Receive and EmitEvents
-                emit_connect_events.in_set(InternalMainSet::<ServerMarker>::EmitEvents),
+                emit_connect_events.in_set(InternalMainSet::<ServerMarker>::ReceiveEvents),
             );
     }
 }
@@ -88,7 +88,7 @@ pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         push_component_events::<C, ConnectionManager>
-            .in_set(InternalMainSet::<ServerMarker>::EmitEvents),
+            .in_set(InternalMainSet::<ServerMarker>::ReceiveEvents),
     );
 }
 
@@ -207,11 +207,10 @@ impl IterEntityDespawnEvent<ClientId> for ServerEvents {
 impl IterComponentUpdateEvent<ClientId> for ServerEvents {
     fn iter_component_update<'a, 'b: 'a, C: Component>(
         &'a mut self,
-        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + 'a> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
-                .iter_component_update::<C>(component_registry)
+                .iter_component_update::<C>()
                 .map(|(entity, _)| entity);
             let client_ids = std::iter::once(*client_id).cycle();
             updates.zip(client_ids)
@@ -222,11 +221,10 @@ impl IterComponentUpdateEvent<ClientId> for ServerEvents {
 impl IterComponentRemoveEvent<ClientId> for ServerEvents {
     fn iter_component_remove<'a, 'b: 'a, C: Component>(
         &'a mut self,
-        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + 'a> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
-                .iter_component_remove::<C>(component_registry)
+                .iter_component_remove::<C>()
                 .map(|(entity, _)| entity);
             let client_ids = std::iter::once(*client_id).cycle();
             updates.zip(client_ids)
@@ -237,11 +235,10 @@ impl IterComponentRemoveEvent<ClientId> for ServerEvents {
 impl IterComponentInsertEvent<ClientId> for ServerEvents {
     fn iter_component_insert<'a, 'b: 'a, C: Component>(
         &'a mut self,
-        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + 'a> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
-                .iter_component_insert::<C>(component_registry)
+                .iter_component_insert::<C>()
                 .map(|(entity, _)| entity);
             let client_ids = std::iter::once(*client_id).cycle();
             updates.zip(client_ids)
@@ -279,18 +276,15 @@ pub type ComponentInsertEvent<C> =
 pub type ComponentRemoveEvent<C> =
     crate::shared::events::components::ComponentRemoveEvent<C, ClientId>;
 
-/// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
-pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, ClientId>;
-
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::prelude::Tick;
     use crate::protocol::channel::ChannelKind;
+    use crate::protocol::component::ComponentKind;
     use crate::tests::protocol::{
         Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, StringMessage,
     };
-
-    use super::*;
 
     #[test]
     fn test_iter_component_removes() {
@@ -303,31 +297,28 @@ mod tests {
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         let message1_a = StringMessage("hello".to_string());
         let message1_b = StringMessage("world".to_string());
-        let mut component_registry = ComponentRegistry::default();
-        component_registry.register_component::<ComponentSyncModeFull>();
-        component_registry.register_component::<ComponentSyncModeOnce>();
-        let net_id_1 = component_registry.net_id::<ComponentSyncModeFull>();
-        let net_id_2 = component_registry.net_id::<ComponentSyncModeOnce>();
-        events_1.push_remove_component(entity_1, net_id_1, Tick(0));
-        events_1.push_remove_component(entity_1, net_id_2, Tick(0));
-        events_1.push_remove_component(entity_2, net_id_1, Tick(0));
+        let kind_1 = ComponentKind::of::<ComponentSyncModeFull>();
+        let kind_2 = ComponentKind::of::<ComponentSyncModeOnce>();
+        events_1.push_remove_component(entity_1, kind_1, Tick(0));
+        events_1.push_remove_component(entity_1, kind_2, Tick(0));
+        events_1.push_remove_component(entity_2, kind_1, Tick(0));
         let mut server_events = ServerEvents::new();
         server_events.push_events(client_1, events_1);
 
         let mut events_2 = ConnectionEvents::new();
-        events_2.push_remove_component(entity_2, net_id_2, Tick(0));
+        events_2.push_remove_component(entity_2, kind_2, Tick(0));
         server_events.push_events(client_2, events_2);
 
         // check that we have the correct messages
         let data: Vec<(Entity, ClientId)> = server_events
-            .iter_component_remove::<ComponentSyncModeFull>(&component_registry)
+            .iter_component_remove::<ComponentSyncModeFull>()
             .collect();
         assert_eq!(data.len(), 2);
         assert!(data.contains(&(entity_1, client_1)));
         assert!(data.contains(&(entity_2, client_1)));
 
         let data: Vec<(Entity, ClientId)> = server_events
-            .iter_component_remove::<ComponentSyncModeOnce>(&component_registry)
+            .iter_component_remove::<ComponentSyncModeOnce>()
             .collect();
         assert_eq!(data.len(), 2);
         assert!(data.contains(&(entity_1, client_1)));

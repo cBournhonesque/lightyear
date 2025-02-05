@@ -17,6 +17,7 @@
 //!
 //! ```rust
 //! use bevy::prelude::*;
+//! use lightyear::prelude::client::*;
 //! use lightyear::prelude::*;
 //!
 //! #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -28,6 +29,7 @@
 //! }
 //!
 //! let mut app = App::new();
+//! # app.add_plugins(ClientPlugins::new(ClientConfig::default()));
 //! app.add_plugins(InputPlugin::<MyInput>::default());
 //! ```
 //!
@@ -46,9 +48,8 @@
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
-use tracing::{debug, error, trace};
+use tracing::{error, trace};
 
-use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
@@ -56,11 +57,14 @@ use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::run_conditions::is_synced;
 use crate::client::sync::SyncSet;
+use crate::connection::client::NetClient;
+use crate::connection::client::NetClientDispatch;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
 use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, Tick, TickManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
+use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
 
 #[derive(Debug, Clone, Copy, Reflect)]
 pub struct InputConfig {
@@ -113,7 +117,7 @@ impl Default for InputConfig {
     }
 }
 
-pub struct InputPlugin<A> {
+pub struct InputPlugin<A: UserAction> {
     config: InputConfig,
     _marker: std::marker::PhantomData<A>,
 }
@@ -167,14 +171,14 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage.run_if(
                     // no need to send input messages via io if we are in host-server mode
-                    is_synced.and_then(not(is_host_server)),
+                    is_synced.and(not(is_host_server)),
                 ),
                 InternalMainSet::<ClientMarker>::Send,
             )
                 .chain(),
         );
-        // SYSTEMS
 
+        // SYSTEMS
         // Host server mode only!
         app.add_systems(
             FixedPreUpdate,
@@ -192,7 +196,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             FixedPostUpdate,
             clear_input_events::<A>.in_set(InputSystemSet::ClearInputEvent),
         );
-        app.observe(receive_tick_events::<A>);
+        app.add_observer(receive_tick_events::<A>);
         app.add_systems(
             PostUpdate,
             (prepare_input_message::<A>.in_set(InputSystemSet::SendInputMessage),),
@@ -300,19 +304,20 @@ fn prepare_input_message<A: UserAction>(
     //  - buffer an input every frame; and require some redundancy (number of tick per frame)
     //  - or buffer an input only when we are sending, and require more redundancy
     // let message_len = 20 as u16;
-    let mut message = input_manager
+    let message = input_manager
         .input_buffer
         .create_message(tick_manager.tick(), message_len);
     // all inputs are absent
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
-        debug!(
+        trace!(
             ?current_tick,
-            "sending input message: {:?}", message.end_tick
+            "sending input message: {:?}",
+            message.end_tick
         );
         connection
-            .send_message::<InputChannel, _>(&mut message)
+            .send_message::<InputChannel, _>(&message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             })
@@ -331,10 +336,61 @@ fn prepare_input_message<A: UserAction>(
 /// inputs through the network, we just send directly to the server's InputEvents
 fn send_input_directly_to_client_events<A: UserAction>(
     tick_manager: Res<TickManager>,
+    client: Res<ClientConnection>,
     mut input_manager: ResMut<InputManager<A>>,
-    mut client_input_events: EventWriter<InputEvent<A>>,
+    mut server_input_events: EventWriter<crate::server::events::InputEvent<A>>,
 ) {
-    let tick = tick_manager.tick();
-    let input = input_manager.input_buffer.pop(tick);
-    client_input_events.send(InputEvent::new(input, ()));
+    if let NetClientDispatch::Local(client) = &client.client {
+        let tick = tick_manager.tick();
+        let input = input_manager.input_buffer.pop(tick);
+        let event = crate::server::events::InputEvent::new(input, client.id());
+        server_input_events.send(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::client::input::native::InputSystemSet;
+    use crate::prelude::client::InputManager;
+    use crate::prelude::{server, TickManager};
+    use crate::tests::host_server_stepper::HostServerStepper;
+    use crate::tests::protocol::MyInput;
+    use bevy::prelude::*;
+
+    fn press_input(
+        mut input_manager: ResMut<InputManager<MyInput>>,
+        tick_manager: Res<TickManager>,
+    ) {
+        input_manager.add_input(MyInput(2), tick_manager.tick());
+    }
+
+    #[derive(Resource)]
+    pub struct Counter(pub u32);
+
+    fn receive_input(
+        mut counter: ResMut<Counter>,
+        mut input: EventReader<server::InputEvent<MyInput>>,
+    ) {
+        for input in input.read() {
+            assert_eq!(input.input().unwrap(), MyInput(2));
+            counter.0 += 1;
+        }
+    }
+
+    /// Check that in host-server mode the native client inputs from the buffer
+    /// are forwarded directly to the server's InputEvents
+    #[test]
+    fn test_host_server_input() {
+        let mut stepper = HostServerStepper::default_no_init();
+        stepper.server_app.world_mut().insert_resource(Counter(0));
+        stepper.server_app.add_systems(
+            FixedPreUpdate,
+            press_input.in_set(InputSystemSet::BufferInputs),
+        );
+        stepper.server_app.add_systems(FixedUpdate, receive_input);
+        stepper.init();
+
+        stepper.frame_step();
+        assert!(stepper.server_app.world().resource::<Counter>().0 > 0);
+    }
 }

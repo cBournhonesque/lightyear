@@ -6,7 +6,7 @@ use crate::shared::replication::components::ReplicationGroupId;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
-use bevy::utils::HashMap;
+use bevy::utils::{hashbrown, HashMap};
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -26,7 +26,7 @@ pub enum DeltaType {
 /// A message that contains a delta between two states (for serializing delta compression)
 // Need repr(C) to be able to cast the pointer to a u8 pointer
 #[repr(C)]
-#[derive(Deserialize, Serialize)]
+#[derive(Component, Deserialize, Serialize)]
 pub struct DeltaMessage<M> {
     pub(crate) delta_type: DeltaType,
     pub(crate) delta: M,
@@ -221,12 +221,14 @@ impl DeltaComponentStore {
 mod tests {
     use super::*;
     use crate::tests::protocol::ComponentDeltaCompression;
+    use bevy::prelude::World;
 
     #[test]
     fn test_add_get_data() {
+        let mut world = World::default();
         let mut registry = ComponentRegistry::default();
-        registry.register_component::<ComponentDeltaCompression>();
-        registry.set_delta_compression::<ComponentDeltaCompression>();
+        registry.register_component::<ComponentDeltaCompression>(&mut world);
+        registry.set_delta_compression::<ComponentDeltaCompression>(&mut world);
         let mut store = DeltaComponentStore::default();
         let entity = Entity::from_raw(0);
         let tick = Tick(0);
@@ -246,9 +248,10 @@ mod tests {
 
     #[test]
     fn test_delete_old_data() {
+        let mut world = World::default();
         let mut registry = ComponentRegistry::default();
-        registry.register_component::<ComponentDeltaCompression>();
-        registry.set_delta_compression::<ComponentDeltaCompression>();
+        registry.register_component::<ComponentDeltaCompression>(&mut world);
+        registry.set_delta_compression::<ComponentDeltaCompression>(&mut world);
         let mut store = DeltaComponentStore::default();
         let entity = Entity::from_raw(0);
         let tick_1 = Tick(1);

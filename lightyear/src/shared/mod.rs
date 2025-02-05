@@ -4,8 +4,6 @@ pub mod config;
 
 pub mod events;
 
-pub mod log;
-
 pub mod ping;
 
 pub mod plugin;
@@ -16,6 +14,7 @@ pub mod sets;
 
 pub mod tick_manager;
 
+pub mod identity;
 pub mod input;
 pub(crate) mod message;
 pub mod run_conditions;

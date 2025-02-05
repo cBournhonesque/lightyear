@@ -1,3 +1,6 @@
+use crate::protocol::*;
+use crate::shared;
+use crate::shared::{color_from_id, shared_movement_behaviour};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
@@ -7,10 +10,8 @@ use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
+use lightyear::server::input::leafwing::InputSystemSet;
+use lightyear::shared::replication::components::InitialReplicated;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
@@ -33,7 +34,7 @@ impl Plugin for ExampleServerPlugin {
             PreUpdate,
             // this system will replicate the inputs of a client to other clients
             // so that a client can predict other clients
-            replicate_inputs.after(MainSet::EmitEvents),
+            replicate_inputs.after(InputSystemSet::ReceiveInputs),
         );
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
@@ -41,7 +42,7 @@ impl Plugin for ExampleServerPlugin {
             replicate_players.in_set(ServerReplicationSet::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, movement.in_set(FixedSet::Main));
+        app.add_systems(FixedUpdate, movement);
     }
 }
 
@@ -51,21 +52,6 @@ fn start_server(mut commands: Commands) {
 }
 
 fn init(mut commands: Commands, global: Res<Global>) {
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
-
     // the ball is server-authoritative
     commands.spawn(BallBundle::new(
         Vec2::new(0.0, 0.0),
@@ -104,33 +90,34 @@ pub(crate) fn movement(
 /// When we receive the input of a client, broadcast it to other clients
 /// so that they can predict this client's movements accurately
 pub(crate) fn replicate_inputs(
-    mut connection: ResMut<ConnectionManager>,
-    mut input_events: ResMut<Events<MessageEvent<InputMessage<PlayerActions>>>>,
+    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<PlayerActions>>>>,
+    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<PlayerActions>>>,
 ) {
-    for mut event in input_events.drain() {
-        let client_id = *event.context();
-
-        // Optional: do some validation on the inputs to check that there's no cheating
-
-        // rebroadcast the input to other clients
-        connection
-            .send_message_to_target::<InputChannel, _>(
-                &mut event.message,
-                NetworkTarget::AllExceptSingle(client_id),
-            )
-            .unwrap()
-    }
+    // rebroadcast the input to other clients
+    // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
+    // so that the server had the time to process the inputs
+    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+        ServerSendMessage::new_with_target::<InputChannel>(
+            ev.message,
+            NetworkTarget::AllExceptSingle(ev.from),
+        )
+    }));
 }
 
-// Replicate the pre-spawned entities back to the client
+// Replicate the pre-predicted entities back to the client
+// We have to use `InitialReplicated` instead of `Replicated`, because
+// the server has already assumed authority over the entity so the `Replicated` component
+// has been removed
 pub(crate) fn replicate_players(
     global: Res<Global>,
     mut commands: Commands,
-    query: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
+    query: Query<(Entity, &InitialReplicated), (Added<InitialReplicated>, With<PlayerId>)>,
 ) {
     for (entity, replicated) in query.iter() {
         let client_id = replicated.client_id();
-        info!("received player spawn event from client {client_id:?}");
+        info!(
+            "Received player spawn event from client {client_id:?}. Replicating back to all clients"
+        );
 
         // for all player entities we have received, add a Replicate component so that we can start replicating it
         // to other clients

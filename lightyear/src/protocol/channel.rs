@@ -63,7 +63,6 @@ pub struct ChannelRegistry {
     // we only store the ChannelBuilder because we might want to create multiple instances of the same channel
     pub(in crate::protocol) builder_map: HashMap<ChannelKind, ChannelBuilder>,
     pub(in crate::protocol) kind_map: TypeMapper<ChannelKind>,
-    pub(in crate::protocol) name_map: HashMap<ChannelKind, String>,
     built: bool,
 }
 
@@ -72,7 +71,6 @@ impl ChannelRegistry {
         let mut registry = Self {
             builder_map: HashMap::new(),
             kind_map: TypeMapper::new(),
-            name_map: HashMap::new(),
             built: false,
         };
         registry.add_channel::<EntityUpdatesChannel>(ChannelSettings {
@@ -123,7 +121,7 @@ impl ChannelRegistry {
 
     /// Returns true if the net_id corresponds to a channel that is used for replication
     pub(crate) fn is_replication_channel(&self, net_id: NetId) -> bool {
-        self.kind_map.kind(net_id).map_or(false, |kind| {
+        self.kind_map.kind(net_id).is_some_and(|kind| {
             *kind == ChannelKind::of::<EntityUpdatesChannel>()
                 || *kind == ChannelKind::of::<EntityActionsChannel>()
         })
@@ -131,9 +129,9 @@ impl ChannelRegistry {
 
     /// Returns true if the net_id corresponds to a channel that is used for replicating updates
     pub(crate) fn is_replication_update_channel(&self, net_id: NetId) -> bool {
-        self.kind_map.kind(net_id).map_or(false, |kind| {
-            *kind == ChannelKind::of::<EntityUpdatesChannel>()
-        })
+        self.kind_map
+            .kind(net_id)
+            .is_some_and(|kind| *kind == ChannelKind::of::<EntityUpdatesChannel>())
     }
 
     /// Build all the channels in the registry
@@ -153,8 +151,6 @@ impl ChannelRegistry {
     pub fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) {
         let kind = self.kind_map.add::<C>();
         self.builder_map.insert(kind, C::get_builder(settings));
-        let name = C::name();
-        self.name_map.insert(kind, name.to_string());
     }
 
     /// get the registered object for a given type
@@ -171,7 +167,7 @@ impl ChannelRegistry {
     }
 
     pub fn name(&self, kind: &ChannelKind) -> Option<&str> {
-        self.name_map.get(kind).map(|s| s.as_str())
+        self.builder_map.get(kind).map(|b| b.name)
     }
 
     pub fn get_builder_from_net_id(&self, channel_id: ChannelId) -> Option<&ChannelBuilder> {

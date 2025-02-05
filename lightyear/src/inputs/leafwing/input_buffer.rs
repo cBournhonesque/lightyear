@@ -1,3 +1,12 @@
+//! The InputBuffer contains a history of the ActionState for each tick.
+//!
+//! It is used for several purposes:
+//! - the client's inputs for tick T must arrive before the server processes tick T, so they are stored
+//!   in the buffer until the server processes them. The InputBuffer can be updated efficiently by receiving
+//!   a list of [`ActionDiff`]s compared from an initial [`ActionState`]
+//! - to implement input-delay, we want a button press at tick t to be processed at tick t + delay on the client.
+//!   Therefore, we will store the computed ActionState at tick t + delay, but then we load the ActionState at tick t
+//!   from the buffer
 use bevy::utils::Instant;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
@@ -41,7 +50,7 @@ impl<A: LeafwingUserAction> std::fmt::Display for InputBuffer<A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ty = A::short_type_path();
 
-        let Some(tick) = self.start_tick.clone() else {
+        let Some(tick) = self.start_tick else {
             return write!(f, "EmptyInputBuffer");
         };
 
@@ -82,6 +91,11 @@ impl<A: LeafwingUserAction> Default for InputBuffer<A> {
 }
 
 impl<T: LeafwingUserAction> InputBuffer<T> {
+    /// Number of elements in the buffer
+    pub(crate) fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
     // Note: we expect this to be set every tick?
     //  i.e. there should be an ActionState for every tick, even if the action is None
     /// Set the ActionState for the given tick in the InputBuffer
@@ -138,9 +152,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
     /// Remove all the inputs that are older than the given tick, then return the input
     /// for the given tick
     pub fn pop(&mut self, tick: Tick) -> Option<ActionState<T>> {
-        let Some(start_tick) = self.start_tick else {
-            return None;
-        };
+        let start_tick = self.start_tick?;
         if tick < start_tick {
             return None;
         }
@@ -172,17 +184,15 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         }
 
         if let BufferItem::Data(value) = popped {
-            return Some(value);
+            Some(value)
         } else {
-            return None;
+            None
         }
     }
 
     /// Get the [`ActionState`] for the given tick
     pub fn get(&self, tick: Tick) -> Option<&ActionState<T>> {
-        let Some(start_tick) = self.start_tick else {
-            return None;
-        };
+        let start_tick = self.start_tick?;
         if self.buffer.is_empty() {
             return None;
         }
@@ -202,9 +212,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
 
     /// Get latest ActionState present in the buffer
     pub fn get_last(&self) -> Option<&ActionState<T>> {
-        let Some(start_tick) = self.start_tick else {
-            return None;
-        };
+        let start_tick = self.start_tick?;
         if self.buffer.is_empty() {
             return None;
         }
@@ -230,7 +238,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         &mut self,
         end_tick: Tick,
         start_value: &ActionState<T>,
-        diffs: &Vec<Vec<ActionDiff<T>>>,
+        diffs: &[Vec<ActionDiff<T>>],
     ) {
         let start_tick = end_tick - diffs.len() as u16;
         self.set(start_tick, start_value);

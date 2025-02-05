@@ -11,12 +11,9 @@ use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::log::add_log_layer;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use crate::shared::{shared_config, SharedPlugin, SERVER_REPLICATION_INTERVAL};
-
-pub(crate) const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 5000);
+use crate::shared::{shared_config, SharedPlugin, SERVER_ADDR, SERVER_REPLICATION_INTERVAL};
 
 pub struct ExampleServerPlugin;
 

@@ -1,8 +1,71 @@
 //! Implement lightyear traits for some common bevy types
+use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::shared::replication::delta::Diffable;
+use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian2d::math::Scalar;
 use avian2d::prelude::*;
+use bevy::app::{RunFixedMainLoop, RunFixedMainLoopSystem};
+use bevy::prelude::TransformSystem::TransformPropagate;
+use bevy::prelude::{App, FixedPostUpdate, Plugin};
+use bevy::prelude::{IntoSystemSetConfigs, PostUpdate};
 use tracing::trace;
+
+pub(crate) struct Avian2dPlugin;
+
+impl Plugin for Avian2dPlugin {
+    fn build(&self, app: &mut App) {
+        app.configure_sets(
+            FixedPostUpdate,
+            // Ensure PreSpawned hash calculated before physics runs, to avoid any physics interaction affecting it
+            // TODO: maybe use observers so that we don't have any ordering requirements?
+            (
+                InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
+                InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
+            )
+                .before(PhysicsSet::Prepare), // Runs right before physics.
+        );
+        // NB: the three main physics sets in FixedPostUpdate run in this order:
+        // pub enum PhysicsSet {
+        //     Prepare,
+        //     StepSimulation,
+        //     Sync,
+        // }
+        app.configure_sets(
+            FixedPostUpdate,
+            (
+                // run physics before spawning the prediction history for prespawned entities
+                // we want all avian-added components (Rotation, etc.) to be inserted before we try
+                // to spawn the history, so that the history is spawned at the correct time for all components
+                PredictionSet::Sync,
+                // run physics before updating the prediction history
+                PredictionSet::UpdateHistory,
+                PredictionSet::IncrementRollbackTick,
+            )
+                .after(PhysicsSet::StepSimulation)
+                .after(PhysicsSet::Sync),
+        );
+        app.configure_sets(
+            RunFixedMainLoop,
+            PhysicsSet::Sync.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
+        );
+        // if we are syncing Position/Rotation in PostUpdate (not in FixedLast because FixedLast might not run
+        // in some frames), and running VisualInterpolation for Position/Rotation,
+        // we want to first interpolate and then sync to transform
+        app.configure_sets(
+            PostUpdate,
+            (
+                InterpolationSet::VisualInterpolation,
+                PhysicsSet::Sync,
+                TransformPropagate,
+            )
+                .chain(),
+        );
+
+        // Add rollback for some non-replicated resources
+        // app.add_resource_rollback::<Collisions>();
+        // app.add_rollback::<CollidingEntities>();
+    }
+}
 
 pub mod position {
     use super::*;

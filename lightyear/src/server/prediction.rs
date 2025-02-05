@@ -1,10 +1,13 @@
 //! Handles logic related to prespawning entities
 
-use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, TickManager};
+use crate::prelude::server::{AuthorityCommandExt, AuthorityPeer};
+use crate::prelude::{
+    is_host_server, ComponentRegistry, NetworkIdentityState, PrePredicted, PreSpawnedPlayerObject,
+    Replicated, ServerConnectionManager, TickManager,
+};
+use crate::shared::replication::prespawn::compute_default_hash;
 use bevy::ecs::component::Components;
 use bevy::prelude::*;
-
-use crate::shared::replication::prespawn::compute_default_hash;
 
 /// Compute the hash of the spawned entity by hashing the NetId of all its components along with the tick at which it was created
 /// 1. Client spawns an entity and adds the PreSpawnedPlayerObject component
@@ -48,4 +51,43 @@ pub(crate) fn compute_hash(
 
     // put the resources back
     *set.p1() = component_registry;
+}
+
+/// When we receive an entity that a clients wants PrePredicted,
+/// we immediately transfer authority back to the server. The server will replicate the PrePredicted
+/// component back to the client. Upon receipt, the client will replace PrePredicted with Predicted.
+///
+/// The entity mapping is done on the client.
+pub(crate) fn handle_pre_predicted(
+    trigger: Trigger<OnAdd, PrePredicted>,
+    mut commands: Commands,
+    mut manager: ResMut<ServerConnectionManager>,
+    identity: Option<Res<State<NetworkIdentityState>>>,
+    q: Query<(Entity, &PrePredicted, &Replicated)>,
+) {
+    // no need to do anything in host-server mode, we directly add the `Predicted` component on the client
+    if is_host_server(identity) {
+        return;
+    }
+    if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.entity()) {
+        let sending_client = replicated.from.unwrap();
+        let confirmed_entity = pre_predicted.confirmed_entity.unwrap();
+        // update the mapping so that when we send updates, the server entity gets mapped
+        // to the client's confirmed entity
+        manager
+            .connection_mut(sending_client)
+            .unwrap()
+            .replication_receiver
+            .remote_entity_map
+            .insert(confirmed_entity, local_entity);
+        debug!(
+            ?confirmed_entity,
+            ?local_entity,
+            "Received PrePredicted entity from client: {:?}. Transferring authority to server",
+            replicated.from
+        );
+        commands
+            .entity(local_entity)
+            .transfer_authority(AuthorityPeer::Server);
+    }
 }

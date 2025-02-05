@@ -14,57 +14,28 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
-use bevy_mod_picking::picking_core::Pickable;
-use bevy_mod_picking::prelude::{Click, On, Pointer};
 use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::server::AuthorityPeer;
 use lightyear::prelude::*;
+use lightyear_examples_common::client_renderer::ClientIdText;
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_connect_button);
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(Update, (button_system, change_ball_color_on_authority));
+        app.add_systems(Update, change_ball_color_on_authority);
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
 
         app.add_systems(PostUpdate, interpolation_debug_log);
 
-        app.observe(handle_ball);
-    }
-}
-
-/// Component to identify the text displaying the client id
-#[derive(Component)]
-pub struct ClientIdText;
-
-/// Listen for events to know when the client is connected, and spawn a text entity
-/// to display the client id
-pub(crate) fn handle_connection(
-    mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
-) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        commands.spawn((
-            TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ),
-            ClientIdText,
-        ));
+        app.add_observer(handle_ball);
     }
 }
 
@@ -77,7 +48,7 @@ pub(crate) fn handle_ball(trigger: Trigger<OnAdd, BallMarker>, mut commands: Com
         .insert((
             Replicate::default(),
             Name::new("Ball"),
-            DisabledComponent::<PlayerColor>::default(),
+            DisabledComponents::default().disable::<PlayerColor>(),
         ))
         // NOTE: we need to make sure that the ball doesn't have authority!
         //  or should let the client receive updates even if it has HasAuthority
@@ -143,59 +114,6 @@ fn player_movement(
     }
 }
 
-/// Create a button that allow you to connect/disconnect to a server
-pub(crate) fn spawn_connect_button(mut commands: Commands) {
-    commands
-        .spawn((
-            NodeBundle {
-                style: Style {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    align_items: AlignItems::FlexEnd,
-                    justify_content: JustifyContent::FlexEnd,
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                },
-                ..default()
-            },
-            Pickable::IGNORE,
-        ))
-        .with_children(|parent| {
-            parent
-                .spawn((
-                    ButtonBundle {
-                        style: Style {
-                            width: Val::Px(150.0),
-                            height: Val::Px(65.0),
-                            border: UiRect::all(Val::Px(5.0)),
-                            // horizontally center child text
-                            justify_content: JustifyContent::Center,
-                            // vertically center child text
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        border_color: BorderColor(Color::BLACK),
-                        image: UiImage::default().with_color(Color::srgb(0.15, 0.15, 0.15)),
-                        ..default()
-                    },
-                    On::<Pointer<Click>>::run(|| {}),
-                ))
-                .with_children(|parent| {
-                    parent.spawn((
-                        TextBundle::from_section(
-                            "Connect",
-                            TextStyle {
-                                font_size: 20.0,
-                                color: Color::srgb(0.9, 0.9, 0.9),
-                                ..default()
-                            },
-                        ),
-                        Pickable::IGNORE,
-                    ));
-                });
-        });
-}
-
 /// Remove all entities when the client disconnect
 fn on_disconnect(
     mut commands: Commands,
@@ -210,40 +128,9 @@ fn on_disconnect(
     }
 }
 
-///  System that will assign a callback to the 'Connect' button depending on the connection state.
-fn button_system(
-    mut interaction_query: Query<(Entity, &Children, &mut On<Pointer<Click>>), With<Button>>,
-    mut text_query: Query<&mut Text>,
-    state: Res<State<NetworkingState>>,
-) {
-    if state.is_changed() {
-        for (entity, children, mut on_click) in &mut interaction_query {
-            let mut text = text_query.get_mut(children[0]).unwrap();
-            match state.get() {
-                NetworkingState::Disconnected => {
-                    text.sections[0].value = "Connect".to_string();
-                    *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
-                        commands.connect_client();
-                    });
-                }
-                NetworkingState::Connecting => {
-                    text.sections[0].value = "Connecting".to_string();
-                    *on_click = On::<Pointer<Click>>::run(|| {});
-                }
-                NetworkingState::Connected => {
-                    text.sections[0].value = "Disconnect".to_string();
-                    *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
-                        commands.disconnect_client();
-                    });
-                }
-            };
-        }
-    }
-}
-
 /// Set the color of the ball to the color of the peer that has authority
 pub(crate) fn change_ball_color_on_authority(
-    mut messages: ResMut<Events<MessageEvent<AuthorityPeer>>>,
+    mut messages: ResMut<Events<ReceiveMessage<AuthorityPeer>>>,
     players: Query<(&PlayerColor, &PlayerId), With<Confirmed>>,
     mut balls: Query<&mut PlayerColor, (With<BallMarker>, Without<PlayerId>, With<Interpolated>)>,
 ) {

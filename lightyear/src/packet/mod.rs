@@ -27,6 +27,9 @@ pub(crate) mod message;
 /// Manages sending and receiving [`Packets`](packet::Packet) over the network
 pub mod message_manager;
 
+// "module has the same name as its containing module" style nit.
+// clippy doesn't like this, but not much benefit to changing it now, so silence the warning.
+#[allow(clippy::module_inception)]
 pub mod packet;
 
 pub(crate) mod error;

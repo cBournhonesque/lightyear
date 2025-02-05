@@ -11,25 +11,34 @@ mod client;
 mod server;
 mod shared;
 
-use crate::client::ExampleClientPlugin;
-use crate::server::ExampleServerPlugin;
 use bevy::prelude::*;
-use clap::Parser;
+use clap::{Parser, Subcommand, ValueEnum};
 
-#[derive(Parser, PartialEq, Debug)]
-pub enum Cli {
-    /// The program will act as server
-    Server,
-    /// The program will act as a client
+/// CLI options to create an [`App`]
+#[derive(Parser, Debug)]
+#[command(version, about)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub mode: Mode,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Mode {
     Client,
+    Server,
 }
 
 fn main() {
     let cli = Cli::parse();
     let mut app = App::new();
-    match cli {
-        Cli::Server => app.add_plugins(ExampleServerPlugin),
-        Cli::Client => app.add_plugins(ExampleClientPlugin),
-    };
+
+    match cli.mode {
+        Mode::Client => {
+            app.add_plugins(client::ExampleClientPlugin);
+        }
+        Mode::Server => {
+            app.add_plugins(server::ExampleServerPlugin);
+        }
+    }
     app.run();
 }

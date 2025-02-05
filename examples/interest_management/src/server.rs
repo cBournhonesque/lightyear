@@ -47,21 +47,6 @@ pub(crate) struct Global {
 
 pub(crate) fn init(mut commands: Commands) {
     commands.start_server();
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
-
     // spawn dots in a grid
     for x in -NUM_CIRCLES..NUM_CIRCLES {
         for y in -NUM_CIRCLES..NUM_CIRCLES {
@@ -96,7 +81,7 @@ pub(crate) fn handle_connections(
     }
 }
 
-pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>) {
+pub(crate) fn receive_message(mut messages: EventReader<ServerReceiveMessage<Message1>>) {
     for message in messages.read() {
         info!("recv message");
     }

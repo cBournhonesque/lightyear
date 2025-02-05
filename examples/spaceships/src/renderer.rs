@@ -5,19 +5,15 @@ use crate::shared::*;
 use avian2d::parry::shape::SharedShape;
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
-use bevy::core_pipeline::bloom::BloomSettings;
+use bevy::core_pipeline::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
-use bevy::sprite::MaterialMesh2dBundle;
-use bevy::sprite::Mesh2dHandle;
 use bevy::time::common_conditions::on_timer;
-use bevy_screen_diagnostics::ScreenEntityDiagnosticsPlugin;
-use bevy_screen_diagnostics::ScreenFrameDiagnosticsPlugin;
-use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
+use lightyear::prelude::Replicating;
 use lightyear::shared::tick_manager;
 use lightyear::shared::tick_manager::Tick;
 use lightyear::shared::tick_manager::TickManager;
@@ -41,85 +37,105 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.insert_resource(ClearColor::default());
         // app.insert_resource(ClearColor(css::DARK_GRAY.into()));
         let draw_shadows = false;
-        // draw last to ensure all the interpolation/syncing stuff has happened
+        // in an attempt to reduce flickering, draw walls before FixedUpdate runs
+        // so they exist for longer during this tick.
+        // retained gizmos may help us in bevy 0.15?
+        app.add_systems(PreUpdate, draw_walls);
+
+        // draw after visual interpolation has propagated
         app.add_systems(
-            Last,
+            PostUpdate,
             (
-                add_player_visual_components,
-                update_player_visual_components,
-                draw_walls,
+                update_player_label,
                 draw_confirmed_shadows.run_if(move || draw_shadows),
                 draw_predicted_entities,
                 draw_confirmed_entities.run_if(is_server),
                 draw_explosions,
             )
-                .chain(),
+                .chain()
+                .after(bevy::transform::TransformSystem::TransformPropagate),
         );
+        app.add_observer(add_player_label);
 
         app.add_systems(FixedPreUpdate, insert_bullet_mesh);
 
-        app.add_systems(Startup, setup_diagnostic);
-        app.add_plugins(ScreenDiagnosticsPlugin::default());
-        app.add_plugins(ScreenEntityDiagnosticsPlugin);
-        // app.add_plugins(ScreenFrameDiagnosticsPlugin);
         app.add_plugins(EntityLabelPlugin);
-        // probably want to avoid using this on server, if server gui enabled
-        app.add_plugins(VisualInterpolationPlugin::<Position>::default());
-        app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
+
+        // set up visual interp plugins for Transform
+        app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
+
+        // observers that add VisualInterpolationStatus components to entities which receive
+        // a Position
+        app.add_observer(add_visual_interpolation_components);
     }
 }
 
-fn init_camera(mut commands: Commands, mut windows: Query<&mut Window>) {
-    let mut window = windows.single_mut();
-    window.resolution.set(800., 800.);
+// Non-wall entities get some visual interpolation by adding the lightyear
+// VisualInterpolateStatus component
+//
+// We query filter With<Predicted> so that the correct client entities get visual-interpolation.
+// We don't want to visually interpolate the client's Confirmed entities, since they are not rendered.
+//
+// We must trigger change detection so that the Transform updates from interpolation
+// will be propagated to children (sprites, meshes, text, etc.)
+fn add_visual_interpolation_components(
+    // We use Position because it's added by avian later, and when it's added
+    // we know that Predicted is already present on the entity
+    trigger: Trigger<OnAdd, Position>,
+    q: Query<Entity, (Without<Wall>, With<Predicted>)>,
+    mut commands: Commands,
+) {
+    if !q.contains(trigger.entity()) {
+        return;
+    }
+    debug!("Adding visual interp component to {:?}", trigger.entity());
+    commands
+        .entity(trigger.entity())
+        .insert(VisualInterpolateStatus::<Transform> {
+            // We must trigger change detection on visual interpolation
+            // to make sure that child entities (sprites, meshes, text)
+            // are also interpolated
+            trigger_change_detection: true,
+            ..default()
+        });
+}
+
+fn init_camera(mut commands: Commands) {
     commands.spawn((
-        Camera2dBundle {
-            camera: Camera {
-                hdr: true,
-                ..default()
-            },
-            // https://bevyengine.org/examples/3D%20Rendering/tonemapping/
-            // 2. Using a tonemapper that desaturates to white is recommended
-            tonemapping: Tonemapping::TonyMcMapface,
+        Camera2d,
+        Camera {
+            hdr: true,
             ..default()
         },
-        BloomSettings::default(),
-        VisibilityBundle::default(),
+        Tonemapping::TonyMcMapface,
+        Bloom::default(),
+        Visibility::default(),
     ));
 }
 
-// add visual interp components on client predicted entities
-fn add_player_visual_components(
+fn add_player_label(
+    trigger: Trigger<OnAdd, Player>,
     mut commands: Commands,
-    q: Query<
-        (Entity, &Player, &Score),
-        (
-            With<Predicted>,
-            Added<Collider>,
-            Without<VisualInterpolateStatus<Position>>,
-            Without<VisualInterpolateStatus<Rotation>>,
-        ),
-    >,
+    // add the label on both client and server
+    q: Query<(Entity, &Player, &Score), Or<(With<Predicted>, With<Replicating>)>>,
 ) {
-    for (e, player, score) in q.iter() {
-        // info!("Adding visual bits to {e:?}");
+    if let Ok((e, player, score)) = q.get(trigger.entity()) {
+        error!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
-            VisibilityBundle::default(),
-            TransformBundle::default(),
+            Visibility::default(),
+            Transform::default(),
             EntityLabel {
-                text: format!("{}\n{}", player.nickname, score.0),
+                text: format!("{} <{}>\n", player.nickname, score.0),
                 color: css::ANTIQUE_WHITE.with_alpha(0.8).into(),
                 offset: Vec2::Y * -45.0,
                 ..Default::default()
             },
-            VisualInterpolateStatus::<Position>::default(),
-            VisualInterpolateStatus::<Rotation>::default(),
         ));
     }
 }
 
 // update the labels when the player rtt/jitter is updated by the server
-fn update_player_visual_components(
+fn update_player_label(
     mut q: Query<
         (
             Entity,
@@ -128,7 +144,11 @@ fn update_player_visual_components(
             &InputBuffer<PlayerActions>,
             &Score,
         ),
-        Or<(Changed<Player>, Changed<Score>)>,
+        Or<(
+            Changed<Player>,
+            Changed<Score>,
+            Changed<InputBuffer<PlayerActions>>,
+        )>,
     >,
     tick_manager: Res<TickManager>,
 ) {
@@ -141,7 +161,7 @@ fn update_player_visual_components(
         } else {
             0
         };
-        label.text = format!("{}\n{}", player.nickname, score.0);
+        label.text = format!("{} <{}>\n", player.nickname, score.0);
         label.sub_text = format!(
             "{}~{}ms [{num_buffered_inputs}]",
             player.rtt.as_millis(),
@@ -150,39 +170,7 @@ fn update_player_visual_components(
     }
 }
 
-fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
-    onscreen
-        .add("RB".to_string(), PredictionDiagnosticsPlugin::ROLLBACKS)
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.0}"));
-    onscreen
-        .add(
-            "RBt".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACK_TICKS,
-        )
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.0}"));
-    onscreen
-        .add(
-            "RBd".to_string(),
-            PredictionDiagnosticsPlugin::ROLLBACK_DEPTH,
-        )
-        .aggregate(Aggregate::Value)
-        .format(|v| format!("{v:.1}"));
-    // screen diagnostics twitches due to layout change when a metric adds or removes
-    // a digit, so pad these metrics to 3 digits.
-    onscreen
-        .add("KB_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:0>3.0}"));
-    onscreen
-        .add("KB_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
-        .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:0>3.0}"));
-}
-
 /// System that draws the outlines of confirmed entities, with lines to the centre of their predicted location.
-#[allow(clippy::type_complexity)]
 pub(crate) fn draw_confirmed_shadows(
     mut gizmos: Gizmos,
     confirmed_q: Query<
@@ -212,7 +200,6 @@ pub(crate) fn draw_confirmed_shadows(
 }
 
 /// System that draws the player's boxes and cursors
-#[allow(clippy::type_complexity)]
 fn draw_predicted_entities(
     mut gizmos: Gizmos,
     predicted: Query<
@@ -289,7 +276,6 @@ fn draw_walls(walls: Query<&Wall, Without<Player>>, mut gizmos: Gizmos) {
 
 /// Draws confirmed entities that have colliders.
 /// Only useful on the server
-#[allow(clippy::type_complexity)]
 fn draw_confirmed_entities(
     mut gizmos: Gizmos,
     confirmed: Query<
@@ -400,13 +386,11 @@ pub fn insert_bullet_mesh(
             .expect("Bullets expected to be balls.");
         let ball = Circle::new(ball.radius);
         let mesh = Mesh::from(ball);
-        let mesh_handle = Mesh2dHandle(meshes.add(mesh));
-        commands.entity(entity).insert((MaterialMesh2dBundle {
-            mesh: mesh_handle,
-            transform: Transform::from_translation(Vec3::Z),
-            material: materials.add(ColorMaterial::from(col.0)),
-            ..default()
-        },));
+        commands.entity(entity).insert((
+            Mesh2d(meshes.add(mesh)),
+            Transform::from_translation(Vec3::Z),
+            MeshMaterial2d(materials.add(ColorMaterial::from(col.0))),
+        ));
     }
 }
 

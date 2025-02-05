@@ -13,6 +13,7 @@ use lightyear::client::connection;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear::server::input::leafwing::InputSystemSet;
 use lightyear::shared::tick_manager;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
@@ -20,7 +21,7 @@ use crate::protocol::*;
 use crate::shared;
 use crate::shared::ApplyInputsQuery;
 use crate::shared::ApplyInputsQueryItem;
-use crate::shared::{apply_action_state_to_player_movement, color_from_id, FixedSet};
+use crate::shared::{apply_action_state_to_player_movement, color_from_id};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
@@ -42,14 +43,12 @@ impl Plugin for ExampleServerPlugin {
             PreUpdate,
             // this system will replicate the inputs of a client to other clients
             // so that a client can predict other clients
-            replicate_inputs.after(MainSet::EmitEvents),
+            replicate_inputs.after(InputSystemSet::ReceiveInputs),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(
             FixedUpdate,
-            (player_movement, shared::shared_player_firing)
-                .chain()
-                .in_set(FixedSet::Main),
+            (player_movement, shared::shared_player_firing).chain(),
         );
         app.add_systems(
             Update,
@@ -62,7 +61,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             FixedUpdate,
             handle_hit_event
-                .run_if(on_event::<BulletHitEvent>())
+                .run_if(on_event::<BulletHitEvent>)
                 .after(shared::process_collisions),
         );
     }
@@ -87,20 +86,6 @@ fn start_server(mut commands: Commands) {
 }
 
 fn init(mut commands: Commands) {
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
     // the balls are server-authoritative
     const NUM_BALLS: usize = 6;
     for i in 0..NUM_BALLS {
@@ -112,23 +97,18 @@ fn init(mut commands: Commands) {
 }
 
 pub(crate) fn replicate_inputs(
-    mut connection: ResMut<ConnectionManager>,
-    mut input_events: ResMut<Events<MessageEvent<InputMessage<PlayerActions>>>>,
+    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<PlayerActions>>>>,
+    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<PlayerActions>>>,
 ) {
-    for mut event in input_events.drain() {
-        let client_id = *event.context();
-
-        // Optional: do some validation on the inputs to check that there's no cheating
-        // Inputs for a specific tick should be write *once*. Don't let players change old inputs.
-
-        // rebroadcast the input to other clients
-        connection
-            .send_message_to_target::<InputChannel, _>(
-                &mut event.message,
-                NetworkTarget::AllExceptSingle(client_id),
-            )
-            .unwrap()
-    }
+    // rebroadcast the input to other clients
+    // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
+    // so that the server had the time to process the inputs
+    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+        ServerSendMessage::new_with_target::<InputChannel>(
+            ev.message,
+            NetworkTarget::AllExceptSingle(ev.from),
+        )
+    }));
 }
 
 /// Whenever a new client connects, spawn their spaceship

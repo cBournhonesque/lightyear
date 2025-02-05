@@ -18,6 +18,38 @@ use crate::transport::error::{Error, Result};
 use crate::transport::io::IoState;
 use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
+// Adapted from https://github.com/briansmith/ring/blob/befdc87ac7cbca615ab5d68724f4355434d3a620/src/test.rs#L364-L393
+pub fn from_hex(hex_str: &str) -> std::result::Result<Vec<u8>, String> {
+    if hex_str.len() % 2 != 0 {
+        return Err(format!(
+            "Hex string does not have an even number of digits. Length: {}. String: .{}.",
+            hex_str.len(),
+            hex_str
+        ));
+    }
+
+    let mut result = Vec::with_capacity(hex_str.len() / 2);
+    for digits in hex_str.as_bytes().chunks(2) {
+        let hi = from_hex_digit(digits[0])?;
+        let lo = from_hex_digit(digits[1])?;
+        result.push((hi * 0x10) | lo);
+    }
+    Ok(result)
+}
+
+fn from_hex_digit(d: u8) -> std::result::Result<u8, String> {
+    use core::ops::RangeInclusive;
+    const DECIMAL: (u8, RangeInclusive<u8>) = (0, b'0'..=b'9');
+    const HEX_LOWER: (u8, RangeInclusive<u8>) = (10, b'a'..=b'f');
+    const HEX_UPPER: (u8, RangeInclusive<u8>) = (10, b'A'..=b'F');
+    for (offset, range) in &[DECIMAL, HEX_LOWER, HEX_UPPER] {
+        if range.contains(&d) {
+            return Ok(d - range.start() + offset);
+        }
+    }
+    Err(format!("Invalid hex digit '{}'", d as char))
+}
+
 pub struct WebTransportClientSocketBuilder {
     pub(crate) client_addr: SocketAddr,
     pub(crate) server_addr: SocketAddr,
@@ -47,14 +79,14 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
             &server_url
         );
 
-        let options = xwt_web_sys::WebTransportOptions {
-            server_certificate_hashes: vec![xwt_web_sys::CertificateHash {
-                algorithm: xwt_web_sys::HashAlgorithm::Sha256,
-                value: ring::test::from_hex(&self.certificate_digest).unwrap(),
+        let options = xwt_web::WebTransportOptions {
+            server_certificate_hashes: vec![xwt_web::CertificateHash {
+                algorithm: xwt_web::HashAlgorithm::Sha256,
+                value: from_hex(&self.certificate_digest).unwrap(),
             }],
             ..Default::default()
         };
-        let endpoint = xwt_web_sys::Endpoint {
+        let endpoint = xwt_web::Endpoint {
             options: options.to_js(),
         };
 
@@ -118,7 +150,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
             };
             loop {
                 tokio::select! {
-                    _ = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => return,
+                    _ = connection.transport.closed() => return,
                     to_send = connection.receive_datagram() => {
                         match to_send {
                            Ok(data) => {
@@ -139,7 +171,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
             };
             loop {
                 tokio::select! {
-                    _ = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => return,
+                    _ = connection.transport.closed() => return,
                     recv = to_server_receiver.recv() => {
                         if let Some(msg) = recv {
                             trace!("send datagram to server: {:?}", &msg);
@@ -157,7 +189,7 @@ impl ClientTransportBuilder for WebTransportClientSocketBuilder {
             };
             // Wait for a close signal from the close channel, or for the quic connection to be closed
             tokio::select! {
-                reason = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => {
+                reason = connection.transport.closed() => {
                     info!("WebTransport connection closed. Reason: {reason:?}");
                     status_tx.send(ClientIoEvent::Disconnected(std::io::Error::other(format!("Error: {:?}", reason)).into())).await.unwrap();
                 },

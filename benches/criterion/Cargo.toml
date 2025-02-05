@@ -1,0 +1,44 @@
+[package]
+name = "lightyear-benches"
+version.workspace = true
+publish = false
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Benchmark tests for lightyear"
+readme = "../README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license.workspace = true
+
+[dependencies]
+lightyear.workspace = true
+crossbeam-channel.workspace = true
+serde.workspace = true
+rand.workspace = true
+lz4_flex.workspace = true
+
+# enable all the bevy defaults:
+bevy = { workspace = true, default-features = true }
+
+# crates specific to benchmarks, so not in top-level Cargo workspace
+pprof = { version = "0.14.0", features = ["flamegraph", "frame-pointer"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+rand_chacha = "0.3.1"
+bitcode = "0.6.0-beta.1"
+divan = "0.1.14"
+
+[[bin]]
+name = "replication_profiling"
+path = "src/replication_profiling.rs"
+
+[[bench]]
+name = "replication"
+path = "src/replication.rs"
+harness = false
+
+[[bench]]
+name = "message"
+path = "src/message.rs"
+harness = false

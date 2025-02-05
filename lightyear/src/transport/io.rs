@@ -61,8 +61,10 @@ impl<T: Send + Sync> PacketReceiver for BaseIo<T> {
             if let Some((ref buffer, _)) = x {
                 #[cfg(feature = "metrics")]
                 {
-                    metrics::counter!("transport.packets_received").increment(1);
-                    metrics::gauge!("transport.bytes_received").increment(buffer.len() as f64);
+                    // TODO: add the name of the transport in the metric? how to distinguish between multiple transports
+                    //  (for example for the server)? metric should probably be somwhere else?
+                    metrics::counter!("transport::receive::packets").increment(1);
+                    metrics::gauge!("transport::receive::bytes").increment(buffer.len() as f64);
                 }
                 self.stats.bytes_received += buffer.len();
                 self.stats.packets_received += 1;
@@ -77,8 +79,8 @@ impl<T: Send + Sync> PacketSender for BaseIo<T> {
         // todo: bandwidth monitoring
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("transport.packets_sent").increment(1);
-            metrics::gauge!("transport.bytes_sent").increment(payload.len() as f64);
+            metrics::counter!("transport::send::packets").increment(1);
+            metrics::gauge!("transport::send::bytes").increment(payload.len() as f64);
         }
         self.stats.bytes_sent += payload.len();
         self.stats.packets_sent += 1;
@@ -107,22 +109,25 @@ impl IoDiagnosticsPlugin {
         time: &Res<Time<Real>>,
         diagnostics: &mut Diagnostics,
     ) {
-        let delta_seconds = time.delta_seconds_f64();
+        let delta_seconds = time.delta_secs_f64();
         if delta_seconds == 0.0 {
             return;
         }
-        diagnostics.add_measurement(&Self::BYTES_IN, || {
-            (stats.bytes_received as f64 / 1000.0) / delta_seconds
-        });
-        diagnostics.add_measurement(&Self::BYTES_OUT, || {
-            (stats.bytes_sent as f64 / 1000.0) / delta_seconds
-        });
-        diagnostics.add_measurement(&Self::PACKETS_IN, || {
-            stats.packets_received as f64 / delta_seconds
-        });
-        diagnostics.add_measurement(&Self::PACKETS_OUT, || {
-            stats.packets_sent as f64 / delta_seconds
-        });
+        let kb_received = (stats.bytes_received as f64 / 1000.0) / delta_seconds;
+        let packets_received = stats.packets_received as f64 / delta_seconds;
+        let kb_sent = (stats.bytes_sent as f64 / 1000.0) / delta_seconds;
+        let packets_sent = stats.packets_sent as f64 / delta_seconds;
+        #[cfg(feature = "metrics")]
+        {
+            metrics::gauge!("transport::receive::kb/s").set(kb_received);
+            metrics::gauge!("transport::receive::packets/s").set(kb_sent);
+            metrics::gauge!("transport::send::kb/s").set(kb_sent);
+            metrics::gauge!("transport::send::packets/s").set(packets_sent);
+        }
+        diagnostics.add_measurement(&Self::BYTES_IN, || kb_received);
+        diagnostics.add_measurement(&Self::BYTES_OUT, || kb_sent);
+        diagnostics.add_measurement(&Self::PACKETS_IN, || packets_received);
+        diagnostics.add_measurement(&Self::PACKETS_OUT, || packets_sent);
         *stats = IoStats::default()
     }
 }

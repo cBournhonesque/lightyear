@@ -35,24 +35,24 @@ your client will rollback to position the bullet correctly.
 
 ## Running the example
 
-- Run the server: `cargo run server`
+- Run the server with a gui: `cargo run server`
 - Run client with id 1: `cargo run client -c 1`
-- Run client with id 2: `cargo run client -c 2` (etc.)
+- Run client with id 2: `cargo run client -c 2`
+- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`
+- Run the server without a gui: `cargo run --no-default-features --features=server`
+- Run the client and server in "HostServer" mode, where the server is also a client (there is only one App): `cargo run host-server`
 
+You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
+For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server`.
 You can modify the file `assets/settings.ron` to modify some networking settings.
 
 ### Testing in wasm with webtransport
 
 NOTE: I am using [trunk](https://trunkrs.dev/) to build and serve the wasm example.
 
-To test the example in wasm, you can run the following commands: `trunk serve`
-
 You will need a valid SSL certificate to test the example in wasm using webtransport. You will need to run the following
 commands:
-
-- `sh examples/generate.sh` (to generate the temporary SSL certificates, they are only valid for 2 weeks)
-- `cargo run -- server` to start the server. The server will print out the certificate digest (something
-  like `1fd28860bd2010067cee636a64bcbb492142295b297fd8c480e604b70ce4d644`)
-- You then have to replace the certificate digest in the `assets/settings.ron` file with the one that the server printed
-  out.
-- then start the client wasm test with `trunk serve`
+- `cd "$(git rev-parse --show-toplevel)" && sh examples/certificates/generate.sh` (to generate the temporary SSL
+  certificates, they are only valid for 2 weeks)
+- Start the server with: `cargo run -- server`
+- Then start the wasm client wasm with ``RUSTFLAGS='--cfg getrandom_backend="wasm_js"' trunk server --features=client``

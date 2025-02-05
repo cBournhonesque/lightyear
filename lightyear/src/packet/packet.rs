@@ -26,11 +26,9 @@ const HEADER_BYTES: usize = 11;
 
 /// The maximum number of bytes for a message before it is fragmented
 /// MAX_PACKET_SIZE - HEADER_BYTES - 1 (channel_net_id) - 6 (message_id/fragment_id/num_fragments) - 2 (num bytes in fragment)
-#[cfg(feature = "big_messages")]
+// NOTE: this considers that we use 2 bytes for the fragment id and num_fragments, but in reality we are using
+//  varints so it could be more or less!
 pub(crate) const FRAGMENT_SIZE: usize = MAX_PACKET_SIZE - HEADER_BYTES - 9;
-
-#[cfg(not(feature = "big_messages"))]
-pub(crate) const FRAGMENT_SIZE: usize = MAX_PACKET_SIZE - HEADER_BYTES - 7;
 
 /// Data structure that will help us write the packet
 #[derive(Debug)]

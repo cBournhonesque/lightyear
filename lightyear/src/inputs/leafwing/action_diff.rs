@@ -1,5 +1,5 @@
 use crate::prelude::{Deserialize, LeafwingUserAction, Serialize};
-use bevy::math::Vec2;
+use bevy::math::{Vec2, Vec3};
 use bevy::prelude::Reflect;
 use leafwing_input_manager::action_state::{ActionKindData, ActionState};
 
@@ -36,6 +36,13 @@ pub enum ActionDiff<A> {
         /// The new value of the axis
         axis_pair: Vec2,
     },
+    /// The axis triple of the action changed
+    AxisTripleChanged {
+        /// The value of the action
+        action: A,
+        /// The new value of the axis
+        axis_triple: Vec3,
+    },
 }
 
 impl<A: LeafwingUserAction> ActionDiff<A> {
@@ -58,15 +65,11 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                         };
                         if button_data_after.state.pressed() && !button_data_before.state.pressed()
                         {
-                            diffs.push(ActionDiff::Pressed {
-                                action: action.clone(),
-                            });
+                            diffs.push(ActionDiff::Pressed { action: *action });
                         } else if !button_data_after.state.pressed()
                             && button_data_before.state.pressed()
                         {
-                            diffs.push(ActionDiff::Released {
-                                action: action.clone(),
-                            });
+                            diffs.push(ActionDiff::Released { action: *action });
                         }
                     }
                     ActionKindData::Axis(axis_data_after) => {
@@ -76,7 +79,7 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                         };
                         if axis_data_after.value != axis_data_before.value {
                             diffs.push(ActionDiff::AxisChanged {
-                                action: action.clone(),
+                                action: *action,
                                 value: axis_data_after.value,
                             });
                         }
@@ -88,8 +91,20 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                         };
                         if dual_axis_after.pair != dual_axis_before.pair {
                             diffs.push(ActionDiff::AxisPairChanged {
-                                action: action.clone(),
+                                action: *action,
                                 axis_pair: dual_axis_after.pair,
+                            });
+                        }
+                    }
+                    ActionKindData::TripleAxis(triple_axis_after) => {
+                        let triple_axis_before = match &action_data_before.kind_data {
+                            ActionKindData::TripleAxis(triple_axis_before) => triple_axis_before,
+                            _ => unreachable!(),
+                        };
+                        if triple_axis_after.triple != triple_axis_before.triple {
+                            diffs.push(ActionDiff::AxisTripleChanged {
+                                action: *action,
+                                axis_triple: triple_axis_after.triple,
                             });
                         }
                     }
@@ -98,25 +113,27 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                 match &action_data_after.kind_data {
                     ActionKindData::Button(button) => {
                         if button.pressed() {
-                            diffs.push(ActionDiff::Pressed {
-                                action: action.clone(),
-                            });
+                            diffs.push(ActionDiff::Pressed { action: *action });
                         } else {
-                            diffs.push(ActionDiff::Released {
-                                action: action.clone(),
-                            });
+                            diffs.push(ActionDiff::Released { action: *action });
                         }
                     }
                     ActionKindData::Axis(axis) => {
                         diffs.push(ActionDiff::AxisChanged {
-                            action: action.clone(),
+                            action: *action,
                             value: axis.value,
                         });
                     }
                     ActionKindData::DualAxis(dual_axis) => {
                         diffs.push(ActionDiff::AxisPairChanged {
-                            action: action.clone(),
+                            action: *action,
                             axis_pair: dual_axis.pair,
+                        });
+                    }
+                    ActionKindData::TripleAxis(triple_axis) => {
+                        diffs.push(ActionDiff::AxisTripleChanged {
+                            action: *action,
+                            axis_triple: triple_axis.triple,
                         });
                     }
                 }
@@ -142,33 +159,76 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
             ActionDiff::AxisPairChanged { action, axis_pair } => {
                 action_state.set_axis_pair(&action, axis_pair);
             }
+            ActionDiff::AxisTripleChanged {
+                action,
+                axis_triple,
+            } => {
+                action_state.set_axis_triple(&action, axis_triple);
+            }
         };
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{Deserialize, Serialize};
-    use bevy::prelude::Reflect;
-    use leafwing_input_manager::Actionlike;
+    use crate::{
+        inputs::leafwing::action_diff::ActionDiff,
+        prelude::{Deserialize, Serialize},
+    };
+    use bevy::{
+        math::{Vec2, Vec3},
+        prelude::Reflect,
+    };
+    use leafwing_input_manager::{action_state::ActionState, Actionlike};
 
     #[derive(
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,
     )]
     enum Action {
-        Jump,
+        #[actionlike(Axis)]
+        Axis,
+        #[actionlike(DualAxis)]
+        DualAxis,
+        #[actionlike(TripleAxis)]
+        TripleAxis,
     }
 
-    // fn test_diff() {
-    //     let mut action_state = ActionState::new();
-    //     action_state.press(&Action::Jump);
-    //     action_state.action_data_mut(&Action::Jump).unwrap().value = 0.5;
-    //     let mut action_state2 = action_state.clone();
-    //     action_state2.action_data_mut(&Action::Jump).unwrap().value = 0.75;
-    //     let diff = ActionDiff::create(&action_state, &action_state2);
-    //     assert_eq!(diff.len(), 1);
-    //     let mut action_state3 = action_state.clone();
-    //     diff[0].apply(&mut action_state3);
-    //     assert_eq!(action_state2, action_state3);
-    // }
+    #[test]
+    fn test_axis_diff() {
+        let mut action_state = ActionState::default();
+        action_state.set_value(&Action::Axis, 0.5);
+        let mut action_state2 = action_state.clone();
+        action_state2.set_value(&Action::Axis, 0.75);
+        let diff = ActionDiff::create(&action_state, &action_state2);
+        assert_eq!(diff.len(), 1);
+        let mut action_state3 = action_state.clone();
+        diff[0].apply(&mut action_state3);
+        assert_eq!(action_state2, action_state3);
+    }
+
+    #[test]
+    fn test_dual_axis_diff() {
+        let mut action_state = ActionState::default();
+        action_state.set_axis_pair(&Action::DualAxis, Vec2::new(0.5, 0.75));
+        let mut action_state2 = action_state.clone();
+        action_state2.set_axis_pair(&Action::DualAxis, Vec2::new(0.75, 0.5));
+        let diff = ActionDiff::create(&action_state, &action_state2);
+        assert_eq!(diff.len(), 1);
+        let mut action_state3 = action_state.clone();
+        diff[0].apply(&mut action_state3);
+        assert_eq!(action_state2, action_state3);
+    }
+
+    #[test]
+    fn test_triple_axis_diff() {
+        let mut action_state = ActionState::default();
+        action_state.set_axis_triple(&Action::TripleAxis, Vec3::new(0.5, 0.75, 0.25));
+        let mut action_state2 = action_state.clone();
+        action_state2.set_axis_triple(&Action::TripleAxis, Vec3::new(0.75, 0.5, 0.25));
+        let diff = ActionDiff::create(&action_state, &action_state2);
+        assert_eq!(diff.len(), 1);
+        let mut action_state3 = action_state.clone();
+        diff[0].apply(&mut action_state3);
+        assert_eq!(action_state2, action_state3);
+    }
 }

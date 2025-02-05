@@ -1,5 +1,5 @@
 use crate::client::input::native::InputSystemSet;
-use crate::prelude::client::{InputManager, SyncConfig};
+use crate::prelude::client::InputManager;
 use crate::prelude::server::{InputEvent, Replicate};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
@@ -59,8 +59,8 @@ fn test_sync_after_tick_wrap() {
     for i in 0..200 {
         stepper.frame_step();
     }
-    dbg!(&stepper.server_tick());
-    dbg!(&stepper.client_tick());
+    // dbg!(&stepper.server_tick());
+    // dbg!(&stepper.client_tick());
     stepper
         .server_app
         .world_mut()

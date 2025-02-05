@@ -1,8 +1,69 @@
 //! Implement lightyear traits for some common bevy types
+use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::shared::replication::delta::Diffable;
+use crate::shared::sets::{ClientMarker, InternalReplicationSet, ServerMarker};
 use avian3d::math::Scalar;
 use avian3d::prelude::*;
+use bevy::app::{App, FixedPostUpdate, Plugin};
+use bevy::prelude::TransformSystem::TransformPropagate;
+use bevy::prelude::{IntoSystemSetConfigs, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem};
 use tracing::trace;
+
+pub(crate) struct Avian3dPlugin;
+impl Plugin for Avian3dPlugin {
+    fn build(&self, app: &mut App) {
+        app.configure_sets(
+            FixedPostUpdate,
+            // Ensure PreSpawned hash set before physics runs, to avoid any physics interaction affecting it
+            // TODO: maybe use observers so that we don't have any ordering requirements?
+            (
+                InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
+                InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
+            )
+                .before(PhysicsSet::Prepare), // Runs right before physics.
+        );
+        // NB: the three main physics sets in FixedPostUpdate run in this order:
+        // pub enum PhysicsSet {
+        //     Prepare,
+        //     StepSimulation,
+        //     Sync,
+        // }
+        app.configure_sets(
+            FixedPostUpdate,
+            (
+                // run physics before spawning the prediction history for prespawned entities
+                // we want all avian-added components (Rotation, etc.) to be inserted before we try
+                // to spawn the history, so that the history is spawned at the correct time for all components
+                PredictionSet::Sync,
+                // run physics before updating the prediction history
+                PredictionSet::UpdateHistory,
+                PredictionSet::IncrementRollbackTick,
+            )
+                .after(PhysicsSet::StepSimulation)
+                .after(PhysicsSet::Sync),
+        );
+
+        app.configure_sets(
+            RunFixedMainLoop,
+            PhysicsSet::Sync.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
+        );
+        // if we are syncing Position/Rotation in PostUpdate (not in FixedLast because FixedLast might not run
+        // in some frames), and running VisualInterpolation for Position/Rotation,
+        // we want to first interpolate and then sync to transform
+        app.configure_sets(
+            PostUpdate,
+            (
+                InterpolationSet::VisualInterpolation,
+                PhysicsSet::Sync,
+                TransformPropagate,
+            )
+                .chain(),
+        );
+        // Add rollback for some non-replicated resources
+        // app.add_resource_rollback::<Collisions>();
+        // app.add_rollback::<CollidingEntities>();
+    }
+}
 
 pub mod position {
     use super::*;
@@ -39,11 +100,10 @@ pub mod position {
 
 pub mod rotation {
     use super::*;
-    use avian3d::math::Quaternion;
-    use bevy::prelude::Animatable;
-
+    /// We want to smoothly interpolate between the two quaternions by default,
+    /// rather than using a quicker but less correct linear interpolation.
     pub fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {
-        Rotation(Quaternion::interpolate(&start.0, &other.0, t))
+        start.slerp(*other, Scalar::from(t))
     }
 }
 

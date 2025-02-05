@@ -1,0 +1,18 @@
+[package]
+name = "bitcode_packing"
+version.workspace = true
+authors.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+divan = "0.1.17"
+rand_chacha = "0.3.1"
+bitcode = "0.6.3"
+lz4_flex.workspace = true
+rand.workspace = true
+
+[lints]
+workspace = true

@@ -5,6 +5,7 @@ use enum_dispatch::enum_dispatch;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::connection::id::ClientId;
@@ -68,7 +69,7 @@ pub trait NetServer: Send + Sync {
     fn connected_client_ids(&self) -> Vec<ClientId>;
 
     /// Update the connection states + internal bookkeeping (keep-alives, etc.)
-    fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError>;
+    fn try_update(&mut self, delta_ms: f64) -> Result<Vec<ConnectionError>, ConnectionError>;
 
     /// Receive a packet from one of the connected clients
     fn recv(&mut self) -> Option<(RecvPayload, ClientId)>;
@@ -79,6 +80,9 @@ pub trait NetServer: Send + Sync {
     fn new_connections(&self) -> Vec<ClientId>;
 
     fn new_disconnections(&self) -> Vec<ClientId>;
+
+    /// Returns the client's `SocketAddr` if available
+    fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr>;
 
     fn io(&self) -> Option<&Io>;
 
@@ -154,7 +158,9 @@ impl NetConfig {
                 // TODO: handle errors
                 let server = super::steam::server::Server::new(
                     steamworks_client.unwrap_or_else(|| {
-                        Arc::new(RwLock::new(SteamworksClient::new(config.app_id)))
+                        Arc::new(RwLock::new(SteamworksClient::new_with_app_id(
+                            config.app_id,
+                        )))
                     }),
                     config,
                     conditioner,
@@ -174,15 +180,13 @@ type ServerConnectionIdx = usize;
 #[derive(Resource)]
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub servers: Vec<ServerConnection>,
+    pub(crate) servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
-    /// Track whether the server is ready to listen to incoming connections
-    is_listening: bool,
 }
 
 impl ServerConnections {
-    pub fn new(config: Vec<NetConfig>) -> Self {
+    pub(crate) fn new(config: Vec<NetConfig>) -> Self {
         let mut servers = vec![];
         for config in config {
             let server = config.build_server();
@@ -191,45 +195,43 @@ impl ServerConnections {
         ServerConnections {
             servers,
             client_server_map: HashMap::default(),
-            is_listening: false,
         }
     }
 
     /// Start listening for client connections on all internal servers
-    pub fn start(&mut self) -> Result<(), ConnectionError> {
+    pub(crate) fn start(&mut self) -> Result<(), ConnectionError> {
         for server in &mut self.servers {
             server.start()?;
         }
-        self.is_listening = true;
         Ok(())
     }
 
     /// Stop listening for client connections on all internal servers
-    pub fn stop(&mut self) -> Result<(), ConnectionError> {
+    pub(crate) fn stop(&mut self) -> Result<(), ConnectionError> {
         for server in &mut self.servers {
             server.stop()?;
         }
-        self.is_listening = false;
         Ok(())
     }
 
     /// Disconnect a specific client
-    pub fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError> {
-        self.client_server_map.get(&client_id).map_or(
+    pub(crate) fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError> {
+        // we can remove the client_id from the client_server_map here
+        // because we send the disconnect packets immediately in Netcode::disconnect
+        self.client_server_map.remove(&client_id).map_or(
             Err(ConnectionError::ConnectionNotFound),
-            |&server_idx| {
+            |server_idx| {
                 self.servers[server_idx].disconnect(client_id)?;
-                // NOTE: we don't remove the client from the map here because it is done
-                //  in the server's `receive` method
-                // self.client_server_map.remove(&client_id);
                 Ok(())
             },
         )
     }
 
-    /// Returns true if the server is currently listening for client packets
-    pub(crate) fn is_listening(&self) -> bool {
-        self.is_listening
+    /// Returns the client's `SocketAddr` if available
+    pub fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr> {
+        self.client_server_map
+            .get(&client_id)
+            .and_then(|server_idx| self.servers[*server_idx].client_addr(client_id))
     }
 }
 
@@ -255,4 +257,56 @@ pub enum ConnectionError {
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamError(#[from] steamworks::SteamError),
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::connection::server::{NetServer, ServerConnections};
+    use crate::prelude::ClientId;
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+    use crate::transport::LOCAL_SOCKET;
+
+    // Check that the server can successfully disconnect a client
+    // and that there aren't any excessive logs afterwards
+    // Enable logging to see if the logspam is fixed!
+    #[test]
+    fn test_server_disconnect_client() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::INFO)
+        //     .init();
+        let mut stepper = BevyStepper::default();
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<ServerConnections>()
+            .disconnect(ClientId::Netcode(TEST_CLIENT_ID))
+            .unwrap();
+        // make sure the server disconnected the client
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+        assert_eq!(
+            stepper
+                .server_app
+                .world_mut()
+                .resource_mut::<ServerConnections>()
+                .servers[0]
+                .connected_client_ids(),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn test_server_get_client_addr() {
+        let mut stepper = BevyStepper::default();
+        assert_eq!(
+            stepper
+                .server_app
+                .world_mut()
+                .resource_mut::<ServerConnections>()
+                .client_addr(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap(),
+            LOCAL_SOCKET
+        );
+    }
 }

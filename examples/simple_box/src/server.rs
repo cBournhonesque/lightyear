@@ -11,7 +11,6 @@ use bevy::prelude::*;
 use bevy::utils::HashMap;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::ReplicationTarget;
 use std::sync::Arc;
 
 use crate::protocol::*;
@@ -21,44 +20,35 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (init, start_server));
-        // the physics/FixedUpdates systems that consume inputs should be run in this set
+        app.init_resource::<ClientEntityMap>();
+        app.add_systems(Startup, start_server);
+        // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_systems(FixedUpdate, movement);
         app.add_systems(Update, (send_message, handle_connections));
+        #[cfg(not(feature = "client"))]
+        app.add_systems(Update, server_start_stop);
     }
 }
+
+/// A simple resource map that tell me  the corresponding server entity of that client
+/// Important for O(n) acess
+#[derive(Resource, Default)]
+pub struct ClientEntityMap(HashMap<ClientId, Entity>);
 
 /// Start the server
 fn start_server(mut commands: Commands) {
     commands.start_server();
 }
 
-/// Add some debugging text to the screen
-fn init(mut commands: Commands) {
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
-}
-
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
+    mut entity_map: ResMut<ClientEntityMap>,
     mut commands: Commands,
 ) {
     for connection in connections.read() {
         let client_id = connection.client_id;
-        // server and client are running in the same app, no need to replicate to the local client
+        // in host-server mode, server and client are running in the same app, no need to replicate to the local client
         let replicate = Replicate {
             sync: SyncTarget {
                 prediction: NetworkTarget::Single(client_id),
@@ -71,6 +61,9 @@ pub(crate) fn handle_connections(
             ..default()
         };
         let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
+
+        entity_map.0.insert(client_id, entity.id());
+
         info!("Create entity {:?} for client {:?}", entity.id(), client_id);
     }
 }
@@ -103,14 +96,15 @@ pub(crate) fn handle_disconnections(
     }
 }
 
-/// Read client inputs and move players
-pub(crate) fn movement(
-    mut position_query: Query<(&ControlledBy, &mut PlayerPosition)>,
+/// Read client inputs and move players in server therefore giving a basis for other clients
+fn movement(
+    mut position_query: Query<&mut PlayerPosition>,
+    entity_map: Res<ClientEntityMap>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
     tick_manager: Res<TickManager>,
 ) {
     for input in input_reader.read() {
-        let client_id = input.context();
+        let client_id = input.from();
         if let Some(input) = input.input() {
             trace!(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
@@ -118,13 +112,33 @@ pub(crate) fn movement(
                 client_id,
                 tick_manager.tick()
             );
-            // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
-            //  entities here
-            for (controlled_by, position) in position_query.iter_mut() {
-                if controlled_by.targets(client_id) {
+
+            if let Some(player) = entity_map.0.get(&client_id) {
+                if let Ok(position) = position_query.get_mut(*player) {
                     shared::shared_movement_behaviour(position, input);
                 }
+            } else {
+                debug!(
+                    "Couldnt find player in client entity map for client_id: {:?}",
+                    client_id
+                )
             }
+        }
+    }
+}
+
+// only run this in dedicated server mode
+#[cfg(not(feature = "client"))]
+pub(crate) fn server_start_stop(
+    mut commands: Commands,
+    state: Res<State<NetworkingState>>,
+    input: Option<Res<ButtonInput<KeyCode>>>,
+) {
+    if input.is_some_and(|input| input.just_pressed(KeyCode::KeyS)) {
+        if state.get() == &NetworkingState::Stopped {
+            commands.start_server();
+        } else {
+            commands.stop_server();
         }
     }
 }
@@ -139,7 +153,7 @@ pub(crate) fn send_message(
         let message = Message1(5);
         info!("Send message: {:?}", message);
         server
-            .send_message_to_target::<Channel1, Message1>(&mut Message1(5), NetworkTarget::All)
+            .send_message_to_target::<Channel1, Message1>(&message, NetworkTarget::All)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });

@@ -87,10 +87,9 @@ app.add_channel::<Channel1>(ChannelSettings {
       client, so that your inputs can feel responsive
     - **Snapshot interpolation**: with just a one-line change, you can enable Snapshot interpolation so that entities
       are smoothly interpolated even if replicated infrequently.
-    - **Client-authoritative replication**: you can also replicate entities from the client to the server.
+    - **Client-authoritative replication**: you can also replicate entities from the client to the server. The authority over the entity is transferable between the client and the server.
     - **Pre-spawning predicted entities**: you can spawn Predicted entities on the client first, and then transfer the
-      authority to
-      the server. This ensures that the entity is spawned immediately, but will still be controlled by the server.
+      authority to the server. This ensures that the entity is spawned immediately, but will still be controlled by the server.
     - **Entity mapping**: *lightyear* also supports replicating components/messages that contain references to other
       entities. The entities will be mapped from the local World to the remote World.
     - **Interest management**: *lightyear* supports replicating only a subset of the World to clients. Interest
@@ -99,6 +98,7 @@ app.add_channel::<Channel1>(ChannelSettings {
       or more mis-predictions
     - **Bandwidth Management**: you can set a cap to the bandwidth for the connection. Then messages will be sent in
       decreasing order of priority (that you can set yourself), with a priority-accumulation scheme
+    - **Lag Compensation** is available so that predicted entities can interact with interpolated entities (used most often for fps games)
 - Configurable
     - *Lightyear* is highly configurable: you can configure the size of the input buffer, the amount of
       interpolation-delay, the packet send rate, etc.
@@ -108,12 +108,18 @@ app.add_channel::<Channel1>(ChannelSettings {
       sending/receiving messages, etc.). The metrics can be exported to Prometheus for analysis.
 - Examples
     - *Lightyear* has plenty of examples demonstrating all these features, as well as the integration with other bevy
-      crates such as `bevy_xpbd_2d`
+      crates such as `avian`
+
+## Games using lightyear
+
+- [Lumina](https://github.com/nixon-voxell/lumina)
+- [cycles.io](https://github.com/cBournhonesque/jam5) for bevy jam 5: https://cbournhonesque.itch.io/cyclesio
 
 ## Supported bevy version
 
-| Lightyear  | Bevy |
-|------------|------|
-| 0.16       | 0.14 |
-| 0.10-0.15  | 0.13 |
-| 0.1-0.9    | 0.12 |
+| Lightyear | Bevy |
+|-----------|------|
+| 0.18-0.19 | 0.15 |
+| 0.16-0.17 | 0.14 |
+| 0.10-0.15 | 0.13 |
+| 0.1-0.9   | 0.12 |

@@ -1,103 +1,31 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use crate::client::config::ClientConfig;
-use crate::connection::server::ServerConnections;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-
 use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::{
-    AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ComponentRegistry,
-    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
-    PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
+    client, server, AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry,
+    ComponentRegistry, LinkConditionerConfig, MessageRegistry, NetworkIdentityState, ParentSync,
+    PingConfig, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
 };
 use crate::shared::config::SharedConfig;
+use crate::shared::plugin::utils::AppStateExt;
 use crate::shared::replication::authority::AuthorityChange;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
 use crate::transport::io::{IoState, IoStats};
 use crate::transport::middleware::compression::CompressionConfig;
+use bevy::prelude::*;
+use bevy::utils::Duration;
 
 #[derive(Default, Debug)]
 pub struct SharedPlugin {
     pub config: SharedConfig,
 }
 
-/// You can use this as a SystemParam to identify whether you're running on the client or the server
-#[derive(SystemParam)]
-pub struct NetworkIdentity<'w, 's> {
-    client_config: Option<Res<'w, ClientConfig>>,
-    server: Option<Res<'w, ServerConnections>>,
-    _marker: std::marker::PhantomData<&'s ()>,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Identity {
-    /// This peer is a client.
-    /// (note that both the client and server plugins could be running in the same process; but this peer is still acting like a client.
-    /// (for example if the server plugin is stopped))
-    Client,
-    /// This peer is a server.
-    Server,
-    /// This peer is both a server and a client
-    HostServer,
-}
-
-impl Identity {
-    pub(crate) fn get_from_world(world: &World) -> Self {
-        let Some(config) = world.get_resource::<ClientConfig>() else {
-            return Identity::Server;
-        };
-        if matches!(config.shared.mode, Mode::HostServer)
-            && world
-                .get_resource::<ServerConnections>()
-                .as_ref()
-                .map_or(false, |server| server.is_listening())
-        {
-            Identity::HostServer
-        } else {
-            Identity::Client
-        }
-    }
-
-    pub fn is_client(&self) -> bool {
-        self == &Identity::Client
-    }
-    pub fn is_server(&self) -> bool {
-        self == &Identity::Server || self == &Identity::HostServer
-    }
-}
-
-impl<'w, 's> NetworkIdentity<'w, 's> {
-    pub fn identity(&self) -> Identity {
-        let Some(config) = &self.client_config else {
-            return Identity::Server;
-        };
-        if matches!(config.shared.mode, Mode::HostServer)
-            && self
-                .server
-                .as_ref()
-                .map_or(false, |server| server.is_listening())
-        {
-            Identity::HostServer
-        } else {
-            Identity::Client
-        }
-    }
-    pub fn is_client(&self) -> bool {
-        self.identity().is_client()
-    }
-    pub fn is_server(&self) -> bool {
-        self.identity().is_server()
-    }
-}
-
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         // REFLECTION
-        app.register_type::<Mode>()
-            .register_type::<SharedConfig>()
+        app.register_type::<SharedConfig>()
             .register_type::<TickConfig>()
             .register_type::<PingConfig>()
             .register_type::<IoStats>()
@@ -129,9 +57,29 @@ impl Plugin for SharedPlugin {
             config: self.config.tick,
         });
         app.add_plugins(TimePlugin);
+
+        #[cfg(feature = "avian2d")]
+        app.add_plugins(crate::utils::avian2d::Avian2dPlugin);
+        #[cfg(feature = "avian3d")]
+        app.add_plugins(crate::utils::avian3d::Avian3dPlugin);
+        #[cfg(feature = "visualizer")]
+        {
+            if !app.is_plugin_added::<bevy_metrics_dashboard::bevy_egui::EguiPlugin>() {
+                app.add_plugins(bevy_metrics_dashboard::bevy_egui::EguiPlugin);
+            }
+            app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
+                .add_plugins(bevy_metrics_dashboard::DashboardPlugin);
+            app.add_systems(Startup, spawn_metrics_visualizer);
+        }
     }
 
     fn finish(&self, app: &mut App) {
+        // STATES
+        // we need to include both client and server networking states so that the NetworkIdentity ComputedState can be computed correctly
+        app.init_state_without_entering(client::NetworkingState::Disconnected);
+        app.init_state_without_entering(server::NetworkingState::Stopped);
+        app.add_sub_state::<client::ConnectedState>();
+        app.add_computed_state::<NetworkIdentityState>();
         // PROTOCOL
         // we register components here because
         // - the SharedPlugin is built only once in HostServer mode (client and server plugins in the same app)
@@ -143,6 +91,9 @@ impl Plugin for SharedPlugin {
         app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
         app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
+            // to replicate ParentSync on the predicted/interpolated entities so that they spawn their own hierarchies
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple)
             .add_map_entities();
         app.register_component::<Controlled>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
@@ -153,5 +104,36 @@ impl Plugin for SharedPlugin {
 
         // check that the protocol was built correctly
         app.world().resource::<ComponentRegistry>().check();
+    }
+}
+
+#[cfg(feature = "visualizer")]
+fn spawn_metrics_visualizer(mut commands: Commands) {
+    commands.spawn(bevy_metrics_dashboard::DashboardWindow::new(
+        "Metrics Dashboard",
+    ));
+}
+
+pub(super) mod utils {
+    use bevy::app::App;
+    use bevy::prelude::{NextState, State, StateTransition, StateTransitionEvent};
+    use bevy::state::state::{setup_state_transitions_in_world, FreelyMutableState};
+
+    pub(super) trait AppStateExt {
+        // Helper function that runs `init_state::<S>` without entering the state
+        // This is useful for us as we don't want to run OnEnter<NetworkingState::Disconnected> when we start the app
+        fn init_state_without_entering<S: FreelyMutableState>(&mut self, state: S) -> &mut Self;
+    }
+
+    impl AppStateExt for App {
+        fn init_state_without_entering<S: FreelyMutableState>(&mut self, state: S) -> &mut Self {
+            setup_state_transitions_in_world(self.world_mut());
+            self.insert_resource::<State<S>>(State::new(state.clone()))
+                .init_resource::<NextState<S>>()
+                .add_event::<StateTransitionEvent<S>>();
+            let schedule = self.get_schedule_mut(StateTransition).unwrap();
+            S::register_state(schedule);
+            self
+        }
     }
 }

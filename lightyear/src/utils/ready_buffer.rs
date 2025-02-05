@@ -15,7 +15,7 @@ pub struct ReadyBuffer<K, T> {
     pub heap: BinaryHeap<ItemWithReadyKey<K, T>>,
 }
 
-impl<K: Ord, T: PartialEq> Default for ReadyBuffer<K, T> {
+impl<K: Ord, T> Default for ReadyBuffer<K, T> {
     fn default() -> Self {
         Self {
             heap: BinaryHeap::default(),
@@ -23,7 +23,7 @@ impl<K: Ord, T: PartialEq> Default for ReadyBuffer<K, T> {
     }
 }
 
-impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
+impl<K: Ord, T> ReadyBuffer<K, T> {
     pub fn new() -> Self {
         Self {
             heap: BinaryHeap::default(),
@@ -31,10 +31,16 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
     }
 }
 
-impl<K: Ord + Clone, T: PartialEq> ReadyBuffer<K, T> {
+impl<K: Ord + Clone, T> ReadyBuffer<K, T> {
     /// Adds an item to the heap marked by time
     pub fn push(&mut self, key: K, item: T) {
         self.heap.push(ItemWithReadyKey { key, item });
+    }
+
+    /// Returns a reference to the item with the highest `K` value or None if the queue is empty.
+    /// Does not remove the item from the queue.
+    pub fn peek_max_item(&self) -> Option<(K, &T)> {
+        self.heap.peek().map(|item| (item.key.clone(), &item.item))
     }
 
     /// Returns whether or not there is an item with a key more recent or equal to `current_key`
@@ -160,15 +166,15 @@ pub struct ItemWithReadyKey<K, T> {
     pub item: T,
 }
 
-impl<K: Ord, T: PartialEq> Eq for ItemWithReadyKey<K, T> {}
+impl<K: Ord, T> Eq for ItemWithReadyKey<K, T> {}
 
-impl<K: Ord, T: PartialEq> PartialEq<Self> for ItemWithReadyKey<K, T> {
+impl<K: Ord, T> PartialEq<Self> for ItemWithReadyKey<K, T> {
     fn eq(&self, other: &Self) -> bool {
-        self.item == other.item && self.key == other.key
+        self.key == other.key
     }
 }
 
-impl<K: Ord, T: PartialEq> PartialOrd<Self> for ItemWithReadyKey<K, T> {
+impl<K: Ord, T> PartialOrd<Self> for ItemWithReadyKey<K, T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -176,7 +182,7 @@ impl<K: Ord, T: PartialEq> PartialOrd<Self> for ItemWithReadyKey<K, T> {
 
 /// BinaryHeap is a max-heap, so we must reverse the ordering of the Instants
 /// to get a min-heap
-impl<K: Ord, T: PartialEq> Ord for ItemWithReadyKey<K, T> {
+impl<K: Ord, T> Ord for ItemWithReadyKey<K, T> {
     fn cmp(&self, other: &ItemWithReadyKey<K, T>) -> Ordering {
         other.key.cmp(&self.key)
     }
@@ -191,6 +197,30 @@ mod tests {
     use crate::shared::tick_manager::Tick;
 
     use super::*;
+
+    #[test]
+    fn test_peek_max_item() {
+        let mut heap = ReadyBuffer::<Tick, u64>::new();
+
+        // no item in the heap means no max item
+        assert_eq!(heap.peek_max_item(), None);
+
+        // heap with one item should return that item
+        heap.push(Tick(1), 38);
+        matches!(heap.peek_max_item(), Some((Tick(1), 38)));
+
+        // heap's max item should change to new item since it is greater than the current items
+        heap.push(Tick(3), 24);
+        matches!(heap.peek_max_item(), Some((Tick(3), 24)));
+
+        // the heap's max item is still Tick(3) after inserting a smaller item
+        heap.push(Tick(2), 64);
+        matches!(heap.peek_max_item(), Some((Tick(3), 24)));
+
+        // remove the old max item and confirm the second max item is now the max item
+        heap.pop_item(&Tick(3));
+        matches!(heap.peek_max_item(), Some((Tick(2), 64)));
+    }
 
     #[test]
     fn test_time_heap() {

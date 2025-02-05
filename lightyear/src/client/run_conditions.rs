@@ -9,7 +9,7 @@ use bevy::prelude::Res;
 /// to avoid having a frame of delay since the `StateTransition` schedule runs after `PreUpdate`.
 /// We also check both the networking state and the io state (in case the io gets disconnected)
 pub fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
-    netclient.map_or(false, |c| matches!(c.state(), ConnectionState::Connected))
+    netclient.is_some_and(|c| matches!(c.state(), ConnectionState::Connected))
 }
 
 /// Returns true if the client is disconnected.
@@ -27,7 +27,7 @@ pub fn is_synced(
     netclient: Option<Res<ClientConnection>>,
     connection: Option<Res<ConnectionManager>>,
 ) -> bool {
-    netclient.map_or(false, |c| matches!(c.state(), ConnectionState::Connected)) &&
+    netclient.is_some_and(|c| matches!(c.state(), ConnectionState::Connected)) &&
         // TODO: check if this correct; in host-server mode, the client is always synced
-        connection.map_or(false, |c| c.sync_manager.is_synced())
+        connection.is_some_and(|c| c.sync_manager.is_synced())
 }

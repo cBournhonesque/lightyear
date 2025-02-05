@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 
 use lightyear::prelude::client::Confirmed;
@@ -13,15 +12,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        if app.is_plugin_added::<RenderPlugin>() {
-            app.add_systems(Startup, init);
-            app.add_systems(PostUpdate, draw_elements);
-        }
     }
-}
-
-fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
 }
 
 // Generate pseudo-random color from id
@@ -51,24 +42,5 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
             }
         }
         _ => {}
-    }
-}
-
-/// System that draws the player's boxes and cursors
-pub(crate) fn draw_elements(
-    mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
-    cursors: Query<(&CursorPosition, &PlayerColor), Without<Confirmed>>,
-) {
-    for (position, color) in &players {
-        gizmos.rect_2d(
-            Vec2::new(position.x, position.y),
-            0.0,
-            Vec2::ONE * 40.0,
-            color.0,
-        );
-    }
-    for (position, color) in &cursors {
-        gizmos.circle_2d(Vec2::new(position.x, position.y), 15.0, color.0);
     }
 }

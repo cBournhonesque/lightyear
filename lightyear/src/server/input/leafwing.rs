@@ -1,19 +1,14 @@
 //! Handles client-generated inputs
-use std::ops::DerefMut;
-
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::server::MessageEvent;
-use crate::prelude::{server::is_started, InputMessage, MessageRegistry, Mode, TickManager};
-use crate::protocol::message::MessageKind;
-use crate::serialize::reader::Reader;
-use crate::server::config::ServerConfig;
+use crate::prelude::{
+    server::is_started, InputMessage, MessageRegistry, ServerReceiveMessage, TickManager,
+};
 use crate::server::connection::ConnectionManager;
-use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 pub struct LeafwingInputPlugin<A> {
@@ -69,11 +64,11 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
+    }
 
-        // TODO: register this in Plugin::finish by checking if the client plugin is already registered?
-        if app.world().resource::<ServerConfig>().shared.mode != Mode::HostServer {
-            // we don't want to add this plugin in HostServer mode because it's already added on the client side
-            // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
+    // TODO: this doesn't work! figure out how to make sure that InputManagerPlugin is called
+    fn finish(&self, app: &mut App) {
+        if !app.is_plugin_added::<InputManagerPlugin<A>>() {
             app.add_plugins(InputManagerPlugin::<A>::server());
         }
     }
@@ -93,115 +88,72 @@ fn add_action_diff_buffer<A: LeafwingUserAction>(
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: LeafwingUserAction>(
     message_registry: Res<MessageRegistry>,
-    mut connection_manager: ResMut<ConnectionManager>,
+    // we use an EventReader and not an event because the user might want to re-broadcast the inputs
+    mut received_inputs: EventReader<ServerReceiveMessage<InputMessage<A>>>,
+    connection_manager: Res<ConnectionManager>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<Option<&mut InputBuffer<A>>>,
     mut commands: Commands,
-    mut events: EventWriter<MessageEvent<InputMessage<A>>>,
 ) {
-    let kind = MessageKind::of::<InputMessage<A>>();
-    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
-        error!(
-            "Could not find the network id for the message kind: {:?}",
-            kind
-        );
-        return;
-    };
-    // re-borrow to allow split borrows
-    let connection_manager = connection_manager.deref_mut();
-    for (client_id, connection) in connection_manager.connections.iter_mut() {
-        if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
-            for (message_bytes, target, channel_kind) in message_list {
-                let mut reader = Reader::from(message_bytes);
-                match message_registry.deserialize::<InputMessage<A>>(
-                    &mut reader,
-                    &mut connection
-                        .replication_receiver
-                        .remote_entity_map
-                        .remote_to_local,
-                ) {
-                    Ok(message) => {
-                        debug!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-                        // TODO: UPDATE THIS
-                        for (target, start, diffs) in &message.diffs {
-                            match target {
-                                // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
-                                // (which is possible because the server received the entity)
-                                // - for non-pre predicted entities, the mapping was already done on client side
-                                // (client converted from their local entity to the remote server entity)
-                                InputTarget::Entity(entity)
-                                | InputTarget::PrePredictedEntity(entity) => {
-                                    // TODO Don't update input buffer if inputs arrived too late?
-                                    debug!("received input for entity: {:?}", entity);
+    received_inputs.read().for_each(|event| {
+        let message = &event.message;
+        let client_id = event.from;
+        trace!(?client_id, action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
 
-                                    if let Ok(buffer) = query.get_mut(*entity) {
-                                        if let Some(mut buffer) = buffer {
-                                            debug!(
-                                                ?target,
-                                                "Update InputBuffer: {} using InputMessage: {}",
-                                                buffer.as_ref(),
-                                                message
-                                            );
-                                            buffer.update_from_message(
-                                                message.end_tick,
-                                                start,
-                                                diffs,
-                                            );
-                                        } else {
-                                            debug!("Adding InputBuffer and ActionState which are missing on the entity");
-                                            commands.entity(*entity).insert((
-                                                InputBuffer::<A>::default(),
-                                                ActionState::<A>::default(),
-                                            ));
-                                        }
-                                    } else {
-                                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
-                                    }
-                                }
-                                InputTarget::Global => {
-                                    // TODO: handle global diffs for each client! How? create one entity per client?
-                                    //  or have a resource containing the global ActionState for each client?
-                                    // if let Some(ref mut buffer) = global {
-                                    //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
-                                    // }
-                                }
-                            }
+        // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
+        //  that the message was intended for?
+        if let Some(interpolation_delay) = message.interpolation_delay {
+            // update the interpolation delay estimate for the client
+            if let Ok(client_entity) = connection_manager.client_entity(client_id) {
+                commands.entity(client_entity).insert(interpolation_delay);
+            }
+        }
+
+        // TODO: UPDATE THIS
+        for data in &message.diffs {
+            match data.target {
+                // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
+                // (which is possible because the server received the entity)
+                // - for non-pre predicted entities, the mapping was already done on client side
+                // (client converted from their local entity to the remote server entity)
+                InputTarget::Entity(entity)
+                | InputTarget::PrePredictedEntity(entity) => {
+                    // TODO Don't update input buffer if inputs arrived too late?
+                    trace!("received input for entity: {:?}", entity);
+
+                    if let Ok(buffer) = query.get_mut(entity) {
+                        if let Some(mut buffer) = buffer {
+                            trace!(
+                                "Update InputBuffer: {} using InputMessage: {}",
+                                buffer.as_ref(),
+                                message
+                            );
+                            buffer.update_from_message(
+                                message.end_tick,
+                                &data.start_state,
+                                &data.diffs,
+                            );
+                        } else {
+                            debug!("Adding InputBuffer and ActionState which are missing on the entity");
+                            commands.entity(entity).insert((
+                                InputBuffer::<A>::default(),
+                                ActionState::<A>::default(),
+                            ));
                         }
-
-                        // TODO: rebroadcast is never used right now because
-                        //  - it's hard to specify on the client who we want to rebroadcast to
-                        //  - we shouldn't rebroadcast immediately, instead we want to let the server inspect the input
-                        //    to verify that there's no cheating
-                        //  Instead, add a system that manually rebroadcast inputs
-
-                        // rebroadcast
-                        if target != NetworkTarget::None {
-                            if let Ok(()) = message_registry.serialize(
-                                &message,
-                                &mut connection_manager.writer,
-                                Some(
-                                    &mut connection
-                                        .replication_receiver
-                                        .remote_entity_map
-                                        .local_to_remote,
-                                ),
-                            ) {
-                                connection.messages_to_rebroadcast.push((
-                                    reader.consume(),
-                                    target,
-                                    channel_kind,
-                                ));
-                            }
-                        }
-                        events.send(MessageEvent::new(message, *client_id));
+                    } else {
+                        debug!(?entity, ?data.diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                     }
-                    Err(e) => {
-                        error!(?e, "could not deserialize leafwing input message");
-                    }
+                }
+                InputTarget::Global => {
+                    // TODO: handle global diffs for each client! How? create one entity per client?
+                    //  or have a resource containing the global ActionState for each client?
+                    // if let Some(ref mut buffer) = global {
+                    //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
+                    // }
                 }
             }
         }
-    }
+    });
 }
 
 /// Read the InputState for the current tick from the buffer, and use them to update the ActionState
@@ -219,11 +171,23 @@ fn update_action_state<A: LeafwingUserAction>(
         // This is equivalent to considering that the player will keep playing the last action they played.
         if let Some(action) = input_buffer.get(tick) {
             *action_state = action.clone();
-            debug!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
+            trace!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
             // remove all the previous values
             // we keep the current value in the InputBuffer so that if future messages are lost, we can still
             // fallback on the last known value
             input_buffer.pop(tick - 1);
+
+            #[cfg(feature = "metrics")]
+            {
+                // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
+                // so that we can handle lost messages
+                metrics::gauge!(format!(
+                    "inputs::{}::{}::buffer_size",
+                    std::any::type_name::<A>(),
+                    entity
+                ))
+                .set(input_buffer.len() as f64);
+            }
         }
     }
 }
@@ -276,13 +240,7 @@ mod tests {
             .remote_entity_map
             .get_local(server_entity)
             .unwrap();
-        assert!(stepper
-            .client_app
-            .world()
-            .entity(client_entity)
-            .get::<ActionState<LeafwingInput1>>()
-            .is_some());
-        // add an InputMap to the client entity
+        // add an InputMap to the client entity, this should trigger the creation of an ActionState
         stepper
             .client_app
             .world_mut()
@@ -292,6 +250,12 @@ mod tests {
                 KeyCode::KeyA,
             )]));
         stepper.frame_step();
+        assert!(stepper
+            .client_app
+            .world()
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .is_some());
         // check that the client entity got an InputBuffer added to it
         assert!(stepper
             .client_app

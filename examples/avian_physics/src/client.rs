@@ -8,7 +8,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour, FixedSet};
+use crate::shared::{color_from_id, shared_movement_behaviour};
 
 pub struct ExampleClientPlugin;
 
@@ -29,7 +29,7 @@ impl Plugin for ExampleClientPlugin {
                 .before(PredictionSet::SpawnPrediction),
         );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedSet::Main));
+        app.add_systems(FixedUpdate, player_movement);
         app.add_systems(
             Update,
             (
@@ -48,22 +48,13 @@ pub(crate) fn init(mut commands: Commands) {
     commands.connect_client();
 }
 
-/// Listen for events to know when the client is connected, and spawn a text entity
-/// to display the client id
+/// Listen for events to know when the client is connected, and spawn player entities
 pub(crate) fn handle_connection(
     mut commands: Commands,
     mut connection_event: EventReader<ConnectEvent>,
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
         let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
         // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
         commands.spawn(PlayerBundle::new(
@@ -104,8 +95,6 @@ fn add_ball_physics(
         Entity,
         (
             With<BallMarker>,
-            // insert the physics components on the ball that is displayed on screen
-            // (either interpolated or predicted)
             Or<(Added<Interpolated>, Added<Predicted>)>,
         ),
     >,

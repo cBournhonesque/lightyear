@@ -1,0 +1,34 @@
+FROM metabrew/rust-chef-sccache:latest AS builder
+# names of examples to build servers for, passed as build-arg
+ARG example_list=""
+ENV example_list=${example_list}
+
+# fail early if build-arg wasn't set:
+RUN [ -z "$example_list" ] && echo "Empty example_list !!!" || exit 0
+RUN [ -z "$example_list" ] && exit 1 || exit 0
+
+WORKDIR /app
+COPY . .
+# The contents of /app/bins will become /app in the last stage of the Dockerfile
+# and will contain just what we need to run the server, and none of the other source bits.
+RUN mkdir /app/bins
+# Prepare launcher, to make edgegap configuration easier:
+RUN cd examples/launcher && cargo build --release && cp ../../target/release/launcher /app/bins/ 
+# Build all the example servers in one cargo invocation for speed,
+# then for each example, copy the binary and assets to the /app/bins dir.
+RUN cargo build --release --no-default-features -F bevygap_server -p $(echo $example_list | sed 's/,/ -p /g')
+RUN set -e ; for example in $(echo $example_list | tr ',' ' ') ; do \
+    mkdir -p /app/bins/$example && \
+    cp /app/target/release/$example /app/bins/$example/ && \
+    cp -r examples/$example/assets /app/bins/$example/ && \
+    echo "Finished building $example, find:" && \
+    find /app/bins ; \
+    done
+RUN find /app/bins
+
+# Final stage: Create minimal image, copy over new bins dir
+# (we can use distroless/cc-debian12:debug if we need a busybox shell in the container)
+FROM gcr.io/distroless/cc-debian12
+COPY --from=builder /app/bins /app
+WORKDIR /app
+ENTRYPOINT ["/app/launcher"]

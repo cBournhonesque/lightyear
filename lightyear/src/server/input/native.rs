@@ -5,15 +5,13 @@ use bevy::utils::HashMap;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
 use crate::prelude::server::DisconnectEvent;
-use crate::prelude::{server::is_started, ClientId, MessageRegistry, TickManager, UserAction};
-use crate::protocol::message::MessageKind;
-use crate::serialize::reader::Reader;
-use crate::server::connection::ConnectionManager;
+use crate::prelude::{
+    server::is_started, ClientId, MessageRegistry, ServerReceiveMessage, TickManager, UserAction,
+};
 use crate::server::events::InputEvent;
-use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
-pub struct InputPlugin<A> {
+pub struct InputPlugin<A: UserAction> {
     _marker: std::marker::PhantomData<A>,
 }
 
@@ -21,7 +19,7 @@ pub struct InputPlugin<A> {
 pub struct InputBuffers<A> {
     /// The first element stores the last input we have received from the client.
     /// In case we are missing the client input for a tick, we will fallback to using this.
-    buffers: HashMap<ClientId, (Option<A>, InputBuffer<A>)>,
+    pub(crate) buffers: HashMap<ClientId, (Option<A>, InputBuffer<A>)>,
 }
 
 impl<A> Default for InputBuffers<A> {
@@ -32,7 +30,7 @@ impl<A> Default for InputBuffers<A> {
     }
 }
 
-impl<A> Default for InputPlugin<A> {
+impl<A: UserAction> Default for InputPlugin<A> {
     fn default() -> Self {
         Self {
             _marker: std::marker::PhantomData,
@@ -60,7 +58,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         app.configure_sets(
             PreUpdate,
             InputSystemSet::ReceiveInputMessage
-                .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
+                .in_set(InternalMainSet::<ServerMarker>::ReceiveEvents)
                 .run_if(is_started),
         );
         app.configure_sets(
@@ -84,7 +82,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             FixedPostUpdate,
             clear_input_events::<A>.in_set(InputSystemSet::ClearInputEvents),
         );
-        app.observe(handle_client_disconnect::<A>);
+        app.add_observer(handle_client_disconnect::<A>);
     }
 }
 
@@ -99,53 +97,21 @@ fn handle_client_disconnect<A: UserAction>(
 /// Read the message received from the client and emit the MessageEvent event
 fn receive_input_message<A: UserAction>(
     message_registry: Res<MessageRegistry>,
-    mut connection_manager: ResMut<ConnectionManager>,
+    // we use an EventReader in case the user wants to read the inputs in another system
+    mut received_messages: EventReader<ServerReceiveMessage<InputMessage<A>>>,
     mut input_buffers: ResMut<InputBuffers<A>>,
 ) {
-    let kind = MessageKind::of::<InputMessage<A>>();
-    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
-        error!(
-            "Could not find the network id for the message kind: {:?}",
-            kind
-        );
-        return;
-    };
-    for (client_id, connection) in connection_manager.connections.iter_mut() {
-        if let Some(message_list) = connection.received_input_messages.remove(&net) {
-            for (message_bytes, target, channel_kind) in message_list {
-                let mut reader = Reader::from(message_bytes);
-                match message_registry.deserialize::<InputMessage<A>>(
-                    &mut reader,
-                    &mut connection
-                        .replication_receiver
-                        .remote_entity_map
-                        .remote_to_local,
-                ) {
-                    Ok(message) => {
-                        debug!("Received input message: {:?}", message);
-                        input_buffers
-                            .buffers
-                            .entry(*client_id)
-                            .or_default()
-                            .1
-                            .update_from_message(message);
-                        if target != NetworkTarget::None {
-                            // NOTE: we can re-send the same bytes directly because InputMessage does not include any Entity references
-                            connection.messages_to_rebroadcast.push((
-                                // TODO: avoid clone, or use bytes?
-                                reader.consume(),
-                                target,
-                                channel_kind,
-                            ));
-                        }
-                    }
-                    Err(e) => {
-                        error!("Error deserializing input message: {:?}", e);
-                    }
-                }
-            }
-        }
-    }
+    received_messages.read().for_each(|event| {
+        trace!("Received input message: {:?}", event);
+        let client = event.from;
+        input_buffers
+            .buffers
+            .entry(event.from)
+            .or_default()
+            .1
+            .update_from_message(&event.message);
+        // TODO: allow automatic rebroadcast?
+    });
 }
 
 // Create a system that reads from the input buffer and returns the inputs of all clients for the current tick.
@@ -161,7 +127,7 @@ fn write_input_event<A: UserAction>(
         .buffers
         .iter_mut()
         .for_each(move |(client_id, (last_input, input_buffer))| {
-            debug!(?input_buffer, ?tick, ?client_id, "input buffer for client");
+            trace!(?input_buffer, ?tick, ?client_id, "input buffer for client");
             let received_input = input_buffer.pop(tick);
             let fallback = received_input.is_none();
 
@@ -176,7 +142,7 @@ fn write_input_event<A: UserAction>(
             };
             if fallback {
                 // TODO: do not log this while clients are syncing..
-                debug!(
+                trace!(
                 ?client_id,
                 ?tick,
                 fallback_input = ?&input,

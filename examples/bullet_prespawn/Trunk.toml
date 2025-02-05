@@ -1,3 +1,0 @@
-[build]
-release = true
-public_url = "/lightyear/examples/bullet_prespawn/dist/"

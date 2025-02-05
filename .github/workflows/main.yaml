@@ -50,7 +50,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: cargo clippy -p lightyear --no-deps --tests -- -D warnings -A clippy::module_inception -A clippy::wrong_self_convention -A clippy::assign-op-pattern
+        run: cargo clippy -p lightyear --no-deps --tests -- -D warnings -A clippy::wrong_self_convention
 
       - name: Rustdoc
         run: cargo rustdoc -p lightyear --features=metrics,webtransport,leafwing,avian2d,websocket,steam,zstd,avian2d/2d,avian2d/f32,avian2d/parry-f32 -- --document-private-items -D warnings --cfg docsrc
@@ -121,6 +121,6 @@ jobs:
           name: code-coverage-report
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

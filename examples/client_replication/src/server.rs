@@ -1,15 +1,15 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
+use crate::protocol::*;
+use crate::shared;
+use crate::shared::{color_from_id, shared_movement_behaviour};
 use lightyear::client::components::Confirmed;
 use lightyear::client::interpolation::Interpolated;
 use lightyear::client::prediction::Predicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour};
+use lightyear::shared::replication::components::InitialReplicated;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -29,20 +29,6 @@ impl Plugin for ExampleServerPlugin {
 
 pub(crate) fn init(mut commands: Commands) {
     commands.start_server();
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
 }
 
 /// Read client inputs and move players
@@ -52,7 +38,7 @@ pub(crate) fn movement(
     tick_manager: Res<TickManager>,
 ) {
     for input in input_reader.read() {
-        let client_id = input.context();
+        let client_id = input.from();
         if let Some(input) = input.input() {
             if matches!(input, Inputs::None) {
                 continue;
@@ -65,7 +51,7 @@ pub(crate) fn movement(
             );
 
             for (position, player_id) in position_query.iter_mut() {
-                if player_id.0 == *client_id {
+                if player_id.0 == client_id {
                     // NOTE: be careful to directly pass Mut<PlayerPosition>
                     // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
                     shared_movement_behaviour(position, input);
@@ -81,14 +67,14 @@ fn delete_player(
     query: Query<(Entity, &PlayerId), With<PlayerPosition>>,
 ) {
     for input in input_reader.read() {
-        let client_id = input.context();
+        let client_id = input.from();
         if let Some(input) = input.input() {
             if matches!(input, Inputs::Delete) {
                 debug!("received delete input!");
                 for (entity, player_id) in query.iter() {
                     // NOTE: we could not accept the despawn (server conflict)
                     //  in which case the client would have to rollback to delete
-                    if player_id.0 == *client_id {
+                    if player_id.0 == client_id {
                         // You can try 2 things here:
                         // - either you consider that the client's action is correct, and you despawn the entity. This should get replicated
                         //   to other clients.
@@ -102,12 +88,18 @@ fn delete_player(
     }
 }
 
-// Replicate the pre-spawned entities back to the client
+// Replicate the pre-predicted entities back to the client.
+//
+// The objective was to create a normal 'predicted' entity directly in the client timeline, instead
+// of having to create the entity in the server timeline and wait for it to be replicated.
 // Note that this needs to run before FixedUpdate, since we handle client inputs in the FixedUpdate schedule (subject to change)
 // And we want to handle deletion properly
 pub(crate) fn replicate_players(
     mut commands: Commands,
-    replicated_players: Query<(Entity, &Replicated), (With<PlayerPosition>, Added<Replicated>)>,
+    replicated_players: Query<
+        (Entity, &InitialReplicated),
+        (With<PlayerPosition>, Added<InitialReplicated>),
+    >,
 ) {
     for (entity, replicated) in replicated_players.iter() {
         let client_id = replicated.client_id();
@@ -144,7 +136,10 @@ pub(crate) fn replicate_players(
 
 pub(crate) fn replicate_cursors(
     mut commands: Commands,
-    replicated_cursor: Query<(Entity, &Replicated), (With<CursorPosition>, Added<Replicated>)>,
+    replicated_cursor: Query<
+        (Entity, &InitialReplicated),
+        (With<CursorPosition>, Added<InitialReplicated>),
+    >,
 ) {
     for (entity, replicated) in replicated_cursor.iter() {
         let client_id = replicated.client_id();
@@ -157,6 +152,7 @@ pub(crate) fn replicate_cursors(
                     // do not replicate back to the client that owns the cursor!
                     target: NetworkTarget::AllExceptSingle(client_id),
                 },
+                authority: AuthorityPeer::Client(client_id),
                 sync: SyncTarget {
                     // we want the other clients to apply interpolation for the cursor
                     interpolation: NetworkTarget::AllExceptSingle(client_id),

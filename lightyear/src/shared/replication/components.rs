@@ -6,16 +6,39 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 
 use crate::connection::id::ClientId;
+use crate::protocol::component::ComponentKind;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
 
-/// Marker component that indicates that the entity was spawned via replication
-/// (it is being replicated from a remote world)
+/// Marker component that indicates that the entity was initially spawned via replication
+/// (it was being replicated from a remote world)
+///
+/// The component is added once and is then never modified anymore
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct InitialReplicated {
+    /// The peer that originally spawned the entity
+    /// If None, it's the server.
+    pub from: Option<ClientId>,
+}
+
+impl InitialReplicated {
+    /// For client->server replication, identify the client that replicated this entity to the server
+    pub fn client_id(&self) -> ClientId {
+        self.from.expect("expected a client id")
+    }
+}
+
+/// Marker component that indicates that the entity is being replicated
+/// from a remote world.
+///
+/// The component only exists while the peer does not have authority over
+/// the entity.
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct Replicated {
-    /// The peer that spawned the entity
+    /// The peer that is actively replicating the entity
     /// If None, it's the server.
     pub from: Option<ClientId>,
 }
@@ -39,28 +62,12 @@ pub struct Controlled;
 #[reflect(Component)]
 pub struct Replicating;
 
-/// Component that indicates which clients the entity should be replicated to.
-#[derive(Component, Clone, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct ReplicationTarget {
-    /// Which clients should this entity be replicated to
-    pub target: NetworkTarget,
-}
-
 /// Keeps track of the last known state of a component, so that we can compute
 /// the delta between the old and new state.
 #[derive(Component, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct Cached<C> {
     pub value: C,
-}
-
-impl Default for ReplicationTarget {
-    fn default() -> Self {
-        Self {
-            target: NetworkTarget::All,
-        }
-    }
 }
 
 /// Defines the target entity for the replication.
@@ -86,6 +93,8 @@ pub enum TargetEntity {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ReplicateHierarchy {
+    /// If true, the direct [`Children`](bevy::prelude::Children) of this entity will be replicated
+    pub enabled: bool,
     /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
     ///
     /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
@@ -95,7 +104,10 @@ pub struct ReplicateHierarchy {
 
 impl Default for ReplicateHierarchy {
     fn default() -> Self {
-        Self { recursive: true }
+        Self {
+            enabled: true,
+            recursive: true,
+        }
     }
 }
 
@@ -121,17 +133,59 @@ impl<C> Default for DeltaCompression<C> {
 /// If this component is present, we won't replicate the component
 ///
 /// (By default, all components that are present in the [`ComponentRegistry`](crate::prelude::ComponentRegistry) will be replicated.)
-#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct DisabledComponent<C> {
-    _marker: std::marker::PhantomData<C>,
+pub struct DisabledComponents {
+    /// If `disable_all` is true, all components are disabled for replication. Only the components in `enabled` will be replicated
+    enabled: Vec<ComponentKind>,
+    /// if True, all components are disabled for replication. Only the components in `enabled` will be replicated
+    disable_all: bool,
+    /// If `disable_all` is false, all components are enabled for replication. Only the components in `disabled` will not be replicated
+    disabled: Vec<ComponentKind>,
 }
 
-impl<C> Default for DisabledComponent<C> {
-    fn default() -> Self {
-        Self {
-            _marker: Default::default(),
+impl DisabledComponents {
+    /// Returns true if a component is enabled for replication
+    pub(crate) fn enabled_kind(&self, kind: ComponentKind) -> bool {
+        if self.disable_all {
+            return self.enabled.contains(&kind);
         }
+        !self.disabled.contains(&kind)
+    }
+
+    /// Returns true if a component is enabled for replication
+    pub(crate) fn enabled<C: Component>(&self) -> bool {
+        self.enabled_kind(ComponentKind::of::<C>())
+    }
+
+    /// Disables the replication of a component
+    pub fn disable<C: Component>(mut self) -> Self {
+        self.enabled.retain(|c| c != &ComponentKind::of::<C>());
+        self.disabled.push(ComponentKind::of::<C>());
+        self
+    }
+
+    /// Enables the replication of a component
+    pub fn enable<C: Component>(mut self) -> Self {
+        self.disabled.retain(|c| c != &ComponentKind::of::<C>());
+        self.enabled.push(ComponentKind::of::<C>());
+        self
+    }
+
+    /// Disables all components for replication. Only the components that are explicitly enabled will be replicated
+    pub fn disable_all(mut self) -> Self {
+        self.disable_all = true;
+        self.disabled.clear();
+        self.enabled.clear();
+        self
+    }
+
+    /// Enables all components for replication. Only the components that are explicitly disabled will not be replicated
+    pub fn enable_all(mut self) -> Self {
+        self.disable_all = false;
+        self.enabled.clear();
+        self.disabled.clear();
+        self
     }
 }
 
@@ -328,11 +382,10 @@ pub struct ShouldBeInterpolated;
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
 //  because we already do the mapping at other steps
-#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct PrePredicted {
-    // if this is set, the predicted entity has been pre-spawned on the client
-    pub(crate) client_entity: Option<Entity>,
+    pub(crate) confirmed_entity: Option<Entity>,
 }
 
 /// Marker component that tells the client to spawn a Predicted entity

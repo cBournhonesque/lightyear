@@ -4,47 +4,24 @@ use std::marker::PhantomData;
 
 use bevy::prelude::{Component, Entity, Event};
 
-use crate::packet::message::Message;
-
-/// This event is emitted whenever we receive a message from the remote
-#[derive(Event, Debug)]
-pub struct MessageEvent<M: Message, Ctx = ()> {
-    pub message: M,
-    pub context: Ctx,
-}
-
-impl<M: Message, Ctx> MessageEvent<M, Ctx> {
-    pub fn new(message: M, context: Ctx) -> Self {
-        Self { message, context }
-    }
-
-    pub fn message(&self) -> &M {
-        &self.message
-    }
-
-    pub fn context(&self) -> &Ctx {
-        &self.context
-    }
-}
-
 #[derive(Event)]
 /// Event emitted on server every time we receive an event
 pub struct InputEvent<I: crate::inputs::native::UserAction, Ctx = ()> {
     input: Option<I>,
-    context: Ctx,
+    from: Ctx,
 }
 
-impl<I: crate::inputs::native::UserAction, Ctx> InputEvent<I, Ctx> {
-    pub fn new(input: Option<I>, context: Ctx) -> Self {
-        Self { input, context }
+impl<I: crate::inputs::native::UserAction, Ctx: Copy> InputEvent<I, Ctx> {
+    pub fn new(input: Option<I>, from: Ctx) -> Self {
+        Self { input, from }
     }
 
     pub fn input(&self) -> &Option<I> {
         &self.input
     }
 
-    pub fn context(&self) -> &Ctx {
-        &self.context
+    pub fn from(&self) -> Ctx {
+        self.from
     }
 }
 

@@ -64,11 +64,11 @@ pub trait VarIntReadExt: ReadBytesExt + Seek {
     /// the current offset and advances the buffer.
     fn read_varint(&mut self) -> Result<u64, SerializationError> {
         let first = self.read_u8()?;
-
         let len = varint_parse_len(first);
         let out = match len {
             1 => u64::from(first),
             2 => {
+                // TODO: we actually don't need seek, no? we can just read the next few bytes ...
                 // go back 1 byte because we read the first byte above
                 self.seek(std::io::SeekFrom::Current(-1))?;
                 u64::from(self.read_u16::<NetworkEndian>()? & 0x3fff)
@@ -81,7 +81,6 @@ pub trait VarIntReadExt: ReadBytesExt + Seek {
                 self.seek(std::io::SeekFrom::Current(-1))?;
                 self.read_u64::<NetworkEndian>()? & 0x3fffffffffffffff
             }
-
             _ => return Err(std::io::Error::other("value is too large for varint").into()),
         };
         Ok(out)

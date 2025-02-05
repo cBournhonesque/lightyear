@@ -24,7 +24,6 @@ use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::error::{Error, Result};
 use crate::transport::io::IoState;
-use crate::transport::webtransport::server::WebTransportServerSocket;
 use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 pub(crate) struct WebSocketServerSocketBuilder {
@@ -58,7 +57,7 @@ impl ServerTransportBuilder for WebSocketServerSocketBuilder {
             serverbound_rx,
         };
 
-        let listener = IoTaskPool::get()
+        IoTaskPool::get()
             .spawn(Compat::new(async move {
                 let listener = match TcpListener::bind(self.server_addr).await {
                     Ok(l) => l,

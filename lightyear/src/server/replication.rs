@@ -43,7 +43,7 @@ pub(crate) mod receive {
                     PreUpdate,
                     ServerReplicationSet::ClientReplication
                         .run_if(is_started)
-                        .after(InternalMainSet::<ServerMarker>::EmitEvents),
+                        .after(InternalMainSet::<ServerMarker>::ReceiveEvents),
                 );
         }
     }
@@ -51,20 +51,23 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
+    use crate::prelude::server::AuthorityCommandExt;
     use crate::prelude::{
-        is_host_server, ClientId, ComponentRegistry, DisabledComponent, NetworkRelevanceMode,
+        is_host_server, ClientId, ComponentRegistry, DisabledComponents, NetworkRelevanceMode,
         OverrideTargetComponent, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
         TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
+    use crate::server::prediction::handle_pre_predicted;
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
+    use crate::shared;
     use crate::shared::replication::archetypes::{
         get_erased_component, ServerReplicatedArchetypes,
     };
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
-        Cached, Controlled, Replicating, ReplicationGroupId, ReplicationTarget,
+        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId,
         ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
@@ -135,8 +138,9 @@ pub(crate) mod send {
                     .run_if(is_host_server),
             );
 
-            app.observe(replicate_entity_local_despawn);
-            app.observe(add_has_authority_component);
+            app.add_observer(replicate_entity_local_despawn);
+            app.add_observer(add_has_authority_component);
+            app.add_observer(handle_pre_predicted);
         }
     }
 
@@ -152,6 +156,7 @@ pub(crate) mod send {
 
     /// Component that indicates which clients should predict and interpolate the entity
     #[derive(Component, Default, Clone, Debug, PartialEq, Reflect)]
+    #[reflect(Component)]
     pub struct SyncTarget {
         /// Which clients should predict this entity (unused for client to server replication)
         pub prediction: NetworkTarget,
@@ -185,6 +190,31 @@ pub(crate) mod send {
         SessionBased,
         /// The entity is not despawned even if the controlling client disconnects
         Persistent,
+    }
+
+    /// Component that indicates which clients the entity should be replicated to.
+    #[derive(Component, Clone, Debug, PartialEq, Reflect)]
+    #[reflect(Component)]
+    #[require(
+        Replicating,
+        AuthorityPeer,
+        SyncTarget,
+        NetworkRelevanceMode,
+        ControlledBy,
+        ReplicationGroup,
+        ReplicateHierarchy
+    )]
+    pub struct ReplicationTarget {
+        /// Which clients should this entity be replicated to
+        pub target: NetworkTarget,
+    }
+
+    impl Default for ReplicationTarget {
+        fn default() -> Self {
+            Self {
+                target: NetworkTarget::All,
+            }
+        }
     }
 
     /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
@@ -280,22 +310,25 @@ pub(crate) mod send {
                         .entity(entity)
                         // NOTE: do not replicate this Controlled to other clients, or they will
                         // think they control this entity
-                        .insert((Controlled, DisabledComponent::<Controlled>::default()));
+                        .insert((
+                            Controlled,
+                            DisabledComponents::default().disable::<Controlled>(),
+                        ));
                 }
             }
             if (replication_target.is_changed()) && replication_target.target.targets(&local_client)
             {
-                if pre_predicted.is_some_and(|pre_predicted| pre_predicted.client_entity.is_none())
-                {
-                    // PrePredicted's client_entity is None if it's a pre-predicted entity that was spawned by the local client
-                    // in that case, just remove it and add Predicted instead
-                    commands
-                        .entity(entity)
-                        .insert(Predicted {
-                            confirmed_entity: Some(entity),
-                        })
-                        .remove::<PrePredicted>();
-                }
+                // if pre_predicted.is_some_and(|pre_predicted| pre_predicted.client_entity.is_none())
+                // {
+                //     // PrePredicted's client_entity is None if it's a pre-predicted entity that was spawned by the local client
+                //     // in that case, just remove it and add Predicted instead
+                //     commands
+                //         .entity(entity)
+                //         .insert(Predicted {
+                //             confirmed_entity: Some(entity),
+                //         })
+                //         .remove::<PrePredicted>();
+                // }
                 if sync_target.prediction.targets(&local_client) {
                     commands.entity(entity).insert(Predicted {
                         confirmed_entity: Some(entity),
@@ -356,18 +389,24 @@ pub(crate) mod send {
         // added that we check if the server has authority. After that, we should
         // rely only on commands.transfer_authority
         trigger: Trigger<OnAdd, AuthorityPeer>,
+        q: Query<&AuthorityPeer>,
         mut commands: Commands,
     ) {
-        commands
-            .entity(trigger.entity())
-            .add(|mut entity_mut: EntityWorldMut| {
-                if entity_mut
-                    .get::<AuthorityPeer>()
-                    .is_some_and(|authority| *authority == AuthorityPeer::Server)
-                {
-                    entity_mut.insert(HasAuthority);
+        let entity = trigger.entity();
+        if let Ok(authority_peer) = q.get(entity) {
+            match authority_peer {
+                AuthorityPeer::Client(c) => {
+                    // immediately transfer authority to the client to make
+                    // sure they know that they own it
+                    commands.entity(entity).transfer_authority(*authority_peer);
                 }
-            });
+                AuthorityPeer::Server => {
+                    trace!("Adding HasAuthority to {:?}", entity);
+                    commands.entity(entity).insert(HasAuthority);
+                }
+                _ => {}
+            }
+        }
     }
 
     pub(crate) fn replicate(
@@ -419,25 +458,18 @@ pub(crate) mod send {
                 let target_entity = entity_ref.get::<TargetEntity>();
                 let controlled_by = entity_ref.get::<ControlledBy>();
                 let authority_peer = entity_ref.get::<AuthorityPeer>();
+                let initial_replicated = entity_ref.get::<InitialReplicated>();
+
+                let disabled_components = entity_ref.get::<DisabledComponents>();
+
                 // SAFETY: we know that the entity has the ReplicationTarget component
                 // because the archetype is in replicated_archetypes
-                let replication_target =
-                    unsafe { entity_ref.get::<ReplicationTarget>().unwrap_unchecked() };
-                let replication_target_ticks = unsafe {
-                    entity_ref
-                        .get_change_ticks::<ReplicationTarget>()
-                        .unwrap_unchecked()
-                };
-                let (added_tick, changed_tick) = (
-                    replication_target_ticks.added_tick(),
-                    replication_target_ticks.last_changed_tick(),
-                );
+
                 // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
                 // so create the ref manually
-                let replication_target = Ref::new(
-                    replication_target,
-                    &added_tick,
-                    &changed_tick,
+                let replication_target = shared::replication::utils::get_ref::<ReplicationTarget>(
+                    world,
+                    entity.id(),
                     system_ticks.last_run(),
                     system_ticks.this_run(),
                 );
@@ -459,6 +491,7 @@ pub(crate) mod send {
                     entity.id(),
                     &replication_target,
                     cached_replication_target,
+                    initial_replicated,
                     group_id,
                     priority,
                     controlled_by,
@@ -475,8 +508,12 @@ pub(crate) mod send {
                     continue;
                 }
 
-                // d. all components that were added or changed
-                for replicated_component in replicated_archetype.components.iter() {
+                // d. all components that were added or changed and that are not disabled
+                for replicated_component in replicated_archetype
+                    .components
+                    .iter()
+                    .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
+                {
                     let (data, component_ticks) = unsafe {
                         get_erased_component(
                             table,
@@ -489,6 +526,7 @@ pub(crate) mod send {
                     let override_target = replicated_component.override_target.and_then(|id| {
                         entity_ref
                             .get_by_id(id)
+                            .ok()
                             // SAFETY: we know the archetype has the OverrideTarget<C> component
                             // the OverrideTarget<C> component has the same memory layout as NetworkTarget
                             .map(|ptr| unsafe { ptr.deref::<NetworkTarget>() })
@@ -531,6 +569,7 @@ pub(crate) mod send {
         entity: Entity,
         replication_target: &Ref<ReplicationTarget>,
         cached_replication_target: Option<&Cached<ReplicationTarget>>,
+        initial_replicated: Option<&InitialReplicated>,
         group_id: ReplicationGroupId,
         priority: f32,
         controlled_by: Option<&ControlledBy>,
@@ -538,7 +577,7 @@ pub(crate) mod send {
         target_entity: Option<&TargetEntity>,
         authority_peer: Option<&AuthorityPeer>,
         visibility: Option<&CachedNetworkRelevance>,
-        sender: &mut ConnectionManager,
+        connection_manager: &mut ConnectionManager,
         system_ticks: &SystemChangeTick,
     ) {
         let mut target = match visibility {
@@ -595,7 +634,7 @@ pub(crate) mod send {
                 }
 
                 // also replicate to the newly connected clients that match the target
-                let new_connected_clients = sender.new_connected_clients();
+                let new_connected_clients = connection_manager.new_connected_clients();
                 if !new_connected_clients.is_empty() {
                     // replicate to the newly connected clients that match our target
                     let mut new_connected_target = NetworkTarget::Only(new_connected_clients);
@@ -610,77 +649,84 @@ pub(crate) mod send {
         if let Some(AuthorityPeer::Client(c)) = authority_peer {
             target.exclude(&NetworkTarget::Single(*c));
         }
+
+        // NOT NEEDED ANYMORE! WE DO SEND A SPAWN SO THAT THE CLIENT HAS A
+        // - an action tick so that updates can now be received
+        // - a GroupChannel with a Confirmed tick
+        // // we don't send entity-spawn to the client who originally spawned the entity
+        // if let Some(client_id) = initial_replicated.and_then(|r| r.from) {
+        //     target.exclude(&NetworkTarget::Single(client_id));
+        // };
+
         if target.is_empty() {
             return;
         }
-        trace!(?entity, "Prepare entity spawn to client");
+        trace!(?entity, ?target, "Prepare entity spawn to client");
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         //  (i.e. before we received an ack?)
-        let _ = sender
-            .connected_targets(target)
-            .try_for_each(|client_id| {
-                // TODO: we don't want to convert because this is a spawn! we need to provide the local entity
-                //  so that the receiver can do the mapping
-                // // convert the entity to a network entity
-                // let entity = sender
-                //     .connection_mut(client_id)?
-                //     .replication_receiver
-                //     .remote_entity_map
-                //     .to_remote(entity);
+        let _ = crate::server::connection::connected_targets_mut(
+            &mut connection_manager.connections,
+            &target,
+        )
+        .try_for_each(|connection| {
+            let client_id = connection.client_id;
+            // convert the entity to a network entity (possibly mapped)
+            // this can happen in the case of PrePrediction where the spawned entity has been pre-mapped
+            // to the client's confirmed entity!
+            let entity = connection
+                .replication_receiver
+                .remote_entity_map
+                .to_remote(entity);
 
-                // let the client know that this entity is controlled by them
-                if controlled_by.is_some_and(|c| c.targets(&client_id)) {
-                    sender.prepare_typed_component_insert(
-                        entity,
-                        group_id,
-                        client_id,
-                        component_registry,
-                        &mut Controlled,
-                    )?;
-                }
-                // if we need to do prediction/interpolation, send a marker component to indicate that to the client
-                if sync_target.is_some_and(|sync| sync.prediction.targets(&client_id)) {
-                    // TODO: the serialized data is always the same; cache it somehow?
-                    sender.prepare_typed_component_insert(
-                        entity,
-                        group_id,
-                        client_id,
-                        component_registry,
-                        &mut ShouldBePredicted,
-                    )?;
-                }
-                if sync_target.is_some_and(|sync| sync.interpolation.targets(&client_id)) {
-                    sender.prepare_typed_component_insert(
-                        entity,
-                        group_id,
-                        client_id,
-                        component_registry,
-                        &mut ShouldBeInterpolated,
-                    )?;
-                }
+            // let the client know that this entity is controlled by them
+            if controlled_by.is_some_and(|c| c.targets(&client_id)) {
+                connection.prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &mut Controlled,
+                )?;
+            }
+            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
+            if sync_target.is_some_and(|sync| sync.prediction.targets(&client_id)) {
+                // TODO: the serialized data is always the same; cache it somehow?
+                connection.prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &mut ShouldBePredicted,
+                )?;
+            }
+            if sync_target.is_some_and(|sync| sync.interpolation.targets(&client_id)) {
+                connection.prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &mut ShouldBeInterpolated,
+                )?;
+            }
 
-                if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
-                    sender
-                        .connection_mut(client_id)?
-                        .replication_sender
-                        .prepare_entity_spawn_reuse(entity, group_id, *remote_entity);
-                } else {
-                    sender
-                        .connection_mut(client_id)?
-                        .replication_sender
-                        .prepare_entity_spawn(entity, group_id);
-                }
-
-                // also set the priority for the group when we spawn it
-                sender
-                    .connection_mut(client_id)?
+            if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
+                connection.replication_sender.prepare_entity_spawn_reuse(
+                    entity,
+                    group_id,
+                    *remote_entity,
+                );
+            } else {
+                connection
                     .replication_sender
-                    .update_base_priority(group_id, priority);
-                Ok(())
-            })
-            .inspect_err(|e: &ServerError| {
-                error!("error sending entity spawn: {:?}", e);
-            });
+                    .prepare_entity_spawn(entity, group_id);
+            }
+
+            // also set the priority for the group when we spawn it
+            connection
+                .replication_sender
+                .update_base_priority(group_id, priority);
+            Ok(())
+        })
+        .inspect_err(|e: &ServerError| {
+            error!("error sending entity spawn: {:?}", e);
+        });
     }
 
     /// Despawn entities when the entity gets despawned on local world
@@ -814,9 +860,10 @@ pub(crate) mod send {
         let target = override_target.map_or(&replication_target.target, |override_target| {
             override_target
         });
-        // TODO: is this correct?
-        // to be safe, if the replication target is added, we force an insert
+        // if the replication target is added, we force an insert. This is to capture
+        // existing components that were added before ReplicationTarget was added
         let force_insert = replication_target.is_changed();
+        // error!("force_insert: {}", force_insert);
         let (mut insert_target, mut update_target): (NetworkTarget, NetworkTarget) =
             match visibility {
                 Some(visibility) => {
@@ -879,13 +926,13 @@ pub(crate) mod send {
                         if replicate_once {
                             trace!(?entity,
                                 "not replicating updates for {:?} because it is marked as replicate_once",
-                                "COMPONENT_KIND"
+                                component_kind
                             );
-                            return;
+                        } else {
+                            // otherwise send an update for all components that changed since the
+                            // last update we have ack-ed
+                            update_target.union(target);
                         }
-                        // otherwise send an update for all components that changed since the
-                        // last update we have ack-ed
-                        update_target.union(target);
                     }
 
                     let new_connected_clients = sender.new_connected_clients();
@@ -937,7 +984,7 @@ pub(crate) mod send {
                         component_registry,
                         group_id,
                         update_target,
-                        component_ticks.last_changed_tick(),
+                        component_ticks.changed,
                         system_ticks.this_run(),
                         current_tick,
                         delta_compression,
@@ -959,7 +1006,7 @@ pub(crate) mod send {
                 &ReplicationGroup,
                 Option<&AuthorityPeer>,
                 Option<&CachedNetworkRelevance>,
-                Has<DisabledComponent<C>>,
+                Option<&DisabledComponents>,
                 Option<&OverrideTargetComponent<C>>,
             ),
             With<Replicating>,
@@ -974,12 +1021,12 @@ pub(crate) mod send {
                 group,
                 authority_peer,
                 visibility,
-                disabled,
+                disabled_components,
                 override_target,
             )) = query.get(entity)
             {
                 // do not replicate components that are disabled
-                if disabled {
+                if disabled_components.is_some_and(|d| !d.enabled::<C>()) {
                     return;
                 }
                 // use the overriden target if present
@@ -1047,8 +1094,8 @@ pub(crate) mod send {
         use crate::prelude::client::Confirmed;
         use crate::prelude::server::{ControlledBy, NetConfig, RelevanceManager, Replicate};
         use crate::prelude::{
-            client, server, DeltaCompression, LinkConditionerConfig, ReplicateOnceComponent,
-            Replicated,
+            client, server, ChannelDirection, DeltaCompression, LinkConditionerConfig,
+            ReplicateOnceComponent, Replicated,
         };
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
@@ -1336,7 +1383,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .get_entity(client_entity)
-                .is_none());
+                .is_err());
         }
 
         /// Check that if interest management is used, a client losing visibility of an entity
@@ -1387,7 +1434,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .get_entity(client_entity)
-                .is_none());
+                .is_err());
         }
 
         /// Test that if an entity with visibility is despawned, the despawn-message is not sent
@@ -1464,14 +1511,14 @@ pub(crate) mod send {
                 .client_app_1
                 .world()
                 .get_entity(client_entity_1)
-                .is_none());
+                .is_err());
 
             // check that the entity still exists on client 2
             assert!(stepper
                 .client_app_2
                 .world()
                 .get_entity(client_entity_2)
-                .is_some());
+                .is_ok());
         }
 
         /// Check that if we change the replication target on an entity that already has one
@@ -1519,7 +1566,7 @@ pub(crate) mod send {
                 .client_app
                 .world()
                 .get_entity(client_entity)
-                .is_none());
+                .is_err());
         }
 
         #[test]
@@ -1609,6 +1656,9 @@ pub(crate) mod send {
 
         #[test]
         fn test_component_insert_delta() {
+            // tracing_subscriber::FmtSubscriber::builder()
+            //     .with_max_level(tracing::Level::DEBUG)
+            //     .init();
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server
@@ -1787,7 +1837,7 @@ pub(crate) mod send {
                 .entity_mut(server_entity)
                 .insert((
                     ComponentSyncModeFull(1.0),
-                    DisabledComponent::<ComponentSyncModeFull>::default(),
+                    DisabledComponents::default().disable::<ComponentSyncModeFull>(),
                 ));
             stepper.frame_step();
             stepper.frame_step();
@@ -1983,11 +2033,11 @@ pub(crate) mod send {
             stepper.set_client_tick(stepper.client_tick() + tick_delta);
             stepper.set_server_tick(stepper.server_tick() + tick_delta);
 
-            stepper
+            let _ = stepper
                 .server_app
                 .world_mut()
                 .run_system_once(systems::send_cleanup::<server::ConnectionManager>);
-            stepper
+            let _ = stepper
                 .client_app
                 .world_mut()
                 .run_system_once(systems::receive_cleanup::<client::ConnectionManager>);
@@ -2232,7 +2282,6 @@ pub(crate) mod send {
         /// One component is delta, the other is not
         /// This fails to work if we don't have an ack tick specific to the delta component
         #[test]
-        #[ignore]
         fn test_component_update_delta_with_non_delta_component() {
             let mut stepper = BevyStepper::default();
 
@@ -2250,7 +2299,6 @@ pub(crate) mod send {
             let group_id = ReplicationGroupId(server_entity.to_bits());
             stepper.frame_step();
             let insert_tick = stepper.server_tick();
-            dbg!(insert_tick);
             stepper.frame_step();
             let client_entity = stepper
                 .client_app
@@ -2804,7 +2852,7 @@ pub(crate) mod send {
                 .entity_mut(server_entity)
                 .insert((
                     ComponentSyncModeFull(2.0),
-                    DisabledComponent::<ComponentSyncModeFull>::default(),
+                    DisabledComponents::default().disable::<ComponentSyncModeFull>(),
                 ));
             stepper.frame_step();
             stepper.frame_step();
@@ -2837,6 +2885,67 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
+            let client_entity = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .entity(client_entity)
+                    .get::<ComponentSyncModeFull>()
+                    .expect("component missing"),
+                &ComponentSyncModeFull(1.0)
+            );
+
+            // update component
+            stepper
+                .server_app
+                .world_mut()
+                .entity_mut(server_entity)
+                .insert(ComponentSyncModeFull(2.0));
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the component was not updated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .entity(client_entity)
+                    .get::<ComponentSyncModeFull>()
+                    .expect("component missing"),
+                &ComponentSyncModeFull(1.0)
+            );
+        }
+
+        #[test]
+        fn test_component_update_replicate_once_new_client() {
+            let mut stepper = BevyStepper::default_no_init();
+
+            // spawn an entity on server (before the client is connected)
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn((
+                    Replicate::default(),
+                    ComponentSyncModeFull(1.0),
+                    ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
+                ))
+                .id();
+            stepper.frame_step();
+
+            // a client connects
+            stepper.init();
+            stepper.frame_step();
+            stepper.frame_step();
+
             let client_entity = stepper
                 .client_app
                 .world()
@@ -3077,13 +3186,57 @@ pub(crate) mod send {
                 1
             );
         }
+
+        /// Make sure that ClientToServer components are not replicated to the client
+        #[test]
+        fn test_component_direction() {
+            let mut stepper = BevyStepper::default();
+
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .resource::<ComponentRegistry>()
+                    .direction(ComponentKind::of::<ComponentClientToServer>()),
+                Some(ChannelDirection::ClientToServer)
+            );
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn((Replicate::default(), ComponentClientToServer(1.0)))
+                .id();
+            stepper.frame_step();
+            stepper.frame_step();
+
+            let client_entity = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+
+            // check that the component was not replicated to the server
+            assert!(stepper
+                .client_app
+                .world()
+                .get::<ComponentClientToServer>(client_entity)
+                .is_none());
+        }
     }
 }
 
 pub(crate) mod commands {
     use crate::channel::builder::AuthorityChannel;
-    use crate::prelude::{Replicating, ServerConnectionManager};
+    use crate::prelude::server::{ReplicationTarget, SyncTarget};
+    use crate::prelude::{
+        ClientId, PrePredicted, Replicated, Replicating, ReplicationGroup, ServerConnectionManager,
+    };
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
+    use crate::shared::replication::components::{InitialReplicated, ReplicationGroupId};
     use bevy::ecs::system::EntityCommands;
     use bevy::prelude::{Entity, World};
 
@@ -3094,7 +3247,8 @@ pub(crate) mod commands {
 
     impl AuthorityCommandExt for EntityCommands<'_> {
         fn transfer_authority(&mut self, new_owner: AuthorityPeer) {
-            self.add(move |entity: Entity, world: &mut World| {
+            self.queue(move |entity: Entity, world: &mut World| {
+                let bevy_tick = world.change_tick();
                 // check who the current owner is
                 let current_owner =
                     world
@@ -3106,6 +3260,75 @@ pub(crate) mod commands {
                                 .unwrap_or(AuthorityPeer::None)
                         });
 
+                let compute_sync_target = |world: &World, c: ClientId| {
+                    if world.get::<PrePredicted>(entity).is_some() {
+                        return (false, false)
+                    }
+                    let initial_replicated = world.get::<InitialReplicated>(entity);
+                    let sync_target = world.get::<SyncTarget>(entity);
+                    // if the entity was originally spawned by a client C1,
+                    // then C1 might want to add prediction or interpolation now that they lose authority
+                    // over it
+                    let add_prediction = initial_replicated.is_some_and(|initial| {
+                        initial.from == Some(c)
+                            && sync_target.is_some_and(|target| target.prediction.targets(&c))
+                    });
+                    let add_interpolation = initial_replicated.is_some_and(|initial| {
+                        initial.from == Some(c)
+                            && sync_target.is_some_and(|target| target.interpolation.targets(&c))
+                    });
+                    (add_prediction, add_interpolation)
+                };
+
+                // send a Spawn message (so that the receiver has a receiver GroupChannel with a Confirmed tick)
+                // and make sure that the server doesn't send replication updates to the previous authoritative client
+                // by updating the send_tick to the current tick, so that only changes after this tick are sent
+                let spawn_and_update_send_tick = |world: &mut World, c: ClientId| {
+                    // for pre-prediction, we don't need to do anything
+                    // - the ReplicationTarget is added *after* the authority is changed, so a Spawn message is sent
+                    // - prediction is already handled
+                    if world.get::<PrePredicted>(entity).is_some() {
+                        return
+                    }
+                    // check that the entity has the Replicate bundle
+                    // - so that the authority components are correct
+                    // - so that we know the send-group-id of the entity
+                    assert!(world.get::<ReplicationTarget>(entity).is_some(), "The Replicate bundle must be added to the entity BEFORE transferring authority to the server");
+                    let group_id = world.get::<ReplicationGroup>(entity).map_or(ReplicationGroupId(entity.to_bits()), |group| group.group_id(Some(entity)));
+                    // if the entity was initially replicated from this client, then we need to spawn it back
+                    // to that client:
+                    // - so that the client's has a receiver GroupChannel with a confirmed tick
+                    // - to add prediction/interpolation if necessary
+                    if world.get::<InitialReplicated>(entity).is_some_and(|r| r.from == Some(c)) {
+                        let network_entity =  world
+                            .resource_mut::<ServerConnectionManager>()
+                            .connection_mut(c)
+                            .expect("could not get connection when changing authority")
+                            .replication_receiver
+                            .remote_entity_map
+                            .to_remote(entity);
+                        // NOTE: we cannot send ShouldBePredicted/ShouldBeInterpolated here because there is a chance
+                        //  that the EntityAction message arrives before the AuthorityTransfer message arrives.
+                        //  In which case the ComponentInserts/Actions (ShouldBePredicted) will be ignored since the
+                        //  client 1 still has authority!
+                        world
+                            .resource_mut::<ServerConnectionManager>()
+                            .connection_mut(c)
+                            .expect("could not get connection when changing authority").replication_sender.prepare_entity_spawn(network_entity, group_id);
+                    }
+                    world
+                        .resource_mut::<ServerConnectionManager>()
+                        .connection_mut(c)
+                        .expect("could not get connection when changing authority")
+                        .replication_sender
+                        .group_channels
+                        .entry(group_id)
+                        .or_default()
+                        .send_tick = Some(bevy_tick);
+                };
+
+                // TODO: handle authority transfers in host-server mode!
+                //  when transferring to local-client, we want to transfer to the server instead?
                 match (current_owner, new_owner) {
                     (x, y) if x == y => (),
                     (AuthorityPeer::None, AuthorityPeer::Server) => {
@@ -3114,14 +3337,19 @@ pub(crate) mod commands {
                             .insert((HasAuthority, AuthorityPeer::Server));
                     }
                     (AuthorityPeer::None, AuthorityPeer::Client(c)) => {
-                        world.entity_mut(entity).insert(AuthorityPeer::Client(c));
+                        world
+                            .entity_mut(entity)
+                            .insert((AuthorityPeer::Client(c), Replicated { from: Some(c) }));
+                        let (add_prediction, add_interpolation) = compute_sync_target(world, c);
                         world
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: true,
+                                    add_prediction,
+                                    add_interpolation,
                                 },
                             )
                             .expect("could not send message");
@@ -3129,35 +3357,46 @@ pub(crate) mod commands {
                     (AuthorityPeer::Server, AuthorityPeer::None) => {
                         world
                             .entity_mut(entity)
-                            .remove::<HasAuthority>()
+                            .remove::<(HasAuthority, Replicated)>()
                             .insert(AuthorityPeer::None);
                     }
                     (AuthorityPeer::Client(c), AuthorityPeer::None) => {
-                        world.entity_mut(entity).insert(AuthorityPeer::None);
+                        world
+                            .entity_mut(entity)
+                            .remove::<Replicated>()
+                            .insert(AuthorityPeer::None);
                         world
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: false,
+                                    add_prediction: false,
+                                    add_interpolation: false,
                                 },
                             )
                             .expect("could not send message");
                     }
                     (AuthorityPeer::Client(c), AuthorityPeer::Server) => {
-                        // TODO: only gain the authority when we have received an ack
-                        //  that the client has received the message?
+                        let (add_prediction, add_interpolation) = compute_sync_target(world, c);
                         world
                             .entity_mut(entity)
+                            .remove::<Replicated>()
                             .insert((HasAuthority, AuthorityPeer::Server));
+
+                        spawn_and_update_send_tick(world, c);
+
+                        // now that it has authority, by updating the
                         world
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: false,
+                                    add_prediction,
+                                    add_interpolation,
                                 },
                             )
                             .expect("could not send message");
@@ -3166,27 +3405,36 @@ pub(crate) mod commands {
                         world
                             .entity_mut(entity)
                             .remove::<HasAuthority>()
-                            .insert(AuthorityPeer::Client(c));
+                            .insert((AuthorityPeer::Client(c), Replicated { from: Some(c) }));
                         world
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: true,
+                                    // TODO: should we compute these again?
+                                    add_prediction: false,
+                                    add_interpolation: false,
                                 },
                             )
                             .expect("could not send message");
                     }
                     (AuthorityPeer::Client(c1), AuthorityPeer::Client(c2)) => {
-                        world.entity_mut(entity).insert(AuthorityPeer::Client(c2));
+                        world
+                            .entity_mut(entity)
+                            .insert((AuthorityPeer::Client(c2), Replicated { from: Some(c2) }));
+                        let (add_prediction, add_interpolation) = compute_sync_target(world, c1);
+                        spawn_and_update_send_tick(world, c1);
                         world
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c1,
-                                &mut AuthorityChange {
+                                & AuthorityChange {
                                     entity,
                                     gain_authority: false,
+                                    add_prediction,
+                                    add_interpolation,
                                 },
                             )
                             .expect("could not send message");
@@ -3194,9 +3442,11 @@ pub(crate) mod commands {
                             .resource_mut::<ServerConnectionManager>()
                             .send_message::<AuthorityChannel, _>(
                                 c2,
-                                &mut AuthorityChange {
+                                &AuthorityChange {
                                     entity,
                                     gain_authority: true,
+                                    add_prediction: false,
+                                    add_interpolation: false,
                                 },
                             )
                             .expect("could not send message");
@@ -3210,7 +3460,7 @@ pub(crate) mod commands {
     fn despawn_without_replication(entity: Entity, world: &mut World) {
         // remove replicating separately so that when we despawn the entity and trigger the observer
         // the entity doesn't have replicating anymore
-        if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.remove::<Replicating>();
             entity_mut.despawn();
         }
@@ -3222,7 +3472,7 @@ pub(crate) mod commands {
     }
     impl DespawnReplicationCommandExt for EntityCommands<'_> {
         fn despawn_without_replication(&mut self) {
-            self.add(despawn_without_replication);
+            self.queue(despawn_without_replication);
         }
     }
 

@@ -17,13 +17,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init);
-        app.add_systems(
-            PreUpdate,
-            handle_connection
-                .after(MainSet::Receive)
-                .before(PredictionSet::SpawnPrediction),
-        );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(
             FixedUpdate,
@@ -36,8 +29,7 @@ impl Plugin for ExampleClientPlugin {
                 // otherwise we rely on normal server replication to spawn them
                 shared_player_firing.run_if(not(is_in_rollback)),
             )
-                .chain()
-                .in_set(FixedSet::Main),
+                .chain(),
         );
         app.add_systems(
             Update,
@@ -50,44 +42,9 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             FixedUpdate,
             handle_hit_event
-                .run_if(on_event::<BulletHitEvent>())
+                .run_if(on_event::<BulletHitEvent>)
                 .after(process_collisions),
         );
-
-        #[cfg(target_family = "wasm")]
-        app.add_systems(
-            Startup,
-            |mut settings: ResMut<lightyear::client::web::KeepaliveSettings>| {
-                // the show must go on, even in the background.
-                let keepalive = 1000. / FIXED_TIMESTEP_HZ;
-                info!("Setting webworker keepalive to {keepalive}");
-                settings.wake_delay = keepalive;
-            },
-        );
-    }
-}
-
-// Startup system for the client
-pub(crate) fn init(mut commands: Commands) {
-    commands.connect_client();
-}
-
-/// Listen for events to know when the client is connected, and spawn a text entity
-/// to display the client id
-pub(crate) fn handle_connection(
-    mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
-) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
     }
 }
 
@@ -122,16 +79,16 @@ fn add_bullet_physics(
 
 /// Decorate newly connecting players with physics components
 /// ..and if it's our own player, set up input stuff
-#[allow(clippy::type_complexity)]
 fn handle_new_player(
     connection: Res<ClientConnection>,
     mut commands: Commands,
-    mut player_query: Query<(Entity, Has<Controlled>), (Added<Predicted>, With<Player>)>,
+    mut player_query: Query<(Entity, &Player, Has<Controlled>), Added<Predicted>>,
 ) {
-    for (entity, is_controlled) in player_query.iter_mut() {
+    for (entity, player, is_controlled) in player_query.iter_mut() {
+        info!("handle_new_player, entity = {entity:?} is_controlled = {is_controlled}");
         // is this our own entity?
         if is_controlled {
-            info!("Own player replicated to us, adding inputmap {entity:?}");
+            info!("Own player replicated to us, adding inputmap {entity:?} {player:?}");
             commands.entity(entity).insert(InputMap::new([
                 (PlayerActions::Up, KeyCode::ArrowUp),
                 (PlayerActions::Down, KeyCode::ArrowDown),
@@ -144,7 +101,12 @@ fn handle_new_player(
                 (PlayerActions::Fire, KeyCode::Space),
             ]));
         } else {
-            info!("Remote player replicated to us: {entity:?}");
+            info!("Remote player replicated to us: {entity:?} {player:?}");
+            // inserting an input buffer for other clients so that we can predict them properly
+            // (the server will send other player's inputs to us; we will receive them on time thanks to input delay)
+            commands
+                .entity(entity)
+                .insert(InputBuffer::<PlayerActions>::default());
         }
         let client_id = connection.id();
         info!(?entity, ?client_id, "adding physics to predicted player");
@@ -160,10 +122,8 @@ fn handle_hit_event(
 ) {
     for ev in events.read() {
         commands.spawn((
-            SpatialBundle {
-                transform: Transform::from_xyz(ev.position.x, ev.position.y, 0.0),
-                ..default()
-            },
+            Transform::from_xyz(ev.position.x, ev.position.y, 0.0),
+            Visibility::default(),
             crate::renderer::Explosion::new(time.elapsed(), ev.bullet_color),
         ));
     }

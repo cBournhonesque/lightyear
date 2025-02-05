@@ -42,16 +42,44 @@ pub(crate) enum ClientRelevance {
 }
 
 #[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
+#[reflect(Component)]
 pub(crate) struct CachedNetworkRelevance {
     /// List of clients that the entity is currently replicated to.
     /// Will be updated before the other replication systems
     pub(crate) clients_cache: HashMap<ClientId, ClientRelevance>,
 }
 
-#[derive(Debug, Default)]
-struct RelevanceEvents {
-    gained: HashMap<ClientId, EntityHashSet>,
-    lost: HashMap<ClientId, EntityHashSet>,
+#[derive(Debug, Default, Reflect)]
+pub(crate) struct RelevanceEvents {
+    pub(crate) gained: HashMap<ClientId, EntityHashSet>,
+    pub(crate) lost: HashMap<ClientId, EntityHashSet>,
+}
+
+impl RelevanceEvents {
+    /// Update the current [`RelevanceEvents`] with the events from another [`RelevanceEvents`]
+    pub(crate) fn update(&mut self, other: &mut Self) {
+        // NOTE: we handle leave room events before join room events so that if an entity leaves room 1 to join room 2
+        //  and the client is in both rooms, the entity does not get despawned
+        other.lost.drain().for_each(|(client_id, entities)| {
+            self.lost.entry(client_id).or_default().extend(entities);
+        });
+        other.gained.drain().for_each(|(client_id, entities)| {
+            self.gained.entry(client_id).or_default().extend(entities);
+        });
+    }
+    pub(crate) fn gain_relevance_internal(&mut self, client: ClientId, entity: Entity) {
+        self.lost.entry(client).and_modify(|set| {
+            set.remove(&entity);
+        });
+        self.gained.entry(client).or_default().insert(entity);
+    }
+
+    pub(crate) fn lose_relevance_internal(&mut self, client: ClientId, entity: Entity) {
+        self.gained.entry(client).and_modify(|set| {
+            set.remove(&entity);
+        });
+        self.lost.entry(client).or_default().insert(entity);
+    }
 }
 
 /// Resource that manages the network relevance of entities for clients
@@ -63,7 +91,7 @@ struct RelevanceEvents {
 /// to update the relevance of an entity for a given client.
 #[derive(Resource, Debug, Default)]
 pub struct RelevanceManager {
-    events: RelevanceEvents,
+    pub(crate) events: RelevanceEvents,
 }
 
 impl RelevanceManager {
@@ -71,19 +99,13 @@ impl RelevanceManager {
     ///
     /// The relevance status gets cached and will be maintained until is it changed.
     pub fn gain_relevance(&mut self, client: ClientId, entity: Entity) -> &mut Self {
-        self.events.lost.entry(client).and_modify(|set| {
-            set.remove(&entity);
-        });
-        self.events.gained.entry(client).or_default().insert(entity);
+        self.events.gain_relevance_internal(client, entity);
         self
     }
 
     /// Lost relevance of an entity for a given client
     pub fn lose_relevance(&mut self, client: ClientId, entity: Entity) -> &mut Self {
-        self.events.gained.entry(client).and_modify(|set| {
-            set.remove(&entity);
-        });
-        self.events.lost.entry(client).or_default().insert(entity);
+        self.events.lose_relevance_internal(client, entity);
         self
     }
 
@@ -135,7 +157,7 @@ pub(super) mod systems {
                     NetworkRelevanceMode::InterestManagement => {
                         // do not overwrite the relevance if it already exists
                         if cached_relevance.is_none() {
-                            debug!("Adding CachedNetworkRelevance component for entity {entity:?}");
+                            trace!("Adding CachedNetworkRelevance component for entity {entity:?}");
                             commands
                                 .entity(entity)
                                 .insert(CachedNetworkRelevance::default());
@@ -228,6 +250,8 @@ pub(crate) struct NetworkRelevancePlugin;
 
 impl Plugin for NetworkRelevancePlugin {
     fn build(&self, app: &mut App) {
+        // REFLECT
+        app.register_type::<CachedNetworkRelevance>();
         // RESOURCES
         app.init_resource::<RelevanceManager>();
         // SETS
@@ -272,9 +296,14 @@ impl Plugin for NetworkRelevancePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::server::Replicate;
+    use crate::prelude::{client, ClientConnectionManager, NetworkRelevanceMode};
+    use crate::shared::replication::components::ReplicationGroupId;
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::ecs::system::RunSystemOnce;
 
     /// Multiple entities gain relevance for a given client
+    /// Check that interest management works correctly
     #[test]
     fn test_multiple_relevance_gain() {
         let mut app = App::new();
@@ -314,7 +343,8 @@ mod tests {
                 .len(),
             2
         );
-        app.world_mut()
+        let _ = app
+            .world_mut()
             .run_system_once(systems::update_relevance_from_events);
         assert_eq!(
             app.world()
@@ -351,7 +381,8 @@ mod tests {
         app.world_mut()
             .resource_mut::<RelevanceManager>()
             .lose_relevance(client, entity1);
-        app.world_mut()
+        let _ = app
+            .world_mut()
             .run_system_once(systems::update_relevance_from_events);
         assert_eq!(
             app.world()
@@ -373,7 +404,8 @@ mod tests {
                 .unwrap(),
             &ClientRelevance::Gained
         );
-        app.world_mut()
+        let _ = app
+            .world_mut()
             .run_system_once(systems::update_cached_relevance);
         assert!(app
             .world()
@@ -392,5 +424,77 @@ mod tests {
                 .unwrap(),
             &ClientRelevance::Maintained
         );
+    }
+
+    /// https://github.com/cBournhonesque/lightyear/issues/637
+    /// Make sure that entity despawns aren't replicated to clients that don't have visibility of the entity
+    /// E1 gains relevance with C1, E1 is replicated
+    /// E1 loses relevance with C1, E1 is despawned
+    /// E1 gets despawned on server -> we shouldn't send an extra despawn message to C1
+    #[test]
+    fn test_redundant_despawn() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::DEBUG)
+        //     .init();
+        let mut stepper = BevyStepper::default();
+
+        let client = ClientId::Netcode(TEST_CLIENT_ID);
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate {
+                relevance_mode: NetworkRelevanceMode::InterestManagement,
+                ..Default::default()
+            })
+            .id();
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<RelevanceManager>()
+            .gain_relevance(client, server_entity);
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that entity is replicated, since it's relevant
+        let client_entity = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("server entity was not replicated to client");
+
+        // lose relevance, check that entity is despawned
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<RelevanceManager>()
+            .lose_relevance(client, server_entity);
+        stepper.frame_step();
+        stepper.frame_step();
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_entity)
+            .is_err());
+
+        // despawn entity on the server
+        // we shouldn't send an extra Despawn message to the client
+        // We check this by making sure that the next_action_message on the receiver channel is 2
+        // (because we received one spawn and one despawn)
+        stepper.server_app.world_mut().despawn(server_entity);
+        stepper.frame_step();
+        stepper.frame_step();
+        let channel = stepper
+            .client_app
+            .world()
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .group_channels
+            .get(&ReplicationGroupId(server_entity.to_bits()))
+            .unwrap();
+        assert_eq!(channel.actions_pending_recv_message_id.0, 2);
     }
 }

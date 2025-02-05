@@ -124,8 +124,8 @@ impl PingManager {
             self.compute_stats();
             #[cfg(feature = "metrics")]
             {
-                metrics::gauge!("rtt_ms").increment(self.rtt().as_millis() as f64);
-                metrics::gauge!("jitter_ms").increment(self.jitter().as_millis() as f64);
+                metrics::gauge!("connection::rtt_ms").set(self.rtt().as_millis() as f64);
+                metrics::gauge!("connection::jitter_ms").set(self.jitter().as_millis() as f64);
             }
         }
 

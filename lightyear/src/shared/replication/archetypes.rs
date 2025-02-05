@@ -2,8 +2,9 @@
 use std::mem;
 
 use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::{ComponentRegistry, Replicating, ReplicationTarget};
+use crate::prelude::{ChannelDirection, ComponentRegistry, Replicating};
 use crate::protocol::component::ComponentKind;
+use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::authority::HasAuthority;
 use bevy::ecs::archetype::ArchetypeEntity;
 use bevy::ecs::component::{ComponentTicks, StorageType};
@@ -26,6 +27,8 @@ use bevy::{
 // host-server mode
 #[derive(Resource)]
 pub(crate) struct ReplicatedArchetypes<C: Component> {
+    /// Function that returns true if the direction is compatible with sending from this peer
+    send_direction: SendDirectionFn,
     /// ID of the component identifying if the archetype is used for Replication.
     /// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
     /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
@@ -46,6 +49,22 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     marker: std::marker::PhantomData<C>,
 }
 
+pub type SendDirectionFn = fn(ChannelDirection) -> bool;
+
+fn send_to_server(direction: ChannelDirection) -> bool {
+    matches!(
+        direction,
+        ChannelDirection::Bidirectional | ChannelDirection::ClientToServer
+    )
+}
+
+fn send_to_client(direction: ChannelDirection) -> bool {
+    matches!(
+        direction,
+        ChannelDirection::Bidirectional | ChannelDirection::ServerToClient
+    )
+}
+
 pub(crate) type ClientReplicatedArchetypes = ReplicatedArchetypes<ReplicateToServer>;
 pub(crate) type ServerReplicatedArchetypes = ReplicatedArchetypes<ReplicationTarget>;
 
@@ -64,9 +83,10 @@ impl FromWorld for ServerReplicatedArchetypes {
 impl<C: Component> ReplicatedArchetypes<C> {
     pub(crate) fn client(world: &mut World) -> Self {
         Self {
-            replication_component_id: world.init_component::<ReplicateToServer>(),
-            replicating_component_id: world.init_component::<Replicating>(),
-            has_authority_component_id: Some(world.init_component::<HasAuthority>()),
+            send_direction: send_to_server,
+            replication_component_id: world.register_component::<ReplicateToServer>(),
+            replicating_component_id: world.register_component::<Replicating>(),
+            has_authority_component_id: Some(world.register_component::<HasAuthority>()),
             generation: ArchetypeGeneration::initial(),
             archetypes: Vec::new(),
             marker: Default::default(),
@@ -75,8 +95,9 @@ impl<C: Component> ReplicatedArchetypes<C> {
 
     pub(crate) fn server(world: &mut World) -> Self {
         Self {
-            replication_component_id: world.init_component::<ReplicationTarget>(),
-            replicating_component_id: world.init_component::<Replicating>(),
+            send_direction: send_to_client,
+            replication_component_id: world.register_component::<ReplicationTarget>(),
+            replicating_component_id: world.register_component::<Replicating>(),
             has_authority_component_id: None,
             generation: ArchetypeGeneration::initial(),
             archetypes: Vec::new(),
@@ -114,10 +135,12 @@ pub(crate) unsafe fn get_erased_component<'w>(
 ) -> (Ptr<'w>, ComponentTicks) {
     match storage_type {
         StorageType::Table => {
-            let column = table.get_column(component_id).unwrap_unchecked();
-            let component = column.get_data_unchecked(entity.table_row());
-            let ticks = column.get_ticks_unchecked(entity.table_row());
-
+            let component = table
+                .get_component(component_id, entity.table_row())
+                .unwrap_unchecked();
+            let ticks = table
+                .get_ticks_unchecked(component_id, entity.table_row())
+                .unwrap_unchecked();
             (component, ticks)
         }
         StorageType::SparseSet => {
@@ -142,6 +165,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
                 archetype.contains(self.replication_component_id)
                     && archetype.contains(self.replicating_component_id)
                     // on the client, we only replicate if we have authority
+                    // (on the server, we need to replicate to other clients even if we don't have authority)
                     && self
                         .has_authority_component_id
                         .map_or(true, |id| archetype.contains(id))
@@ -153,7 +177,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
             };
             // TODO: pause inserts/updates if Replicating is not present on the entity!
             // add all components of the archetype that are present in the ComponentRegistry, and:
-            // - ignore component if the component is disabled (DisabledComponent<C>) is present
+            // - ignore component if the component is disabled
             // - check if delta-compression is enabled
             archetype.components().for_each(|component| {
                 let info = unsafe { world.components().get_info(component).unwrap_unchecked() };
@@ -167,16 +191,17 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         );
                         return;
                     };
+                    // ignore the components that are not registered for replication in this direction
+                    if !(self.send_direction)(replication_metadata.direction) {
+                        trace!(
+                            "not including {:?} because it doesn't replicate in this direction",
+                            info.name()
+                        );
+                        return;
+                    }
                     trace!("including {:?} in replicated components", info.name());
 
                     // check per component metadata
-                    let disabled = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.disabled_id);
-                    // we do not replicate the component
-                    if disabled {
-                        return;
-                    }
                     // TODO: should we store the components in a hashmap for faster lookup?
                     let delta_compression = archetype
                         .components()
@@ -189,9 +214,6 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         .any(|c| c == replication_metadata.override_target_id)
                         .then_some(replication_metadata.override_target_id);
 
-                    let disabled = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.disabled_id);
                     // SAFETY: component ID obtained from this archetype.
                     let storage_type =
                         unsafe { archetype.get_storage_type(component).unwrap_unchecked() };

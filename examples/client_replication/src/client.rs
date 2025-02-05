@@ -49,14 +49,6 @@ pub(crate) fn handle_connection(
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
         info!("Spawning local cursor");
         // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
         commands.spawn(CursorBundle::new(
@@ -231,7 +223,7 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
 }
 
 // System to receive messages on the client
-pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
+pub(crate) fn receive_message(mut reader: EventReader<ReceiveMessage<Message1>>) {
     for event in reader.read() {
         info!("Received message: {:?}", event.message());
     }

@@ -1,14 +1,16 @@
 //! This module contains the shared code between the client and the server.
+
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use lightyear::prelude::*;
-use lightyear::shared::config::Mode;
 
 pub const FIXED_TIMESTEP_HZ: f64 = 64.0;
 
 pub const SERVER_REPLICATION_INTERVAL: Duration = Duration::from_millis(100);
+
+pub const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 5000);
 
 /// The [`SharedConfig`] must be shared between the `ClientConfig` and `ServerConfig`
 pub fn shared_config() -> SharedConfig {
@@ -18,7 +20,6 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
-        mode: Mode::Separate,
     }
 }
 
@@ -39,13 +40,5 @@ impl Plugin for SharedPlugin {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
         });
-
-        if app.is_plugin_added::<RenderPlugin>() {
-            app.add_systems(Startup, init);
-        }
     }
-}
-
-fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
 }

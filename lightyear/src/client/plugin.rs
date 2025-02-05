@@ -14,6 +14,7 @@ use bevy::prelude::*;
 use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use crate::client::events::ClientEventsPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
+use crate::client::message::ClientMessagePlugin;
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::{
@@ -56,6 +57,7 @@ impl PluginGroup for ClientPlugins {
             .add(SetupPlugin {
                 config: self.config,
             })
+            .add(ClientMessagePlugin)
             .add(ClientEventsPlugin)
             .add(ClientNetworkingPlugin)
             .add(ClientDiagnosticsPlugin::default())
@@ -79,13 +81,31 @@ struct SetupPlugin {
 //  before the plugin is ready
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::describe_gauge!(
+                "sync::prediction_time::error_ms",
+                metrics::Unit::Milliseconds,
+                // Ideal client time is the time that the client should be at so that the client input
+                // packets arrive on time for the server to process them.
+                "Difference between the actual client time and the ideal client time"
+            );
+            metrics::describe_counter!(
+                "sync::resync_event",
+                metrics::Unit::Count,
+                "Resync events where the client time is resynced with the server time"
+            );
+            metrics::describe_gauge!(
+                "inputs::input_delay_ticks",
+                metrics::Unit::Count,
+                "Amount of input delay applied, in ticks"
+            );
+        }
+
         app
             // RESOURCES //
             .insert_resource(self.config.clone());
 
-        // TODO: how do we make sure that SharedPlugin is only added once if we want to switch between
-        //  HostServer and Separate mode?
-        // if self.config.shared.mode == Mode::Separate {
         if !app.is_plugin_added::<SharedPlugin>() {
             app
                 // PLUGINS

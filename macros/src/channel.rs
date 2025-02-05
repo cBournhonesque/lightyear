@@ -34,11 +34,3 @@ pub fn channel_impl(
 
     proc_macro::TokenStream::from(gen)
 }
-
-fn get_builder_method() -> TokenStream {
-    quote! {
-        fn get_builder(settings: ChannelSettings) -> ChannelBuilder {
-            ChannelBuilder{settings}
-        }
-    }
-}

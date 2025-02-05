@@ -13,6 +13,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 
 use crate::server::events::ServerEventsPlugin;
+use crate::server::message::ServerMessagePlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::relevance::immediate::NetworkRelevancePlugin;
 use crate::server::relevance::room::RoomPlugin;
@@ -59,6 +60,7 @@ impl PluginGroup for ServerPlugins {
             .add(SetupPlugin {
                 config: self.config,
             })
+            .add(ServerMessagePlugin)
             .add(ServerEventsPlugin)
             .add(ServerNetworkingPlugin)
             .add(NetworkRelevancePlugin)
@@ -83,7 +85,6 @@ impl Plugin for SetupPlugin {
         // NOTE: SharedPlugin needs to be added after config
         if !app.is_plugin_added::<SharedPlugin>() {
             app.add_plugins(SharedPlugin {
-                // TODO: move shared config out of server_config?
                 config: self.config.shared,
             });
         }

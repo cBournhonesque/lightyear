@@ -2,7 +2,9 @@
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Resource, World};
-use bevy::utils::{Duration, HashMap};
+use bevy::utils::Duration;
+#[cfg(feature = "leafwing")]
+use bevy::utils::HashMap;
 use bytes::Bytes;
 use tracing::{debug, trace, trace_span};
 
@@ -20,21 +22,18 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::packet::priority_manager::PriorityConfig;
 use crate::prelude::client::PredictionConfig;
-use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationConfig};
+use crate::prelude::{ChannelKind, ClientId, Message, MessageRegistry, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
-use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::server::error::ServerError;
 use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::message::MessageSend;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::{EntityActionsMessage, EntityUpdatesMessage, ReplicationSend};
@@ -66,12 +65,11 @@ use super::sync::SyncManager;
 /// ```
 #[derive(Resource, Debug)]
 pub struct ConnectionManager {
-    pub(crate) component_registry: ComponentRegistry,
     pub(crate) message_registry: MessageRegistry,
     pub(crate) message_manager: MessageManager,
     pub(crate) delta_manager: DeltaManager,
     pub(crate) replication_sender: ReplicationSender,
-    pub(crate) replication_receiver: ReplicationReceiver,
+    pub replication_receiver: ReplicationReceiver,
     pub(crate) events: ConnectionEvents,
     pub ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
@@ -80,7 +78,7 @@ pub struct ConnectionManager {
     #[cfg(feature = "leafwing")]
     pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
+    pub(crate) received_messages: Vec<(NetId, Bytes)>,
     pub(crate) writer: Writer,
 
     /// Internal buffer of the messages that we want to send.
@@ -102,7 +100,6 @@ impl Default for ConnectionManager {
         );
         let replication_receiver = ReplicationReceiver::new();
         Self {
-            component_registry: ComponentRegistry::default(),
             message_registry: MessageRegistry::default(),
             message_manager: MessageManager::new(
                 &ChannelRegistry::default(),
@@ -117,7 +114,7 @@ impl Default for ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            received_messages: HashMap::default(),
+            received_messages: Vec::default(),
             writer: Writer::with_capacity(0),
             messages_to_send: Vec::default(),
         }
@@ -127,7 +124,6 @@ impl Default for ConnectionManager {
 impl ConnectionManager {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        component_registry: &ComponentRegistry,
         message_registry: &MessageRegistry,
         channel_registry: &ChannelRegistry,
         client_config: &ClientConfig,
@@ -159,7 +155,6 @@ impl ConnectionManager {
         );
         let replication_receiver = ReplicationReceiver::new();
         Self {
-            component_registry: component_registry.clone(),
             message_registry: message_registry.clone(),
             message_manager,
             delta_manager: DeltaManager::default(),
@@ -170,7 +165,7 @@ impl ConnectionManager {
             events: ConnectionEvents::default(),
             #[cfg(feature = "leafwing")]
             received_leafwing_input_messages: HashMap::default(),
-            received_messages: HashMap::default(),
+            received_messages: Vec::default(),
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_send: Vec::default(),
         }
@@ -180,6 +175,11 @@ impl ConnectionManager {
     /// Returns true if the connection is synced with the server
     pub fn is_synced(&self) -> bool {
         self.sync_manager.is_synced()
+    }
+
+    /// Amount of input delay applied
+    pub(crate) fn input_delay_ticks(&self) -> u16 {
+        self.sync_manager.current_input_delay
     }
 
     /// Returns true if we received a new server packet on this frame
@@ -234,48 +234,6 @@ impl ConnectionManager {
         message.map_entities(mapper);
     }
 
-    /// Send a [`Message`] to the server using a specific [`Channel`]
-    pub fn send_message<C: Channel, M: Message>(
-        &mut self,
-        message: &mut M,
-    ) -> Result<(), ClientError> {
-        self.send_message_to_target::<C, M>(message, NetworkTarget::None)
-    }
-
-    /// Send a [`Message`] to the server using a specific [`Channel`]
-    ///
-    /// The message will be sent to the server and re-broadcasted to all clients that match the [`NetworkTarget`]
-    pub fn send_message_to_target<C: Channel, M: Message>(
-        &mut self,
-        message: &mut M,
-        target: NetworkTarget,
-    ) -> Result<(), ClientError> {
-        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
-    }
-
-    /// Serialize a message and buffer it internally so that it can be sent later
-    fn erased_send_message_to_target<M: Message>(
-        &mut self,
-        message: &M,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ClientError> {
-        // write the target first
-        // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-        target.to_bytes(&mut self.writer)?;
-        // then write the message
-        self.message_registry.serialize(
-            message,
-            &mut self.writer,
-            Some(&mut self.replication_receiver.remote_entity_map.local_to_remote),
-        )?;
-        let message_bytes = self.writer.split();
-
-        // TODO: emit logs/metrics about the message being buffered?
-        self.messages_to_send.push((message_bytes, channel_kind));
-        Ok(())
-    }
-
     pub(crate) fn buffer_replication_messages(
         &mut self,
         tick: Tick,
@@ -307,6 +265,8 @@ impl ConnectionManager {
         Ok(())
     }
 
+    // TODO: alternative, if we are running in host-server mode,
+    //  use a special local transport and still buffer things inside the MessageManager?
     /// Send packets that are ready to be sent.
     /// In host-server mode:
     /// - go through messages_to_send and make the server's ConnectionManager receive them
@@ -382,8 +342,9 @@ impl ConnectionManager {
     pub(crate) fn receive(
         &mut self,
         world: &mut World,
-        // TODO: pass the `ComponentRegistry`/`MessageRegistry` as arguments instead of storing a copy
+        // TODO: pass the MessageRegistry` as arguments instead of storing a copy
         //  in the `ConnectionManager`
+        component_registry: &mut ComponentRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Result<(), ClientError> {
@@ -399,6 +360,15 @@ impl ConnectionManager {
                     //     .name(&channel_kind)
                     //     .unwrap_or("unknown");
                     // let _span_channel = trace_span!("channel", channel = channel_name).entered();
+
+                    // TODO: put metric somewhere else?
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("message::received").increment(1);
+                        // metrics::counter!("message::received", "channel" => channel.name.to_string()).increment(1);
+                        metrics::counter!(format!("message::received::{}", channel.name))
+                            .increment(1);
+                    }
 
                     trace!(?channel_kind, ?tick, ?single_data, "Received message");
                     let mut reader = Reader::from(single_data);
@@ -436,27 +406,9 @@ impl ConnectionManager {
                         self.replication_receiver.recv_updates(updates, tick);
                     } else {
                         // TODO: this code is copy-pasted from self.receive_message because of borrow checker limitations
-                        // identify the type of message
                         let net_id = NetId::from_bytes(&mut reader)?;
                         let single_data = reader.consume();
-                        match self.message_registry.message_type(net_id) {
-                            #[cfg(feature = "leafwing")]
-                            MessageType::LeafwingInput => {
-                                self.received_leafwing_input_messages
-                                    .entry(net_id)
-                                    .or_default()
-                                    .push(single_data);
-                            }
-                            MessageType::NativeInput => {
-                                todo!()
-                            }
-                            MessageType::Normal => {
-                                self.received_messages
-                                    .entry(net_id)
-                                    .or_default()
-                                    .push(single_data);
-                            }
-                        }
+                        self.received_messages.push((net_id, single_data));
                     }
                 }
                 Ok::<(), SerializationError>(())
@@ -467,7 +419,7 @@ impl ConnectionManager {
             self.replication_receiver.apply_world(
                 world,
                 None,
-                &self.component_registry,
+                component_registry,
                 tick_manager.tick(),
                 &mut self.events,
             );
@@ -480,24 +432,7 @@ impl ConnectionManager {
         // identify the type of message
         let net_id = NetId::from_bytes(&mut reader)?;
         let single_data = reader.consume();
-        match self.message_registry.message_type(net_id) {
-            #[cfg(feature = "leafwing")]
-            MessageType::LeafwingInput => {
-                self.received_leafwing_input_messages
-                    .entry(net_id)
-                    .or_default()
-                    .push(single_data);
-            }
-            MessageType::NativeInput => {
-                todo!()
-            }
-            MessageType::Normal => {
-                self.received_messages
-                    .entry(net_id)
-                    .or_default()
-                    .push(single_data);
-            }
-        }
+        self.received_messages.push((net_id, single_data));
         Ok(())
     }
 
@@ -509,7 +444,7 @@ impl ConnectionManager {
     ) -> Result<(), ClientError> {
         // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(packet)?;
-        debug!("Received server packet with tick: {:?}", tick);
+        trace!("Received server packet with tick: {:?}", tick);
         if self
             .sync_manager
             .latest_received_server_tick
@@ -532,26 +467,6 @@ impl ConnectionManager {
         self.replication_sender
             .recv_update_acks(component_registry, &mut self.delta_manager);
         Ok(())
-    }
-}
-
-impl MessageSend for ConnectionManager {
-    type Error = ClientError;
-    fn send_message_to_target<C: Channel, M: Message>(
-        &mut self,
-        message: &mut M,
-        target: NetworkTarget,
-    ) -> Result<(), ClientError> {
-        self.send_message_to_target::<C, M>(message, target)
-    }
-
-    fn erased_send_message_to_target<M: Message>(
-        &mut self,
-        message: &mut M,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ClientError> {
-        self.erased_send_message_to_target(message, channel_kind, target)
     }
 }
 

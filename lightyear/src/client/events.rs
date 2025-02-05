@@ -13,15 +13,14 @@
 //! }
 //! ```
 
-use bevy::app::{App, Plugin, PreUpdate};
-use bevy::prelude::{Component, Event, IntoSystemConfigs};
-
 use crate::client::connection::ConnectionManager;
-use crate::connection::client::DisconnectReason;
+use crate::connection::client::ConnectionError;
 use crate::prelude::ClientId;
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
+use bevy::app::{App, Plugin, PreUpdate};
+use bevy::prelude::{Component, Event, IntoSystemConfigs};
 
 /// Plugin that handles generating bevy [`Events`](Event) related to networking and replication
 #[derive(Default)]
@@ -45,7 +44,7 @@ pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         push_component_events::<C, ConnectionManager>
-            .in_set(InternalMainSet::<ClientMarker>::EmitEvents),
+            .in_set(InternalMainSet::<ClientMarker>::ReceiveEvents),
     );
 }
 
@@ -66,9 +65,9 @@ impl ConnectEvent {
 }
 
 /// Bevy [`Event`] emitted on the client on the frame where the connection is disconnected
-#[derive(Event, Default)]
+#[derive(Event, Default, Debug)]
 pub struct DisconnectEvent {
-    pub reason: Option<DisconnectReason>,
+    pub reason: Option<ConnectionError>,
 }
 
 /// Bevy [`Event`] emitted on the client to indicate the user input for the tick
@@ -83,5 +82,3 @@ pub type ComponentUpdateEvent<C> = crate::shared::events::components::ComponentU
 pub type ComponentInsertEvent<C> = crate::shared::events::components::ComponentInsertEvent<C, ()>;
 /// Bevy [`Event`] emitted on the client when a ComponentRemove replication message is received
 pub type ComponentRemoveEvent<C> = crate::shared::events::components::ComponentRemoveEvent<C, ()>;
-/// Bevy [`Event`] emitted on the client when a (non-replication) message is received
-pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, ()>;

@@ -94,8 +94,6 @@ pub(crate) mod packet {
             if self.rolling_stats.num_sent_packets > 0 {
                 self.final_stats.packet_loss = self.rolling_stats.num_sent_packets_lost as f32
                     / self.rolling_stats.num_sent_packets as f32;
-                #[cfg(feature = "metrics")]
-                metrics::gauge!("packet_loss").increment(self.final_stats.packet_loss as f64);
             }
         }
 
@@ -103,7 +101,7 @@ pub(crate) mod packet {
         /// Notify that a packet was sent
         pub(crate) fn sent_packet(&mut self) {
             #[cfg(feature = "metrics")]
-            metrics::counter!("sent_packet").increment(1);
+            metrics::counter!("packets::sent").increment(1);
 
             self.current_stats.num_sent_packets += 1;
         }
@@ -111,7 +109,7 @@ pub(crate) mod packet {
         /// Notify that a packet we sent got lost (we did not receive an ack for it)
         pub(crate) fn sent_packet_lost(&mut self) {
             #[cfg(feature = "metrics")]
-            metrics::counter!("sent_packet_lost").increment(1);
+            metrics::counter!("packets::lost").increment(1);
 
             self.current_stats.num_sent_packets_lost += 1;
         }
@@ -119,7 +117,7 @@ pub(crate) mod packet {
         /// Notify that a packet we sent got acked
         pub(crate) fn sent_packet_acked(&mut self) {
             #[cfg(feature = "metrics")]
-            metrics::counter!("sent_packet_acked").increment(1);
+            metrics::counter!("packets::acked").increment(1);
 
             self.current_stats.num_sent_packets_acked += 1;
         }
@@ -127,7 +125,7 @@ pub(crate) mod packet {
         /// Notify that we received a packet
         pub(crate) fn received_packet(&mut self) {
             #[cfg(feature = "metrics")]
-            metrics::counter!("received_packet").increment(1);
+            metrics::counter!("packets::received").increment(1);
 
             self.current_stats.num_received_packets += 1;
         }

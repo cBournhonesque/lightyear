@@ -4,9 +4,9 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use bevy::prelude::{Entity, Resource};
+use bevy::utils::hashbrown::HashMap;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
-use hashbrown::HashMap;
 
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
@@ -38,6 +38,7 @@ pub(crate) mod receive;
 pub(crate) mod resources;
 pub(crate) mod send;
 pub(crate) mod systems;
+pub(crate) mod utils;
 
 /// Serialize Entity as two varints for the index and generation (because they will probably be low).
 /// Revisit this when relations comes out
@@ -69,6 +70,7 @@ impl ToBytes for Entity {
     }
 }
 
+/// All the entity actions (Spawn/despawn/inserts/removals) for a single entity
 #[derive(Clone, PartialEq, Debug)]
 pub struct EntityActions {
     pub(crate) spawn: SpawnAction,

@@ -14,6 +14,7 @@ pub enum NetworkTarget {
     None,
     /// Message sent to all clients except one
     AllExceptSingle(ClientId),
+    // TODO: use small vec
     /// Message sent to all clients except for these
     AllExcept(Vec<ClientId>),
     /// Message sent to all clients
@@ -57,7 +58,7 @@ impl ToBytes for NetworkTarget {
                 client_ids.to_bytes(buffer)?;
             }
             NetworkTarget::Single(client_id) => {
-                buffer.write_u8(1)?;
+                buffer.write_u8(5)?;
                 client_id.to_bytes(buffer)?;
             }
         }

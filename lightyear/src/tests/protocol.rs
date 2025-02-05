@@ -2,7 +2,7 @@ use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect, Resource};
+use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
 use bevy::utils::HashSet;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;
@@ -11,11 +11,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::client::components::ComponentSyncMode;
 use crate::prelude::*;
+use crate::protocol::message::registry::AppMessageExt;
+use crate::protocol::message::resource::AppResourceExt;
+use crate::protocol::message::trigger::AppTriggerExt;
 use crate::protocol::serialize::SerializeFns;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::SerializationError;
 use crate::shared::replication::delta::Diffable;
+
+// Event
+#[derive(Event, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
+pub struct IntegerEvent(pub u32);
 
 // Messages
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
@@ -146,6 +153,9 @@ impl Diffable for ComponentDeltaCompression2 {
 #[derive(Component, Clone, Debug, PartialEq, Reflect)]
 pub struct ComponentRollback(pub f32);
 
+#[derive(Component, Clone, Debug, PartialEq, Reflect, Serialize, Deserialize)]
+pub struct ComponentClientToServer(pub f32);
+
 // Resources
 #[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct Resource1(pub f32);
@@ -169,7 +179,7 @@ pub(crate) fn deserialize_resource2(reader: &mut Reader) -> Result<Resource2, Se
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
 pub struct MyInput(pub i16);
 
 // Protocol
@@ -200,6 +210,8 @@ pub struct Channel2;
 pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        // events
+        app.register_trigger::<IntegerEvent>(ChannelDirection::Bidirectional);
         // messages
         app.register_message::<StringMessage>(ChannelDirection::Bidirectional);
         app.register_message::<EntityMessage>(ChannelDirection::Bidirectional)
@@ -217,7 +229,6 @@ impl Plugin for ProtocolPlugin {
             SerializeFns {
                 serialize: serialize_component2,
                 deserialize: deserialize_component2,
-                serialize_map_entities: None,
             },
         )
         .add_prediction(ComponentSyncMode::Simple);
@@ -225,7 +236,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ComponentSyncModeOnce>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
-        app.register_component::<ComponentMapEntities>(ChannelDirection::ServerToClient)
+        app.register_component::<ComponentMapEntities>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Simple)
             .add_map_entities();
 
@@ -242,6 +253,8 @@ impl Plugin for ProtocolPlugin {
 
         app.add_rollback::<ComponentRollback>();
 
+        app.register_component::<ComponentClientToServer>(ChannelDirection::ClientToServer);
+
         // resources
         app.register_resource::<Resource1>(ChannelDirection::ServerToClient);
         app.register_resource_custom_serde::<Resource2>(
@@ -249,7 +262,6 @@ impl Plugin for ProtocolPlugin {
             SerializeFns {
                 serialize: serialize_resource2,
                 deserialize: deserialize_resource2,
-                serialize_map_entities: None,
             },
         );
         // channels

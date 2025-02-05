@@ -1,10 +1,8 @@
 //! Stepper to run tests in host-server mode (client and server are in the same app)
-use std::net::SocketAddr;
-use std::str::FromStr;
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::input::InputPlugin;
-use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
+use bevy::prelude::{default, App, Commands, Mut, Real, Time, World};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::Duration;
@@ -12,8 +10,7 @@ use bevy::MinimalPlugins;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig, NetConfig,
-    PredictionConfig, SyncConfig,
+    Authentication, ClientCommands, ClientConfig, ClientTransport, NetConfig,
 };
 use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
 use crate::prelude::*;
@@ -36,6 +33,15 @@ pub struct HostServerStepper {
 
 impl Default for HostServerStepper {
     fn default() -> Self {
+        let mut stepper = Self::default_no_init();
+        stepper.init();
+        stepper
+    }
+}
+
+// Do not forget to use --features mock_time when using the LinkConditioner
+impl HostServerStepper {
+    pub fn default_no_init() -> Self {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
@@ -45,13 +51,10 @@ impl Default for HostServerStepper {
         let client_config = ClientConfig::default();
 
         let mut stepper = Self::new(shared_config, client_config, frame_duration);
-        stepper.init();
+        stepper.build();
         stepper
     }
-}
 
-// Do not forget to use --features mock_time when using the LinkConditioner
-impl HostServerStepper {
     pub fn new(
         shared_config: SharedConfig,
         mut client_config: ClientConfig,
@@ -96,10 +99,8 @@ impl HostServerStepper {
                 .with_key(private_key),
             io: server_io,
         };
-        let mut shared_host_server = shared_config;
-        shared_host_server.mode = Mode::HostServer;
         let config = ServerConfig {
-            shared: shared_host_server,
+            shared: shared_config,
             net: vec![net_config],
             ping: PingConfig {
                 // send pings every tick, so that the acks are received every frame
@@ -112,7 +113,7 @@ impl HostServerStepper {
 
         // Add the ClientPlugin to the server_app, to make it host-server mode!
         let mut host_server_client_config = client_config.clone();
-        host_server_client_config.shared = shared_host_server;
+        host_server_client_config.shared = shared_config;
         host_server_client_config.net = NetConfig::Local {
             id: LOCAL_CLIENT_ID,
         };
@@ -195,7 +196,6 @@ impl HostServerStepper {
 
     pub(crate) fn set_client_tick(&mut self, tick: Tick) {
         let new_time = WrappedTime::from_duration(self.tick_duration * (tick.0 as u32));
-
         self.client_app
             .world_mut()
             .resource_mut::<TimeManager>()
@@ -208,7 +208,6 @@ impl HostServerStepper {
 
     pub(crate) fn set_server_tick(&mut self, tick: Tick) {
         let new_time = WrappedTime::from_duration(self.tick_duration * (tick.0 as u32));
-
         self.server_app
             .world_mut()
             .resource_mut::<TimeManager>()
@@ -225,18 +224,23 @@ impl HostServerStepper {
     pub(crate) fn server_tick(&self) -> Tick {
         self.server_app.world().resource::<TickManager>().tick()
     }
-    pub(crate) fn init(&mut self) {
+
+    pub(crate) fn build(&mut self) {
+        self.client_app.finish();
+        self.client_app.cleanup();
         self.server_app.finish();
         self.server_app.cleanup();
-        self.server_app
+    }
+    pub(crate) fn init(&mut self) {
+        let _ = self
+            .server_app
             .world_mut()
             .run_system_once(|mut commands: Commands| {
                 commands.start_server();
                 commands.connect_client();
             });
-        self.client_app.finish();
-        self.client_app.cleanup();
-        self.client_app
+        let _ = self
+            .client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
         // Advance the world to let the connection process complete
@@ -254,13 +258,15 @@ impl HostServerStepper {
     }
 
     pub(crate) fn start(&mut self) {
-        self.server_app
+        let _ = self
+            .server_app
             .world_mut()
             .run_system_once(|mut commands: Commands| {
                 commands.start_server();
                 commands.connect_client();
             });
-        self.client_app
+        let _ = self
+            .client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.connect_client());
 
@@ -279,13 +285,15 @@ impl HostServerStepper {
     }
 
     pub(crate) fn stop(&mut self) {
-        self.server_app
+        let _ = self
+            .server_app
             .world_mut()
             .run_system_once(|mut commands: Commands| {
                 commands.stop_server();
                 commands.disconnect_client();
             });
-        self.client_app
+        let _ = self
+            .client_app
             .world_mut()
             .run_system_once(|mut commands: Commands| commands.disconnect_client());
 

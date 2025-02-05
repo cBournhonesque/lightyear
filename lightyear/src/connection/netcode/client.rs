@@ -4,9 +4,7 @@ use bevy::prelude::Resource;
 use tracing::{debug, error, info, trace};
 
 use crate::client::io::Io;
-use crate::connection::client::{
-    ConnectionError, ConnectionState, DisconnectReason, IoConfig, NetClient,
-};
+use crate::connection::client::{ConnectionError, ConnectionState, IoConfig, NetClient};
 use crate::connection::id;
 use crate::packet::packet_builder::RecvPayload;
 use crate::transport::io::IoState;
@@ -176,7 +174,6 @@ pub enum ClientState {
 /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
 /// client.connect();
 /// ```
-
 pub struct NetcodeClient<Ctx = ()> {
     id: ClientId,
     state: ClientState,
@@ -359,7 +356,8 @@ impl<Ctx> NetcodeClient<Ctx> {
             &self.token.client_to_server_key,
             self.token.protocol_id,
         )?;
-        io.send(&buf[..size], &self.server_addr())?;
+        io.send(&buf[..size], &self.server_addr())
+            .map_err(|e| Error::AddressTransport(self.server_addr(), e))?;
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -507,7 +505,10 @@ impl<Ctx> NetcodeClient<Ctx> {
     fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
         // number of seconds since unix epoch
         let now = utils::now();
-        while let Some((buf, addr)) = io.recv()? {
+        while let Some((buf, addr)) = io
+            .recv()
+            .map_err(|e| Error::AddressTransport(self.server_addr(), e))?
+        {
             self.recv_packet(buf, now, addr)?;
         }
         Ok(())
@@ -691,7 +692,7 @@ pub(crate) mod connection {
                 }
                 ClientState::Connected => ConnectionState::Connected,
                 _ => ConnectionState::Disconnected {
-                    reason: Some(DisconnectReason::Netcode(self.client.state)),
+                    reason: Some(ConnectionError::NetcodeState(self.client.state)),
                 },
             }
         }

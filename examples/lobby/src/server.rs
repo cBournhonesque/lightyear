@@ -17,16 +17,18 @@ use crate::protocol::*;
 use crate::shared;
 use crate::shared::shared_movement_behaviour;
 
-pub struct ExampleServerPlugin;
+pub struct ExampleServerPlugin {
+    pub(crate) is_dedicated_server: bool,
+}
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Lobbies::default());
-        app.add_systems(
-            Startup,
-            // start the dedicated server immediately (but not host servers)
-            start_dedicated_server.run_if(is_mode_separate),
-        );
+
+        // start the dedicated server immediately (but not host servers)
+        if self.is_dedicated_server {
+            app.add_systems(Startup, start_dedicated_server);
+        }
         app.add_systems(
             FixedUpdate,
             game::movement.run_if(in_state(NetworkingState::Started)),
@@ -43,22 +45,18 @@ impl Plugin for ExampleServerPlugin {
             )
                 .run_if(is_host_server),
         );
-        app.add_systems(
-            Update,
-            // the lobby systems are only called on the dedicated server
-            (
-                lobby::handle_lobby_join,
-                lobby::handle_lobby_exit,
-                lobby::handle_start_game,
-            )
-                .run_if(is_mode_separate),
-        );
+        if self.is_dedicated_server {
+            app.add_systems(
+                Update,
+                // the lobby systems are only called on the dedicated server
+                (
+                    lobby::handle_lobby_join,
+                    lobby::handle_lobby_exit,
+                    lobby::handle_start_game,
+                ),
+            );
+        }
     }
-}
-
-#[derive(Resource)]
-pub(crate) struct Global {
-    pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
 /// System to start the dedicated server at Startup
@@ -106,6 +104,10 @@ mod game {
         mut commands: Commands,
     ) {
         for connection in connections.read() {
+            info!(
+                "HostServer spawn player for client {:?}",
+                connection.client_id
+            );
             spawn_player_entity(&mut commands, connection.client_id, false);
         }
     }
@@ -132,7 +134,7 @@ mod game {
         tick_manager: Res<TickManager>,
     ) {
         for input in input_reader.read() {
-            let client_id = input.context();
+            let client_id = input.from();
             if let Some(input) = input.input() {
                 trace!(
                     "Receiving input: {:?} from client: {:?} on tick: {:?}",
@@ -143,7 +145,7 @@ mod game {
                 // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
                 //  entities here
                 for (controlled_by, position) in position_query.iter_mut() {
-                    if controlled_by.targets(client_id) {
+                    if controlled_by.targets(&client_id) {
                         shared_movement_behaviour(position, input);
                     }
                 }
@@ -162,13 +164,13 @@ mod lobby {
     /// - update the `Lobbies` resource
     /// - add the Client to the room corresponding to the lobby
     pub(super) fn handle_lobby_join(
-        mut events: EventReader<MessageEvent<JoinLobby>>,
+        mut events: EventReader<ServerReceiveMessage<JoinLobby>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
         mut commands: Commands,
     ) {
         for lobby_join in events.read() {
-            let client_id = *lobby_join.context();
+            let client_id = lobby_join.from();
             let lobby_id = lobby_join.message().lobby_id;
             info!("Client {client_id:?} joined lobby {lobby_id:?}");
             let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
@@ -190,15 +192,15 @@ mod lobby {
     /// - update the `Lobbies` resource
     /// - remove the Client from the room corresponding to the lobby
     pub(super) fn handle_lobby_exit(
-        mut events: EventReader<MessageEvent<ExitLobby>>,
+        mut events: EventReader<ServerReceiveMessage<ExitLobby>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
     ) {
         for lobby_join in events.read() {
-            let client_id = lobby_join.context();
+            let client_id = lobby_join.from();
             let lobby_id = lobby_join.message().lobby_id;
-            room_manager.remove_client(*client_id, RoomId(lobby_id as u64));
-            lobbies.remove_client(*client_id);
+            room_manager.remove_client(client_id, RoomId(lobby_id as u64));
+            lobbies.remove_client(client_id);
         }
     }
 
@@ -206,17 +208,18 @@ mod lobby {
     /// for each player in the lobby
     pub(super) fn handle_start_game(
         mut connection_manager: ResMut<ConnectionManager>,
-        mut events: EventReader<MessageEvent<StartGame>>,
+        mut events: EventReader<ServerReceiveMessage<StartGame>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
         mut commands: Commands,
     ) {
         for event in events.read() {
-            let client_id = event.context();
+            let client_id = event.from();
             let lobby_id = event.message().lobby_id;
             let host = event.message().host;
             let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
 
+            // Setting lobby ingame
             if !lobby.in_game {
                 lobby.in_game = true;
                 if let Some(host) = host {
@@ -226,16 +229,16 @@ mod lobby {
 
             let room_id = RoomId(lobby_id as u64);
             // the client was not part of the lobby, they are joining in the middle of the game
-            if !lobby.players.contains(client_id) {
-                lobby.players.push(*client_id);
+            if !lobby.players.contains(&client_id) {
+                lobby.players.push(client_id);
                 if host.is_none() {
-                    let entity = spawn_player_entity(&mut commands, *client_id, true);
+                    let entity = spawn_player_entity(&mut commands, client_id, true);
                     room_manager.add_entity(entity, room_id);
-                    room_manager.add_client(*client_id, room_id);
+                    room_manager.add_client(client_id, room_id);
                 }
                 // send the StartGame message to the client who is trying to join the game
                 let _ = connection_manager.send_message::<Channel1, _>(
-                    *client_id,
+                    client_id,
                     &mut StartGame {
                         lobby_id,
                         host: lobby.host,
@@ -245,7 +248,7 @@ mod lobby {
                 if host.is_none() {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
-                        error!("Spawning player {player:?} entity for game");
+                        info!("Spawning player  {player:?} in server hosted  game");
                         let entity = spawn_player_entity(&mut commands, *player, true);
                         room_manager.add_entity(entity, room_id);
                     }

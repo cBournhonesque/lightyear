@@ -1,8 +1,11 @@
 //! Defines the server bevy systems and run conditions
-use crate::connection::server::{IoConfig, NetServer, ServerConnection, ServerConnections};
+use crate::connection::netcode::Error as NetcodeError;
+use crate::connection::server::{
+    ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections,
+};
+use crate::prelude::server::is_stopped;
 use crate::prelude::{
-    is_host_server, server::is_started, ChannelRegistry, MainSet, MessageRegistry, TickManager,
-    TimeManager,
+    is_host_server, ChannelRegistry, ClientId, MainSet, MessageRegistry, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
 use crate::serialize::reader::Reader;
@@ -11,7 +14,9 @@ use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::error::ServerError;
 use crate::server::io::ServerIoEvent;
+use crate::server::run_conditions::is_started_ref;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
+use crate::transport::error::Error as TransportError;
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::*;
@@ -32,17 +37,17 @@ impl Plugin for ServerNetworkingPlugin {
         app
             // REFLECTION
             .register_type::<IoConfig>()
-            // STATE
-            .init_state::<NetworkingState>()
+            .register_type::<NetworkingState>()
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
                 (
                     InternalMainSet::<ServerMarker>::Receive.in_set(MainSet::Receive),
-                    InternalMainSet::<ServerMarker>::EmitEvents.in_set(MainSet::EmitEvents),
+                    InternalMainSet::<ServerMarker>::ReceiveEvents.in_set(MainSet::ReceiveEvents),
                 )
                     .chain()
-                    .run_if(is_started),
+                    // we still want to run this while the server is Starting/Stopping
+                    .run_if(not(is_stopped)),
             )
             .configure_sets(
                 PostUpdate,
@@ -62,10 +67,11 @@ impl Plugin for ServerNetworkingPlugin {
             );
 
         // ON_START
-        app.add_systems(OnEnter(NetworkingState::Started), on_start);
+        app.add_systems(OnEnter(NetworkingState::Starting), on_starting);
 
         // ON_STOP
-        app.add_systems(OnEnter(NetworkingState::Stopped), on_stop);
+        app.add_systems(OnEnter(NetworkingState::Stopping), on_stopping);
+        app.add_systems(OnEnter(NetworkingState::Stopped), on_stopped);
     }
 
     // This runs after all plugins have run build() and finish()
@@ -75,14 +81,15 @@ impl Plugin for ServerNetworkingPlugin {
         //  a ConnectionManager or a NetConfig at startup
         // Create the server connection resources to avoid some systems panicking
         // TODO: remove this when possible?
-        app.world_mut().run_system_once(rebuild_server_connections);
+        let _ = app.world_mut().run_system_once(rebuild_server_connections);
     }
 }
 
 pub(crate) fn receive_packets(
     mut commands: Commands,
     mut connection_manager: ResMut<ConnectionManager>,
-    mut networking_state: ResMut<NextState<NetworkingState>>,
+    networking_state: Res<State<NetworkingState>>,
+    mut next_networking_state: ResMut<NextState<NetworkingState>>,
     mut netservers: ResMut<ServerConnections>,
     mut time_manager: ResMut<TimeManager>,
     tick_manager: Res<TickManager>,
@@ -90,6 +97,7 @@ pub(crate) fn receive_packets(
     component_registry: Res<ComponentRegistry>,
     message_registry: Res<MessageRegistry>,
     system_change_tick: SystemChangeTick,
+    aggregate_client_errors: Local<Vec<(usize, ConnectionError)>>,
 ) {
     trace!("Receive client packets");
     let delta = virtual_time.delta();
@@ -102,20 +110,28 @@ pub(crate) fn receive_packets(
     // reborrow trick to enable split borrows
     let netservers = &mut *netservers;
     for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
-        // TODO: maybe run this before receive, like for clients?
-        let mut to_disconnect = vec![];
         if let Some(io) = netserver.io_mut() {
             if let Some(receiver) = &mut io.context.event_receiver {
                 match receiver.try_recv() {
                     Ok(event) => {
                         match event {
                             // if the io task for any connection failed, disconnect the client in netcode
-                            ServerIoEvent::ClientDisconnected(client_id) => {
-                                to_disconnect.push(client_id);
+                            ServerIoEvent::ClientDisconnected(client_addr) => {
+                                debug!(
+                                    "Received server io event: client {client_addr:?} disconnected"
+                                );
+                                // only netcode can have io failures
+                                #[allow(irrefutable_let_patterns)]
+                                if let ServerConnection::Netcode(server) = netserver {
+                                    error!(
+                                        "Disconnecting client {client_addr:?} because of io error"
+                                    );
+                                    let _ = server.disconnect_by_addr(client_addr);
+                                }
                             }
                             ServerIoEvent::ServerDisconnected(e) => {
                                 error!("Disconnect server because of io error: {:?}", e);
-                                networking_state.set(NetworkingState::Stopped);
+                                next_networking_state.set(NetworkingState::Stopped);
                             }
                             _ => {}
                         }
@@ -126,10 +142,20 @@ pub(crate) fn receive_packets(
             }
         }
 
-        let _ = netserver
-            .try_update(delta.as_secs_f64())
-            .map_err(|e| error!("Error updating netcode server: {:?}", e));
-        for client_id in netserver.new_connections().iter().copied() {
+        // We don't run update on stopping because the IO's have been closed
+        // and we don't want to reset the list of connections/disconnections
+        if networking_state.get() != &NetworkingState::Stopping {
+            match netserver.try_update(delta.as_secs_f64()) {
+                Ok(mut this_client_errors) => {
+                    if !this_client_errors.is_empty() {
+                        this_client_errors.drain(..).for_each(log_client_error);
+                    }
+                }
+                Err(e) => error!("Error updating server: {}", e),
+            }
+        }
+
+        for client_id in netserver.new_connections() {
             netservers.client_server_map.insert(client_id, server_idx);
             // spawn an entity for the client
             let client_entity = commands
@@ -137,26 +163,16 @@ pub(crate) fn receive_packets(
                 .id();
             connection_manager.add(client_id, client_entity);
         }
-        // handle disconnections
 
-        // disconnections because the io task was closed
-        if !to_disconnect.is_empty() {
-            to_disconnect.into_iter().for_each(|addr| {
-                #[allow(irrefutable_let_patterns)]
-                if let ServerConnection::Netcode(server) = netserver {
-                    error!("Disconnecting client {addr:?} because of io error");
-                    let _ = server.disconnect_by_addr(addr);
-                }
-            })
-        }
+        // TODO: handle disconnections in a separate system that listens to ServerDisconnect events
+        //  to avoid duplicate logic for host-server in client/networking.rs
         // disconnects because we received a disconnect message
-        for client_id in netserver.new_disconnections().iter().copied() {
+        for client_id in netserver.new_disconnections() {
             if netservers.client_server_map.remove(&client_id).is_some() {
+                debug!("removing connection from connection manager");
                 connection_manager.remove(client_id);
                 // NOTE: we don't despawn the entity right away to let the user react to
                 // the disconnect event
-                // TODO: use observers/component_hooks to react automatically on the client despawn?
-                // world.despawn(client_entity);
             } else {
                 error!("Client disconnected but could not map client_id to the corresponding netserver");
             }
@@ -175,6 +191,18 @@ pub(crate) fn receive_packets(
     let connection_manager = &mut *connection_manager;
     for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
         while let Some((payload, client_id)) = netserver.recv() {
+            #[cfg(feature = "metrics")]
+            {
+                // TODO: convert into packets/bytes per second
+                let packets = 1.0 as u64;
+                let bytes = payload.payload.len() as u64;
+                metrics::counter!(format!("transport::{:?}::receive::packets", client_id))
+                    .increment(packets);
+                metrics::counter!(format!("transport::{:?}::receive::bytes", client_id))
+                    .increment(bytes);
+                metrics::counter!("transport::receive::packets").increment(packets);
+                metrics::counter!("transport::receive::bytes").increment(bytes);
+            }
             // Note: the client_id might not be present in the connection_manager if we receive
             // packets from a client
             // TODO: use connection to apply on BOTH message manager and replication manager
@@ -218,7 +246,8 @@ pub(crate) fn receive(
     //  these resources
     let mut connection_manager =
         unsafe { unsafe_world.get_resource_mut::<ConnectionManager>() }.unwrap();
-    let component_registry = unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
+    let mut component_registry =
+        unsafe { unsafe_world.get_resource_mut::<ComponentRegistry>() }.unwrap();
     let message_registry = unsafe { unsafe_world.get_resource::<MessageRegistry>() }.unwrap();
     let time_manager = unsafe { unsafe_world.get_resource::<TimeManager>() }.unwrap();
     let tick_manager = unsafe { unsafe_world.get_resource::<TickManager>() }.unwrap();
@@ -226,7 +255,7 @@ pub(crate) fn receive(
     connection_manager
         .receive(
             unsafe { unsafe_world.world_mut() },
-            component_registry,
+            component_registry.as_mut(),
             message_registry,
             time_manager,
             tick_manager,
@@ -245,7 +274,6 @@ pub(crate) fn send(
     time_manager: Res<TimeManager>,
 ) {
     trace!("Send packets to clients");
-    // SEND_PACKETS: send buffered packets to io
     let span = info_span!("send_packets").entered();
     connection_manager
         .connections
@@ -254,6 +282,8 @@ pub(crate) fn send(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 info_span!("send_packets_to_client", client_id = ?client_id).entered();
+            // TODO: because we are removing the ClientConnection from netservers.client_server_map immediately
+            //  we get a log here that says that the netserver_idx cannot be found when we try to disconnect
             let netserver_idx = *netservers
                 .client_server_map
                 .get(client_id)
@@ -263,13 +293,41 @@ pub(crate) fn send(
                 .get_mut(netserver_idx)
                 .ok_or(ServerError::ServerConnectionNotFound)?;
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
-                netserver.send(packet_byte.as_slice(), *client_id)?;
+                #[cfg(feature = "metrics")]
+                {
+                    let packets = 1.0 as u64;
+                    let bytes = packet_byte.len() as u64;
+                    metrics::counter!(format!("transport::{:?}::send::packets", client_id))
+                        .increment(packets);
+                    metrics::counter!(format!("transport::{:?}::send::bytes", client_id))
+                        .increment(bytes);
+                    metrics::counter!("transport::send::packets").increment(packets);
+                    metrics::counter!("transport::send::kb").increment(bytes);
+                }
+                if let Err(e) = netserver.send(packet_byte.as_slice(), *client_id) {
+                    log_client_error(e);
+                }
             }
             Ok(())
         })
         .unwrap_or_else(|e: ServerError| {
             error!("Error sending packets: {}", e);
         });
+}
+
+fn log_client_error(error: ConnectionError) {
+    let suppress_error = match &error {
+        ConnectionError::Netcode(NetcodeError::Transport(transport_error)) => {
+            matches!(transport_error, TransportError::Io(io_error) if io_error.kind() == std::io::ErrorKind::ConnectionReset)
+        }
+        _ => false,
+    };
+
+    if suppress_error {
+        debug!("Suppressed Client Error: {:?}", error);
+    } else {
+        warn!("Client Error: {:?}", error);
+    }
 }
 
 /// When running in host-server mode, we also need to send messages to the local client.
@@ -292,11 +350,14 @@ pub(crate) fn send_host_server(
 }
 
 /// Bevy [`State`] representing the networking state of the server.
-#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum NetworkingState {
+    /// 1 frame transition to run the Receive/Events system sets while the server is shutting down
+    Stopping,
     /// The server is not listening. The server plugin is disabled.
     #[default]
     Stopped,
+    Starting,
     // NOTE: there is no need for a `Starting` state because currently the server
     // `start` method is synchronous. Once it returns we know the server is started and ready.
     /// The server is ready to accept incoming connections.
@@ -337,8 +398,8 @@ fn rebuild_server_connections(world: &mut World) {
 /// - rebuild the server connections resource from the latest `ServerConfig`
 /// - rebuild the server connection manager
 /// - start listening on the server connections
-fn on_start(world: &mut World) {
-    if world.resource::<ServerConnections>().is_listening() {
+fn on_starting(world: &mut World) {
+    if is_started_ref(world.get_resource_ref::<State<NetworkingState>>()) {
         error!("The server is already started. The server can only be started when it is stopped.");
         return;
     }
@@ -348,28 +409,145 @@ fn on_start(world: &mut World) {
         .resource_mut::<ServerConnections>()
         .start()
         .inspect_err(|e| error!("Error starting server connections: {:?}", e));
+    world.insert_resource(NextState::Pending(NetworkingState::Started));
     info!("Server is started.");
 }
 
 /// System that runs when we enter the Stopped state
-fn on_stop(mut server_connections: ResMut<ServerConnections>) {
+fn on_stopping(
+    mut server_connections: ResMut<ServerConnections>,
+    mut server_state: ResMut<NextState<NetworkingState>>,
+) {
     let _ = server_connections
         .stop()
         .inspect_err(|e| error!("Error stopping server connections: {:?}", e));
+    server_state.set(NetworkingState::Stopped);
+}
+
+fn on_stopped() {
+    info!("Server is stopped.");
 }
 
 pub trait ServerCommands {
+    /// Start the server: start tasks that are listening for incoming connections
     fn start_server(&mut self);
 
+    /// Stop the server: disconnect all clients and stop listening for connections
     fn stop_server(&mut self);
+
+    /// Disconnect a given client
+    fn disconnect(&mut self, client_id: ClientId);
 }
 
 impl ServerCommands for Commands<'_, '_> {
     fn start_server(&mut self) {
-        self.insert_resource(NextState::Pending(NetworkingState::Started));
+        self.insert_resource(NextState::Pending(NetworkingState::Starting));
     }
 
     fn stop_server(&mut self) {
-        self.insert_resource(NextState::Pending(NetworkingState::Stopped));
+        self.insert_resource(NextState::Pending(NetworkingState::Stopping));
+    }
+
+    fn disconnect(&mut self, client_id: ClientId) {
+        self.queue(move |world: &mut World| {
+            if let Some(mut connections) = world.get_resource_mut::<ServerConnections>() {
+                // remove the client from the client-server map
+                // call disconnect on the NetServer
+                //  - for netcode:
+                //    - remove the connection from the list of connections
+                //    - send disconnect packets
+                //    - add the client_id to the list of disconnections
+                connections.disconnect(client_id).unwrap_or_else(|e| {
+                    error!("Error disconnecting client: {:?}", e);
+                });
+            }
+            if let Some(mut connection_manager) = world.get_resource_mut::<ConnectionManager>() {
+                // remove the Connection from the ConnectionManager
+                // send a ClientDisconnected event
+                connection_manager.remove(client_id);
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::server::{ControlledBy, ControlledEntities, ServerCommands};
+    use crate::prelude::{client, server, ClientId, NetworkTarget, ServerConnectionManager};
+    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+    use bevy::prelude::{default, Entity, With};
+
+    /// Test that when the server stops:
+    /// - Controlled entities are removed
+    /// - Client entities are removed
+    /// - the Connection is removed from the ConnectionManager
+    #[test]
+    fn test_server_cleanup_on_stop() {
+        let mut stepper = BevyStepper::default();
+
+        let client = ClientId::Netcode(TEST_CLIENT_ID);
+        // create entity on server, which is controlled by the client
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(server::Replicate {
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(client),
+                    ..default()
+                },
+                ..default()
+            })
+            .id();
+        // the entity on the server that represents the client (holds ControlledEntities)
+        let server_client_entity = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<ControlledEntities>>()
+            .get_single(stepper.server_app.world())
+            .unwrap();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let client_entity = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
+        // stop the server
+        stepper.server_app.world_mut().commands().stop_server();
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the server-entity was removed, because of the ControlledBy component
+        assert!(stepper
+            .server_app
+            .world()
+            .get_entity(server_entity)
+            .is_err());
+        // check that the Client entity associated with the client was removed
+        assert!(stepper
+            .server_app
+            .world()
+            .get_entity(server_client_entity)
+            .is_err());
+        // check that the ConnectionManager doesn't have the connection anymore
+        assert!(stepper
+            .server_app
+            .world()
+            .resource::<ServerConnectionManager>()
+            .connection(client)
+            .is_err());
+        // check that the entity was despawned on the client
+        assert!(stepper
+            .client_app
+            .world()
+            .get_entity(client_entity)
+            .is_err());
     }
 }

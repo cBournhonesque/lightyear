@@ -25,7 +25,7 @@ use crate::transport::config::SharedIoConfig;
 
 #[derive(Debug)]
 pub enum ConnectionState {
-    Disconnected { reason: Option<DisconnectReason> },
+    Disconnected { reason: Option<ConnectionError> },
     Connecting,
     Connected,
 }
@@ -83,16 +83,7 @@ pub enum NetClientDispatch {
 #[derive(Resource)]
 pub struct ClientConnection {
     pub client: NetClientDispatch,
-    pub(crate) disconnect_reason: Option<DisconnectReason>,
-}
-
-/// Enumerates the possible reasons for a client to disconnect from the server
-#[derive(Debug)]
-pub enum DisconnectReason {
-    Transport(crate::transport::error::Error),
-    Netcode(super::netcode::ClientState),
-    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-    Steam(steamworks::networking_types::NetConnectionEnd),
+    pub(crate) disconnect_reason: Option<ConnectionError>,
 }
 
 pub type IoConfig = SharedIoConfig<ClientTransport>;
@@ -165,7 +156,9 @@ impl NetConfig {
             } => {
                 let client = super::steam::client::Client::new(
                     steamworks_client.unwrap_or_else(|| {
-                        Arc::new(RwLock::new(SteamworksClient::new(config.app_id)))
+                        Arc::new(RwLock::new(SteamworksClient::new_with_app_id(
+                            config.app_id,
+                        )))
                     }),
                     config,
                     conditioner,
@@ -274,7 +267,7 @@ impl Authentication {
     /// Returns true if the Authentication contains a [`ConnectToken`] that can be used to
     /// connect to the game server
     pub fn has_token(&self) -> bool {
-        !matches!(self, Authentication::None)
+        matches!(self, Authentication::Token(..))
     }
 
     pub fn get_token(
@@ -310,6 +303,27 @@ impl Authentication {
     }
 }
 
+impl std::fmt::Debug for Authentication {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Authentication::Token(_) => write!(f, "Token(<connect_token>)"),
+            Authentication::Manual {
+                server_addr,
+                client_id,
+                private_key,
+                protocol_id,
+            } => f
+                .debug_struct("Manual")
+                .field("server_addr", server_addr)
+                .field("client_id", client_id)
+                .field("private_key", private_key)
+                .field("protocol_id", protocol_id)
+                .finish(),
+            Authentication::None => write!(f, "None"),
+        }
+    }
+}
+
 /// Errors related to the client connection
 #[derive(thiserror::Error, Debug)]
 pub enum ConnectionError {
@@ -323,6 +337,8 @@ pub enum ConnectionError {
     Transport(#[from] crate::transport::error::Error),
     #[error("netcode error: {0}")]
     Netcode(#[from] super::netcode::error::Error),
+    #[error("netcode state: {0:?}")]
+    NetcodeState(super::netcode::ClientState),
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamInvalidHandle(#[from] steamworks::networking_sockets::InvalidHandle),
@@ -332,4 +348,7 @@ pub enum ConnectionError {
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamError(#[from] steamworks::SteamError),
+    #[error("client was disconnected")]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    SteamDisconnection(steamworks::networking_types::NetConnectionEnd),
 }

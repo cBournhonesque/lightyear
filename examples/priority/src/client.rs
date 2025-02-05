@@ -12,7 +12,6 @@ impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActionState<Inputs>>();
         app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         app.add_systems(
             Update,
             (
@@ -27,25 +26,6 @@ impl Plugin for ExampleClientPlugin {
 // Startup system for the client
 pub(crate) fn init(mut commands: Commands) {
     commands.connect_client();
-}
-
-/// Listen for events to know when the client is connected, and spawn a text entity
-/// to display the client id
-pub(crate) fn handle_connection(
-    mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
-) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
-    }
 }
 
 /// When the player entity is replicated on the client, add a leafwing `InputMap` component on it

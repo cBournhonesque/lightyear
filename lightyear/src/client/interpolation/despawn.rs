@@ -1,9 +1,8 @@
-use bevy::prelude::{Commands, DespawnRecursiveExt, OnRemove, Query, ResMut, Trigger};
+use bevy::prelude::{Commands, DespawnRecursiveExt, OnRemove, Query, Trigger};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-use crate::client::interpolation::resource::InterpolationManager;
 
 /// Remove the component from interpolated entities when it gets removed from confirmed
 pub(crate) fn removed_components<C: SyncComponent>(
@@ -26,15 +25,10 @@ pub(crate) fn removed_components<C: SyncComponent>(
 //  not super priority but would be a nice to have
 pub(crate) fn despawn_interpolated(
     trigger: Trigger<OnRemove, Confirmed>,
-    mut manager: ResMut<InterpolationManager>,
+    query: Query<&Confirmed>,
     mut commands: Commands,
 ) {
-    if let Some(interpolated) = manager
-        .interpolated_entity_map
-        .get_mut()
-        .confirmed_to_interpolated
-        .remove(&trigger.entity())
-    {
+    if let Some(interpolated) = query.get(trigger.entity()).unwrap().interpolated {
         if let Some(entity_mut) = commands.get_entity(interpolated) {
             entity_mut.despawn_recursive();
         }

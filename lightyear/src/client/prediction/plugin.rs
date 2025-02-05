@@ -1,11 +1,3 @@
-use bevy::prelude::{
-    not, App, Component, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin, PostUpdate, PreUpdate, Res, SystemSet,
-};
-use bevy::reflect::Reflect;
-use bevy::transform::TransformSystem;
-use std::time::Duration;
-
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
@@ -15,8 +7,8 @@ use crate::client::prediction::despawn::{
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
 use crate::client::prediction::predicted_history::{
-    add_non_networked_component_history, add_prespawned_component_history,
-    apply_component_removal_confirmed, apply_component_removal_predicted,
+    add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
+    apply_component_removal_predicted, handle_tick_event_prediction_history,
     update_prediction_history,
 };
 use crate::client::prediction::prespawn::{
@@ -24,16 +16,26 @@ use crate::client::prediction::prespawn::{
 };
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{client::is_synced, is_host_server, PreSpawnedPlayerObject};
+use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
+use bevy::prelude::*;
+use bevy::reflect::Reflect;
+use bevy::transform::TransformSystem;
+use bevy::utils::Duration;
+use std::fmt::Debug;
 
-use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
-use super::predicted_history::{add_component_history, apply_confirmed_update};
+use super::pre_prediction::PrePredictionPlugin;
+use super::predicted_history::apply_confirmed_update;
+use super::resource_history::{
+    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
+};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, run_rollback, Rollback, RollbackState,
+    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
 };
 use super::spawn::spawn_predicted_entity;
+
+use crate::prelude::client::is_connected;
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Reflect)]
@@ -78,15 +80,32 @@ pub struct PredictionConfig {
 }
 
 impl Default for PredictionConfig {
-    // TODO: the settings of 0/3/7 do not work! investigate!
-    /// The defaults are to not use any input delay, but to use as much client-prediction as there is latency.
-    ///
-    /// Other reasonable defaults would be:
+    /// By default we don't apply any input delay, because input_delay is only compatible with
+    /// the leafwing inputs
+    /// (Adding input delay would mess up the client timeline)
+    fn default() -> Self {
+        Self::no_input_delay()
+    }
+}
+
+impl PredictionConfig {
+    /// Cover up to 50ms of latency with input delay, and after that use prediction for up to 100ms
     /// - `minimum_input_delay_ticks`: no minimum input delay
     /// - `minimum_input_delay_before_prediction`: 3 ticks (or about 50ms at 60Hz), cover 50ms of latency with input delay
     /// - `maximum_predicted_ticks`: 7 ticks (or about 100ms at 60Hz), cover the next 100ms of latency with prediction
     ///   (the rest will be covered by more input delay)
-    fn default() -> Self {
+    pub fn balanced() -> Self {
+        Self {
+            always_rollback: false,
+            minimum_input_delay_ticks: 0,
+            maximum_input_delay_before_prediction: 3,
+            maximum_predicted_ticks: 7,
+            correction_ticks_factor: 1.0,
+        }
+    }
+
+    /// No input-delay, all the latency will be covered by prediction
+    pub fn no_input_delay() -> Self {
         Self {
             always_rollback: false,
             minimum_input_delay_ticks: 0,
@@ -95,12 +114,28 @@ impl Default for PredictionConfig {
             correction_ticks_factor: 1.0,
         }
     }
-}
 
-impl PredictionConfig {
+    /// All the latency will be covered by adding input-delay
+    pub fn no_prediction() -> Self {
+        Self {
+            always_rollback: false,
+            minimum_input_delay_ticks: 0,
+            maximum_input_delay_before_prediction: 0,
+            maximum_predicted_ticks: 0,
+            correction_ticks_factor: 0.0,
+        }
+    }
+
     pub fn always_rollback(mut self, always_rollback: bool) -> Self {
         self.always_rollback = always_rollback;
         self
+    }
+
+    /// Ensures that there is a fixed amount of input delay in all cases
+    pub fn set_fixed_input_delay_ticks(&mut self, tick: u16) {
+        self.minimum_input_delay_ticks = tick;
+        self.maximum_input_delay_before_prediction = tick;
+        self.maximum_predicted_ticks = 100;
     }
 
     /// Update the amount of input delay (number of ticks)
@@ -117,23 +152,24 @@ impl PredictionConfig {
 
     /// Compute the amount of input delay that should be applied, considering the current RTT
     pub fn input_delay_ticks(&self, rtt: Duration, tick_interval: Duration) -> u16 {
-        let rtt_ticks = rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32;
+        assert!(self.minimum_input_delay_ticks <= self.maximum_input_delay_before_prediction,
+                "The minimum amount of input_delay should be lower than the maximum_input_delay_before_prediction");
+        let rtt_ticks = (rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32).ceil() as u16;
         // if the rtt is lower than the minimum input delay, we will apply the minimum input delay
-        if rtt_ticks <= self.minimum_input_delay_ticks as f32 {
+        if rtt_ticks <= self.minimum_input_delay_ticks {
             return self.minimum_input_delay_ticks;
         }
         // else, apply input delay up to the maximum input delay
-        if rtt_ticks <= self.maximum_input_delay_before_prediction as f32 {
-            return rtt_ticks.ceil() as u16;
+        if rtt_ticks <= self.maximum_input_delay_before_prediction {
+            return rtt_ticks;
         }
         // else, apply input delay up to the maximum input delay, and cover the rest with prediction
         // if not possible, add even more input delay
-        if rtt_ticks
-            <= (self.maximum_predicted_ticks + self.maximum_input_delay_before_prediction) as f32
+        if rtt_ticks <= (self.maximum_predicted_ticks + self.maximum_input_delay_before_prediction)
         {
             self.maximum_input_delay_before_prediction
         } else {
-            rtt_ticks.ceil() as u16 - self.maximum_predicted_ticks
+            rtt_ticks - self.maximum_predicted_ticks
         }
     }
 }
@@ -148,8 +184,9 @@ pub enum PredictionSet {
     /// Spawn predicted entities,
     /// We will also use this do despawn predicted entities when confirmed entities are despawned
     SpawnPrediction,
-    /// Add component history for all predicted entities' predicted components
-    SpawnHistory,
+    /// Sync components from the Confirmed entity to the Predicted entity, and potentially
+    /// insert PredictedHistory components
+    Sync,
     RestoreVisualCorrection,
     /// Check if rollback is needed
     CheckRollback,
@@ -185,13 +222,11 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 
 /// Enable rollbacking a component even if the component is not networked
 pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app: &mut App) {
-    app.observe(apply_component_removal_predicted::<C>);
+    app.add_observer(apply_component_removal_predicted::<C>);
+    app.add_observer(add_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
-        (
-            add_non_networked_component_history::<C>.in_set(PredictionSet::SpawnHistory),
-            prepare_rollback_non_networked::<C>.in_set(PredictionSet::PrepareRollback),
-        ),
+        (prepare_rollback_non_networked::<C>.in_set(PredictionSet::PrepareRollback),),
     );
     app.add_systems(
         FixedPostUpdate,
@@ -199,17 +234,61 @@ pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app:
     );
 }
 
-pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {
+/// Enables rollbacking a resource. As a rule of thumb, only use on resources
+/// that are only modified by systems in the `FixedMain` schedule. This is
+/// because rollbacks only run the `FixedMain` schedule. For example, the
+/// `Time<Fixed>` resource is modified by
+/// `bevy_time::fixed::run_fixed_main_schedule()` which is run outside of the
+/// `FixedMain` schedule and so it should not be used in this function.
+///
+/// As a side note, the `Time<Fixed>` resource is already rollbacked internally
+/// by lightyear so that it can be used accurately within systems within the
+/// `FixedMain` schedule during a rollback.
+pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
+    // TODO: add these registrations if the type is reflect
+    // app.register_type::<HistoryState<R>>();
+    // app.register_type::<ResourceHistory<R>>();
+    app.insert_resource(ResourceHistory::<R>::default());
+    app.add_observer(handle_tick_event_resource_history::<R>);
     app.add_systems(
         PreUpdate,
-        (
-            // handle components being added
-            add_component_history::<C>.in_set(PredictionSet::SpawnHistory),
-        ),
+        prepare_rollback_resource::<R>.in_set(PredictionSet::PrepareRollback),
     );
+    app.add_systems(
+        FixedPostUpdate,
+        update_resource_history::<R>.in_set(PredictionSet::UpdateHistory),
+    );
+}
+
+pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {
     match prediction_mode {
         ComponentSyncMode::Full => {
-            app.observe(apply_component_removal_predicted::<C>);
+            #[cfg(feature = "metrics")]
+            {
+                metrics::describe_counter!(format!(
+                    "prediction::rollbacks::causes::{}::missing_on_confirmed",
+                    std::any::type_name::<C>()
+                ), metrics::Unit::Count, "Component present in the prediction history but missing on the confirmed entity");
+                metrics::describe_counter!(format!(
+                    "prediction::rollbacks::causes::{}::value_mismatch",
+                    std::any::type_name::<C>()
+                ), metrics::Unit::Count, "Component present in the prediction history but with a different value than on the confirmed entity");
+                metrics::describe_counter!(format!(
+                    "prediction::rollbacks::causes::{}::missing_on_predicted",
+                    std::any::type_name::<C>()
+                ), metrics::Unit::Count, "Component present in the confirmed entity but missing in the prediction history");
+                metrics::describe_counter!(format!(
+                    "prediction::rollbacks::causes::{}::removed_on_predicted",
+                    std::any::type_name::<C>()
+                ), metrics::Unit::Count, "Component present in the confirmed entity but removed in the prediction history");
+            }
+            // TODO: register type if C is reflect
+            // app.register_type::<HistoryState<C>>();
+            // app.register_type::<PredictionHistory<C>>();
+
+            app.add_observer(apply_component_removal_predicted::<C>);
+            app.add_observer(handle_tick_event_prediction_history::<C>);
+            app.add_observer(add_prediction_history::<C>);
             app.add_systems(
                 PreUpdate,
                 // restore to the corrected state (as the visual state might be interpolating
@@ -229,7 +308,6 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             app.add_systems(
                 FixedPostUpdate,
                 (
-                    add_prespawned_component_history::<C>.in_set(PredictionSet::SpawnHistory),
                     // we need to run this during fixed update to know accurately the history for each tick
                     update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
                 ),
@@ -240,7 +318,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             );
         }
         ComponentSyncMode::Simple => {
-            app.observe(apply_component_removal_confirmed::<C>);
+            app.add_observer(apply_component_removal_confirmed::<C>);
             app.add_systems(
                 PreUpdate,
                 (
@@ -274,8 +352,11 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // we only run prediction:
         // - if we're not in host-server mode
-        // - after the client is synced
-        let should_prediction_run = not(is_host_server).and_then(is_synced);
+        // - after the client is connected
+        // NOTE: we need to run the prediction systems even if we're not synced, because we want
+        //  our HistoryBuffer to contain values for components/resources that were updated before syncing
+        //  is done.
+        let should_prediction_run = not(is_host_server).and(is_connected);
 
         // REFLECTION
         app.register_type::<Predicted>()
@@ -298,10 +379,10 @@ impl Plugin for PredictionPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                InternalMainSet::<ClientMarker>::EmitEvents,
+                InternalMainSet::<ClientMarker>::ReceiveEvents,
                 (
                     PredictionSet::SpawnPrediction,
-                    PredictionSet::SpawnHistory,
+                    PredictionSet::Sync,
                     PredictionSet::RestoreVisualCorrection,
                     PredictionSet::CheckRollback,
                     PredictionSet::PrepareRollback.run_if(is_in_rollback),
@@ -324,12 +405,16 @@ impl Plugin for PredictionPlugin {
                 // - then we check if we should spawn a new predicted entity
                 spawn_predicted_entity
                     .after(PreSpawnedPlayerObjectSet::Spawn)
-                    .after(PrePredictionSet::Spawn)
                     .in_set(PredictionSet::SpawnPrediction),
                 run_rollback.in_set(PredictionSet::Rollback),
+                #[cfg(feature = "metrics")]
+                super::rollback::no_rollback
+                    .after(PredictionSet::CheckRollback)
+                    .in_set(PredictionSet::All)
+                    .run_if(not(is_in_rollback)),
             ),
         );
-        app.observe(despawn_confirmed);
+        app.add_observer(despawn_confirmed);
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)
@@ -342,7 +427,7 @@ impl Plugin for PredictionPlugin {
                 PredictionSet::EntityDespawn,
                 // for prespawned entities that could be spawned during FixedUpdate, we want to add the history
                 // right away to avoid rollbacks
-                PredictionSet::SpawnHistory,
+                PredictionSet::Sync,
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
             )
@@ -373,6 +458,11 @@ impl Plugin for PredictionPlugin {
 
         // PLUGINS
         app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));
+    }
+
+    // We run this after `build` and `finish` to make sure that all components were registered before we create the observer
+    fn cleanup(&self, app: &mut App) {
+        add_sync_systems(app);
     }
 }
 

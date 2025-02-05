@@ -18,7 +18,7 @@ use crate::transport::udp::UdpSocketBuilder;
 use crate::transport::websocket::client::WebSocketClientSocketBuilder;
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocketBuilder;
-use crate::transport::{BoxedReceiver, Transport, LOCAL_SOCKET};
+use crate::transport::{BoxedReceiver, Transport};
 use bevy::prelude::TypePath;
 use crossbeam_channel::{Receiver, Sender};
 use std::net::SocketAddr;
@@ -94,7 +94,7 @@ impl ClientTransport {
 impl Default for ClientTransport {
     #[cfg(not(target_family = "wasm"))]
     fn default() -> Self {
-        ClientTransport::UdpSocket(LOCAL_SOCKET)
+        ClientTransport::UdpSocket(crate::transport::LOCAL_SOCKET)
     }
 
     #[cfg(target_family = "wasm")]

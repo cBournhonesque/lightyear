@@ -3,14 +3,14 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::shared::color_from_id;
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::client;
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::utils::avian2d::*;
-
-use crate::shared::color_from_id;
+use lightyear::utils::bevy::TransformLinearInterpolation;
 
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;
@@ -33,6 +33,7 @@ pub(crate) struct PlayerBundle {
     // when the server replicates this entity; we will get a Confirmed entity which will use this entity
     // as the Predicted version
     pre_predicted: PrePredicted,
+    name: Name,
 }
 
 impl PlayerBundle {
@@ -42,18 +43,14 @@ impl PlayerBundle {
             id: PlayerId(id),
             position: Position(position),
             color: ColorComponent(color),
-            replicate: client::Replicate {
-                // NOTE (important): all entities that are being predicted need to be part of the same replication-group
-                //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                group: REPLICATION_GROUP,
-                ..default()
-            },
+            replicate: client::Replicate::default(),
             physics: PhysicsBundle::player(),
             inputs: InputManagerBundle::<PlayerActions> {
                 action_state: ActionState::default(),
                 input_map,
             },
             pre_predicted: PrePredicted::default(),
+            name: Name::from("Player"),
         }
     }
 }
@@ -66,6 +63,7 @@ pub(crate) struct BallBundle {
     replicate: Replicate,
     marker: BallMarker,
     physics: PhysicsBundle,
+    name: Name,
 }
 
 impl BallBundle {
@@ -89,6 +87,7 @@ impl BallBundle {
             replicate,
             physics: PhysicsBundle::ball(),
             marker: BallMarker,
+            name: Name::from("Ball"),
         }
     }
 }

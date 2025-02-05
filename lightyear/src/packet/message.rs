@@ -6,7 +6,7 @@ use bytes::Bytes;
 
 use crate::protocol::EventContext;
 use crate::serialize::reader::Reader;
-use crate::serialize::varint::varint_len;
+use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
@@ -22,11 +22,12 @@ wrapping_id!(MessageId);
 pub trait Message: EventContext {}
 impl<T: EventContext> Message for T {}
 
-#[cfg(not(feature = "big_messages"))]
-pub type FragmentIndex = u8;
-
-#[cfg(feature = "big_messages")]
-pub type FragmentIndex = u16;
+/// The index of a fragment in a fragmented message.
+///
+/// It will be serialized as a varint, so it will take only 1 byte if there
+/// are less than 64 fragments in the message.
+// TODO: as an optimization, we could do a varint up to u16, so that we use 1 byte for the first 128 fragments
+pub type FragmentIndex = u64;
 
 /// Struct to keep track of which messages/slices have been received by the remote
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
@@ -46,13 +47,13 @@ pub(crate) struct MessageAck {
 /// In the message container, we already store the serialized representation of the message.
 /// The main reason is so that we can avoid copies, by directly serializing references into raw bits
 #[derive(Debug, PartialEq)]
-pub struct SendMessage {
+pub(crate) struct SendMessage {
     pub(crate) data: MessageData,
     pub(crate) priority: f32,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ReceiveMessage {
+pub(crate) struct ReceiveMessage {
     pub(crate) data: MessageData,
     // keep track on the receiver side of the sender tick when the message was actually sent
     pub(crate) remote_sent_tick: Tick,
@@ -173,25 +174,17 @@ pub struct FragmentData {
 
 impl ToBytes for FragmentData {
     fn len(&self) -> usize {
-        #[cfg(not(feature = "big_messages"))]
-        let extra_bytes = 4;
-        #[cfg(feature = "big_messages")]
-        let extra_bytes = 6;
-        extra_bytes + self.bytes.len() + varint_len(self.bytes.len() as u64)
+        2 + varint_len(self.fragment_id)
+            + varint_len(self.num_fragments)
+            + varint_len(self.bytes.len() as u64)
+            + self.bytes.len()
     }
 
     fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
         buffer.write_u16::<NetworkEndian>(self.message_id.0)?;
-        #[cfg(not(feature = "big_messages"))]
-        buffer.write_u8(self.fragment_id)?;
-        #[cfg(not(feature = "big_messages"))]
-        buffer.write_u8(self.num_fragments)?;
 
-        #[cfg(feature = "big_messages")]
-        buffer.write_u16::<NetworkEndian>(self.fragment_id)?;
-        #[cfg(feature = "big_messages")]
-        buffer.write_u16::<NetworkEndian>(self.num_fragments)?;
-
+        buffer.write_varint(self.fragment_id)?;
+        buffer.write_varint(self.num_fragments)?;
         self.bytes.to_bytes(buffer)?;
         // buffer.write_varint(self.bytes.len() as u64)?;
         // buffer.write_all(self.bytes.as_ref())?;
@@ -204,16 +197,8 @@ impl ToBytes for FragmentData {
         Self: Sized,
     {
         let message_id = MessageId(buffer.read_u16::<NetworkEndian>()?);
-        #[cfg(not(feature = "big_messages"))]
-        let fragment_id = buffer.read_u8()?;
-        #[cfg(not(feature = "big_messages"))]
-        let num_fragments = buffer.read_u8()?;
-
-        #[cfg(feature = "big_messages")]
-        let fragment_id = buffer.read_u16::<NetworkEndian>()?;
-        #[cfg(feature = "big_messages")]
-        let num_fragments = buffer.read_u16::<NetworkEndian>()?;
-
+        let fragment_id = buffer.read_varint()?;
+        let num_fragments = buffer.read_varint()?;
         let bytes = Bytes::from_bytes(buffer)?;
         // let len = buffer.read_varint()? as usize;
         // let bytes = buffer.split_len(len);

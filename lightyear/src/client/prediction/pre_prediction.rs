@@ -1,21 +1,18 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
+
 use bevy::prelude::*;
-use tracing::{debug, error};
 
 use crate::client::components::Confirmed;
-use crate::client::connection::ConnectionManager;
-use crate::client::events::ComponentInsertEvent;
-use crate::client::prediction::prespawn::PreSpawnedPlayerObjectSet;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
-use crate::connection::client::NetClient;
-use crate::prelude::client::{ClientConnection, PredictionSet};
+use crate::prelude::client::is_synced;
 use crate::prelude::{
-    client::is_synced, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
-    ReplicationTarget, ShouldBePredicted,
+    is_host_server, HasAuthority, NetworkIdentityState, ReplicateHierarchy, Replicating,
+    ReplicationGroup, ShouldBePredicted, TickManager,
 };
+use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
@@ -24,12 +21,7 @@ pub(crate) struct PrePredictionPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PrePredictionSet {
-    // PreUpdate Sets
-    /// Handle receiving the confirmed entity for pre-predicted entities
-    Spawn,
     // PostUpdate Sets
-    /// Add the necessary information to the PrePrediction component (before replication)
-    Fill,
     /// Remove the Replicate component from pre-predicted entities (after replication)
     Clean,
 }
@@ -37,129 +29,31 @@ pub enum PrePredictionSet {
 impl Plugin for PrePredictionPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
-            PreUpdate,
-            PrePredictionSet::Spawn.in_set(PredictionSet::SpawnPrediction),
-        );
-        app.configure_sets(
             PostUpdate,
             (
-                PrePredictionSet::Fill,
-                InternalReplicationSet::<ClientMarker>::All,
-                PrePredictionSet::Clean,
+                InternalReplicationSet::<ClientMarker>::Buffer,
+                PrePredictionSet::Clean
+                    .in_set(InternalReplicationSet::<ClientMarker>::SendMessages),
             )
                 .chain()
                 .run_if(is_synced),
         );
         app.add_systems(
-            PreUpdate,
-            Self::spawn_pre_predicted_entity
-                .after(PreSpawnedPlayerObjectSet::Spawn)
-                .in_set(PrePredictionSet::Spawn),
-        );
-        app.add_systems(
             PostUpdate,
             (
-                // fill in the client_entity and client_id for pre-predicted entities
-                Self::fill_pre_prediction_data.in_set(PrePredictionSet::Fill),
                 // clean-up the ShouldBePredicted components after we've sent them
                 Self::clean_pre_predicted_entity.in_set(PrePredictionSet::Clean),
             ), // .run_if(is_connected),
         );
+
+        app.add_observer(Self::handle_prepredicted);
     }
 }
 
 impl PrePredictionPlugin {
-    /// For `PrePredicted` entities, find the corresponding `Confirmed` entity. and add the `Confirmed` component to it.
-    /// Also update the `Predicted` component on the pre-predicted entity.
-    // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
-    //  instead panic if we find an entity that is both predicted and interpolated?)
-    pub(crate) fn spawn_pre_predicted_entity(
-        connection: Res<ConnectionManager>,
-        mut manager: ResMut<PredictionManager>,
-        mut commands: Commands,
-        // get the list of entities who get PrePredicted replicated from server
-        mut should_be_predicted_added: EventReader<ComponentInsertEvent<PrePredicted>>,
-        mut confirmed_entities: Query<&PrePredicted>,
-        mut predicted_entities: Query<&mut Predicted>,
-    ) {
-        for message in should_be_predicted_added.read() {
-            let confirmed_entity = message.entity();
-            debug!("Received entity with PrePredicted from server: {confirmed_entity:?}");
-            if let Ok(pre_predicted) = confirmed_entities.get_mut(confirmed_entity) {
-                let Some(predicted_entity) = pre_predicted.client_entity else {
-                    error!("The PrePredicted component received from the server does not contain the pre-predicted entity!");
-                    continue;
-                };
-                let Ok(mut predicted_entity_mut) = predicted_entities.get_mut(predicted_entity)
-                else {
-                    error!(
-                    "The pre-predicted entity ({predicted_entity:?}) corresponding to the Confirmed entity ({confirmed_entity:?}) does not exist!"
-                );
-                    continue;
-                };
-                debug!(
-                    "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
-                    predicted_entity, confirmed_entity
-                );
-
-                // update the predicted entity mapping
-                manager
-                    .predicted_entity_map
-                    .get_mut()
-                    .confirmed_to_predicted
-                    .insert(confirmed_entity, predicted_entity);
-                predicted_entity_mut.confirmed_entity = Some(confirmed_entity);
-                #[cfg(feature = "metrics")]
-                {
-                    metrics::counter!("prespawn_predicted_entity").increment(1);
-                }
-                // add Confirmed to the confirmed entity
-                // TODO: this is the same as the current tick no? or maybe not because we could have received updates before the spawn
-                //  and they are applied simultaneously
-                // get the confirmed tick for the entity
-                // if we don't have it, something has gone very wrong
-                let confirmed_tick = connection
-                    .replication_receiver
-                    .get_confirmed_tick(confirmed_entity)
-                    .unwrap();
-                commands
-                    .entity(confirmed_entity)
-                    .remove::<(ShouldBePredicted, PrePredicted)>()
-                    .insert(Confirmed {
-                        predicted: Some(predicted_entity),
-                        interpolated: None,
-                        tick: confirmed_tick,
-                    });
-            }
-        }
-    }
-
-    /// If a client adds `PrePredicted` to an entity to perform pre-Prediction.
-    /// We automatically add the extra needed information to the component.
-    /// - client_entity: is needed to know which entity to use as the predicted entity
-    /// - client_id: is needed in case the pre-predicted entity is predicted by other players upon replication
-    pub(crate) fn fill_pre_prediction_data(
-        connection: Res<ClientConnection>,
-        mut query: Query<
-            (Entity, &mut PrePredicted),
-            // in unified mode, don't apply this to server->client entities
-            Without<Confirmed>,
-        >,
-    ) {
-        for (entity, mut pre_predicted) in query.iter_mut() {
-            if pre_predicted.is_added() {
-                debug!(
-                client_id = ?connection.id(),
-                entity = ?entity,
-            "fill in pre-prediction info!");
-                pre_predicted.client_entity = Some(entity);
-            }
-        }
-    }
-
-    /// For pre-spawned entities, we want to stop replicating as soon as the initial spawn message has been sent to the
-    /// server. Otherwise any predicted action we would do affect the server entity, even though we want the server to
-    /// have authority on the entity.
+    /// For pre-predicted entities, we want to stop replicating as soon as the initial spawn message has been sent to the
+    /// server (to save bandwidth).
+    /// The server will refuse those other updates anyway because it will take authority over the entity.
     /// Therefore we will remove the `Replicate` component right after the first time we've sent a replicating message to the
     /// server
     pub(crate) fn clean_pre_predicted_entity(
@@ -170,18 +64,84 @@ impl PrePredictionPlugin {
             debug!(?entity, "removing replicate from pre-predicted entity");
             // remove Replicating first so that we don't replicate a despawn
             commands.entity(entity).remove::<Replicating>();
-            commands
-                .entity(entity)
-                .remove::<(
-                    ReplicationTarget,
-                    ReplicateToServer,
-                    ReplicationGroup,
-                    ReplicateHierarchy,
-                    HasAuthority,
-                )>()
-                .insert((Predicted {
-                    confirmed_entity: None,
-                },));
+            commands.entity(entity).remove::<(
+                ReplicationTarget,
+                ReplicateToServer,
+                ReplicationGroup,
+                ReplicateHierarchy,
+                HasAuthority,
+            )>();
+        }
+    }
+
+    /// When PrePredicted is added by the client: we spawn a Confirmed entity and update the mapping
+    /// When PrePredicted is replicated from the server: we add the Predicted component
+    pub(crate) fn handle_prepredicted(
+        trigger: Trigger<OnAdd, PrePredicted>,
+        mut commands: Commands,
+        prediction_manager: Res<PredictionManager>,
+        identity: Option<Res<State<NetworkIdentityState>>>,
+        // TODO: should we fetch the value of PrePredicted to confirm that it matches what we expect?
+    ) {
+        let predicted_map = unsafe {
+            prediction_manager
+                .predicted_entity_map
+                .get()
+                .as_ref()
+                .unwrap()
+        };
+        // PrePredicted was replicated from the server:
+        // When we receive an update from the server that confirms a pre-predicted entity,
+        // we will add the Predicted component
+        if let Some(&predicted) = predicted_map.confirmed_to_predicted.get(&trigger.entity()) {
+            let confirmed = trigger.entity();
+            debug!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
+            commands.queue(move |world: &mut World| {
+                world
+                    .entity_mut(predicted)
+                    .insert(Predicted {
+                        confirmed_entity: Some(confirmed),
+                    })
+                    .remove::<ShouldBePredicted>();
+            });
+        } else {
+            let predicted_entity = trigger.entity();
+            if is_host_server(identity) {
+                // for host-server, we don't want to spawn a separate entity because
+                //  the confirmed/predicted/server entity are the same! Instead we just want
+                //  to remove PrePredicted and add Predicted
+                commands.queue(move |world: &mut World| {
+                    // world.entity_mut(predicted_entity).remove::<PrePredicted>();
+                    world.entity_mut(predicted_entity).insert(Predicted {
+                        confirmed_entity: Some(predicted_entity),
+                    });
+                });
+            } else {
+                // PrePredicted was added by the client:
+                // Spawn a Confirmed entity and update the mapping
+                commands.queue(move |world: &mut World| {
+                    let tick = world.resource::<TickManager>().tick();
+                    let confirmed_entity = world
+                        .spawn(Confirmed {
+                            predicted: Some(predicted_entity),
+                            interpolated: None,
+                            tick,
+                        })
+                        .id();
+                    debug!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-predicted: {predicted_entity:?}");
+                    world
+                        .entity_mut(predicted_entity)
+                        .get_mut::<PrePredicted>()
+                        .unwrap()
+                        .confirmed_entity = Some(confirmed_entity);
+                    world
+                        .resource_mut::<PredictionManager>()
+                        .predicted_entity_map
+                        .get_mut()
+                        .confirmed_to_predicted
+                        .insert(confirmed_entity, predicted_entity);
+                });
+            }
         }
     }
 }
@@ -189,23 +149,25 @@ impl PrePredictionPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::prelude::server;
+    use crate::prelude::server::AuthorityPeer;
     use crate::prelude::{client, ClientId};
-    use crate::tests::protocol::{
-        ComponentSyncModeFull, ComponentSyncModeOnce, ComponentSyncModeSimple,
-    };
+    use crate::tests::host_server_stepper::HostServerStepper;
+    use crate::tests::protocol::{ComponentClientToServer, ComponentSyncModeFull};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
     /// Simple preprediction case
+    /// Also check that the PredictionHistory is correctly added to the PrePredicted entity
     #[test]
     fn test_pre_prediction() {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::INFO)
+        //     .with_max_level(tracing::Level::DEBUG)
         //     .init();
         let mut stepper = BevyStepper::default();
 
         // spawn a pre-predicted entity on the client
-        let client_entity = stepper
+        let predicted_entity = stepper
             .client_app
             .world_mut()
             .spawn((
@@ -214,7 +176,17 @@ mod tests {
                 PrePredicted::default(),
             ))
             .id();
-        info!(?client_entity);
+
+        // flush to apply pre-predicted related commands
+        stepper.flush();
+
+        // check that the confirmed entity was spawned
+        let confirmed_entity = stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<Entity, With<Confirmed>>()
+            .get_single(stepper.client_app.world())
+            .unwrap();
 
         // need to step multiple times because the server entity doesn't handle messages from future ticks
         for _ in 0..10 {
@@ -222,6 +194,7 @@ mod tests {
         }
 
         // check that the server has received the entity
+        // (we map from confirmed to server entity because the server updates the mapping upon reception)
         let server_entity = stepper
             .server_app
             .world()
@@ -230,9 +203,27 @@ mod tests {
             .unwrap()
             .replication_receiver
             .remote_entity_map
-            .get_local(client_entity)
+            .get_local(confirmed_entity)
             .unwrap();
-        info!(?server_entity);
+
+        // check that the authority has already been changed by the server to Server
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<AuthorityPeer>(server_entity)
+                .unwrap(),
+            &AuthorityPeer::Server
+        );
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<ComponentSyncModeFull>(server_entity)
+                .unwrap()
+                .0,
+            1.0
+        );
 
         // insert Replicate on the server entity
         stepper
@@ -241,23 +232,42 @@ mod tests {
             .entity_mut(server_entity)
             .insert(server::Replicate::default());
 
+        stepper.flush();
         stepper.frame_step();
-        info!("before client recv");
         stepper.frame_step();
 
-        // check that the client entity has the Predicted component, and that a confirmed entity has been spawned
-        let predicted = stepper
-            .client_app
-            .world()
-            .get::<Predicted>(client_entity)
-            .unwrap();
-        let confirmed_entity = predicted.confirmed_entity.unwrap();
+        // it would be nice if the client's confirmed entity had a Replicated component
         assert!(stepper
             .client_app
             .world()
-            .get::<Confirmed>(confirmed_entity)
+            .get::<HasAuthority>(confirmed_entity)
+            .is_none());
+        stepper
+            .server_app
+            .world_mut()
+            .get_mut::<ComponentSyncModeFull>(server_entity)
+            .unwrap()
+            .0 = 2.0;
+
+        stepper.frame_step();
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentSyncModeFull>(confirmed_entity)
+                .unwrap()
+                .0,
+            2.0
+        );
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<PredictionHistory<ComponentSyncModeFull>>(predicted_entity)
             .is_some());
     }
+
+    // TODO: test that pre-predicted works in host-server mode
 
     /// Test that PrePredicted works if ReplicateHierarchy is present.
     /// In that case, both the parent but also the children should be pre-predicted.
@@ -270,13 +280,13 @@ mod tests {
         let child = stepper
             .client_app
             .world_mut()
-            .spawn(ComponentSyncModeOnce(0.0))
+            .spawn(ComponentSyncModeFull(0.0))
             .id();
         let parent = stepper
             .client_app
             .world_mut()
             .spawn((
-                ComponentSyncModeSimple(0.0),
+                ComponentClientToServer(0.0),
                 client::Replicate::default(),
                 PrePredicted::default(),
             ))
@@ -298,13 +308,13 @@ mod tests {
         let server_parent = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
+            .query_filtered::<Entity, With<ComponentClientToServer>>()
             .get_single(stepper.server_app.world())
             .expect("parent entity was not replicated");
         let server_child = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
+            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
             .get_single(stepper.server_app.world())
             .expect("child entity was not replicated");
         assert_eq!(
@@ -343,5 +353,37 @@ mod tests {
             .world()
             .get::<Confirmed>(confirmed_entity)
             .is_some());
+    }
+
+    #[test]
+    fn test_pre_prediction_host_server() {
+        let mut stepper = HostServerStepper::default();
+
+        // spawn a pre-predicted entity on the client
+        let predicted_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                client::Replicate::default(),
+                ComponentSyncModeFull(1.0),
+                PrePredicted::default(),
+            ))
+            .id();
+
+        stepper.frame_step();
+
+        // since we're running in host-stepper mode, the Predicted component should also have been added
+        // (but not Confirmed)
+        let confirmed_entity = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<Predicted>>()
+            .get_single(stepper.server_app.world())
+            .unwrap();
+
+        // need to step multiple times because the server entity doesn't handle messages from future ticks
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
     }
 }

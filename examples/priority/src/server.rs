@@ -1,7 +1,6 @@
+use bevy::prelude::*;
 use bevy::utils::HashMap;
 use std::ops::Deref;
-
-use bevy::prelude::*;
 
 pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -32,20 +31,6 @@ pub(crate) struct Global {
 
 pub(crate) fn init(mut commands: Commands) {
     commands.start_server();
-    commands.spawn(
-        TextBundle::from_section(
-            "Server",
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
     // spawn dots in a grid
     for x in -NUM_CIRCLES..NUM_CIRCLES {
         for y in -NUM_CIRCLES..NUM_CIRCLES {

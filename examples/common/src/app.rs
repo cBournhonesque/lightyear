@@ -10,49 +10,75 @@ use std::time::Duration;
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
-use bevy::scene::ScenePlugin;
+
+use bevy::diagnostic::{DiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::state::app::StatesPlugin;
-use bevy::winit::{WakeUp, WinitPlugin};
 use bevy::DefaultPlugins;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use lightyear::prelude::client::ClientConfig;
 use lightyear::prelude::*;
 use lightyear::prelude::{client, server};
 use lightyear::server::config::ServerConfig;
-use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 use serde::{Deserialize, Serialize};
 
 use crate::settings::*;
 use crate::shared::{shared_config, REPLICATION_INTERVAL};
 
+#[cfg(all(feature = "gui", feature = "client"))]
+use crate::client_renderer::ExampleClientRendererPlugin;
+#[cfg(all(feature = "gui", feature = "server"))]
+use crate::server_renderer::ExampleServerRendererPlugin;
+#[cfg(feature = "gui")]
+use bevy::window::PresentMode;
+
 /// CLI options to create an [`App`]
-#[derive(Parser, PartialEq, Debug)]
-pub enum Cli {
-    /// We have the client and the server running inside the same app.
-    /// The server will also act as a client. (i.e. one client acts as the 'host')
-    #[cfg(not(target_family = "wasm"))]
-    HostServer {
-        #[arg(short, long, default_value = None)]
-        client_id: Option<u64>,
-    },
-    #[cfg(not(target_family = "wasm"))]
-    /// We will create two apps: a client app and a server app.
-    /// Data gets passed between the two via channels.
-    ClientAndServer {
-        #[arg(short, long, default_value = None)]
-        client_id: Option<u64>,
-    },
-    #[cfg(not(target_family = "wasm"))]
-    /// Dedicated server
-    Server,
-    /// The program will act as a client
+#[derive(Parser, Debug)]
+#[command(version, about)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub mode: Option<Mode>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Mode {
+    #[cfg(feature = "client")]
+    /// Runs the app in client mode
     Client {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
     },
+    #[cfg(feature = "server")]
+    /// Runs the app in server mode
+    Server,
+    #[cfg(all(feature = "client", feature = "server"))]
+    /// Creates two bevy apps: a client app and a server app.
+    /// Data gets passed between the two via channels.
+    Separate {
+        #[arg(short, long, default_value = None)]
+        client_id: Option<u64>,
+    },
+    #[cfg(all(feature = "client", feature = "server"))]
+    /// Run the app in host-server mode.
+    /// The client and the server will run inside the same app. The peer acts both as a client and a server.
+    HostServer {
+        #[arg(short, long, default_value = None)]
+        client_id: Option<u64>,
+    },
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        cfg_if::cfg_if! {
+            if #[cfg(all(feature = "client", feature = "server"))] {
+                return Mode::HostServer { client_id: None };
+            } else if #[cfg(feature = "server")] {
+                return Mode::Server;
+            } else {
+                return Mode::Client { client_id: None };
+            }
+        }
+    }
 }
 
 /// App that is Send.
@@ -79,8 +105,10 @@ pub fn cli() -> Cli {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
             let client_id = rand::random::<u64>();
-            Cli::Client {
-                client_id: Some(client_id)
+            Cli {
+                mode: Some(Mode::Client {
+                    client_id: Some(client_id),
+                })
             }
         } else {
             Cli::parse()
@@ -113,23 +141,24 @@ pub enum Apps {
 
 impl Apps {
     /// Build the apps with the given settings and CLI options.
-    pub fn new(settings: Settings, cli: Cli) -> Self {
-        match cli {
-            #[cfg(not(target_family = "wasm"))]
-            Cli::HostServer { client_id } => {
+    pub fn new(settings: Settings, cli: Cli, name: String) -> Self {
+        match cli.mode {
+            #[cfg(all(feature = "client", feature = "server"))]
+            Some(Mode::HostServer { client_id }) => {
                 let client_net_config = client::NetConfig::Local {
                     id: client_id.unwrap_or(settings.client.client_id),
                 };
-                let (app, client_config, server_config) =
+                let (mut app, client_config, server_config) =
                     combined_app(settings, vec![], client_net_config);
+                app.add_plugins(ExampleClientRendererPlugin::new(name));
                 Apps::HostServer {
                     app,
                     client_config,
                     server_config,
                 }
             }
-            #[cfg(not(target_family = "wasm"))]
-            Cli::ClientAndServer { client_id } => {
+            #[cfg(all(feature = "client", feature = "server"))]
+            Some(Mode::Separate { client_id }) => {
                 // we will communicate between the client and server apps via channels
                 let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
                 let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
@@ -147,14 +176,17 @@ impl Apps {
                     &settings.shared,
                     transport_config,
                 );
-                let (client_app, client_config) = client_app(settings.clone(), net_config);
+                let (mut client_app, client_config) = client_app(settings.clone(), net_config);
+                client_app.add_plugins(ExampleClientRendererPlugin::new(name));
 
-                // create server app
+                // create server app, which will be headless when we have client app in same process
                 let extra_transport_configs = vec![server::ServerTransport::Channels {
                     // even if we communicate via channels, we need to provide a socket address for the client
                     channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
                 }];
-                let (server_app, server_config) = server_app(settings, extra_transport_configs);
+                // we don't want to register the gui plugins twice if running in separate mode
+                let (server_app, server_config) =
+                    server_app(false, settings, extra_transport_configs);
                 Apps::ClientAndServer {
                     client_app,
                     client_config,
@@ -162,12 +194,8 @@ impl Apps {
                     server_config,
                 }
             }
-            #[cfg(not(target_family = "wasm"))]
-            Cli::Server => {
-                let (app, config) = server_app(settings, vec![]);
-                Apps::Server { app, config }
-            }
-            Cli::Client { client_id } => {
+            #[cfg(feature = "client")]
+            Some(Mode::Client { client_id }) => {
                 let server_addr = SocketAddr::new(
                     settings.client.server_addr.into(),
                     settings.client.server_port,
@@ -175,8 +203,31 @@ impl Apps {
                 // use the cli-provided client id if it exists, otherwise use the settings client id
                 let client_id = client_id.unwrap_or(settings.client.client_id);
                 let net_config = get_client_net_config(&settings, client_id);
-                let (app, config) = client_app(settings, net_config);
+                let (mut app, config) = client_app(settings, net_config);
+                app.add_plugins(ExampleClientRendererPlugin::new(name));
                 Apps::Client { app, config }
+            }
+            #[cfg(feature = "server")]
+            Some(Mode::Server) => {
+                #[allow(unused_mut)]
+                let (mut app, config) = server_app(cfg!(feature = "gui"), settings, vec![]);
+                // we keep gui a parameter so that we can easily disable server gui even with all default features
+                // enabled
+                #[cfg(feature = "gui")]
+                app.add_plugins(ExampleServerRendererPlugin::new(name));
+                Apps::Server { app, config }
+            }
+            None => {
+                cfg_if::cfg_if! {
+                    if #[cfg(all(feature = "client", feature = "server"))] {
+                        let mode = Mode::HostServer { client_id: None };
+                    } else if #[cfg(feature = "server")] {
+                        let mode = Mode::Server;
+                    } else {
+                        let mode = Mode::Client { client_id: None };
+                    }
+                };
+                Apps::new(settings, Cli { mode: Some(mode) }, name)
             }
         }
     }
@@ -239,33 +290,105 @@ impl Apps {
                 });
             }
         }
+        self.add_bevygap_plugins();
         self
     }
 
-    /// Add the client, server, and shared user-provided plugins to the app
-    pub fn add_user_plugins(
-        &mut self,
-        client_plugin: impl Plugin,
-        server_plugin: impl Plugin,
-        shared_plugin: impl Plugin + Clone,
-    ) -> &mut Self {
+    /// Adds bevygap plugins, if enabled with feature flags
+    fn add_bevygap_plugins(&mut self) {
+        // inject bevygap plugins
+        #[cfg(any(feature = "bevygap_client", feature = "bevygap_server"))]
+        {
+            println!("🌐 Bevygap features are enabled");
+            self.add_user_shared_plugin(crate::bevygap_shared::BevygapSharedExtensionPlugin);
+        }
+        #[cfg(feature = "bevygap_client")]
+        {
+            self.add_user_client_plugin(bevygap_client_plugin::prelude::BevygapClientPlugin);
+        }
+        #[cfg(feature = "bevygap_server")]
+        {
+            self.add_user_server_plugin(bevygap_server_plugin::prelude::BevygapServerPlugin);
+        }
+    }
+
+    /// Adds plugin to the client app
+    pub fn add_user_client_plugin(&mut self, client_plugin: impl Plugin) -> &mut Self {
         match self {
             Apps::Client { app, .. } => {
-                app.add_plugins((client_plugin, shared_plugin));
+                app.add_plugins(client_plugin);
             }
-            Apps::Server { app, .. } => {
-                app.add_plugins((server_plugin, shared_plugin));
-            }
-            Apps::ClientAndServer {
-                client_app,
-                server_app,
-                ..
-            } => {
-                client_app.add_plugins((client_plugin, shared_plugin.clone()));
-                server_app.add_plugins((server_plugin, shared_plugin));
+            Apps::ClientAndServer { client_app, .. } => {
+                client_app.add_plugins(client_plugin);
             }
             Apps::HostServer { app, .. } => {
-                app.add_plugins((client_plugin, server_plugin, shared_plugin));
+                app.add_plugins(client_plugin);
+            }
+            Apps::Server { .. } => {}
+        }
+        self
+    }
+
+    /// Adds plugin to the server app
+    pub fn add_user_server_plugin(&mut self, server_plugin: impl Plugin) -> &mut Self {
+        match self {
+            Apps::Client { .. } => {}
+            Apps::ClientAndServer { server_app, .. } => {
+                server_app.add_plugins(server_plugin);
+            }
+            Apps::HostServer { app, .. } => {
+                app.add_plugins(server_plugin);
+            }
+            Apps::Server { app, .. } => {
+                app.add_plugins(server_plugin);
+            }
+        }
+        self
+    }
+
+    /// Adds plugin to both the server and client apps, if present
+    pub fn add_user_shared_plugin(&mut self, shared_plugin: impl Plugin + Clone) -> &mut Self {
+        match self {
+            Apps::Client { app, config } => {
+                app.add_plugins(shared_plugin);
+            }
+            Apps::ClientAndServer {
+                server_app,
+                client_app,
+                ..
+            } => {
+                server_app.add_plugins(shared_plugin.clone());
+                client_app.add_plugins(shared_plugin);
+            }
+            Apps::HostServer { app, .. } => {
+                app.add_plugins(shared_plugin);
+            }
+            Apps::Server { app, .. } => {
+                app.add_plugins(shared_plugin);
+            }
+        }
+        self
+    }
+
+    /// Adds to the client app, and the server app if in standalone server mode with the cargo "gui" feature.
+    /// Won't add renderer to server app if a client app also present.
+    pub fn add_user_renderer_plugin(&mut self, renderer_plugin: impl Plugin) -> &mut Self {
+        match self {
+            Apps::Client { app, config } => {
+                app.add_plugins(renderer_plugin);
+            }
+            Apps::ClientAndServer {
+                server_app,
+                client_app,
+                ..
+            } => {
+                client_app.add_plugins(renderer_plugin);
+            }
+            Apps::HostServer { app, .. } => {
+                app.add_plugins(renderer_plugin);
+            }
+            Apps::Server { app, .. } => {
+                app.add_plugins(renderer_plugin);
             }
         }
         self
@@ -336,11 +459,32 @@ impl Apps {
     }
 }
 
-/// Build the client app with the `ClientPlugins` added.
-/// Takes in a `net_config` parameter so that we configure the network transport.
-fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, ClientConfig) {
-    let mut app = App::new();
+#[cfg(feature = "gui")]
+pub fn window_plugin() -> WindowPlugin {
+    WindowPlugin {
+        primary_window: Some(Window {
+            title: format!("Lightyear Example: {}", env!("CARGO_PKG_NAME")),
+            resolution: (1024., 768.).into(),
+            present_mode: PresentMode::AutoVsync,
+            // set to true if we want to capture tab etc in wasm
+            prevent_default_event_handling: true,
+            ..Default::default()
+        }),
+        ..default()
+    }
+}
 
+pub fn log_plugin() -> LogPlugin {
+    LogPlugin {
+        level: Level::INFO,
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,bevy_time=warn".to_string(),
+        ..default()
+    }
+}
+
+#[cfg(feature = "gui")]
+pub fn new_gui_app(add_inspector: bool) -> App {
+    let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
             .build()
@@ -349,17 +493,35 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
                 meta_check: bevy::asset::AssetMetaCheck::Never,
                 ..default()
             })
-            .set(LogPlugin {
-                level: Level::INFO,
-                filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-                ..default()
-            }),
+            .set(log_plugin())
+            .set(window_plugin()),
     );
-    if settings.client.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
+    if add_inspector {
+        app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
     }
+    app
+}
+
+pub fn new_headless_app() -> App {
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins,
+        log_plugin(),
+        StatesPlugin,
+        HierarchyPlugin,
+        DiagnosticsPlugin,
+    ));
+    app
+}
+
+/// Build the client app with the `ClientPlugins` added.
+/// Takes in a `net_config` parameter so that we configure the network transport.
+#[cfg(feature = "client")]
+pub fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, ClientConfig) {
+    let app = new_gui_app(settings.client.inspector);
+
     let client_config = ClientConfig {
-        shared: shared_config(Mode::Separate),
+        shared: shared_config(),
         net: net_config,
         replication: ReplicationConfig {
             send_interval: REPLICATION_INTERVAL,
@@ -371,27 +533,21 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Client
 }
 
 /// Build the server app with the `ServerPlugins` added.
-#[cfg(not(target_family = "wasm"))]
-fn server_app(
+#[cfg(feature = "server")]
+pub fn server_app(
+    enable_gui: bool,
     settings: Settings,
     extra_transport_configs: Vec<server::ServerTransport>,
 ) -> (App, ServerConfig) {
-    let mut app = App::new();
-    if !settings.server.headless {
-        app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+    #[cfg(feature = "gui")]
+    let app = if enable_gui {
+        new_gui_app(settings.server.inspector)
     } else {
-        app.add_plugins((MinimalPlugins, StatesPlugin));
-    }
-    app.add_plugins(LogPlugin {
-        level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        ..default()
-    });
-
-    if settings.server.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
-
+        new_headless_app()
+    };
+    #[cfg(not(feature = "gui"))]
+    let app = new_headless_app();
+    info!("server_app. gui={}", cfg!(feature = "gui"));
     // configure the network configuration
     let mut net_configs = get_server_net_configs(&settings);
     let extra_net_configs = extra_transport_configs.into_iter().map(|c| {
@@ -399,7 +555,7 @@ fn server_app(
     });
     net_configs.extend(extra_net_configs);
     let server_config = ServerConfig {
-        shared: shared_config(Mode::Separate),
+        shared: shared_config(),
         net: net_configs,
         replication: ReplicationConfig {
             send_interval: REPLICATION_INTERVAL,
@@ -411,22 +567,13 @@ fn server_app(
 }
 
 /// An `App` that contains both the client and server plugins
-#[cfg(not(target_family = "wasm"))]
-fn combined_app(
+#[cfg(all(feature = "client", feature = "server"))]
+pub fn combined_app(
     settings: Settings,
     extra_transport_configs: Vec<server::ServerTransport>,
     client_net_config: client::NetConfig,
 ) -> (App, ClientConfig, ServerConfig) {
-    let mut app = App::new();
-    app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-        level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        ..default()
-    }));
-    // if settings.client.inspector {
-    //     app.add_plugins(WorldInspectorPlugin::new());
-    // }
-
+    let app = new_gui_app(settings.client.inspector || settings.server.inspector);
     // server config
     let mut net_configs = get_server_net_configs(&settings);
     let extra_net_configs = extra_transport_configs.into_iter().map(|c| {
@@ -434,7 +581,7 @@ fn combined_app(
     });
     net_configs.extend(extra_net_configs);
     let server_config = ServerConfig {
-        shared: shared_config(Mode::HostServer),
+        shared: shared_config(),
         net: net_configs,
         replication: ReplicationConfig {
             send_interval: REPLICATION_INTERVAL,
@@ -445,7 +592,7 @@ fn combined_app(
 
     // client config
     let client_config = ClientConfig {
-        shared: shared_config(Mode::HostServer),
+        shared: shared_config(),
         net: client_net_config,
         ..default()
     };

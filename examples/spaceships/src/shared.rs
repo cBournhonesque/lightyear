@@ -1,7 +1,6 @@
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use server::ControlledEntities;
@@ -13,25 +12,19 @@ use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
 
 use lightyear::prelude::client::*;
+use lightyear::prelude::server::{DespawnReplicationCommandExt, ReplicationTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
-use crate::{protocol::*, renderer};
-pub(crate) const MAX_VELOCITY: f32 = 200.0;
-pub(crate) const WALL_SIZE: f32 = 350.0;
-
+use crate::protocol::*;
+#[cfg(feature = "gui")]
 use crate::renderer::SpaceshipsRendererPlugin;
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum FixedSet {
-    // main fixed update systems (handle inputs)
-    Main,
-    // apply physics steps
-    Physics,
-}
+pub(crate) const MAX_VELOCITY: f32 = 200.0;
+pub(crate) const WALL_SIZE: f32 = 350.0;
 
 #[derive(Clone)]
 pub struct SharedPlugin {
@@ -41,39 +34,63 @@ pub struct SharedPlugin {
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        if app.is_plugin_added::<RenderPlugin>() {
-            app.add_plugins(SpaceshipsRendererPlugin);
-        }
+
         // bundles
         app.add_systems(Startup, init);
 
-        // physics
-        app.add_plugins(PhysicsPlugins::new(FixedUpdate))
-            .insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)))
-            .insert_resource(Gravity(Vec2::ZERO));
-        app.configure_sets(
-            FixedUpdate,
-            (
-                // make sure that any physics simulation happens after the Main SystemSet
-                // (where we apply user's actions)
-                (
-                    PhysicsSet::Prepare,
-                    PhysicsSet::StepSimulation,
-                    PhysicsSet::Sync,
-                )
-                    .in_set(FixedSet::Physics),
-                (FixedSet::Main, FixedSet::Physics).chain(),
-            ),
-        );
+        // Physics
+        //
+        // we use Position and Rotation as primary source of truth, so no need to sync changes
+        // from Transform->Pos, just Pos->Transform.
+        app.insert_resource(avian2d::sync::SyncConfig {
+            transform_to_position: false,
+            position_to_transform: true,
+            ..default()
+        });
+        // We change SyncPlugin to PostUpdate, because we want the visually interpreted values
+        // synced to transform every time, not just when Fixed schedule runs.
+        app.add_plugins(PhysicsPlugins::default().build());
+
+        app.insert_resource(Gravity(Vec2::ZERO));
+        // our systems run in FixedUpdate, avian's systems run in FixedPostUpdate.
         app.add_systems(
             FixedUpdate,
-            (process_collisions, lifetime_despawner).in_set(FixedSet::Main),
+            (process_collisions, lifetime_despawner).chain(),
         );
+
+        app.add_systems(PostProcessCollisions, filter_own_bullet_collisions);
 
         app.add_event::<BulletHitEvent>();
         // registry types for reflection
         app.register_type::<Player>();
     }
+}
+
+// Players can't collide with their own bullets.
+// this is especially helpful if you are accelerating forwards while shooting, as otherwise you
+// might overtake / collide on spawn with your own bullets that spawn in front of you.
+fn filter_own_bullet_collisions(
+    mut collisions: ResMut<Collisions>,
+    q_bullets: Query<&BulletMarker>,
+    q_players: Query<&Player>,
+) {
+    collisions.retain(|contacts| {
+        if let Ok(bullet) = q_bullets.get(contacts.entity1) {
+            if let Ok(player) = q_players.get(contacts.entity2) {
+                if bullet.owner == player.client_id {
+                    return false;
+                }
+            }
+        }
+        if let Ok(bullet) = q_bullets.get(contacts.entity2) {
+            if let Ok(player) = q_players.get(contacts.entity1) {
+                if bullet.owner == player.client_id {
+                    return false;
+                }
+            }
+        }
+        true
+    });
 }
 
 // Generate pseudo-random color from id
@@ -123,10 +140,11 @@ pub fn apply_action_state_to_player_movement(
     aiq: &mut ApplyInputsQueryItem,
     tick: Tick,
 ) {
+    // #[cfg(target_family = "wasm")]
     // if !action.get_pressed().is_empty() {
     //     info!(
-    //         "🎹 {} {:?} {tick:?} = {:?} staleness = {staleness}",
-    //         if staleness > 0 { "😐" } else { "" },
+    //         "{} {:?} {tick:?} = {:?} staleness = {staleness}",
+    //         if staleness > 0 { "🎹😐" } else { "🎹" },
     //         aiq.player.client_id,
     //         action.get_pressed(),
     //     );
@@ -242,7 +260,7 @@ pub fn shared_player_firing(
                 prespawned,
             ))
             .id();
-        info!(
+        debug!(
             "spawned bullet for ActionState, bullet={bullet_entity:?} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?}",
             weapon.last_fire_tick.0, player.client_id
         );
@@ -275,11 +293,10 @@ pub(crate) fn lifetime_despawner(
             // if ttl.origin_tick.wrapping_add(ttl.lifetime) > *tick_manager.tick() {
             if identity.is_server() {
                 // info!("Despawning {e:?} without replication");
-                // commands.entity(e).despawn_without_replication(); // CRASH ?
-                commands.entity(e).remove::<server::Replicate>().despawn();
+                commands.entity(e).despawn();
             } else {
                 // info!("Despawning:lifetime {e:?}");
-                commands.entity(e).despawn_recursive();
+                commands.entity(e).prediction_despawn();
             }
         }
     }
@@ -336,12 +353,9 @@ pub(crate) fn process_collisions(
         if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity1) {
             // despawn the bullet
             if identity.is_server() {
-                commands
-                    .entity(contacts.entity1)
-                    .remove::<server::Replicate>()
-                    .despawn();
+                commands.entity(contacts.entity1).despawn();
             } else {
-                commands.entity(contacts.entity1).despawn_recursive();
+                commands.entity(contacts.entity1).prediction_despawn();
             }
             let victim_client_id = player_q
                 .get(contacts.entity2)
@@ -357,12 +371,9 @@ pub(crate) fn process_collisions(
         }
         if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity2) {
             if identity.is_server() {
-                commands
-                    .entity(contacts.entity2)
-                    .remove::<server::Replicate>()
-                    .despawn();
+                commands.entity(contacts.entity2).despawn();
             } else {
-                commands.entity(contacts.entity2).despawn_recursive();
+                commands.entity(contacts.entity2).prediction_despawn();
             }
             let victim_client_id = player_q
                 .get(contacts.entity1)

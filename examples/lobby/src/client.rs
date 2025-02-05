@@ -81,17 +81,6 @@ fn handle_connection(
         if let Ok(entity) = debug_text.get_single() {
             commands.entity(entity).despawn_recursive();
         }
-        commands.spawn((
-            TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ),
-            ClientIdText,
-        ));
     }
 }
 
@@ -383,7 +372,7 @@ mod lobby {
                     AppState::Game => {}
                 };
                 match state.get() {
-                    NetworkingState::Disconnected => {
+                    NetworkingState::Disconnected | NetworkingState::Disconnecting => {
                         if ui.button("Join lobby list").clicked() {
                             // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
                             // - the new host must run in host-server
@@ -441,7 +430,7 @@ mod lobby {
     /// - set the AppState to Game
     pub(crate) fn receive_start_game_message(
         mut commands: Commands,
-        mut events: EventReader<MessageEvent<StartGame>>,
+        mut events: EventReader<ReceiveMessage<StartGame>>,
         lobby_table: Res<LobbyTable>,
         mut next_app_state: ResMut<NextState<AppState>>,
         mut config: ResMut<ClientConfig>,
@@ -462,9 +451,10 @@ mod lobby {
                     // start the server
                     commands.start_server();
                 } else {
+                    info!("The game is hosted by another client. Connecting to the host...");
                     // update the client config to connect to the game host
                     match &mut config.net {
-                        NetConfig::Netcode { auth, .. } => match auth {
+                        NetConfig::Netcode { auth, config, io } => match auth {
                             Authentication::Manual { server_addr, .. } => {
                                 *server_addr = SocketAddr::new(
                                     settings.client.server_addr.into(),

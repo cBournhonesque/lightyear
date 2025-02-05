@@ -8,12 +8,13 @@ use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::component::ComponentError;
 use crate::shared::replication::entity_map::PredictedEntityMap;
 use crate::utils::ready_buffer::ReadyBuffer;
+use bevy::utils::hashbrown;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 #[derive(Resource, Default, Debug)]
 pub(crate) struct PredictionManager {
-    /// Map between remote and predicted entities
+    /// Map between confirmed and predicted entities
     ///
     /// We wrap it into an UnsafeCell because the MapEntities trait requires a mutable reference to the EntityMap,
     /// but in our case calling map_entities will not mutate the map itself; by doing so we can improve the parallelism
