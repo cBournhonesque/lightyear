@@ -388,6 +388,5 @@ mod tests {
         for _ in 0..10 {
             stepper.frame_step();
         }
-
     }
 }
