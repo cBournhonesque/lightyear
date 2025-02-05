@@ -17,7 +17,9 @@ use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, ConnectionError, ConnectionState, NetClient};
 use crate::connection::server::IoConfig;
 use crate::prelude::client::NetConfig;
-use crate::prelude::{is_host_server, server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager};
+use crate::prelude::{
+    is_host_server, server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
+};
 use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
 use crate::shared::replication::components::Replicated;
@@ -308,7 +310,6 @@ pub enum ConnectedState {
     Synced,
 }
 
-
 /// Listen to [`ClientIoEvent`]s and update the [`IoState`] and [`NetworkingState`] accordingly
 fn listen_io_state(
     mut next_state: ResMut<NextState<NetworkingState>>,
@@ -462,11 +463,14 @@ fn rebuild_client_connection(world: &mut World) {
     let client_config = world.resource::<ClientConfig>().clone();
 
     // if the server is started, that means we're planning to run in host-server mode
-    if world.get_resource::<State<server::NetworkingState>>().is_some_and(|s| s.get() == &server::NetworkingState::Started) {
-            assert!(
-                matches!(client_config.net, NetConfig::Local { .. }),
-                "When running in HostServer mode, the client connection needs to be of type Local"
-            );
+    if world
+        .get_resource::<State<server::NetworkingState>>()
+        .is_some_and(|s| s.get() == &server::NetworkingState::Started)
+    {
+        assert!(
+            matches!(client_config.net, NetConfig::Local { .. }),
+            "When running in HostServer mode, the client connection needs to be of type Local"
+        );
     }
 
     // insert a new connection manager (to reset sync, priority, message numbers, etc.)
@@ -531,8 +535,6 @@ impl ClientCommands for Commands<'_, '_> {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;
@@ -545,7 +547,10 @@ mod tests {
     #[derive(Resource, Default)]
     struct CheckCounter(usize);
 
-    fn receive_connect_event(mut reader: EventReader<server::ConnectEvent>, mut res: ResMut<CheckCounter>) {
+    fn receive_connect_event(
+        mut reader: EventReader<server::ConnectEvent>,
+        mut res: ResMut<CheckCounter>,
+    ) {
         for event in reader.read() {
             res.0 += 1;
         }

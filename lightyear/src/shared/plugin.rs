@@ -1,7 +1,11 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use crate::client::config::ClientConfig;
 use crate::prelude::client::ComponentSyncMode;
-use crate::prelude::{client, server, AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig, MessageRegistry, NetworkIdentityState, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, TickConfig};
+use crate::prelude::{
+    client, server, AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry,
+    ComponentRegistry, LinkConditionerConfig, MessageRegistry, NetworkIdentityState, ParentSync,
+    PingConfig, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
+};
 use crate::shared::config::SharedConfig;
 use crate::shared::plugin::utils::AppStateExt;
 use crate::shared::replication::authority::AuthorityChange;
@@ -28,8 +32,6 @@ impl Plugin for SharedPlugin {
             .register_type::<IoState>()
             .register_type::<LinkConditionerConfig>()
             .register_type::<CompressionConfig>();
-
-
 
         // RESOURCES
         // the SharedPlugin is called after the ClientConfig is inserted

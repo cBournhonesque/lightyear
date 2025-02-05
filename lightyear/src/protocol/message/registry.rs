@@ -39,7 +39,6 @@ pub(crate) trait AppMessageInternalExt {
     fn register_message_internal<M: Message + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
-        message_type: MessageType,
     ) -> MessageRegistration<'_, M>;
 
     /// Function used internally to register a Message with a specific [`MessageType`]
@@ -47,7 +46,6 @@ pub(crate) trait AppMessageInternalExt {
     fn register_message_internal_custom_serde<M: Message>(
         &mut self,
         direction: ChannelDirection,
-        message_type: MessageType,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M>;
 }
@@ -56,19 +54,13 @@ impl AppMessageInternalExt for App {
     fn register_message_internal<M: Message + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
-        message_type: MessageType,
     ) -> MessageRegistration<'_, M> {
-        self.register_message_internal_custom_serde::<M>(
-            direction,
-            message_type,
-            SerializeFns::<M>::default(),
-        )
+        self.register_message_internal_custom_serde::<M>(direction, SerializeFns::<M>::default())
     }
 
     fn register_message_internal_custom_serde<M: Message>(
         &mut self,
         direction: ChannelDirection,
-        message_type: MessageType,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M> {
         let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
@@ -78,10 +70,9 @@ impl AppMessageInternalExt for App {
                 message_kind,
                 ErasedSerializeFns::new_custom_serde::<M>(serialize_fns),
             );
-            registry.message_types.insert(message_kind, message_type);
         }
         debug!("register message {}", std::any::type_name::<M>());
-        register_message::<M>(self, direction, message_type);
+        register_message::<M>(self, direction);
         MessageRegistration {
             app: self,
             _marker: std::marker::PhantomData,
@@ -114,7 +105,7 @@ impl AppMessageExt for App {
         &mut self,
         direction: ChannelDirection,
     ) -> MessageRegistration<'_, M> {
-        self.register_message_internal(direction, MessageType::Normal)
+        self.register_message_internal(direction)
     }
 
     fn register_message_custom_serde<M: Message>(
@@ -122,19 +113,12 @@ impl AppMessageExt for App {
         direction: ChannelDirection,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M> {
-        self.register_message_internal_custom_serde(direction, MessageType::Normal, serialize_fns)
+        self.register_message_internal_custom_serde(direction, serialize_fns)
     }
 }
 
 /// Register the message-receive metadata for a given message M
-pub(crate) fn register_message<M: Message>(
-    app: &mut App,
-    direction: ChannelDirection,
-    message_type: MessageType,
-) {
-    if message_type != MessageType::Normal && message_type != MessageType::Trigger {
-        return;
-    }
+pub(crate) fn register_message<M: Message>(app: &mut App, direction: ChannelDirection) {
     let is_client = app.world().get_resource::<ClientConfig>().is_some();
     let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
@@ -155,24 +139,10 @@ pub(crate) fn register_message<M: Message>(
             }
         }
         ChannelDirection::Bidirectional => {
-            register_message::<M>(app, ChannelDirection::ClientToServer, message_type);
-            register_message::<M>(app, ChannelDirection::ServerToClient, message_type);
+            register_message::<M>(app, ChannelDirection::ClientToServer);
+            register_message::<M>(app, ChannelDirection::ServerToClient);
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) enum MessageType {
-    /// This is a message for a [`LeafwingUserAction`](crate::inputs::leafwing::LeafwingUserAction)
-    #[cfg(feature = "leafwing")]
-    LeafwingInput,
-    /// This is a message for a [`UserAction`]
-    NativeInput,
-    /// This is not an input message, but a regular [`Message`]
-    #[default]
-    Normal,
-    /// This message is an [`Event`](bevy::prelude::Event), which can get triggered on the remote world
-    Trigger,
 }
 
 /// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
@@ -228,23 +198,14 @@ pub(crate) enum MessageType {
 /// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct MessageRegistry {
+    // TODO: do we need to distinguish between message types?
     pub(crate) client_messages: client::MessageMetadata,
     pub(crate) server_messages: server::MessageMetadata,
-    pub(crate) message_types: HashMap<MessageKind, MessageType>,
     pub(crate) serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
     pub(crate) kind_map: TypeMapper<MessageKind>,
 }
 
 impl MessageRegistry {
-    pub(crate) fn message_type(&self, net_id: NetId) -> MessageType {
-        // TODO this unwrap takes down server if client sends invalid netid.
-        //      perhaps return a result from this and handle?
-        let kind = self.kind_map.kind(net_id).unwrap();
-        self.message_types
-            .get(kind)
-            .map_or(MessageType::Normal, |m| *m)
-    }
-
     pub fn is_registered<M: 'static>(&self) -> bool {
         self.kind_map.net_id(&MessageKind::of::<M>()).is_some()
     }

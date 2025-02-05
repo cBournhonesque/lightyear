@@ -5,7 +5,9 @@ use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::Predicted;
-use crate::prelude::{AppIdentityExt, ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
+use crate::prelude::{
+    AppIdentityExt, ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
+};
 use crate::shared::tick_manager::Tick;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
