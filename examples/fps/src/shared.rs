@@ -14,7 +14,6 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::server::{Replicate, ReplicationTarget, SyncTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
-use lightyear::shared::identity::Identity;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;
@@ -182,7 +181,7 @@ pub(crate) fn fixed_update_log(
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
     tick_manager: Res<TickManager>,
-    identity: NetworkIdentityState,
+    identity: NetworkIdentity,
     mut query: Query<
         (
             &PlayerId,

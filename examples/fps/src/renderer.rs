@@ -10,8 +10,7 @@ use lightyear::prelude::client::{
     Interpolated, Predicted, VisualInterpolateStatus,
 };
 use lightyear::prelude::server::ReplicationTarget;
-use lightyear::prelude::{PreSpawnedPlayerObject, Replicated};
-use lightyear::shared::identity::NetworkIdentityState;
+use lightyear::prelude::{NetworkIdentity, PreSpawnedPlayerObject, Replicated};
 use lightyear_avian::prelude::AabbEnvelopeHolder;
 
 #[derive(Clone)]
@@ -48,7 +47,7 @@ fn init(mut commands: Commands) {
 struct ScoreText;
 
 #[cfg(feature = "client")]
-fn spawn_score_text(mut commands: Commands, identity: NetworkIdentityState) {
+fn spawn_score_text(mut commands: Commands, identity: NetworkIdentity) {
     if identity.is_client() {
         commands.spawn((
             Text::new("Score: 0"),
