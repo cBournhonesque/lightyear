@@ -64,7 +64,7 @@ pub(crate) fn handle_pre_predicted(
     mut manager: ResMut<ServerConnectionManager>,
     // add `With<Replicated>` bound for host-server mode; so that we don't trigger this system
     // for local client entities
-    q: Query<(Entity, &PrePredicted, &Replicated)>,
+    q: Query<(Entity, &PrePredicted, &Replicated), With<Replicated>>,
 ) {
     if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.entity()) {
         let sending_client = replicated.from.unwrap();
