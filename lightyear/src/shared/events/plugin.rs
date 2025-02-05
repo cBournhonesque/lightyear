@@ -28,11 +28,11 @@ impl<R: ReplicationReceive> Plugin for EventsPlugin<R> {
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            push_entity_events::<R>.in_set(InternalMainSet::<R::SetMarker>::EmitEvents),
+            push_entity_events::<R>.in_set(InternalMainSet::<R::SetMarker>::ReceiveEvents),
         );
         app.add_systems(
             PreUpdate,
-            clear_events::<R>.after(InternalMainSet::<R::SetMarker>::EmitEvents),
+            clear_events::<R>.after(InternalMainSet::<R::SetMarker>::ReceiveEvents),
         );
     }
 }

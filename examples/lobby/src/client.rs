@@ -430,7 +430,7 @@ mod lobby {
     /// - set the AppState to Game
     pub(crate) fn receive_start_game_message(
         mut commands: Commands,
-        mut events: EventReader<MessageEvent<StartGame>>,
+        mut events: EventReader<ReceiveMessage<StartGame>>,
         lobby_table: Res<LobbyTable>,
         mut next_app_state: ResMut<NextState<AppState>>,
         mut config: ResMut<ClientConfig>,

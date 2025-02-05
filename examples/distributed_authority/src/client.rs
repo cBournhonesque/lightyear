@@ -130,7 +130,7 @@ fn on_disconnect(
 
 /// Set the color of the ball to the color of the peer that has authority
 pub(crate) fn change_ball_color_on_authority(
-    mut messages: ResMut<Events<MessageEvent<AuthorityPeer>>>,
+    mut messages: ResMut<Events<ReceiveMessage<AuthorityPeer>>>,
     players: Query<(&PlayerColor, &PlayerId), With<Confirmed>>,
     mut balls: Query<&mut PlayerColor, (With<BallMarker>, Without<PlayerId>, With<Interpolated>)>,
 ) {

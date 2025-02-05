@@ -6,8 +6,7 @@ use leafwing_input_manager::prelude::ActionState;
 use crate::client::config::ClientConfig;
 use crate::client::input::leafwing::LeafwingInputConfig;
 use crate::prelude::{AppComponentExt, ChannelDirection, InputMessage, LeafwingUserAction};
-use crate::protocol::message::AppMessageInternalExt;
-use crate::protocol::message::MessageType;
+use crate::protocol::message::registry::{AppMessageInternalExt, MessageType};
 use crate::server::config::ServerConfig;
 
 pub struct LeafwingInputPlugin<A> {

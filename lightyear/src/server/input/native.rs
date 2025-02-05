@@ -60,7 +60,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         app.configure_sets(
             PreUpdate,
             InputSystemSet::ReceiveInputMessage
-                .in_set(InternalMainSet::<ServerMarker>::EmitEvents)
+                .in_set(InternalMainSet::<ServerMarker>::ReceiveEvents)
                 .run_if(is_started),
         );
         app.configure_sets(

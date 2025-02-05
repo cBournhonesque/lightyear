@@ -45,7 +45,7 @@ impl Plugin for ServerNetworkingPlugin {
                 PreUpdate,
                 (
                     InternalMainSet::<ServerMarker>::Receive.in_set(MainSet::Receive),
-                    InternalMainSet::<ServerMarker>::EmitEvents.in_set(MainSet::EmitEvents),
+                    InternalMainSet::<ServerMarker>::ReceiveEvents.in_set(MainSet::ReceiveEvents),
                 )
                     .chain()
                     // we still want to run this while the server is Starting/Stopping

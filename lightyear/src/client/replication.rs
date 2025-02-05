@@ -9,7 +9,7 @@ use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 pub(crate) mod receive {
     use super::*;
-    use crate::prelude::client::MessageEvent;
+    use crate::client::message::ReceiveMessage;
     use crate::prelude::{
         client::{is_connected, is_synced},
         is_host_server, ClientConnectionManager, Replicated, ReplicationGroup, ShouldBePredicted,
@@ -44,7 +44,7 @@ pub(crate) mod receive {
 
             app.add_systems(
                 PreUpdate,
-                handle_authority_change.after(InternalMainSet::<ClientMarker>::EmitEvents),
+                handle_authority_change.after(InternalMainSet::<ClientMarker>::ReceiveEvents),
             );
         }
     }
@@ -64,7 +64,7 @@ pub(crate) mod receive {
     fn handle_authority_change(
         mut commands: Commands,
         entities: &Entities,
-        mut messages: ResMut<Events<MessageEvent<AuthorityChange>>>,
+        mut messages: ResMut<Events<ReceiveMessage<AuthorityChange>>>,
     ) {
         for message_event in messages.drain() {
             let message = message_event.message;
@@ -570,12 +570,10 @@ pub(crate) mod send {
                             component_data,
                             writer,
                             component_kind,
-                            Some(
-                                &mut sender
-                                    .replication_receiver
-                                    .remote_entity_map
-                                    .local_to_remote,
-                            ),
+                            &mut sender
+                                .replication_receiver
+                                .remote_entity_map
+                                .local_to_remote,
                         )?
                     }
                 } else {
@@ -583,12 +581,10 @@ pub(crate) mod send {
                         component_data,
                         writer,
                         component_kind,
-                        Some(
-                            &mut sender
-                                .replication_receiver
-                                .remote_entity_map
-                                .local_to_remote,
-                        ),
+                        &mut sender
+                            .replication_receiver
+                            .remote_entity_map
+                            .local_to_remote,
                     )?;
                 };
                 let raw_data = writer.split();
@@ -637,12 +633,10 @@ pub(crate) mod send {
                             component_data,
                             writer,
                             component_kind,
-                            Some(
-                                &mut sender
-                                    .replication_receiver
-                                    .remote_entity_map
-                                    .local_to_remote,
-                            ),
+                            &mut sender
+                                .replication_receiver
+                                .remote_entity_map
+                                .local_to_remote,
                         )?;
                         let raw_data = writer.split();
                         sender

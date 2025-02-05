@@ -47,13 +47,13 @@ pub(crate) struct MessageAck {
 /// In the message container, we already store the serialized representation of the message.
 /// The main reason is so that we can avoid copies, by directly serializing references into raw bits
 #[derive(Debug, PartialEq)]
-pub struct SendMessage {
+pub(crate) struct SendMessage {
     pub(crate) data: MessageData,
     pub(crate) priority: f32,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ReceiveMessage {
+pub(crate) struct ReceiveMessage {
     pub(crate) data: MessageData,
     // keep track on the receiver side of the sender tick when the message was actually sent
     pub(crate) remote_sent_tick: Tick,

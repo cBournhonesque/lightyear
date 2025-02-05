@@ -48,8 +48,9 @@ mod systems {
         for (entity, controlled_by) in query.iter() {
             // TODO: avoid clone
             sender
-                .connected_targets(controlled_by.target.clone())
-                .for_each(|client_id| {
+                .connected_targets(&controlled_by.target)
+                .for_each(|connection| {
+                    let client_id = connection.client_id;
                     if let Ok(client_entity) = sender.client_entity(client_id) {
                         if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
                             // first check if it already contains, to not trigger change detection needlessly
@@ -81,8 +82,9 @@ mod systems {
         if let Ok(controlled_by) = query.get(entity) {
             // TODO: avoid clone
             sender
-                .connected_targets(controlled_by.target.clone())
-                .for_each(|client_id| {
+                .connected_targets(&controlled_by.target)
+                .for_each(|connection| {
+                    let client_id = connection.client_id;
                     if let Ok(client_entity) = sender.client_entity(client_id) {
                         if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
                             // first check if it already contains, to not trigger change detection needlessly
