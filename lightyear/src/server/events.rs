@@ -32,7 +32,7 @@ impl Plugin for ServerEventsPlugin {
             .add_systems(
                 PreUpdate,
                 // TODO: check if this should be between Receive and EmitEvents
-                emit_connect_events.in_set(InternalMainSet::<ServerMarker>::EmitEvents),
+                emit_connect_events.in_set(InternalMainSet::<ServerMarker>::ReceiveEvents),
             );
     }
 }
@@ -88,7 +88,7 @@ pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         push_component_events::<C, ConnectionManager>
-            .in_set(InternalMainSet::<ServerMarker>::EmitEvents),
+            .in_set(InternalMainSet::<ServerMarker>::ReceiveEvents),
     );
 }
 
@@ -276,20 +276,14 @@ pub type ComponentInsertEvent<C> =
 pub type ComponentRemoveEvent<C> =
     crate::shared::events::components::ComponentRemoveEvent<C, ClientId>;
 
-/// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
-pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M>;
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::{NetworkTarget, Tick};
+    use crate::prelude::Tick;
     use crate::protocol::channel::ChannelKind;
     use crate::protocol::component::ComponentKind;
-    use crate::shared::events::EventSend;
-    use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{
-        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, IntegerEvent,
-        StringMessage,
+        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, StringMessage,
     };
 
     #[test]
@@ -329,78 +323,5 @@ mod tests {
         assert_eq!(data.len(), 2);
         assert!(data.contains(&(entity_1, client_1)));
         assert!(data.contains(&(entity_2, client_2)));
-    }
-
-    #[derive(Resource, Default)]
-    struct Counter(usize);
-
-    fn count_events(mut counter: ResMut<Counter>, mut events: EventReader<IntegerEvent>) {
-        for event in events.read() {
-            assert_eq!(event.0, 2);
-            counter.0 += 1;
-        }
-    }
-
-    fn observe_events(trigger: Trigger<IntegerEvent>, mut counter: ResMut<Counter>) {
-        assert_eq!(trigger.event().0, 2);
-        counter.0 += 1;
-    }
-
-    /// Check that sending an event to clients works correctly:
-    /// - the event gets buffered to EventWriter
-    /// - it works for the Local client in HostServer mode
-    #[test]
-    fn test_server_send_event_buffered() {
-        let mut stepper = HostServerStepper::default();
-
-        stepper.client_app.init_resource::<Counter>();
-        stepper.client_app.add_systems(Update, count_events);
-        // for the local client
-        stepper.server_app.init_resource::<Counter>();
-        stepper.server_app.add_systems(Update, count_events);
-
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<ConnectionManager>()
-            .send_event_to_target::<Channel1, _>(&IntegerEvent(2), NetworkTarget::All)
-            .unwrap();
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // verify that the local-client received the message
-        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
-
-        // verify that the other client received the message
-        assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
-    }
-
-    /// Check that sending an event to clients works correctly:
-    /// - the event gets triggered
-    /// - it works for the Local client in HostServer mode
-    #[test]
-    fn test_server_send_event_triggered() {
-        let mut stepper = HostServerStepper::default();
-
-        stepper.client_app.init_resource::<Counter>();
-        stepper.client_app.add_observer(observe_events);
-        // for the local client
-        stepper.server_app.init_resource::<Counter>();
-        stepper.server_app.add_observer(observe_events);
-
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<ConnectionManager>()
-            .trigger_event_to_target::<Channel1, _>(&IntegerEvent(2), NetworkTarget::All)
-            .unwrap();
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // verify that the local-client received the message
-        assert_eq!(stepper.server_app.world().resource::<Counter>().0, 1);
-
-        // verify that the other client received the message
-        assert_eq!(stepper.client_app.world().resource::<Counter>().0, 1);
     }
 }

@@ -7,11 +7,11 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::server::MessageEvent;
-use crate::prelude::{server::is_started, InputMessage, MessageRegistry, Mode, TickManager};
+use crate::prelude::{
+    server::is_started, InputMessage, MessageRegistry, ServerReceiveMessage, TickManager,
+};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
-use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
@@ -69,14 +69,15 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
+    }
 
-        // TODO: register this in Plugin::finish by checking if the client plugin is already registered?
-        if app.world().resource::<ServerConfig>().shared.mode != Mode::HostServer {
-            // we don't want to add this plugin in HostServer mode because it's already added on the client side
-            // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
+    // TODO: this doesn't work! figure out how to make sure that InputManagerPlugin is called
+    fn finish(&self, app: &mut App) {
+        if !app.is_plugin_added::<InputManagerPlugin::<A>>() {
             app.add_plugins(InputManagerPlugin::<A>::server());
         }
     }
+
 }
 
 /// For each entity that has an action-state, insert an InputBuffer, to store
@@ -97,7 +98,7 @@ fn receive_input_message<A: LeafwingUserAction>(
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<Option<&mut InputBuffer<A>>>,
     mut commands: Commands,
-    mut events: EventWriter<MessageEvent<InputMessage<A>>>,
+    mut events: EventWriter<ServerReceiveMessage<InputMessage<A>>>,
 ) {
     let kind = MessageKind::of::<InputMessage<A>>();
     let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
@@ -187,12 +188,10 @@ fn receive_input_message<A: LeafwingUserAction>(
                             if let Ok(()) = message_registry.serialize(
                                 &message,
                                 &mut connection_manager.writer,
-                                Some(
                                     &mut connection
                                         .replication_receiver
                                         .remote_entity_map
                                         .local_to_remote,
-                                ),
                             ) {
                                 connection.messages_to_rebroadcast.push((
                                     reader.consume(),
@@ -201,7 +200,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 ));
                             }
                         }
-                        events.send(MessageEvent::new(message, *client_id));
+                        events.send(ServerReceiveMessage::new(message, *client_id));
                     }
                     Err(e) => {
                         error!(?e, "could not deserialize leafwing input message");

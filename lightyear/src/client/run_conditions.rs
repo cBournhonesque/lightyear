@@ -3,6 +3,7 @@ use crate::client::connection::ConnectionManager;
 use crate::connection::client::{ClientConnection, ConnectionState, NetClient};
 use bevy::prelude::Res;
 
+
 /// Returns true if the client is connected
 ///
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>`

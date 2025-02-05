@@ -1,7 +1,7 @@
 //! Specify how a Client sends/receives messages with a Server
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Event, Resource, World};
+use bevy::prelude::{Resource, World};
 use bevy::utils::Duration;
 #[cfg(feature = "leafwing")]
 use bevy::utils::HashMap;
@@ -22,24 +22,20 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::packet::priority_manager::PriorityConfig;
 use crate::prelude::client::PredictionConfig;
-use crate::prelude::{Channel, ChannelKind, ClientId, Message, ReplicationConfig};
+use crate::prelude::{ChannelKind, ClientId, Message, MessageRegistry, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentRegistry;
-use crate::protocol::event::EventReplicationMode;
-use crate::protocol::message::{MessageRegistry, MessageType};
+use crate::protocol::message::registry::MessageType;
+// use crate::protocol::event::EventReplicationMode;
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::server::error::ServerError;
 use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::events::private::InternalEventSend;
-use crate::shared::events::EventSend;
-use crate::shared::message::{private::InternalMessageSend, MessageSend};
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong};
 use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::{EntityActionsMessage, EntityUpdatesMessage, ReplicationSend};
@@ -240,28 +236,6 @@ impl ConnectionManager {
         message.map_entities(mapper);
     }
 
-    /// Send a [`Message`] to the server using a specific [`Channel`]
-    pub fn send_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
-        self.send_message_to_target::<C, M>(message, NetworkTarget::None)
-    }
-
-    /// Send a [`Event`] to the server using a specific [`Channel`].
-    /// The event will be buffered via EventWriter.
-    pub fn send_event<C: Channel, E: Event + Message>(
-        &mut self,
-        event: &E,
-    ) -> Result<(), ClientError> {
-        self.send_event_to_target::<C, E>(event, NetworkTarget::None)
-    }
-
-    /// Trigger a [`Message`] to the server using a specific [`Channel`]
-    pub fn trigger_event<C: Channel, E: Event + Message>(
-        &mut self,
-        event: &E,
-    ) -> Result<(), ClientError> {
-        self.trigger_event_to_target::<C, E>(event, NetworkTarget::None)
-    }
-
     pub(crate) fn buffer_replication_messages(
         &mut self,
         tick: Tick,
@@ -293,6 +267,8 @@ impl ConnectionManager {
         Ok(())
     }
 
+    // TODO: alternative, if we are running in host-server mode,
+    //  use a special local transport and still buffer things inside the MessageManager?
     /// Send packets that are ready to be sent.
     /// In host-server mode:
     /// - go through messages_to_send and make the server's ConnectionManager receive them
@@ -447,7 +423,7 @@ impl ConnectionManager {
                                 todo!()
                             }
                             // TODO: should we handle these right here in this system?
-                            MessageType::Normal | MessageType::Event => {
+                            MessageType::Normal | MessageType::Trigger => {
                                 self.received_messages.push((net_id, single_data));
                             }
                         }
@@ -485,7 +461,7 @@ impl ConnectionManager {
             MessageType::NativeInput => {
                 todo!()
             }
-            MessageType::Normal | MessageType::Event => {
+            MessageType::Normal | MessageType::Trigger => {
                 self.received_messages.push((net_id, single_data));
             }
         }
@@ -522,90 +498,6 @@ impl ConnectionManager {
         // notify the replication sender that some sent messages were received
         self.replication_sender
             .recv_update_acks(component_registry, &mut self.delta_manager);
-        Ok(())
-    }
-}
-
-impl EventSend for ConnectionManager {}
-
-impl InternalEventSend for ConnectionManager {
-    type Error = ClientError;
-
-    fn erased_send_event_to_target<E: Event>(
-        &mut self,
-        event: &E,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), Self::Error> {
-        // write the target first
-        // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-        target.to_bytes(&mut self.writer)?;
-        // then write the message
-        self.message_registry.serialize_event(
-            event,
-            EventReplicationMode::Buffer,
-            &mut self.writer,
-            Some(&mut self.replication_receiver.remote_entity_map.local_to_remote),
-        )?;
-        let message_bytes = self.writer.split();
-
-        // TODO: emit logs/metrics about the message being buffered?
-        self.messages_to_send.push((message_bytes, channel_kind));
-        Ok(())
-    }
-
-    fn erased_trigger_event_to_target<E: Event + Message>(
-        &mut self,
-        event: &E,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), Self::Error> {
-        // write the target first
-        // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-        target.to_bytes(&mut self.writer)?;
-        // then write the message
-        self.message_registry.serialize_event(
-            event,
-            EventReplicationMode::Trigger,
-            &mut self.writer,
-            Some(&mut self.replication_receiver.remote_entity_map.local_to_remote),
-        )?;
-        let message_bytes = self.writer.split();
-
-        // TODO: emit logs/metrics about the message being buffered?
-        self.messages_to_send.push((message_bytes, channel_kind));
-        Ok(())
-    }
-}
-
-impl MessageSend for ConnectionManager {}
-
-impl InternalMessageSend for ConnectionManager {
-    type Error = ClientError;
-
-    /// Send a message to the server via a channel.
-    ///
-    /// The NetworkTarget will be serialized with the message, so that the server knows
-    /// how to route the message to the correct target.
-    fn erased_send_message_to_target<M: Message>(
-        &mut self,
-        message: &M,
-        channel_kind: ChannelKind,
-        target: NetworkTarget,
-    ) -> Result<(), ClientError> {
-        // write the target first
-        // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
-        target.to_bytes(&mut self.writer)?;
-        // then write the message
-        self.message_registry.serialize(
-            message,
-            &mut self.writer,
-            Some(&mut self.replication_receiver.remote_entity_map.local_to_remote),
-        )?;
-        let message_bytes = self.writer.split();
-
-        // TODO: emit logs/metrics about the message being buffered?
-        self.messages_to_send.push((message_bytes, channel_kind));
         Ok(())
     }
 }

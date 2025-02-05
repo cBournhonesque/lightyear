@@ -5,7 +5,7 @@ use bevy::app::{App, Plugin};
 use crate::client::config::ClientConfig;
 use crate::inputs::native::InputMessage;
 use crate::prelude::{ChannelDirection, UserAction};
-use crate::protocol::message::{AppMessageInternalExt, MessageType};
+use crate::protocol::message::registry::{AppMessageInternalExt, MessageType};
 use crate::server::config::ServerConfig;
 
 pub struct InputPlugin<A: UserAction> {

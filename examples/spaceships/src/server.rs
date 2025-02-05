@@ -42,7 +42,7 @@ impl Plugin for ExampleServerPlugin {
             PreUpdate,
             // this system will replicate the inputs of a client to other clients
             // so that a client can predict other clients
-            replicate_inputs.after(MainSet::EmitEvents),
+            replicate_inputs.after(MainSet::ReceiveEvents),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(
@@ -97,7 +97,7 @@ fn init(mut commands: Commands) {
 
 pub(crate) fn replicate_inputs(
     mut connection: ResMut<ConnectionManager>,
-    mut input_events: ResMut<Events<MessageEvent<InputMessage<PlayerActions>>>>,
+    mut input_events: ResMut<Events<ServerReceiveMessage<InputMessage<PlayerActions>>>>,
 ) {
     for mut event in input_events.drain() {
         let client_id = event.from();

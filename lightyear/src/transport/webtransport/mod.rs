@@ -14,7 +14,6 @@ cfg_if::cfg_if! {
 mod tests {
     use crate::client::io::transport::ClientTransportBuilder;
     use crate::server::io::transport::ServerTransportBuilder;
-    use crate::transport::Transport;
     use bevy::tasks::{IoTaskPool, TaskPoolBuilder};
     use bevy::utils::Duration;
     use wtransport::Identity;
@@ -76,7 +75,6 @@ mod tests {
         };
         assert_eq!(address, server_addr);
         assert_eq!(recv_msg, msg);
-        dbg!(recv_msg);
     }
 }
 
@@ -127,6 +125,5 @@ pub mod wasm_test {
         };
         assert_eq!(address, server_addr);
         assert_eq!(recv_msg, msg);
-        dbg!(recv_msg);
     }
 }

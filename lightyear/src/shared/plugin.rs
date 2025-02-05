@@ -1,23 +1,15 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use crate::client::config::ClientConfig;
-use crate::connection::client::{ClientConnection, NetClient};
-use crate::connection::server::ServerConnections;
 use crate::prelude::client::ComponentSyncMode;
-use crate::prelude::server::NetworkingState;
-use crate::prelude::{
-    AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ClientId, ComponentRegistry,
-    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
-    PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
-};
-use crate::server::run_conditions::is_started_ref;
+use crate::prelude::{client, server, AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig, MessageRegistry, NetworkIdentityState, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, TickConfig};
 use crate::shared::config::SharedConfig;
+use crate::shared::plugin::utils::AppStateExt;
 use crate::shared::replication::authority::AuthorityChange;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
 use crate::transport::io::{IoState, IoStats};
 use crate::transport::middleware::compression::CompressionConfig;
-use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
@@ -26,89 +18,10 @@ pub struct SharedPlugin {
     pub config: SharedConfig,
 }
 
-/// You can use this as a SystemParam to identify whether you're running on the client or the server
-#[derive(SystemParam)]
-pub struct NetworkIdentity<'w, 's> {
-    client: Option<Res<'w, ClientConnection>>,
-    client_config: Option<Res<'w, ClientConfig>>,
-    server: Option<Res<'w, ServerConnections>>,
-    server_state: Option<Res<'w, State<NetworkingState>>>,
-    _marker: std::marker::PhantomData<&'s ()>,
-}
-
-/// Identifies the network role of the current peer
-#[derive(Debug, PartialEq)]
-pub enum Identity {
-    /// This peer is a client.
-    /// (note that both the client and server plugins could be running in the same process; but this peer is still acting like a client.
-    /// (for example if the server plugin is stopped))
-    ///
-    /// If the client is connected, also contains the client id. If not, contains None.
-    Client(Option<ClientId>),
-    /// This peer is a server.
-    Server,
-    /// This peer is both a server and a client
-    HostServer,
-}
-
-impl FromWorld for Identity {
-    fn from_world(world: &mut World) -> Self {
-        let Some(config) = world.get_resource::<ClientConfig>() else {
-            return Identity::Server;
-        };
-        if matches!(config.shared.mode, Mode::HostServer)
-            && is_started_ref(world.get_resource_ref::<State<NetworkingState>>())
-        {
-            Identity::HostServer
-        } else {
-            let client_id = world
-                .get_resource::<ClientConnection>()
-                .as_ref()
-                .map(|c| c.client.id());
-            Identity::Client(client_id)
-        }
-    }
-}
-
-impl Identity {
-    pub fn is_client(&self) -> bool {
-        matches!(self, &Identity::Client(_))
-    }
-    pub fn is_server(&self) -> bool {
-        self == &Identity::Server || self == &Identity::HostServer
-    }
-}
-
-impl NetworkIdentity<'_, '_> {
-    pub fn identity(&self) -> Identity {
-        let Some(config) = &self.client_config else {
-            return Identity::Server;
-        };
-        if matches!(config.shared.mode, Mode::HostServer)
-            && self
-                .server_state
-                .as_ref()
-                .is_some_and(|s| s.get() == &NetworkingState::Started)
-        {
-            Identity::HostServer
-        } else {
-            let client_id = self.client.as_ref().map(|c| c.client.id());
-            Identity::Client(client_id)
-        }
-    }
-    pub fn is_client(&self) -> bool {
-        self.identity().is_client()
-    }
-    pub fn is_server(&self) -> bool {
-        self.identity().is_server()
-    }
-}
-
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         // REFLECTION
-        app.register_type::<Mode>()
-            .register_type::<SharedConfig>()
+        app.register_type::<SharedConfig>()
             .register_type::<TickConfig>()
             .register_type::<PingConfig>()
             .register_type::<IoStats>()
@@ -116,20 +29,7 @@ impl Plugin for SharedPlugin {
             .register_type::<LinkConditionerConfig>()
             .register_type::<CompressionConfig>();
 
-        // PLUGINS
-        #[cfg(feature = "avian2d")]
-        app.add_plugins(crate::utils::avian2d::Avian2dPlugin);
-        #[cfg(feature = "avian3d")]
-        app.add_plugins(crate::utils::avian3d::Avian3dPlugin);
-        #[cfg(feature = "visualizer")]
-        {
-            if !app.is_plugin_added::<bevy_metrics_dashboard::bevy_egui::EguiPlugin>() {
-                app.add_plugins(bevy_metrics_dashboard::bevy_egui::EguiPlugin);
-            }
-            app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
-                .add_plugins(bevy_metrics_dashboard::DashboardPlugin);
-            app.add_systems(Startup, spawn_metrics_visualizer);
-        }
+
 
         // RESOURCES
         // the SharedPlugin is called after the ClientConfig is inserted
@@ -155,9 +55,29 @@ impl Plugin for SharedPlugin {
             config: self.config.tick,
         });
         app.add_plugins(TimePlugin);
+
+        #[cfg(feature = "avian2d")]
+        app.add_plugins(crate::utils::avian2d::Avian2dPlugin);
+        #[cfg(feature = "avian3d")]
+        app.add_plugins(crate::utils::avian3d::Avian3dPlugin);
+        #[cfg(feature = "visualizer")]
+        {
+            if !app.is_plugin_added::<bevy_metrics_dashboard::bevy_egui::EguiPlugin>() {
+                app.add_plugins(bevy_metrics_dashboard::bevy_egui::EguiPlugin);
+            }
+            app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
+                .add_plugins(bevy_metrics_dashboard::DashboardPlugin);
+            app.add_systems(Startup, spawn_metrics_visualizer);
+        }
     }
 
     fn finish(&self, app: &mut App) {
+        // STATES
+        // we need to include both client and server networking states so that the NetworkIdentity ComputedState can be computed correctly
+        app.init_state_without_entering(client::NetworkingState::Disconnected);
+        app.init_state_without_entering(server::NetworkingState::Stopped);
+        app.add_sub_state::<client::ConnectedState>();
+        app.add_computed_state::<NetworkIdentityState>();
         // PROTOCOL
         // we register components here because
         // - the SharedPlugin is built only once in HostServer mode (client and server plugins in the same app)
@@ -190,4 +110,28 @@ fn spawn_metrics_visualizer(mut commands: Commands) {
     commands.spawn(bevy_metrics_dashboard::DashboardWindow::new(
         "Metrics Dashboard",
     ));
+}
+
+pub(super) mod utils {
+    use bevy::app::App;
+    use bevy::prelude::{NextState, State, StateTransition, StateTransitionEvent};
+    use bevy::state::state::{setup_state_transitions_in_world, FreelyMutableState};
+
+    pub(super) trait AppStateExt {
+        // Helper function that runs `init_state::<S>` without entering the state
+        // This is useful for us as we don't want to run OnEnter<NetworkingState::Disconnected> when we start the app
+        fn init_state_without_entering<S: FreelyMutableState>(&mut self, state: S) -> &mut Self;
+    }
+
+    impl AppStateExt for App {
+        fn init_state_without_entering<S: FreelyMutableState>(&mut self, state: S) -> &mut Self {
+            setup_state_transitions_in_world(self.world_mut());
+            self.insert_resource::<State<S>>(State::new(state.clone()))
+                .init_resource::<NextState<S>>()
+                .add_event::<StateTransitionEvent<S>>();
+            let schedule = self.get_schedule_mut(StateTransition).unwrap();
+            S::register_state(schedule);
+            self
+        }
+    }
 }

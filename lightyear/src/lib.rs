@@ -97,7 +97,7 @@ use lightyear::prelude::server::*;
 # #[derive(Serialize, Deserialize)]
 # struct MyMessage;
 
-fn receive_message(mut message_reader: EventReader<MessageEvent<MyMessage>>) {
+fn receive_message(mut message_reader: EventReader<ServerReceiveMessage<MyMessage>>) {
     for message_event in message_reader.read() {
        // the message itself
        let message = message_event.message();
@@ -198,17 +198,19 @@ pub mod prelude {
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
     pub use crate::protocol::component::{AppComponentExt, ComponentRegistry, Linear};
-    pub use crate::protocol::event::AppEventExt;
-    pub use crate::protocol::message::{AppMessageExt, MessageRegistry};
+    pub use crate::protocol::message::{
+        registry::{AppMessageExt, MessageRegistry},
+        resource::AppResourceExt,
+    };
     pub use crate::protocol::serialize::AppSerializeExt;
-    pub use crate::shared::config::{Mode, SharedConfig};
-    pub use crate::shared::events::EventSend;
+    pub use crate::shared::config::SharedConfig;
+    pub use crate::shared::identity::{AppIdentityExt, NetworkIdentity, NetworkIdentityState};
     #[cfg(feature = "leafwing")]
     pub use crate::shared::input::leafwing::LeafwingInputPlugin;
     pub use crate::shared::input::native::InputPlugin;
     pub use crate::shared::message::MessageSend;
     pub use crate::shared::ping::manager::PingConfig;
-    pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
+    pub use crate::shared::plugin::SharedPlugin;
     pub use crate::shared::replication::authority::HasAuthority;
     pub use crate::shared::replication::components::{
         DeltaCompression, DisabledComponents, NetworkRelevanceMode, OverrideTargetComponent,
@@ -240,7 +242,8 @@ pub mod prelude {
         pub use crate::client::events::DisconnectEvent as ClientDisconnectEvent;
         pub use crate::client::events::EntityDespawnEvent as ClientEntityDespawnEvent;
         pub use crate::client::events::EntitySpawnEvent as ClientEntitySpawnEvent;
-        pub use crate::client::events::MessageEvent as ClientMessageEvent;
+        pub use crate::client::message::ReceiveMessage as ClientReceiveMessage;
+        pub use crate::client::message::SendMessage as ClientSendMessage;
         pub use crate::client::replication::send::Replicate as ClientReplicate;
 
         pub use crate::client::connection::ConnectionManager as ClientConnectionManager;
@@ -252,7 +255,8 @@ pub mod prelude {
         pub use crate::server::events::DisconnectEvent as ServerDisconnectEvent;
         pub use crate::server::events::EntityDespawnEvent as ServerEntityDespawnEvent;
         pub use crate::server::events::EntitySpawnEvent as ServerEntitySpawnEvent;
-        pub use crate::server::events::MessageEvent as ServerMessageEvent;
+        pub use crate::server::message::ReceiveMessage as ServerReceiveMessage;
+        pub use crate::server::message::SendMessage as ServerSendMessage;
 
         pub use crate::server::connection::ConnectionManager as ServerConnectionManager;
 
@@ -269,7 +273,7 @@ pub mod prelude {
         pub use crate::client::error::ClientError;
         pub use crate::client::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
-            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
+            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
         };
         #[cfg(feature = "leafwing")]
         pub use crate::client::input::leafwing::LeafwingInputConfig;
@@ -283,7 +287,8 @@ pub mod prelude {
         };
         pub use crate::client::io::config::ClientTransport;
         pub use crate::client::io::Io;
-        pub use crate::client::networking::{ClientCommands, NetworkingState};
+        pub use crate::client::message::ReceiveMessage;
+        pub use crate::client::networking::{ClientCommands, ConnectedState, NetworkingState};
         pub use crate::client::plugin::ClientPlugins;
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::despawn::PredictionDespawnCommandsExt;
@@ -300,6 +305,7 @@ pub mod prelude {
         };
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::client::{SocketConfig, SteamConfig};
+        pub use crate::protocol::message::client::ClientTriggerExt;
     }
     pub mod server {
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
@@ -308,13 +314,14 @@ pub mod prelude {
         pub use crate::connection::server::{IoConfig, NetConfig, NetServer, ServerConnection};
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::{SocketConfig, SteamConfig};
+        pub use crate::protocol::message::server::ServerTriggerExt;
         pub use crate::server::clients::ControlledEntities;
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
         pub use crate::server::connection::ConnectionManager;
         pub use crate::server::error::ServerError;
         pub use crate::server::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
-            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
+            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
         };
         pub use crate::server::io::config::ServerTransport;
         pub use crate::server::io::Io;

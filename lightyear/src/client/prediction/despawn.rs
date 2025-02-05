@@ -1,17 +1,11 @@
 use bevy::ecs::system::EntityCommands;
 use bevy::ecs::world::Command;
-use bevy::prelude::{
-    Commands, Component, DespawnRecursiveExt, Entity, OnRemove, Query, Reflect, ReflectComponent,
-    Res, Trigger, With, Without, World,
-};
+use bevy::prelude::*;
 use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;
-use crate::prelude::{
-    ComponentRegistry, Mode, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
-};
+use crate::prelude::{AppIdentityExt, ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::shared::tick_manager::Tick;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
@@ -36,8 +30,9 @@ impl Command for PredictionDespawnCommand {
         let current_tick = tick_manager.tick();
 
         // if we are in host server mode, there is no rollback so we can despawn the entity immediately
-        if world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
+        if world.is_host_server() {
             world.entity_mut(self.entity).despawn_recursive();
+            return;
         }
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
