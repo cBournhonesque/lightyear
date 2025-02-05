@@ -1,7 +1,7 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use crate::client::config::ClientConfig;
 use crate::prelude::client::ComponentSyncMode;
-use crate::prelude::{client, server, AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig, MessageRegistry, NetworkIdentity, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, TickConfig};
+use crate::prelude::{client, server, AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig, MessageRegistry, NetworkIdentityState, ParentSync, PingConfig, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, TickConfig};
 use crate::shared::config::SharedConfig;
 use crate::shared::plugin::utils::AppStateExt;
 use crate::shared::replication::authority::AuthorityChange;
@@ -76,7 +76,8 @@ impl Plugin for SharedPlugin {
         // we need to include both client and server networking states so that the NetworkIdentity ComputedState can be computed correctly
         app.init_state_without_entering(client::NetworkingState::Disconnected);
         app.init_state_without_entering(server::NetworkingState::Stopped);
-        app.add_computed_state::<NetworkIdentity>();
+        app.add_sub_state::<client::ConnectedState>();
+        app.add_computed_state::<NetworkIdentityState>();
         // PROTOCOL
         // we register components here because
         // - the SharedPlugin is built only once in HostServer mode (client and server plugins in the same app)

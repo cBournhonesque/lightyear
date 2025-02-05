@@ -8,11 +8,10 @@ use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{
-    server::is_started, InputMessage, MessageRegistry, Mode, ServerReceiveMessage, TickManager,
+    server::is_started, InputMessage, MessageRegistry, ServerReceiveMessage, TickManager,
 };
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
-use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};

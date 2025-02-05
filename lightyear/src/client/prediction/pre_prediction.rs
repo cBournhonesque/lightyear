@@ -8,7 +8,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::is_synced;
-use crate::prelude::{is_host_server, HasAuthority, NetworkIdentity, ReplicateHierarchy, Replicating, ReplicationGroup, ShouldBePredicted, TickManager};
+use crate::prelude::{is_host_server, HasAuthority, NetworkIdentityState, ReplicateHierarchy, Replicating, ReplicationGroup, ShouldBePredicted, TickManager};
 use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -77,7 +77,7 @@ impl PrePredictionPlugin {
         trigger: Trigger<OnAdd, PrePredicted>,
         mut commands: Commands,
         prediction_manager: Res<PredictionManager>,
-        identity: Option<Res<State<NetworkIdentity>>>,
+        identity: Option<Res<State<NetworkIdentityState>>>,
         // TODO: should we fetch the value of PrePredicted to confirm that it matches what we expect?
     ) {
         let predicted_map = unsafe {

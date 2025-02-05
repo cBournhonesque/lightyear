@@ -94,10 +94,6 @@ impl Plugin for ClientNetworkingPlugin {
         );
 
         // DISCONNECTED
-        // app.add_systems(
-        //     OnExit(NetworkingState::Connected),
-        //     on_disconnecting_host_server.run_if(is_host_server),
-        // );
         app.add_systems(
             OnEnter(NetworkingState::Disconnecting),
             (
@@ -302,6 +298,16 @@ pub enum NetworkingState {
     /// The client is connected to the server
     Connected,
 }
+
+// TODO: update this state based on the sync system!
+#[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[source(NetworkingState = NetworkingState::Connected)]
+pub enum ConnectedState {
+    #[default]
+    Unsynced,
+    Synced,
+}
+
 
 /// Listen to [`ClientIoEvent`]s and update the [`IoState`] and [`NetworkingState`] accordingly
 fn listen_io_state(

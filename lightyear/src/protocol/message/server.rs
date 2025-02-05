@@ -3,7 +3,7 @@ use crate::prelude::{
     Channel, ClientId, ClientReceiveMessage, Message, NetworkTarget, ServerConnectionManager,
     ServerReceiveMessage, ServerSendMessage,
 };
-use crate::protocol::message::registry::MessageRegistry;
+use crate::protocol::message::registry::{MessageRegistry, MessageType};
 use crate::protocol::message::trigger::TriggerMessage;
 use crate::protocol::message::MessageError;
 use crate::protocol::registry::NetId;

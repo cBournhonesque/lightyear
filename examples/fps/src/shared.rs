@@ -182,7 +182,7 @@ pub(crate) fn fixed_update_log(
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
     tick_manager: Res<TickManager>,
-    identity: NetworkIdentity,
+    identity: NetworkIdentityState,
     mut query: Query<
         (
             &PlayerId,

@@ -1,7 +1,7 @@
 //! Handles logic related to prespawning entities
 
 use crate::prelude::server::{AuthorityCommandExt, AuthorityPeer};
-use crate::prelude::{is_host_server, ComponentRegistry, NetworkIdentity, PrePredicted, PreSpawnedPlayerObject, Replicated, ServerConnectionManager, TickManager};
+use crate::prelude::{is_host_server, ComponentRegistry, NetworkIdentityState, PrePredicted, PreSpawnedPlayerObject, Replicated, ServerConnectionManager, TickManager};
 use crate::shared::replication::prespawn::compute_default_hash;
 use bevy::ecs::component::Components;
 use bevy::prelude::*;
@@ -59,7 +59,7 @@ pub(crate) fn handle_pre_predicted(
     trigger: Trigger<OnAdd, PrePredicted>,
     mut commands: Commands,
     mut manager: ResMut<ServerConnectionManager>,
-    identity: Option<Res<State<NetworkIdentity>>>,
+    identity: Option<Res<State<NetworkIdentityState>>>,
     q: Query<(Entity, &PrePredicted, &Replicated)>,
 ) {
     // no need to do anything in host-server mode, we directly add the `Predicted` component on the client
