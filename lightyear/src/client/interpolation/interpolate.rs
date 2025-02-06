@@ -2,7 +2,7 @@ use bevy::ecs::component::Mutable;
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Without};
 use tracing::{debug, trace};
 
-use crate::client::components::SyncComponent;
+use crate::client::components::{MutableSyncComponent, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
@@ -51,7 +51,7 @@ impl<C: Component> InterpolateStatus<C> {
 
 /// At the end of each frame, interpolate the components between the last 2 confirmed server states
 /// Invariant: start_tick <= current_interpolate_tick + overstep < end_tick
-pub(crate) fn update_interpolate_status<C: SyncComponent>(
+pub(crate) fn update_interpolate_status<C: MutableSyncComponent>(
     config: Res<ClientConfig>,
     connection: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
@@ -252,7 +252,7 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
 }
 
 /// Update the component value on the Interpolate entity
-pub(crate) fn interpolate<C: Component<Mutability=Mutable> + Clone>(
+pub(crate) fn interpolate<C: Component + Clone>(
     component_registry: Res<ComponentRegistry>,
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
 ) {

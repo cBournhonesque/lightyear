@@ -1,4 +1,6 @@
 //! Components used for replication
+
+use bevy::ecs::component::{ComponentHooks, Immutable, StorageType};
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
@@ -17,7 +19,11 @@ use crate::shared::replication::network_target::NetworkTarget;
 /// is currently being replicated. (removing `Replicating` pauses replication updates).
 ///
 /// `ReplicationMarker` is required by `ReplicateToServer` and `ReplicationTarget`
-struct ReplicationMarker;
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct ReplicationMarker;
+
+
 
 /// Marker component that indicates that the entity was initially spawned via replication
 /// (it was being replicated from a remote world)
@@ -107,6 +113,15 @@ pub enum TargetEntity {
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct DisableReplicateHierarchy;
+
+// - each entity has a ReplicateLike(entity)
+//   - the entity can be itself or another one (usually a parent)
+// - when we spawn Replicate, etc., we insert a ReplicateLike(itself)
+//   - maybe this is not needed, and in the replication system we have 2 steps; one for ReplicateLike and one for entities that have Replication?
+// - in the replication systems, we iterate through all the ReplicateLike(entity), fetch the components on the 'like' entity, and then go
+//   - if the entity itself has a replication component, we will use that instead of the one from ReplicateLike
+// - if we add DisableReplicateHierarchy, we remove ReplicateLike from all children (but not from itself)
+// - when we remove ReplicateLike, we remove ReplicateLike recursively in all children as well
 
 
 // TODO: do we need this? or do we just check if delta compression fn is present in the registry?

@@ -6,9 +6,13 @@ use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::server::NetworkingState;
 use crate::prelude::{
     AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ClientId, ComponentRegistry,
-    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
+    LinkConditionerConfig, MessageRegistry, Mode, PingConfig, PrePredicted,
     PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
 };
+use crate::protocol::SerializeFns;
+use crate::serialize::reader::Reader;
+use crate::serialize::writer::Writer;
+use crate::serialize::{SerializationError, ToBytes};
 use crate::server::run_conditions::is_started_ref;
 use crate::shared::config::SharedConfig;
 use crate::shared::replication::authority::AuthorityChange;
@@ -168,7 +172,11 @@ impl Plugin for SharedPlugin {
         app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
         app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
-        app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
+        // TODO: add Serialize/Deserialize to ChildOf?
+        app.register_component_custom_serde::<ChildOf>(ChannelDirection::Bidirectional, SerializeFns::<ChildOf>{
+            serialize: |message: &ChildOf, writer: &mut Writer| -> Result<(), SerializationError> {message.0.to_bytes(writer)},
+            deserialize: |reader: &mut Reader| -> Result<ChildOf, SerializationError> {Ok(ChildOf(Entity::from_bytes(reader)?))},
+        })
             // to replicate ParentSync on the predicted/interpolated entities so that they spawn their own hierarchies
             .add_prediction(ComponentSyncMode::Simple)
             .add_interpolation(ComponentSyncMode::Simple)

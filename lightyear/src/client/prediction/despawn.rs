@@ -5,7 +5,7 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, trace};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::components::{ComponentSyncMode, Confirmed, MutableSyncComponent, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;
 use crate::prelude::{

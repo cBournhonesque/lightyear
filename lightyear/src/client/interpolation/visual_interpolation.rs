@@ -35,15 +35,15 @@
 use bevy::prelude::*;
 use bevy::transform::TransformSystem::TransformPropagate;
 
-use crate::client::components::SyncComponent;
+use crate::client::components::MutableSyncComponent;
 use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::prelude::{ComponentRegistry, MainSet, TickManager, TimeManager};
 
-pub struct VisualInterpolationPlugin<C: SyncComponent> {
+pub struct VisualInterpolationPlugin<C: MutableSyncComponent> {
     _marker: std::marker::PhantomData<C>,
 }
 
-impl<C: SyncComponent> Default for VisualInterpolationPlugin<C> {
+impl<C: MutableSyncComponent> Default for VisualInterpolationPlugin<C> {
     fn default() -> Self {
         Self {
             _marker: std::marker::PhantomData,
@@ -51,7 +51,7 @@ impl<C: SyncComponent> Default for VisualInterpolationPlugin<C> {
     }
 }
 
-impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
+impl<C: MutableSyncComponent> Plugin for VisualInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
         // SETS
         app.configure_sets(
@@ -124,7 +124,7 @@ impl<C: Component> Default for VisualInterpolateStatus<C> {
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
 //  (to avoid orphan rule)
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
-pub(crate) fn visual_interpolation<C: SyncComponent>(
+pub(crate) fn visual_interpolation<C: MutableSyncComponent>(
     component_registry: Res<ComponentRegistry>,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
@@ -159,7 +159,7 @@ pub(crate) fn visual_interpolation<C: SyncComponent>(
 
 /// Update the previous and current tick values.
 /// Runs in FixedUpdate after FixedUpdate::Main (where the component values are updated)
-pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
+pub(crate) fn update_visual_interpolation_status<C: MutableSyncComponent>(
     mut query: Query<(Ref<C>, &mut VisualInterpolateStatus<C>)>,
 ) {
     for (component, mut interpolate_status) in query.iter_mut() {
@@ -178,7 +178,7 @@ pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
 }
 
 /// Restore the component value to the non-interpolated value
-pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
+pub(crate) fn restore_from_visual_interpolation<C: MutableSyncComponent>(
     mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>)>,
 ) {
     let kind = std::any::type_name::<C>();

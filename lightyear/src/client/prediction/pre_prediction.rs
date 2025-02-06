@@ -9,10 +9,7 @@ use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::is_synced;
 use crate::prelude::server::{NetworkingState, ServerConfig};
-use crate::prelude::{
-    is_host_server_ref, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
-    ShouldBePredicted, TickManager,
-};
+use crate::prelude::{is_host_server_ref, DisableReplicateHierarchy, HasAuthority, Replicating, ReplicationGroup, ReplicationMarker, ShouldBePredicted, TickManager};
 use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
@@ -61,15 +58,17 @@ impl PrePredictionPlugin {
         mut commands: Commands,
         pre_predicted_entities: Query<Entity, (Added<PrePredicted>, Without<Confirmed>)>,
     ) {
+        // TODO: also remove ReplicateLike from children?
         for entity in pre_predicted_entities.iter() {
             debug!(?entity, "removing replicate from pre-predicted entity");
             // remove Replicating first so that we don't replicate a despawn
             commands.entity(entity).remove::<Replicating>();
             commands.entity(entity).remove::<(
+                ReplicationMarker,
                 ReplicationTarget,
                 ReplicateToServer,
                 ReplicationGroup,
-                ReplicateHierarchy,
+                DisableReplicateHierarchy,
                 HasAuthority,
             )>();
         }

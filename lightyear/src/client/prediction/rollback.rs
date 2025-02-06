@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
 use bevy::app::FixedMain;
-use bevy::ecs::component::{Mutable};
+use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::ecs::reflect::ReflectResource;
 use bevy::prelude::{
@@ -14,7 +14,7 @@ use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::client::components::{Confirmed, SyncComponent};
+use crate::client::components::{Confirmed, MutableSyncComponent, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
@@ -268,7 +268,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
 /// If there is a mismatch, prepare rollback for all components
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback<C: SyncComponent>(
+pub(crate) fn prepare_rollback<C: MutableSyncComponent>(
     component_registry: Res<ComponentRegistry>,
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
@@ -410,7 +410,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 /// - TODO: entities that were despawned since rollback are respawned (maybe just via using prediction_despawn()?)
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
+pub(crate) fn prepare_rollback_prespawn<C: MutableSyncComponent>(
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
     tick_manager: Res<TickManager>,

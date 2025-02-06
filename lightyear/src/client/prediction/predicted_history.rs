@@ -8,7 +8,7 @@ use bevy::prelude::{
 };
 use tracing::{debug, trace};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::components::{ComponentSyncMode, Confirmed, MutableSyncComponent, SyncComponent};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
@@ -249,7 +249,7 @@ pub(crate) fn apply_component_removal_predicted<C: Component + PartialEq + Clone
 /// - if the ComponentSyncMode == ONCE, do nothing (we only care about replicating the component once)
 /// - if the ComponentSyncMode == SIMPLE, remove the component from the Predicted entity
 /// - if the ComponentSyncMode == FULL, do nothing. We might get a rollback by comparing with the history.
-pub(crate) fn apply_component_removal_confirmed<C: SyncComponent>(
+pub(crate) fn apply_component_removal_confirmed<C: MutableSyncComponent>(
     trigger: Trigger<OnRemove, C>,
     mut commands: Commands,
     confirmed_query: Query<&Confirmed>,
@@ -266,13 +266,12 @@ pub(crate) fn apply_component_removal_confirmed<C: SyncComponent>(
 
 /// If ComponentSyncMode == Simple, when we receive a server update we want to apply it to the predicted entity
 #[allow(clippy::type_complexity)]
-pub(crate) fn apply_confirmed_update<C: SyncComponent>(
+pub(crate) fn apply_confirmed_update<C: MutableSyncComponent>(
     component_registry: Res<ComponentRegistry>,
     manager: Res<PredictionManager>,
     mut predicted_entities: Query<
         &mut C,
         (
-            Without<PredictionHistory<C>>,
             Without<Confirmed>,
             With<Predicted>,
         ),

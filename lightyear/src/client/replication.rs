@@ -255,8 +255,6 @@ pub(crate) mod send {
         // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
         //  it just keeps living but doesn't receive any updates. Should we make this configurable?
         pub group: ReplicationGroup,
-        /// How should the hierarchy of the entity (parents/children) be replicated?
-        pub hierarchy: ReplicateHierarchy,
         /// Marker indicating that we should send replication updates for that entity
         /// If this entity is removed, we pause replication for that entity.
         /// (but the entity is not despawned on the server)
@@ -1306,7 +1304,7 @@ pub(crate) mod send {
 pub(crate) mod commands {
     use crate::prelude::Replicating;
     use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{EntityWorldMut};
+    use bevy::prelude::EntityWorldMut;
 
     fn despawn_without_replication(mut entity_mut: EntityWorldMut) {
         // remove replicating separately so that when we despawn the entity and trigger the observer

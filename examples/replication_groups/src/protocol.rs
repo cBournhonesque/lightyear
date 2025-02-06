@@ -309,7 +309,7 @@ impl Plugin for ProtocolPlugin {
             // NOTE: notice that we use custom interpolation here, this means that we don't run
             //  the interpolation function for this component, so we need to implement our own interpolation system
             //  (we do this because our interpolation system queries multiple components at once)
-            .add_custom_interpolation(ComponentSyncMode::Full)
+            .add_custom_interpolation()
             // we still register an interpolation function which will be used for visual interpolation
             .add_linear_interpolation_fn();
 
@@ -322,7 +322,7 @@ impl Plugin for ProtocolPlugin {
             // NOTE: notice that we use custom interpolation here, this means that we don't run
             //  the interpolation function for this component, so we need to implement our own interpolation system
             //  (we do this because our interpolation system queries multiple components at once)
-            .add_custom_interpolation(ComponentSyncMode::Full);
+            .add_custom_interpolation();
         // we do not register an interpolation function because we will use a custom interpolation system
 
         app.register_component::<TailLength>(ChannelDirection::ServerToClient)

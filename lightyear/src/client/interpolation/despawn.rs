@@ -1,11 +1,11 @@
 use bevy::prelude::{Commands, OnRemove, Query, Trigger};
 
-use crate::client::components::{Confirmed, SyncComponent};
+use crate::client::components::{Confirmed, MutableSyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 
 /// Remove the component from interpolated entities when it gets removed from confirmed
-pub(crate) fn removed_components<C: SyncComponent>(
+pub(crate) fn removed_components<C: MutableSyncComponent>(
     trigger: Trigger<OnRemove, C>,
     mut commands: Commands,
     query: Query<&Confirmed>,

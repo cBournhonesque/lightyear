@@ -1,8 +1,8 @@
-use bevy::ecs::component::{ComponentId, Mutable};
-use bevy::ecs::entity::{MapEntities};
+use crate::utils::collections::HashMap;
+use bevy::ecs::component::{ComponentId, ComponentMutability, Mutable};
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{App, Component, EntityWorldMut, Mut, Reflect, Resource, TypePath, World};
 use bevy::ptr::Ptr;
-use crate::utils::collections::HashMap;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::any::TypeId;
@@ -13,13 +13,13 @@ use std::ptr::NonNull;
 
 use tracing::{debug, error, trace};
 
-use crate::client::components::ComponentSyncMode;
+use crate::client::components::{ComponentSyncMode, ComponentSyncModeTrait, Full, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::prediction::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
 };
-use crate::prelude::client::SyncComponent;
+use crate::prelude::client::MutableSyncComponent;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, Message, Tick};
 use crate::protocol::delta::ErasedDeltaFns;
@@ -581,10 +581,10 @@ mod replication {
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
+    use bevy::ecs::component::{ComponentMutability, Mutable};
     use bevy::ptr::OwningPtr;
     use bytes::Bytes;
     use std::alloc::Layout;
-    use bevy::ecs::component::Mutable;
 
     impl ComponentRegistry {
         /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
@@ -617,7 +617,7 @@ mod replication {
                 .map(|metadata| metadata.direction)
         }
 
-        pub(crate) fn set_replication_fns<C: Component<Mutability=Mutable> + PartialEq>(
+        pub(crate) fn set_replication_fns<C: Component + PartialEq>(
             &mut self,
             world: &mut World,
             direction: ChannelDirection,
@@ -730,7 +730,7 @@ mod replication {
 
         /// Method that buffers a pointer to the component data that will be inserted
         /// in the entity inside `self.raw_bytes`
-        pub(crate) fn buffer_insert<C: Component<Mutability=Mutable> + PartialEq>(
+        pub(crate) fn buffer_insert<C: Component + PartialEq>(
             &mut self,
             reader: &mut Reader,
             net_id: ComponentNetId,
@@ -752,21 +752,39 @@ mod replication {
             debug!("Insert component {} to entity", std::any::type_name::<C>());
 
             // if the component is already on the entity, no need to insert
-            if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                // TODO: when can we be in this situation? on authority change?
-                // only apply the update if the component is different, to not trigger change detection
-                if c.as_ref() != &component {
+            if C::Mutability::MUTABLE {
+                if let Some(mut c) = unsafe { entity_world_mut.get_mut_assume_mutable::<C>() } {
+                    // TODO: when can we be in this situation? on authority change?
+                    // only apply the update if the component is different, to not trigger change detection
+                    if c.as_ref() != &component {
+                        #[cfg(feature = "metrics")]
+                        {
+                            metrics::counter!("replication::receive::component::update").increment(1);
+                            metrics::counter!(format!(
+                                "replication::receive::component::{}::update",
+                                std::any::type_name::<C>()
+                            ))
+                                .increment(1);
+                        }
+                        events.push_update_component(entity, net_id, tick);
+                        *c = component;
+                    }
+                } else {
+                    // TODO: add safety comment
+                    unsafe {
+                        self.buffer_insert_raw_ptrs::<C>(component, replication_metadata.component_id)
+                    };
+                    // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
                     #[cfg(feature = "metrics")]
                     {
-                        metrics::counter!("replication::receive::component::update").increment(1);
+                        metrics::counter!("replication::receive::component::insert").increment(1);
                         metrics::counter!(format!(
-                            "replication::receive::component::{}::update",
+                            "replication::receive::component::{}::insert",
                             std::any::type_name::<C>()
                         ))
-                        .increment(1);
+                            .increment(1);
                     }
-                    events.push_update_component(entity, net_id, tick);
-                    *c = component;
+                    events.push_insert_component(entity, net_id, tick);
                 }
             } else {
                 // TODO: add safety comment
@@ -778,17 +796,17 @@ mod replication {
                 {
                     metrics::counter!("replication::receive::component::insert").increment(1);
                     metrics::counter!(format!(
-                        "replication::receive::component::{}::insert",
-                        std::any::type_name::<C>()
-                    ))
-                    .increment(1);
+                            "replication::receive::component::{}::insert",
+                            std::any::type_name::<C>()
+                        ))
+                        .increment(1);
                 }
                 events.push_insert_component(entity, net_id, tick);
             }
             Ok(())
         }
 
-        pub(crate) fn write<C: Component<Mutability=Mutable> + PartialEq>(
+        pub(crate) fn write<C: Component + PartialEq>(
             &self,
             reader: &mut Reader,
             net_id: ComponentNetId,
@@ -801,30 +819,44 @@ mod replication {
             let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
             let entity = entity_world_mut.id();
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
-            if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                // only apply the update if the component is different, to not trigger change detection
-                if c.as_ref() != &component {
+            if C::Mutability::MUTABLE {
+                if let Some(mut c) = unsafe { entity_world_mut.get_mut_assume_mutable::<C>() } {
+                    // only apply the update if the component is different, to not trigger change detection
+                    if c.as_ref() != &component {
+                        #[cfg(feature = "metrics")]
+                        {
+                            metrics::counter!("replication::receive::component::update").increment(1);
+                            metrics::counter!(format!(
+                                "replication::receive::component::{}::update",
+                                std::any::type_name::<C>()
+                            ))
+                                .increment(1);
+                        }
+                        events.push_update_component(entity, net_id, tick);
+                        *c = component;
+                    }
+                } else {
                     #[cfg(feature = "metrics")]
                     {
-                        metrics::counter!("replication::receive::component::update").increment(1);
+                        metrics::counter!("replication::receive::component::insert").increment(1);
                         metrics::counter!(format!(
-                            "replication::receive::component::{}::update",
+                            "replication::receive::component::{}::insert",
                             std::any::type_name::<C>()
                         ))
-                        .increment(1);
+                            .increment(1);
                     }
-                    events.push_update_component(entity, net_id, tick);
-                    *c = component;
+                    events.push_insert_component(entity, net_id, tick);
+                    entity_world_mut.insert(component);
                 }
             } else {
                 #[cfg(feature = "metrics")]
                 {
                     metrics::counter!("replication::receive::component::insert").increment(1);
                     metrics::counter!(format!(
-                        "replication::receive::component::{}::insert",
-                        std::any::type_name::<C>()
-                    ))
-                    .increment(1);
+                            "replication::receive::component::{}::insert",
+                            std::any::type_name::<C>()
+                        ))
+                        .increment(1);
                 }
                 events.push_insert_component(entity, net_id, tick);
                 entity_world_mut.insert(component);
@@ -877,12 +909,12 @@ mod delta {
 
     use crate::serialize::writer::Writer;
     use crate::shared::replication::entity_map::SendEntityMap;
+    use bevy::ecs::component::{ComponentMutability, Mutable};
     use std::ptr::NonNull;
-    use bevy::ecs::component::Mutable;
 
     impl ComponentRegistry {
         /// Register delta compression functions for a component
-        pub(crate) fn set_delta_compression<C: Component<Mutability=Mutable> + PartialEq + Diffable>(
+        pub(crate) fn set_delta_compression<C: Component + PartialEq + Diffable>(
             &mut self,
             world: &mut World,
         ) where
@@ -991,7 +1023,7 @@ mod delta {
         }
 
         /// Deserialize the DeltaMessage<C::Delta> and apply it to the component
-        pub(crate) fn write_delta<C: Component<Mutability=Mutable> + PartialEq + Diffable>(
+        pub(crate) fn write_delta<C: Component + PartialEq + Diffable>(
             &self,
             reader: &mut Reader,
             net_id: ComponentNetId,
@@ -1032,13 +1064,17 @@ mod delta {
                     history.buffer = history.buffer.split_off(&previous_tick);
                     // store the new value in the history
                     history.buffer.insert(tick, new_value.clone());
-                    let Some(mut c) = entity_world_mut.get_mut::<C>() else {
-                        return Err(ComponentError::DeltaCompressionError(
-                            format!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
-                            std::any::type_name::<C>())
-                        ));
-                    };
-                    *c = new_value;
+                    if C::Mutability::MUTABLE {
+                        let Some(mut c) = unsafe { entity_world_mut.get_mut_assume_mutable::<C>() } else {
+                            return Err(ComponentError::DeltaCompressionError(
+                                format!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
+                                        std::any::type_name::<C>())
+                            ));
+                        };
+                        *c = new_value;
+                    } else {
+                        entity_world_mut.insert(new_value);
+                    }
 
                     // TODO: should we send the event based on the message type (Insert/Update) or based on whether the component was actually inserted?
                     events.push_update_component(entity, net_id, tick);
@@ -1047,11 +1083,16 @@ mod delta {
                     let mut new_value = C::base_value();
                     new_value.apply_diff(&delta.delta);
                     let value = new_value.clone();
-                    if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                        // only apply the update if the component is different, to not trigger change detection
-                        if c.as_ref() != &new_value {
-                            *c = new_value;
-                            events.push_update_component(entity, net_id, tick);
+                    if C::Mutability::MUTABLE {
+                        if let Some(mut c) = unsafe { entity_world_mut.get_mut_assume_mutable::<C>() } {
+                            // only apply the update if the component is different, to not trigger change detection
+                            if c.as_ref() != &new_value {
+                                *c = new_value;
+                                events.push_update_component(entity, net_id, tick);
+                            }
+                        } else {
+                            entity_world_mut.insert(new_value);
+                            events.push_insert_component(entity, net_id, tick);
                         }
                     } else {
                         entity_world_mut.insert(new_value);
@@ -1077,7 +1118,7 @@ mod delta {
         /// Insert a component delta into the entity.
         /// If the component is not present on the entity, we put it in a temporary buffer
         /// so that all components can be inserted at once
-        pub(crate) fn buffer_insert_delta<C: Component<Mutability=Mutable> + PartialEq + Diffable>(
+        pub(crate) fn buffer_insert_delta<C: Component + PartialEq + Diffable>(
             &mut self,
             reader: &mut Reader,
             delta_net_id: ComponentNetId,
@@ -1115,11 +1156,23 @@ mod delta {
                     let cloned_value = new_value.clone();
 
                     // if the component is on the entity, no need to insert
-                    if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                        // only apply the update if the component is different, to not trigger change detection
-                        if c.as_ref() != &new_value {
-                            *c = new_value;
-                            events.push_update_component(entity, net_id, tick);
+                    if C::Mutability::MUTABLE {
+                        if let Some(mut c) = unsafe { entity_world_mut.get_mut_assume_mutable::<C>() } {
+                            // only apply the update if the component is different, to not trigger change detection
+                            if c.as_ref() != &new_value {
+                                *c = new_value;
+                                events.push_update_component(entity, net_id, tick);
+                            }
+                        } else {
+                            // TODO: add safety comment
+                            // use the component id of C, not DeltaMessage<C>
+                            unsafe {
+                                self.buffer_insert_raw_ptrs::<C>(
+                                    new_value,
+                                    replication_metadata.component_id,
+                                )
+                            };
+                            events.push_insert_component(entity, net_id, tick);
                         }
                     } else {
                         // TODO: add safety comment
@@ -1132,6 +1185,7 @@ mod delta {
                         };
                         events.push_insert_component(entity, net_id, tick);
                     }
+
                     // store the component value in the delta component history, so that we can compute
                     // diffs from it
                     if let Some(mut history) =
@@ -1190,7 +1244,7 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
 pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
-    fn register_component<C: Component<Mutability=Mutable> + Message + Serialize + DeserializeOwned + PartialEq>(
+    fn register_component<C: Component + Message + Serialize + DeserializeOwned + PartialEq>(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C>;
@@ -1198,14 +1252,14 @@ pub trait AppComponentExt {
     /// Registers the component in the Registry: this component can now be sent over the network.
     ///
     /// You need to provide your own [`SerializeFns`]
-    fn register_component_custom_serde<C: Component<Mutability=Mutable> + Message + PartialEq>(
+    fn register_component_custom_serde<C: Component + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
 
     /// Enable rollbacks for a component even if the component is not networked
-    fn add_rollback<C: Component<Mutability=Mutable> + PartialEq + Clone>(&mut self);
+    fn add_rollback<C: Component + PartialEq + Clone>(&mut self);
 
     /// Enable rollbacks for a resource.
     fn add_resource_rollback<R: Resource + Clone + Debug>(&mut self);
@@ -1215,10 +1269,10 @@ pub trait AppComponentExt {
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode);
 
     /// Add a `Correction` behaviour to this component by using a linear interpolation function.
-    fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self);
+    fn add_linear_correction_fn<C: MutableSyncComponent + Linear>(&mut self);
 
     /// Add a `Correction` behaviour to this component.
-    fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>);
+    fn add_correction_fn<C: MutableSyncComponent>(&mut self, correction_fn: LerpFn<C>);
 
     /// Add a custom function to use for checking if a rollback is needed.
     ///
@@ -1228,20 +1282,20 @@ pub trait AppComponentExt {
 
     /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
     /// themselves (the interpolation_fn will not be used)
-    fn add_custom_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode);
+    fn add_custom_interpolation<C: MutableSyncComponent>(&mut self, interpolation_mode: ComponentSyncMode);
 
     /// Enable interpolation systems for this component.
     /// You can specify the interpolation [`ComponentSyncMode`]
     fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode);
 
     /// Add a `Interpolation` behaviour to this component by using a linear interpolation function.
-    fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self);
+    fn add_linear_interpolation_fn<C: MutableSyncComponent + Linear>(&mut self);
 
     /// Add a `Interpolation` behaviour to this component.
-    fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>);
+    fn add_interpolation_fn<C: MutableSyncComponent>(&mut self, interpolation_fn: LerpFn<C>);
 
     /// Enable delta compression when serializing this component
-    fn add_delta_compression<C: Component<Mutability=Mutable> + PartialEq + Diffable>(&mut self)
+    fn add_delta_compression<C: MutableSyncComponent + PartialEq + Diffable>(&mut self)
     where
         C::Delta: Serialize + DeserializeOwned;
 }
@@ -1276,7 +1330,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// Add a `Correction` behaviour to this component by using a linear interpolation function.
     pub fn add_linear_correction_fn(self) -> Self
     where
-        C: SyncComponent + Linear,
+        C: MutableSyncComponent + Linear,
     {
         self.app.add_linear_correction_fn::<C>();
         self
@@ -1285,7 +1339,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// Add a `Correction` behaviour to this component.
     pub fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self
     where
-        C: SyncComponent,
+        C: MutableSyncComponent,
     {
         self.app.add_correction_fn::<C>(correction_fn);
         self
@@ -1317,7 +1371,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// themselves (the interpolation_fn will not be used)
     pub fn add_custom_interpolation(self, interpolation_mode: ComponentSyncMode) -> Self
     where
-        C: SyncComponent,
+        C: MutableSyncComponent,
     {
         self.app.add_custom_interpolation::<C>(interpolation_mode);
         self
@@ -1326,7 +1380,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// Add a `Interpolation` behaviour to this component by using a linear interpolation function.
     pub fn add_linear_interpolation_fn(self) -> Self
     where
-        C: SyncComponent + Linear,
+        C: MutableSyncComponent + Linear,
     {
         self.app.add_linear_interpolation_fn::<C>();
         self
@@ -1335,7 +1389,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// Add a `Interpolation` behaviour to this component.
     pub fn add_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
     where
-        C: SyncComponent,
+        C: MutableSyncComponent,
     {
         self.app.add_interpolation_fn::<C>(interpolation_fn);
         self
@@ -1344,7 +1398,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// Enable delta compression when serializing this component
     pub fn add_delta_compression(self) -> Self
     where
-        C: Component<Mutability=Mutable> + PartialEq + Diffable,
+        C: MutableSyncComponent + PartialEq + Diffable,
         C::Delta: Serialize + DeserializeOwned,
     {
         self.app.add_delta_compression::<C>();
@@ -1353,7 +1407,7 @@ impl<C> ComponentRegistration<'_, C> {
 }
 
 impl AppComponentExt for App {
-    fn register_component<C: Component<Mutability=Mutable> + Message + PartialEq + Serialize + DeserializeOwned>(
+    fn register_component<C: Component + Message + PartialEq + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C> {
@@ -1372,7 +1426,7 @@ impl AppComponentExt for App {
         }
     }
 
-    fn register_component_custom_serde<C: Component<Mutability=Mutable> + Message + PartialEq>(
+    fn register_component_custom_serde<C: Component + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<C>,
@@ -1394,7 +1448,7 @@ impl AppComponentExt for App {
 
     // TODO: move this away from protocol? since it doesn't even use the registry at all
     //  maybe put this in the PredictionPlugin?
-    fn add_rollback<C: Component<Mutability=Mutable> + PartialEq + Clone>(&mut self) {
+    fn add_rollback<C: Component + PartialEq + Clone>(&mut self) {
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_non_networked_rollback_systems::<C>(self);
@@ -1420,26 +1474,23 @@ impl AppComponentExt for App {
         }
     }
 
-    fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self) {
+    fn add_linear_correction_fn<C: MutableSyncComponent + Linear>(&mut self) {
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_linear_correction::<C>();
         // TODO: register correction systems only if correction is enabled?
     }
 
-    fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>) {
+    fn add_correction_fn<C: MutableSyncComponent>(&mut self, correction_fn: LerpFn<C>) {
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_correction::<C>(correction_fn);
     }
 
-    fn add_should_rollback_fn<C: SyncComponent>(&mut self, rollback_check: ShouldRollbackFn<C>) {
+    fn add_should_rollback_fn<C: Component + PartialEq>(&mut self, rollback_check: ShouldRollbackFn<C>) {
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_should_rollback::<C>(rollback_check);
     }
 
-    fn add_custom_interpolation<C: SyncComponent>(
-        &mut self,
-        interpolation_mode: ComponentSyncMode,
-    ) {
+    fn add_custom_interpolation<C: MutableSyncComponent>(&mut self, interpolation_mode: ComponentSyncMode) {
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
         let kind = ComponentKind::of::<C>();
@@ -1464,18 +1515,19 @@ impl AppComponentExt for App {
         if is_client {
             add_prepare_interpolation_systems::<C>(self, interpolation_mode);
             if interpolation_mode == ComponentSyncMode::Full {
+                assert!(C::Mutability::MUTABLE, "Full interpolation is only possible for mutable components");
                 // TODO: handle custom interpolation
                 add_interpolation_systems::<C>(self);
             }
         }
     }
 
-    fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self) {
+    fn add_linear_interpolation_fn<C: MutableSyncComponent + Linear>(&mut self) {
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_linear_interpolation::<C>();
     }
 
-    fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>) {
+    fn add_interpolation_fn<C: MutableSyncComponent>(&mut self, interpolation_fn: LerpFn<C>) {
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_interpolation::<C>(interpolation_fn);
     }

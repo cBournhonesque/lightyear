@@ -1,10 +1,7 @@
-use bevy::prelude::*;
-use core::time::Duration;
-
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
 };
-use crate::client::components::{ComponentSyncMode, SyncComponent};
+use crate::client::components::{ComponentSyncMode, ComponentSyncModeTrait, MutableSyncComponent, SyncComponent};
 use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
 use crate::client::interpolation::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
@@ -16,6 +13,9 @@ use crate::client::run_conditions::is_synced;
 use crate::client::sync::SyncSet;
 use crate::prelude::{is_host_server, Deserialize, Serialize, Tick};
 use crate::shared::time_manager::WrappedTime;
+use bevy::ecs::component::{ComponentMutability, Immutable};
+use bevy::prelude::*;
+use core::time::Duration;
 
 /// Interpolation delay of the client at the time the message is sent
 ///
@@ -134,6 +134,7 @@ pub enum InterpolationSet {
     All,
 }
 
+
 /// Add per-component systems related to interpolation
 pub fn add_prepare_interpolation_systems<C: SyncComponent>(
     app: &mut App,
@@ -148,6 +149,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
     app.add_observer(removed_components::<C>);
     match interpolation_mode {
         ComponentSyncMode::Full => {
+            assert!(C::Mutability::MUTABLE, "A ComponentSyncMode:FULL component cannot be Immutable");
             app.add_systems(
                 Update,
                 (
@@ -162,11 +164,19 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
             );
         }
         ComponentSyncMode::Simple => {
-            app.add_systems(
-                Update,
-                apply_confirmed_update_mode_simple::<C>
-                    .in_set(InterpolationSet::PrepareInterpolation),
-            );
+            if !C::Mutability::MUTABLE {
+                app.add_systems(
+                    Update,
+                    apply_confirmed_update_mode_simple::<C>
+                        .in_set(InterpolationSet::PrepareInterpolation),
+                );
+            } else {
+                app.add_systems(
+                    Update,
+                    apply_confirmed_update_mode_simple::<C>
+                        .in_set(InterpolationSet::PrepareInterpolation),
+                );
+            }
         }
         _ => {}
     }

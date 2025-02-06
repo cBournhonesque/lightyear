@@ -1,10 +1,10 @@
 /*!
 Defines components that are used for the client-side prediction and interpolation
 */
-use std::fmt::Debug;
-use bevy::ecs::component::{Mutable};
+use bevy::ecs::component::{ComponentMutability, Immutable, Mutable};
 use bevy::prelude::{Component, Entity, ReflectComponent};
 use bevy::reflect::Reflect;
+use std::fmt::Debug;
 
 use crate::prelude::{Message, Tick};
 
@@ -26,8 +26,11 @@ pub struct Confirmed {
     pub tick: Tick,
 }
 
-pub trait SyncComponent: Component<Mutability=Mutable> + Clone + PartialEq + Message {}
-impl<T> SyncComponent for T where T: Component<Mutability=Mutable> + Clone + PartialEq + Message {}
+
+pub trait SyncComponent: Component + Clone + PartialEq + Message {}
+impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message {}
+pub trait MutableSyncComponent: SyncComponent + Component<Mutability=Mutable> {}
+impl<T> MutableSyncComponent for T where T: SyncComponent + Component<Mutability=Mutable>  {}
 
 /// Function that will interpolate between two values
 pub trait LerpFn<C> {
@@ -67,4 +70,23 @@ pub enum ComponentSyncMode {
     #[default]
     /// The component is not copied from the Confirmed entity to the interpolated/predicted entity
     None,
+}
+
+pub trait ComponentSyncModeTrait {
+    const MODE: ComponentSyncMode;
+}
+
+pub struct Full;
+impl ComponentSyncModeTrait for Full {
+    const MODE: ComponentSyncMode = ComponentSyncMode::Full;
+}
+
+pub struct Simple;
+impl ComponentSyncModeTrait for Simple {
+    const MODE: ComponentSyncMode = ComponentSyncMode::Simple;
+}
+
+pub struct Once;
+impl ComponentSyncModeTrait for Once {
+    const MODE: ComponentSyncMode = ComponentSyncMode::Once;
 }

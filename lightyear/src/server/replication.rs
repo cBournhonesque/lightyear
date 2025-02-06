@@ -54,7 +54,7 @@ pub(crate) mod send {
     use crate::prelude::server::AuthorityCommandExt;
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponents, NetworkRelevanceMode,
-        OverrideTargetComponent, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
+        OverrideTargetComponent, ReplicationGroup, ShouldBePredicted,
         TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
@@ -257,8 +257,6 @@ pub(crate) mod send {
         /// After the entity is first replicated, the replication group of the entity should not be modified.
         /// (but more entities can be added to the replication group)
         pub group: ReplicationGroup,
-        /// How should the hierarchy of the entity (parents/children) be replicated?
-        pub hierarchy: ReplicateHierarchy,
         pub marker: Replicating,
     }
 

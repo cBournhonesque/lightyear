@@ -5,8 +5,8 @@ use bevy::prelude::{
 };
 use tracing::{debug, trace};
 
-use crate::client::components::Confirmed;
-use crate::client::components::{ComponentSyncMode, SyncComponent};
+use crate::client::components::{ComponentSyncMode, MutableSyncComponent};
+use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::resource::InterpolationManager;
@@ -190,7 +190,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
 }
 
 /// When we receive a server update for a simple component, we just update the entity directly
-pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
+pub(crate) fn apply_confirmed_update_mode_simple<C: MutableSyncComponent>(
     component_registry: Res<ComponentRegistry>,
     manager: Res<InterpolationManager>,
     mut interpolated_entities: Query<&mut C, (With<Interpolated>, Without<Confirmed>)>,
@@ -205,6 +205,29 @@ pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
                     let mut component = confirmed_component.deref().clone();
                     let _ = manager.map_entities(&mut component, component_registry.as_ref());
                     *interpolated_component = component;
+                }
+            }
+        }
+    }
+}
+
+/// When we receive a server update for a simple component, we just update the entity directly
+pub(crate) fn apply_confirmed_update_mode_simple_immutable<C: SyncComponent>(
+    mut commands: Commands,
+    component_registry: Res<ComponentRegistry>,
+    manager: Res<InterpolationManager>,
+    mut interpolated_entities: Query<(), (With<Interpolated>, Without<Confirmed>)>,
+    confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
+) {
+    for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
+        if let Some(p) = confirmed.interpolated {
+            if confirmed_component.is_changed() && !confirmed_component.is_added() {
+                if let Ok(()) = interpolated_entities.get_mut(p) {
+                    // for sync-components, we just match the confirmed component
+                    // map any entities from confirmed to interpolated first
+                    let mut component = confirmed_component.deref().clone();
+                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
+                    commands.entity(confirmed_entity).insert(component);
                 }
             }
         }

@@ -9,7 +9,7 @@
 use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
 use tracing::debug;
 
-use crate::client::components::{LerpFn, SyncComponent};
+use crate::client::components::{LerpFn, MutableSyncComponent};
 use crate::client::easings::ease_out_quad;
 use crate::prelude::{ComponentRegistry, Tick, TickManager};
 
@@ -80,7 +80,7 @@ pub struct Correction<C: Component> {
 
 /// Visually update the component to the a value that is interpolated between the original prediction
 /// and the Corrected state
-pub(crate) fn get_visually_corrected_state<C: SyncComponent>(
+pub(crate) fn get_visually_corrected_state<C: MutableSyncComponent>(
     component_registry: Res<ComponentRegistry>,
     tick_manager: Res<TickManager>,
     mut commands: Commands,
@@ -117,7 +117,7 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent>(
 }
 
 /// At the start of the next frame, restore
-pub(crate) fn restore_corrected_state<C: SyncComponent>(
+pub(crate) fn restore_corrected_state<C: MutableSyncComponent>(
     mut query: Query<(&mut C, &mut Correction<C>)>,
 ) {
     let kind = std::any::type_name::<C>();
