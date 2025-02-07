@@ -148,10 +148,10 @@ pub(crate) mod send {
     use crate::protocol::component::ComponentKind;
 
     use crate::shared::replication::components::{
-        Cached, InitialReplicated, Replicating, ReplicationGroupId,
+        InitialReplicated, Replicating, ReplicationGroupId,
     };
 
-    use crate::prelude::server::ReplicationTarget;
+    
     use crate::shared::replication::archetypes::{
         get_erased_component, ClientReplicatedArchetypes,
     };

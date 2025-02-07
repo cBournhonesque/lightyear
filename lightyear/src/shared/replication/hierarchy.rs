@@ -1,22 +1,13 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
 
-use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::{InterpolationSet, PredictionSet};
-use crate::prelude::server::ControlledBy;
-use crate::prelude::{
-    NetworkRelevanceMode, PrePredicted, Replicated, Replicating, ReplicationGroup,
-};
-use crate::server::replication::send::ReplicationTarget;
-use crate::server::replication::send::SyncTarget;
-use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
+use crate::prelude::PrePredicted;
 use crate::shared::replication::components::{DisableReplicateHierarchy, ReplicationMarker};
-use crate::shared::replication::{ReplicationPeer, ReplicationSend};
+use crate::shared::replication::ReplicationPeer;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
-use bevy::ecs::component::{ComponentHooks, HookContext, Immutable, Mutable, StorageType};
 use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
 use bevy::ecs::reflect::{ReflectMapEntities, ReflectVisitEntities, ReflectVisitEntitiesMut};
-use bevy::ecs::relationship::{Relationship, RelationshipTarget};
-use bevy::ecs::world::DeferredWorld;
+use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
 use serde::{Deserialize, Serialize};
@@ -469,7 +460,7 @@ impl<R: ReplicationPeer> HierarchySendPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::server::Replicate;
+    use crate::prelude::server::{Replicate, ReplicationTarget};
     use crate::prelude::{ClientConnectionManager, ClientId, ClientReplicate, NetworkTarget};
     use crate::shared::replication::components::ReplicationGroupId;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};

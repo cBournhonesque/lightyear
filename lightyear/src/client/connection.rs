@@ -1,8 +1,7 @@
 //! Specify how a Client sends/receives messages with a Server
-use crate::utils::collections::HashMap;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Event, Resource, World};
+use bevy::prelude::{Resource, World};
 #[cfg(feature = "leafwing")]
 use bevy::utils::HashMap;
 use bytes::Bytes;

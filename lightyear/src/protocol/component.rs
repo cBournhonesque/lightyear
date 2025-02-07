@@ -767,9 +767,9 @@ mod replication {
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
     use bevy::ecs::component::Mutable;
-    use bevy::ptr::OwningPtr;
+    
     use bytes::Bytes;
-    use std::alloc::Layout;
+    
 
     impl ComponentRegistry {
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {

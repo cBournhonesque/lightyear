@@ -740,7 +740,7 @@ mod tests {
     use crate::prelude::server::{NetServer, ServerCommandsExt};
     use crate::tests::stepper::BevyStepper;
     use bevy::prelude::State;
-    use tracing::{error, trace};
+    use tracing::trace;
 
     // TODO: investigate why this test is not working!
     /// Check that if the client disconnects during the handshake, the server

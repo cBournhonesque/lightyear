@@ -1,6 +1,5 @@
 //! Components used for replication
 
-use bevy::ecs::component::{ComponentHooks, Immutable, StorageType};
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{require, Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
@@ -11,8 +10,6 @@ use crate::connection::id::ClientId;
 use crate::protocol::component::ComponentKind;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::replication::network_target::NetworkTarget;
-use crate::utils::collections::HashMap;
 
 /// Marker that indicates that this entity is to be replicated.
 ///
