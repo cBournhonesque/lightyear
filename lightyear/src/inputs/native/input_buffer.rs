@@ -139,7 +139,7 @@ impl<T: UserAction> InputBuffer<T> {
                     self.set(tick, None);
                 }
                 InputData::SameAsPrecedent => {
-                    self.set(tick, self.get(tick-1).cloned());
+                    self.set(tick, self.get(tick - 1).cloned());
                 }
                 InputData::Input(input) => {
                     if self.get(tick).is_some_and(|v| v == input) {
