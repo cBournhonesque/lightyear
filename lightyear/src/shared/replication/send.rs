@@ -2,11 +2,11 @@
 use std::iter::Extend;
 
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
+use crate::utils::collections::HashMap;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::Entity;
 use bevy::ptr::Ptr;
-use crate::utils::collections::{HashMap};
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, trace};
@@ -31,7 +31,6 @@ use {
     super::{EntityActionsMessage, EntityUpdatesMessage},
     crate::utils::captures::Captures,
 };
-
 
 type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = bevy::platform_support::collections::HashSet<K, EntityHash>;

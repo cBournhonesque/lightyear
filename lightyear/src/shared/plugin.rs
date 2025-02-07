@@ -2,17 +2,13 @@
 use crate::client::config::ClientConfig;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::ServerConnections;
-use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::server::NetworkingState;
 use crate::prelude::{
-    AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ClientId, ComponentRegistry,
-    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
-    PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
+    ChannelRegistry, ClientId, ComponentRegistry, LinkConditionerConfig, MessageRegistry, Mode,
+    PingConfig, TickConfig,
 };
 use crate::server::run_conditions::is_started_ref;
 use crate::shared::config::SharedConfig;
-use crate::shared::replication::authority::AuthorityChange;
-use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
 use crate::transport::io::{IoState, IoStats};
@@ -155,33 +151,6 @@ impl Plugin for SharedPlugin {
             config: self.config.tick,
         });
         app.add_plugins(TimePlugin);
-    }
-
-    fn finish(&self, app: &mut App) {
-        // PROTOCOL
-        // we register components here because
-        // - the SharedPlugin is built only once in HostServer mode (client and server plugins in the same app)
-        // (if we put this in the ReplicationPlugin, the components would get registered twice)
-        // - we need to run this in `finish` so that all plugins have been built (so ClientPlugin and ServerPlugin
-        // both exists)
-        app.register_component::<PreSpawnedPlayerObject>(ChannelDirection::Bidirectional);
-        app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
-        app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
-        app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
-        app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
-            // to replicate ParentSync on the predicted/interpolated entities so that they spawn their own hierarchies
-            .add_prediction(ComponentSyncMode::Simple)
-            .add_interpolation(ComponentSyncMode::Simple)
-            .add_map_entities();
-        app.register_component::<Controlled>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
-
-        app.register_message::<AuthorityChange>(ChannelDirection::ServerToClient)
-            .add_map_entities();
-
-        // check that the protocol was built correctly
-        app.world().resource::<ComponentRegistry>().check();
     }
 }
 

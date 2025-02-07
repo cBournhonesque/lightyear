@@ -49,40 +49,34 @@ impl Component for Interpolated {
 
     type Mutability = Mutable;
     fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
-        hooks.on_add(
-            |mut deferred_world: DeferredWorld, context: HookContext| {
-                let interpolated = context.entity;
-                let confirmed = deferred_world
-                    .get::<Interpolated>(interpolated)
-                    .unwrap()
-                    .confirmed_entity;
+        hooks.on_add(|mut deferred_world: DeferredWorld, context: HookContext| {
+            let interpolated = context.entity;
+            let confirmed = deferred_world
+                .get::<Interpolated>(interpolated)
+                .unwrap()
+                .confirmed_entity;
 
-                if let Some(mut manager) = deferred_world.get_resource_mut::<InterpolationManager>()
-                {
-                    manager
-                        .interpolated_entity_map
-                        .get_mut()
-                        .confirmed_to_interpolated
-                        .insert(confirmed, interpolated);
-                };
-            },
-        );
-        hooks.on_remove(
-            |mut deferred_world: DeferredWorld, context: HookContext| {
-                let interpolated = context.entity;
-                let confirmed = deferred_world
-                    .get::<Interpolated>(interpolated)
-                    .unwrap()
-                    .confirmed_entity;
-                if let Some(mut manager) = deferred_world.get_resource_mut::<InterpolationManager>()
-                {
-                    manager
-                        .interpolated_entity_map
-                        .get_mut()
-                        .confirmed_to_interpolated
-                        .insert(confirmed, interpolated);
-                };
-            },
-        );
+            if let Some(mut manager) = deferred_world.get_resource_mut::<InterpolationManager>() {
+                manager
+                    .interpolated_entity_map
+                    .get_mut()
+                    .confirmed_to_interpolated
+                    .insert(confirmed, interpolated);
+            };
+        });
+        hooks.on_remove(|mut deferred_world: DeferredWorld, context: HookContext| {
+            let interpolated = context.entity;
+            let confirmed = deferred_world
+                .get::<Interpolated>(interpolated)
+                .unwrap()
+                .confirmed_entity;
+            if let Some(mut manager) = deferred_world.get_resource_mut::<InterpolationManager>() {
+                manager
+                    .interpolated_entity_map
+                    .get_mut()
+                    .confirmed_to_interpolated
+                    .insert(confirmed, interpolated);
+            };
+        });
     }
 }

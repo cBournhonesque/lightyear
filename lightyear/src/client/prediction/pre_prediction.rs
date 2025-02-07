@@ -10,8 +10,8 @@ use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::is_synced;
 use crate::prelude::server::{NetworkingState, ServerConfig};
 use crate::prelude::{
-    is_host_server_ref, HasAuthority, ReplicateHierarchy, Replicating, ReplicationGroup,
-    ShouldBePredicted, TickManager,
+    is_host_server_ref, DisableReplicateHierarchy, HasAuthority, ReplicateLike, Replicating,
+    ReplicationGroup, ShouldBePredicted, TickManager,
 };
 use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::components::PrePredicted;
@@ -69,7 +69,8 @@ impl PrePredictionPlugin {
                 ReplicationTarget,
                 ReplicateToServer,
                 ReplicationGroup,
-                ReplicateHierarchy,
+                DisableReplicateHierarchy,
+                ReplicateLike,
                 HasAuthority,
             )>();
         }

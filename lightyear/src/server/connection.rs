@@ -1,11 +1,11 @@
 //! Specify how a Server sends/receives messages with a Client
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::{MapEntities};
+use bevy::ecs::entity::MapEntities;
+use bevy::platform_support::collections::hash_map::{Entry, HashMap};
 use bevy::prelude::{Component, Entity, Event, Resource, World};
 use bevy::ptr::Ptr;
-use bevy::platform_support::collections::hash_map::{Entry, HashMap};
-use core::time::Duration;
 use bytes::Bytes;
+use core::time::Duration;
 use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};

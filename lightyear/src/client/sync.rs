@@ -1,8 +1,8 @@
 /*! Handles syncing the time between the client and the server
 */
 use bevy::prelude::{Reflect, SystemSet};
-use core::time::Duration;
 use chrono::Duration as ChronoDuration;
+use core::time::Duration;
 use tracing::{debug, trace};
 
 use crate::client::interpolation::plugin::InterpolationConfig;

@@ -7,6 +7,7 @@ use core::time::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+use crate::utils::collections::HashMap;
 use bevy::prelude::{
     default, App, Commands, Mut, Plugin, PluginGroup, Real, Resource, TaskPoolOptions,
     TaskPoolPlugin, Time,
@@ -14,7 +15,6 @@ use bevy::prelude::{
 use bevy::state::app::StatesPlugin;
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
-use crate::utils::collections::HashMap;
 use bevy::MinimalPlugins;
 
 use lightyear::connection::netcode::generate_key;

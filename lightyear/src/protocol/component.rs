@@ -218,7 +218,6 @@ impl TempWriteBuffer {
         mut component: C,
         component_id: ComponentId,
     ) {
-
         let layout = Layout::new::<C>();
         let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
         // make sure the Drop trait is not called when the `component` variable goes out of scope
@@ -239,7 +238,6 @@ pub struct ReplicationMetadata {
     pub direction: ChannelDirection,
     pub delta_compression_id: ComponentId,
     pub replicate_once_id: ComponentId,
-    pub override_target_id: ComponentId,
     pub write: RawWriteFn,
     pub buffer_insert_fn: RawBufferInsertFn,
     pub remove: Option<RawBufferRemoveFn>,
@@ -279,7 +277,7 @@ pub struct InterpolationMetadata {
     pub custom_interpolation: bool,
 }
 
-type RawBufferRemoveFn = fn(&mut ComponentRegistry, ComponentNetId);
+type RawBufferRemoveFn = fn(&mut ComponentRegistry);
 type RawWriteFn = fn(
     &ComponentRegistry,
     &mut Reader,
@@ -648,7 +646,7 @@ mod prediction {
             // insert all the components in the predicted entity
             let mut entity_world_mut = world.entity_mut(predicted);
             // SAFETY: we call `buffer_insert_raw_pts` inside the `buffer_sync` function
-            unsafe { self.temp_write_buffer.batch_insert(&mut entity_world_mut) } ;
+            unsafe { self.temp_write_buffer.batch_insert(&mut entity_world_mut) };
         }
 
         /// Sync a component value from the confirmed entity to the predicted entity
@@ -764,12 +762,14 @@ mod interpolation {
 
 mod replication {
     use super::*;
-    use crate::prelude::{DeltaCompression, OverrideTargetComponent, ReplicateOnceComponent};
+    use crate::prelude::{DeltaCompression, ReplicateOnceComponent};
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
+    use bevy::ecs::component::Mutable;
+    use bevy::ptr::OwningPtr;
     use bytes::Bytes;
-
+    use std::alloc::Layout;
 
     impl ComponentRegistry {
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
@@ -778,7 +778,7 @@ mod replication {
                 .map(|metadata| metadata.direction)
         }
 
-        pub(crate) fn set_replication_fns<C: Component<Mutability=Mutable> + PartialEq>(
+        pub(crate) fn set_replication_fns<C: Component<Mutability = Mutable> + PartialEq>(
             &mut self,
             world: &mut World,
             direction: ChannelDirection,
@@ -789,7 +789,6 @@ mod replication {
                     direction,
                     delta_compression_id: world.register_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
-                    override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
                     write: Self::write::<C>,
                     buffer_insert_fn: Self::buffer_insert::<C>,
                     remove: Some(Self::buffer_remove::<C>),
@@ -872,7 +871,7 @@ mod replication {
 
         /// Method that buffers a pointer to the component data that will be inserted
         /// in the entity inside `self.raw_bytes`
-        pub(crate) fn buffer_insert<C: Component<Mutability=Mutable> + PartialEq>(
+        pub(crate) fn buffer_insert<C: Component<Mutability = Mutable> + PartialEq>(
             &mut self,
             reader: &mut Reader,
             tick: Tick,
@@ -927,7 +926,7 @@ mod replication {
             Ok(())
         }
 
-        pub(crate) fn write<C: Component<Mutability=Mutable> + PartialEq>(
+        pub(crate) fn write<C: Component<Mutability = Mutable> + PartialEq>(
             &self,
             reader: &mut Reader,
             tick: Tick,
@@ -971,11 +970,12 @@ mod replication {
             Ok(())
         }
 
-        pub(crate) fn batch_remove(&mut self,
-                                   net_ids: Vec<ComponentNetId>,
-                                   entity_world_mut: &mut EntityWorldMut,
-                                   tick: Tick,
-                                   events: &mut ConnectionEvents,
+        pub(crate) fn batch_remove(
+            &mut self,
+            net_ids: Vec<ComponentNetId>,
+            entity_world_mut: &mut EntityWorldMut,
+            tick: Tick,
+            events: &mut ConnectionEvents,
         ) {
             for net_id in net_ids {
                 let kind = self.kind_map.kind(net_id).expect("unknown component kind");
@@ -984,8 +984,10 @@ mod replication {
                     .get(kind)
                     .expect("the component is not part of the protocol");
                 events.push_remove_component(entity_world_mut.id(), *kind, tick);
-                let remove_fn = replication_metadata.remove.expect("the component does not have a remove function");
-                remove_fn(self, net_id);
+                let remove_fn = replication_metadata
+                    .remove
+                    .expect("the component does not have a remove function");
+                remove_fn(self);
             }
 
             entity_world_mut.remove_by_ids(&self.temp_write_buffer.component_ids);
@@ -995,9 +997,9 @@ mod replication {
         /// Prepare for a component being removed
         /// We don't actually remove the component here, we just push the ComponentId to the `component_ids` vector
         /// so that they can all be removed at the same time
-        pub(crate) fn buffer_remove<C: Component>(&mut self, net_id: ComponentNetId) {
-            let kind = self.kind_map.kind(net_id).expect("unknown component kind");
-            let component_id = self.kind_to_component_id.get(kind).unwrap();
+        pub(crate) fn buffer_remove<C: Component>(&mut self) {
+            let kind = ComponentKind::of::<C>();
+            let component_id = self.kind_to_component_id.get(&kind).unwrap();
             self.temp_write_buffer.component_ids.push(*component_id);
             #[cfg(feature = "metrics")]
             {
@@ -1024,7 +1026,9 @@ mod delta {
 
     impl ComponentRegistry {
         /// Register delta compression functions for a component
-        pub(crate) fn set_delta_compression<C: Component<Mutability=Mutable> + PartialEq + Diffable>(
+        pub(crate) fn set_delta_compression<
+            C: Component<Mutability = Mutable> + PartialEq + Diffable,
+        >(
             &mut self,
             world: &mut World,
         ) where
@@ -1052,7 +1056,6 @@ mod delta {
                     // NOTE: we set these to 0 because they are never used for the DeltaMessage component
                     delta_compression_id: ComponentId::new(0),
                     replicate_once_id: ComponentId::new(0),
-                    override_target_id: ComponentId::new(0),
                     write,
                     buffer_insert_fn: Self::buffer_insert_delta::<C>,
                     // we never need to remove the DeltaMessage<C> component
@@ -1132,7 +1135,7 @@ mod delta {
         }
 
         /// Deserialize the DeltaMessage<C::Delta> and apply it to the component
-        pub(crate) fn write_delta<C: Component<Mutability=Mutable> + PartialEq + Diffable>(
+        pub(crate) fn write_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
             &self,
             reader: &mut Reader,
             tick: Tick,
@@ -1217,7 +1220,9 @@ mod delta {
         /// Insert a component delta into the entity.
         /// If the component is not present on the entity, we put it in a temporary buffer
         /// so that all components can be inserted at once
-        pub(crate) fn buffer_insert_delta<C: Component<Mutability=Mutable> + PartialEq + Diffable>(
+        pub(crate) fn buffer_insert_delta<
+            C: Component<Mutability = Mutable> + PartialEq + Diffable,
+        >(
             &mut self,
             reader: &mut Reader,
             tick: Tick,
@@ -1322,7 +1327,9 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
 pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
-    fn register_component<C: Component<Mutability=Mutable> + Message + Serialize + DeserializeOwned + PartialEq>(
+    fn register_component<
+        C: Component<Mutability = Mutable> + Message + Serialize + DeserializeOwned + PartialEq,
+    >(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C>;
@@ -1330,14 +1337,14 @@ pub trait AppComponentExt {
     /// Registers the component in the Registry: this component can now be sent over the network.
     ///
     /// You need to provide your own [`SerializeFns`]
-    fn register_component_custom_serde<C: Component<Mutability=Mutable> + Message + PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability = Mutable> + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
 
     /// Enable rollbacks for a component even if the component is not networked
-    fn add_rollback<C: Component<Mutability=Mutable> + PartialEq + Clone>(&mut self);
+    fn add_rollback<C: Component<Mutability = Mutable> + PartialEq + Clone>(&mut self);
 
     /// Enable rollbacks for a resource.
     fn add_resource_rollback<R: Resource + Clone>(&mut self);
@@ -1373,7 +1380,7 @@ pub trait AppComponentExt {
     fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>);
 
     /// Enable delta compression when serializing this component
-    fn add_delta_compression<C: Component<Mutability=Mutable> + PartialEq + Diffable>(&mut self)
+    fn add_delta_compression<C: Component<Mutability = Mutable> + PartialEq + Diffable>(&mut self)
     where
         C::Delta: Serialize + DeserializeOwned;
 }
@@ -1476,7 +1483,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// Enable delta compression when serializing this component
     pub fn add_delta_compression(self) -> Self
     where
-        C: Component<Mutability=Mutable> + PartialEq + Diffable,
+        C: Component<Mutability = Mutable> + PartialEq + Diffable,
         C::Delta: Serialize + DeserializeOwned,
     {
         self.app.add_delta_compression::<C>();
@@ -1485,7 +1492,9 @@ impl<C> ComponentRegistration<'_, C> {
 }
 
 impl AppComponentExt for App {
-    fn register_component<C: Component<Mutability=Mutable> + Message + PartialEq + Serialize + DeserializeOwned>(
+    fn register_component<
+        C: Component<Mutability = Mutable> + Message + PartialEq + Serialize + DeserializeOwned,
+    >(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C> {
@@ -1504,7 +1513,7 @@ impl AppComponentExt for App {
         }
     }
 
-    fn register_component_custom_serde<C: Component<Mutability=Mutable> + Message + PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability = Mutable> + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<C>,
@@ -1526,7 +1535,7 @@ impl AppComponentExt for App {
 
     // TODO: move this away from protocol? since it doesn't even use the registry at all
     //  maybe put this in the PredictionPlugin?
-    fn add_rollback<C: Component<Mutability=Mutable> + PartialEq + Clone>(&mut self) {
+    fn add_rollback<C: Component<Mutability = Mutable> + PartialEq + Clone>(&mut self) {
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_non_networked_rollback_systems::<C>(self);
@@ -1612,7 +1621,7 @@ impl AppComponentExt for App {
         registry.set_interpolation::<C>(interpolation_fn);
     }
 
-    fn add_delta_compression<C: Component<Mutability=Mutable> + PartialEq + Diffable>(&mut self)
+    fn add_delta_compression<C: Component<Mutability = Mutable> + PartialEq + Diffable>(&mut self)
     where
         C::Delta: Serialize + DeserializeOwned,
     {
@@ -1708,7 +1717,7 @@ mod tests {
                     let mut entity_world_mut =
                         unsafe { unsafe_world.world_mut() }.entity_mut(entity);
                     // SAFETY: we call `buffer_insert_raw_ptrs` above
-                    unsafe { buffer.0.batch_insert(&mut entity_world_mut) } ;
+                    unsafe { buffer.0.batch_insert(&mut entity_world_mut) };
                 })
             },
         );

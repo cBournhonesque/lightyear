@@ -252,7 +252,7 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
 }
 
 /// Update the component value on the Interpolate entity
-pub(crate) fn interpolate<C: Component<Mutability=Mutable> + Clone>(
+pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
     component_registry: Res<ComponentRegistry>,
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
 ) {

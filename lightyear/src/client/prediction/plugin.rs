@@ -1,3 +1,13 @@
+use super::pre_prediction::PrePredictionPlugin;
+use super::predicted_history::apply_confirmed_update;
+use super::resource_history::{
+    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
+};
+use super::rollback::{
+    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
+    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
+};
+use super::spawn::spawn_predicted_entity;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
@@ -18,21 +28,11 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
+use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 use core::time::Duration;
-use bevy::ecs::component::Mutable;
-use super::pre_prediction::PrePredictionPlugin;
-use super::predicted_history::apply_confirmed_update;
-use super::resource_history::{
-    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
-};
-use super::rollback::{
-    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
-};
-use super::spawn::spawn_predicted_entity;
 
 use crate::prelude::client::is_connected;
 
@@ -220,7 +220,11 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 /// Enable rollbacking a component even if the component is not networked
-pub fn add_non_networked_rollback_systems<C: Component<Mutability=Mutable> + PartialEq + Clone>(app: &mut App) {
+pub fn add_non_networked_rollback_systems<
+    C: Component<Mutability = Mutable> + PartialEq + Clone,
+>(
+    app: &mut App,
+) {
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
     app.add_systems(

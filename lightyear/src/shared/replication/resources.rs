@@ -342,7 +342,6 @@ mod tests {
             .server_app
             .world_mut()
             .insert_resource(Resource1(1.0));
-        // dbg!("SHOULD SEND RESOURCE MESSAGE");
         stepper.frame_step();
         stepper.frame_step();
 

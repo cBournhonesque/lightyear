@@ -64,6 +64,7 @@ rand.workspace = true
 ringbuffer.workspace = true
 thiserror.workspace = true
 seahash.workspace = true
+smallvec.workspace = true
 variadics_please.workspace = true
 
 # input

@@ -1,10 +1,11 @@
 //! Shared logic to handle prespawning entities
 
 use crate::prelude::{
-    ComponentRegistry, ParentSync, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, Tick,
+    ComponentRegistry, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, Tick,
 };
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
+use crate::shared::replication::hierarchy::ReplicateLike;
 use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::Components;
 use std::any::TypeId;
@@ -48,7 +49,7 @@ pub(crate) fn compute_default_hash(
                     && type_id != TypeId::of::<ShouldBePredicted>()
                     && type_id != TypeId::of::<ShouldBeInterpolated>()
                     && type_id != TypeId::of::<Controlled>()
-                    && type_id != TypeId::of::<ParentSync>()
+                    && type_id != TypeId::of::<ReplicateLike>()
                 {
                     return component_registry
                         .kind_map

@@ -3,8 +3,8 @@ use bevy::ecs::entity::EntityHash;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use bevy::prelude::{Entity, Resource};
 use bevy::platform_support::collections::HashMap;
+use bevy::prelude::{Entity, Resource};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 

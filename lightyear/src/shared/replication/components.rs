@@ -1,6 +1,8 @@
 //! Components used for replication
+
+use bevy::ecs::component::{ComponentHooks, Immutable, StorageType};
 use bevy::ecs::reflect::ReflectComponent;
-use bevy::prelude::{Component, Entity, Reflect};
+use bevy::prelude::{require, Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
@@ -10,6 +12,18 @@ use crate::protocol::component::ComponentKind;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
+use crate::utils::collections::HashMap;
+
+/// Marker that indicates that this entity is to be replicated.
+///
+/// This is not confused with `Replicating` which is only present on the entity when the entity
+/// is currently being replicated. (removing `Replicating` pauses replication updates).
+///
+/// `ReplicationMarker` is required by `ReplicateToServer` and `ReplicationTarget`
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+#[require(ReplicationGroup, Replicating)]
+pub struct ReplicationMarker;
 
 /// Marker component that indicates that the entity was initially spawned via replication
 /// (it was being replicated from a remote world)
@@ -87,29 +101,27 @@ pub enum TargetEntity {
     Preexisting(Entity),
 }
 
-/// Component that defines how the hierarchy of an entity (parent/children) should be replicated
+/// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
 ///
-/// If the component is absent, the [`ChildOf`](bevy::prelude::ChildOf)/[`Children`](bevy::prelude::Children) components will not be replicated.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+/// When `DisableReplicateHierarchy` is added to an entity, we will stop replicating their children.
+///
+/// If the component is added on an entity with `Replicate`, it's children will be replicated using
+/// the same replication settings as the Parent.
+/// This is achieved via the marker component `ReplicateLikeParent` added on each child.
+/// You can remove the `ReplicateLikeParent` component to disable this on a child entity. You can then
+/// add the replication components on the child to replicate it independently from the parents.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct ReplicateHierarchy {
-    /// If true, the direct [`Children`](bevy::prelude::Children) of this entity will be replicated
-    pub enabled: bool,
-    /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
-    ///
-    /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
-    /// and `ParentSync` components to the children yourself
-    pub recursive: bool,
-}
+pub struct DisableReplicateHierarchy;
 
-impl Default for ReplicateHierarchy {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            recursive: true,
-        }
-    }
-}
+// - each entity has a ReplicateLike(entity)
+//   - the entity can be itself or another one (usually a parent)
+// - when we spawn Replicate, etc., we insert a ReplicateLike(itself)
+//   - maybe this is not needed, and in the replication system we have 2 steps; one for ReplicateLike and one for entities that have Replication?
+// - in the replication systems, we iterate through all the ReplicateLike(entity), fetch the components on the 'like' entity, and then go
+//   - if the entity itself has a replication component, we will use that instead of the one from ReplicateLike
+// - if we add DisableReplicateHierarchy, we remove ReplicateLike from all children (but not from itself)
+// - when we remove ReplicateLike, we remove ReplicateLike recursively in all children as well
 
 // TODO: do we need this? or do we just check if delta compression fn is present in the registry?
 /// If this component is present, the component will be replicated via delta-compression.
@@ -200,27 +212,6 @@ pub struct ReplicateOnceComponent<C> {
 impl<C> Default for ReplicateOnceComponent<C> {
     fn default() -> Self {
         Self {
-            _marker: Default::default(),
-        }
-    }
-}
-
-// TODO: maybe have 3 fields:
-//  - target
-//  - override replication_target: bool (if true, we will completely override the replication target. If false, we do the intersection)
-//  - override visibility: bool (if true, we will completely override the visibility. If false, we do the intersection)
-/// This component lets you override the replication target for a specific component
-#[derive(Component, Clone, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct OverrideTargetComponent<C> {
-    pub target: NetworkTarget,
-    _marker: std::marker::PhantomData<C>,
-}
-
-impl<C> OverrideTargetComponent<C> {
-    pub fn new(target: NetworkTarget) -> Self {
-        Self {
-            target,
             _marker: Default::default(),
         }
     }

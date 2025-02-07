@@ -1,5 +1,5 @@
-use bevy::prelude::Resource;
 use crate::utils::collections::HashMap;
+use bevy::prelude::Resource;
 use enum_dispatch::enum_dispatch;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use parking_lot::RwLock;

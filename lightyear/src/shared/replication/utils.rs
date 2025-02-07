@@ -14,6 +14,8 @@ pub(crate) type MaybeUnsafeCellLocation<'a> = &'a UnsafeCell<&'static Location<'
 #[cfg(not(feature = "track_location"))]
 pub(crate) type MaybeUnsafeCellLocation<'a> = ();
 
+/// This method is necessary because there is no easy way to update the `last_run` and
+/// `this_run` ticks of a `Ref`
 pub(crate) fn get_ref<C: Component>(
     world: &World,
     entity: Entity,

@@ -8,8 +8,8 @@ use bevy::prelude::{
 use bevy::state::app::StatesPlugin;
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
-use core::time::Duration;
 use bevy::MinimalPlugins;
+use core::time::Duration;
 
 use crate::connection::netcode::generate_key;
 use crate::connection::server::{NetServer, ServerConnections};

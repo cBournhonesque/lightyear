@@ -1,7 +1,7 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
 
-use bevy::prelude::*;
 use crate::utils::collections::HashMap;
+use bevy::prelude::*;
 
 use crate::connection::id::ClientId;
 use crate::server::connection::ConnectionManager;

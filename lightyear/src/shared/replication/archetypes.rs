@@ -2,7 +2,7 @@
 use std::mem;
 
 use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::{ChannelDirection, ComponentRegistry, Replicating};
+use crate::prelude::{ChannelDirection, ComponentRegistry, ReplicateLike, Replicating};
 use crate::protocol::component::ComponentKind;
 use crate::server::replication::send::ReplicationTarget;
 use crate::shared::replication::authority::HasAuthority;
@@ -36,6 +36,9 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     /// ID of the [`Replicating`] component, which indicates that the entity is being replicated.
     /// If this component is not present, we pause all replication (inserts/updates/spawns)
     replicating_component_id: ComponentId,
+    /// ID of the [`ReplicateLike`] component. If present, we will replicate with the same parameters as the
+    /// entity stored in `ReplicateLike`
+    replicate_like_component_id: ComponentId,
     /// ID of the [`HasAuthority`] component, which indicates that the current peer has authority over the entity.
     /// On the client, we only send replication updates if we have authority.
     /// On the server, we still send replication updates even if we don't have authority, because
@@ -86,6 +89,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
             send_direction: send_to_server,
             replication_component_id: world.register_component::<ReplicateToServer>(),
             replicating_component_id: world.register_component::<Replicating>(),
+            replicate_like_component_id: world.register_component::<ReplicateLike>(),
             has_authority_component_id: Some(world.register_component::<HasAuthority>()),
             generation: ArchetypeGeneration::initial(),
             archetypes: Vec::new(),
@@ -98,6 +102,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
             send_direction: send_to_client,
             replication_component_id: world.register_component::<ReplicationTarget>(),
             replicating_component_id: world.register_component::<Replicating>(),
+            replicate_like_component_id: world.register_component::<ReplicateLike>(),
             has_authority_component_id: None,
             generation: ArchetypeGeneration::initial(),
             archetypes: Vec::new(),
@@ -115,7 +120,6 @@ pub(crate) struct ReplicatedArchetype {
 pub(crate) struct ReplicatedComponent {
     pub(crate) delta_compression: bool,
     pub(crate) replicate_once: bool,
-    pub(crate) override_target: Option<ComponentId>,
     pub(crate) id: ComponentId,
     pub(crate) kind: ComponentKind,
     pub(crate) storage_type: StorageType,
@@ -162,20 +166,20 @@ impl<C: Component> ReplicatedArchetypes<C> {
         for archetype in world.archetypes()[old_generation..]
             .iter()
             .filter(|archetype| {
-                archetype.contains(self.replication_component_id)
+                archetype.contains(self.replicate_like_component_id)
+                    || (archetype.contains(self.replication_component_id)
                     && archetype.contains(self.replicating_component_id)
                     // on the client, we only replicate if we have authority
                     // (on the server, we need to replicate to other clients even if we don't have authority)
                     && self
                         .has_authority_component_id
-                        .map_or(true, |id| archetype.contains(id))
+                        .map_or(true, |id| archetype.contains(id)))
             })
         {
             let mut replicated_archetype = ReplicatedArchetype {
                 id: archetype.id(),
                 components: Vec::new(),
             };
-            // TODO: pause inserts/updates if Replicating is not present on the entity!
             // add all components of the archetype that are present in the ComponentRegistry, and:
             // - ignore component if the component is disabled
             // - check if delta-compression is enabled
@@ -209,10 +213,6 @@ impl<C: Component> ReplicatedArchetypes<C> {
                     let replicate_once = archetype
                         .components()
                         .any(|c| c == replication_metadata.replicate_once_id);
-                    let override_target = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.override_target_id)
-                        .then_some(replication_metadata.override_target_id);
 
                     // SAFETY: component ID obtained from this archetype.
                     let storage_type =
@@ -220,7 +220,6 @@ impl<C: Component> ReplicatedArchetypes<C> {
                     replicated_archetype.components.push(ReplicatedComponent {
                         delta_compression,
                         replicate_once,
-                        override_target,
                         id: component,
                         kind,
                         storage_type,

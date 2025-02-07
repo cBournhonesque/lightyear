@@ -1,9 +1,9 @@
 use crate::prelude::ClientId;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
-use bevy::prelude::Reflect;
 use crate::utils::collections::HashSet;
 use bevy::platform_support::hash::FixedHasher;
+use bevy::prelude::Reflect;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 

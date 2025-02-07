@@ -22,8 +22,6 @@ use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
 
-
-
 #[derive(Debug)]
 pub struct ReplicationReceiver {
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
@@ -357,7 +355,7 @@ pub struct GroupChannel {
     // set of local entities that are part of the same Replication Group
     // (we use local entities because we might not be aware of the remote entities,
     //  if the remote is doing pre-mapping)
-    local_entities: HashSet<Entity>,
+    pub(crate) local_entities: HashSet<Entity>,
     // actions
     pub(crate) actions_pending_recv_message_id: MessageId,
     pub(crate) actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionsMessage)>,
@@ -725,7 +723,12 @@ impl GroupChannel {
             //  to know for which client we should do the pre-prediction
 
             // removals
-            let _ = component_registry.batch_remove(actions.remove, &mut local_entity_mut, remote_tick, events);
+            component_registry.batch_remove(
+                actions.remove,
+                &mut local_entity_mut,
+                remote_tick,
+                events,
+            );
 
             // updates
             trace!(remote_entity = ?entity, "Received UpdateComponent");
@@ -1280,16 +1283,24 @@ mod tests {
         );
         stepper.init();
 
-        let server_entity = stepper.server_app.world_mut().spawn((
-            ServerReplicate::default(),
-            ComponentSyncModeOnce(1.0),
-            ComponentSyncModeSimple(1.0),
-        )).id();
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                ServerReplicate::default(),
+                ComponentSyncModeOnce(1.0),
+                ComponentSyncModeSimple(1.0),
+            ))
+            .id();
         stepper.frame_step();
         stepper.frame_step();
 
         // remove both components
-        stepper.server_app.world_mut().entity_mut(server_entity).remove::<(ComponentSyncModeOnce, ComponentSyncModeSimple)>();
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .remove::<(ComponentSyncModeOnce, ComponentSyncModeSimple)>();
 
         stepper.frame_step();
         stepper.frame_step();
@@ -1298,7 +1309,11 @@ mod tests {
         assert!(stepper
             .client_app
             .world_mut()
-            .query_filtered::<(), (With<Replicated>, Without<ComponentSyncModeSimple>, Without<ComponentSyncModeOnce>)>()
+            .query_filtered::<(), (
+                With<Replicated>,
+                Without<ComponentSyncModeSimple>,
+                Without<ComponentSyncModeOnce>
+            )>()
             .get_single(stepper.client_app.world())
             .is_ok());
     }
