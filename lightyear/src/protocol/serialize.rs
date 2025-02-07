@@ -31,6 +31,15 @@ pub struct SerializeFns<M> {
     pub deserialize: DeserializeFn<M>,
 }
 
+impl<M: Message + Serialize + DeserializeOwned> Default for SerializeFns<M> {
+    fn default() -> Self {
+        Self {
+            serialize: default_serialize::<M>,
+            deserialize: default_deserialize::<M>,
+        }
+    }
+}
+
 type ErasedSerializeFn = unsafe fn(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
@@ -131,10 +140,7 @@ unsafe fn erased_receive_map_entities<M: MapEntities + 'static>(
 
 impl ErasedSerializeFns {
     pub(crate) fn new<M: Message + Serialize + DeserializeOwned>() -> Self {
-        Self::new_custom_serde(SerializeFns {
-            serialize: default_serialize::<M>,
-            deserialize: default_deserialize::<M>,
-        })
+        Self::new_custom_serde(SerializeFns::<M>::default())
     }
 
     pub(crate) fn new_custom_serde<M: Message>(serialize_fns: SerializeFns<M>) -> Self {

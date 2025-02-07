@@ -723,7 +723,12 @@ impl GroupChannel {
             //  to know for which client we should do the pre-prediction
 
             // removals
-            component_registry.batch_remove(actions.remove, &mut local_entity_mut);
+            component_registry.batch_remove(
+                actions.remove,
+                &mut local_entity_mut,
+                remote_tick,
+                events,
+            );
 
             // updates
             trace!(remote_entity = ?entity, "Received UpdateComponent");

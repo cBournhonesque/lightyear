@@ -69,7 +69,7 @@ pub trait NetServer: Send + Sync {
     fn connected_client_ids(&self) -> Vec<ClientId>;
 
     /// Update the connection states + internal bookkeeping (keep-alives, etc.)
-    fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError>;
+    fn try_update(&mut self, delta_ms: f64) -> Result<Vec<ConnectionError>, ConnectionError>;
 
     /// Receive a packet from one of the connected clients
     fn recv(&mut self) -> Option<(RecvPayload, ClientId)>;

@@ -2,19 +2,28 @@
 use bevy::ecs::entity::{hash_map::EntityHashMap, EntityMapper};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 const MARKED: u64 = 1 << 62;
 
+/// EntityMap that maps the entity if a mapping is present, or does nothing if not
+///
+/// The behaviour is different from the `SendEntityMap` or `RemoteEntityMap`, where
+/// we return Entity::PLACEHOLDER if the mapping fails.
+/// The reason is that `EntityMap` is used for Prediction/Interpolation mapping,
+/// where we might not want to apply the mapping. For example, say we spawn C1 and C2
+/// and only C1 is predicted to P1. If we add a component Mapped(C2) to C1, we will
+/// try to do a mapping from C2 to P2 which doesn't exist. In that case we just want
+/// to keep C2 in the component.
 #[derive(Default, Debug, Reflect, Deref, DerefMut)]
 pub struct EntityMap(pub(crate) EntityHashMap<Entity>);
 
 impl EntityMapper for EntityMap {
-    /// Try to map the entity using the map, or return Entity::PLACEHOLDER if it fails
+    /// Try to map the entity using the map, or don't do anything if it fails
     fn map_entity(&mut self, entity: Entity) -> Entity {
         self.0.get(&entity).copied().unwrap_or_else(|| {
-            error!("Failed to map entity {entity:?}");
-            Entity::PLACEHOLDER
+            debug!("Failed to map entity {entity:?}");
+            entity
         })
     }
 }
@@ -182,11 +191,12 @@ impl RemoteEntityMap {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::server::Replicate;
+    use crate::client::components::Confirmed;
+    use crate::prelude::server::{Replicate, SyncTarget};
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
-    use bevy::prelude::Entity;
+    use bevy::prelude::{default, Entity};
 
     /// Test marking entities as mapped or not
     #[test]
@@ -260,6 +270,87 @@ mod tests {
                 .get::<ComponentMapEntities>()
                 .unwrap(),
             &ComponentMapEntities(client_entity)
+        );
+    }
+
+    /// Check that the EntityMap (used for PredictionEntityMap and InterpolationEntityMap)
+    /// doesn't map to Entity::PLACEHOLDER if the mapping fails.
+    ///
+    /// See: https://github.com/cBournhonesque/lightyear/issues/859
+    /// The reason is that we might have cases where we don't to map from Confirmed to Predicted,
+    /// for example if we spawn two entities C1 and C2 but only one of them is predicted.
+    #[test]
+    fn test_entity_map_no_mapping_found() {
+        let mut stepper = BevyStepper::default();
+        // s1 is predicted, s2 is not
+        let s1 = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate {
+                sync: SyncTarget {
+                    prediction: NetworkTarget::All,
+                    ..default()
+                },
+                ..default()
+            })
+            .id();
+        let s2 = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate::default())
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let c1_confirmed = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(s1)
+            .unwrap();
+        let c1_predicted = stepper
+            .client_app
+            .world()
+            .get::<Confirmed>(c1_confirmed)
+            .unwrap()
+            .predicted
+            .unwrap();
+        let c2 = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(s2)
+            .unwrap();
+        // add a component on s1 that maps to an entity that doesn't have a predicted entity
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(s1)
+            .insert(ComponentMapEntities(s2));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the component is mapped correctly for the confirmed entities
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentMapEntities>(c1_confirmed)
+                .unwrap(),
+            &ComponentMapEntities(c2)
+        );
+
+        // check that the component is unmapped for the predicted entities
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentMapEntities>(c1_predicted)
+                .unwrap(),
+            &ComponentMapEntities(c2)
         );
     }
 }

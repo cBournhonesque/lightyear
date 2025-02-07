@@ -198,7 +198,7 @@ impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePat
                 .after(InternalMainSet::<P::SetMarker>::Receive)
                 // we want update_parent to run in the same frame that ParentSync is propagated
                 // to the predicted/interpolated entities
-                .after(PredictionSet::SpawnHistory)
+                .after(PredictionSet::Sync)
                 .after(InterpolationSet::SpawnHistory),
         );
     }

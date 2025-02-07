@@ -78,6 +78,7 @@ pub struct Server {
     new_connections: Vec<ClientId>,
     new_disconnections: Vec<ClientId>,
     conditioner: Option<LinkConditionerConfig>,
+    client_errors: Vec<ConnectionError>,
 }
 
 impl Server {
@@ -114,6 +115,7 @@ impl Server {
             new_connections: Vec::new(),
             new_disconnections: Vec::new(),
             conditioner,
+            client_errors: vec![],
         })
     }
 }
@@ -185,7 +187,7 @@ impl NetServer for Server {
         self.connections.keys().cloned().collect()
     }
 
-    fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
+    fn try_update(&mut self, delta_ms: f64) -> Result<Vec<ConnectionError>, ConnectionError> {
         self.steamworks_client
             .try_write()
             .expect("could not get steamworks client")
@@ -272,7 +274,7 @@ impl NetServer for Server {
         }
 
         // send any keep-alives or connection-related packets
-        Ok(())
+        Ok(self.client_errors.drain(..).collect())
     }
 
     fn recv(&mut self) -> Option<(RecvPayload, ClientId)> {

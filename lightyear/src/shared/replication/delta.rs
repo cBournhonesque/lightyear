@@ -227,7 +227,7 @@ mod tests {
     fn test_add_get_data() {
         let mut world = World::default();
         let mut registry = ComponentRegistry::default();
-        registry.register_component::<ComponentDeltaCompression>();
+        registry.register_component::<ComponentDeltaCompression>(&mut world);
         registry.set_delta_compression::<ComponentDeltaCompression>(&mut world);
         let mut store = DeltaComponentStore::default();
         let entity = Entity::from_raw(0);
@@ -250,7 +250,7 @@ mod tests {
     fn test_delete_old_data() {
         let mut world = World::default();
         let mut registry = ComponentRegistry::default();
-        registry.register_component::<ComponentDeltaCompression>();
+        registry.register_component::<ComponentDeltaCompression>(&mut world);
         registry.set_delta_compression::<ComponentDeltaCompression>(&mut world);
         let mut store = DeltaComponentStore::default();
         let entity = Entity::from_raw(0);
