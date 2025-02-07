@@ -504,6 +504,7 @@ pub(crate) mod send {
                         // ReplicateLike points to a parent entity that doesn't have ReplicationTarget, skip
                         continue
                     };
+                    dbg!(&entity, &replicate_like);
                     let (group_id, priority, group_ready) =
                         entity_ref.get::<ReplicationGroup>().map_or_else(
                             // if ReplicationGroup is not present, we use the parent entity

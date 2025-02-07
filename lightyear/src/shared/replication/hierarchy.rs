@@ -15,13 +15,15 @@ use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 use bevy::ecs::component::{ComponentHooks, HookContext, Immutable, Mutable, StorageType};
 use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
 use bevy::ecs::reflect::{ReflectMapEntities, ReflectVisitEntities, ReflectVisitEntitiesMut};
-use bevy::ecs::relationship::Relationship;
+use bevy::ecs::relationship::{Relationship, RelationshipTarget};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::fmt::{Debug, Formatter};
+
+pub type ChildOfSync = RelationshipSync<ChildOf>;
 
 // TODO: ideally this would not be needed, but Relationship are Immutable component
 //  so we would have to update our whole replication/prediction/interpolation code to work on Immutable components
@@ -31,7 +33,7 @@ use std::fmt::{Debug, Formatter};
 ///
 /// Updates entity's `ChildOf` component on change.
 /// Removes the parent if `None`.
-#[derive(Reflect, Serialize, Deserialize)]
+#[derive(Component, Reflect, Serialize, Deserialize)]
 #[reflect(Component)]
 pub struct RelationshipSync<R: Relationship>{
     entity: Option<Entity>,
@@ -82,20 +84,6 @@ impl<R: Relationship> From<Option<Entity>> for RelationshipSync<R> {
 }
 
 
-
-impl<R: Relationship> Component for RelationshipSync<R> {
-    const STORAGE_TYPE: StorageType = StorageType::Table;
-    type Mutability = Mutable;
-
-    /// When RelationshipSync is added, we set its value to the existing Relationship if it exists
-    fn register_component_hooks(hooks: &mut ComponentHooks) {
-        hooks.on_add(|mut world: DeferredWorld, ctx: HookContext| {
-            let parent = world.get::<R>(ctx.entity).map(|r| r.get());
-            world.get_mut::<RelationshipSync<R>>(ctx.entity).unwrap().set_if_neq(parent.into());
-        });
-    }
-}
-
 impl<R: Relationship> MapEntities for RelationshipSync<R> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         if let Some(entity) = &mut self.entity {
@@ -122,10 +110,12 @@ impl<R: Relationship> Default for HierarchySendPlugin<R> {
 impl<R: Relationship> HierarchySendPlugin<R> {
 
     /// If the relationship changes (a new Relationship component was inserted)
-    /// update the RelationshipSync
+    /// or if RelationshipSync is inserted,
+    /// update the RelationshipSync to match the parent value
     fn handle_parent_insert(
-        trigger: Trigger<OnAdd, R>,
-        mut query: Query<(&R, &mut RelationshipSync<R>)>,
+        trigger: Trigger<OnAdd, (R, RelationshipSync<R>)>,
+        // include filter to make sure that this is running on the send side
+        mut query: Query<(&R, &mut RelationshipSync<R>), Or<(With<ReplicationMarker>, With<ReplicateLike>)>>,
     ) {
         if let Ok((parent, mut parent_sync)) = query.get_mut(trigger.target()) {
             parent_sync.set_if_neq(Some(parent.get()).into());
@@ -135,7 +125,8 @@ impl<R: Relationship> HierarchySendPlugin<R> {
     /// Update RelationshipSync if the Relationship has been removed
     fn handle_parent_remove(
         trigger: Trigger<OnRemove, R>,
-        mut hierarchy: Query<&mut RelationshipSync<R>>,
+        // include filter to make sure that this is running on the send side
+        mut hierarchy: Query<&mut RelationshipSync<R>, Or<(With<ReplicationMarker>, With<ReplicateLike>)>>,
     ) {
         if let Ok(mut parent_sync) = hierarchy.get_mut(trigger.target()) {
             parent_sync.entity = None;
@@ -227,13 +218,20 @@ impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePat
 pub struct ReplicateLike(pub(crate) Entity);
 
 
+// TODO: for simplicity we currently conflate replicating the hierarchy component (RelationshipSync<ChildOf>)
+//  with propagating the replication components to children. Ideally we would be differentiating between
+//  the 2, but in most cases they are the same (you want to propagate the replication components to the children
+//  AND replicate the ChildOf relationship)
 /// If `ReplicationMarker` is added on an entity that has `Children`
 /// then we add `ReplicateLike(root)` on all the descendants.
 ///
-/// Note that this doesn't happen if the `DisableReplicateHierarchy` is present.
+/// Descendants that have `DisableReplicateHierarchy` will be skipped; i.e.
+/// we won't add ReplicateLike on them or include `RelationshipSync<ChildOf>` on them, and
+/// we won't iterate through their descendants.
 ///
 /// If a child entity already has the `ReplicationMarker` component, we ignore it and its descendants.
 pub(crate) fn propagate_replicate_like_replication_marker_added(
+    // TODO: if ParentSync is added, should we propagate it?
     // do the propagation if either ReplicationMarker is added OR Children is inserted
     // we can't directly use an observer to see if Children is updated, so we have another
     // trigger if ChildOf is inserted!
@@ -252,16 +250,30 @@ pub(crate) fn propagate_replicate_like_replication_marker_added(
     children_query: Query<&Children>,
     // exclude those that have `ReplicationMarker` (as we don't want to overwrite the `ReplicateLike` component
     // for their descendants, and we don't want to add `ReplicateLike` on them)
-    child_filter: Query<Has<DisableReplicateHierarchy>, Without<ReplicationMarker>>,
+    child_filter: Query<(), (Without<DisableReplicateHierarchy>, Without<ReplicationMarker>)>,
     mut commands: Commands,
 ) {
-    propagate_replicate_like(
-        trigger.target(),
-        &root_query,
-        &children_query,
-        &child_filter,
-        &mut commands,
-    );
+    let root = trigger.target();
+    // if `DisableReplicateHierarchy` is present, return early since we don't need to propagate `ReplicateLike`
+    let Ok(has_parent_sync) = root_query.get(root) else { return };
+    let children = children_query.get(root).unwrap();
+    // we go through all the descendants (instead of just the children) so that the root is added
+    // and we don't need to search for the root ancestor in the replication systems
+    let mut stack = SmallVec::<[Entity; 8]>::new();
+    stack.push(root);
+    while let Some(parent) = stack.pop() {
+        for child in children_query.relationship_sources(parent) {
+            if let Ok(()) = child_filter.get(child) {
+                // TODO: should we buffer those inside a SmallVec for batch insert?
+                // we also insert RelationshipSync on the descendants
+                dbg!(&child);
+                commands.entity(child).insert(
+                    (ReplicateLike(root), ChildOfSync::from(Some(parent)))
+                );
+                stack.push(child);
+            }
+        }
+    }
 }
 
 /// If `ReplicationMarker` is removed on an entity that has `Children`
@@ -297,7 +309,7 @@ pub(crate) fn propagate_replicate_like_replication_marker_removed(
     while let Some(parent) = stack.pop() {
         for child in children_query.relationship_sources(parent) {
             if let Ok(()) = child_filter.get(child) {
-                commands.entity(child).remove::<ReplicateLike>();
+                commands.entity(child).remove::<(ReplicateLike, ChildOfSync)>();
             }
         }
     }
@@ -341,52 +353,18 @@ pub(crate) fn propagate_replicate_like_children_updated(
 }
 
 
-fn propagate_replicate_like(
-    root: Entity,
-    root_query: &Query<
-        (),
-        (
-            With<Children>,
-            Without<DisableReplicateHierarchy>,
-            With<ReplicationMarker>,
-        ),
-    >,
-    children_query: &Query<&Children>,
-    // exclude those that have `ReplicationMarker` (as we don't want to overwrite the `ReplicateLike` component
-    // for their descendants, and we don't want to add `ReplicateLike` on them)
-    child_filter: &Query<Has<DisableReplicateHierarchy>, Without<ReplicationMarker>>,
-    commands: &mut Commands,
-) {
-    // if `DisableReplicateHierarchy` is present, return early since we don't need to propagate `ReplicateLike`
-    let Ok(()) = root_query.get(root) else { return };
-    let children = children_query.get(root).unwrap();
-    // we go through all the descendants (instead of just the children) so that the root is added
-    // and we don't need to search for the root ancestor in the replication systems
-    let mut stack = SmallVec::<[Entity; 8]>::new();
-    stack.push(root);
-    while let Some(parent) = stack.pop() {
-        for child in children_query.relationship_sources(parent) {
-            if let Ok(disable_hierarchy) = child_filter.get(child) {
-                // TODO: should we buffer those inside a SmallVec for batch insert?
-                // we always add ReplicateLike to the child, but we keep going recursively only if
-                // it does not have `DisableReplicateHierarchy`
-                commands.entity(child).insert(ReplicateLike(root));
-                if !disable_hierarchy {
-                    stack.push(child);
-                }
-            }
-        }
-    }
-}
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use bevy::prelude::Entity;
-
+    use crate::prelude::server::Replicate;
+    use crate::prelude::{ClientConnectionManager, ClientId, ClientReplicate, NetworkTarget};
+    use crate::shared::replication::components::ReplicationGroupId;
+    use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
+    use bevy::prelude::Entity;
 
     fn setup_hierarchy() -> (BevyStepper, Entity, Entity, Entity) {
         let mut stepper = BevyStepper::default();
@@ -719,371 +697,348 @@ mod tests {
             .is_none());
     }
 
-    //
-    // #[test]
-    // fn test_update_parent() {
-    //     let (mut stepper, grandparent, parent, child) = setup_hierarchy();
-    //
-    //     let replicate = Replicate {
-    //         hierarchy: ReplicateHierarchy {
-    //             enabled: true,
-    //             recursive: false,
-    //         },
-    //         // make sure that child and parent are replicated in the same group, so that both entities are spawned
-    //         // before entity mapping is done
-    //         group: ReplicationGroup::new_id(0),
-    //         ..default()
-    //     };
-    //     stepper
-    //         .server_app
-    //         .world_mut()
-    //         .entity_mut(parent)
-    //         .insert((replicate.clone(), ParentSync::default()));
-    //     stepper
-    //         .server_app
-    //         .world_mut()
-    //         .entity_mut(grandparent)
-    //         .insert(replicate.clone());
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // check that the parent got replicated, along with the hierarchy information
-    //     let client_grandparent = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-    //         .get_single(stepper.client_app.world())
-    //         .unwrap();
-    //     let (client_parent, client_parent_sync, client_parent_component) = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .query_filtered::<(Entity, &ParentSync, &ChildOf), With<ComponentSyncModeSimple>>()
-    //         .get_single(stepper.client_app.world())
-    //         .unwrap();
-    //
-    //     assert_eq!(client_parent_sync.0, Some(client_grandparent));
-    //     assert_eq!(*client_parent_component.deref(), client_grandparent);
-    //
-    //     // remove the hierarchy on the sender side
-    //     stepper
-    //         .server_app
-    //         .world_mut()
-    //         .entity_mut(parent)
-    //         .remove::<ChildOf>();
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //     // 1. make sure that parent sync has been updated on the sender side
-    //     assert_eq!(
-    //         stepper
-    //             .server_app
-    //             .world_mut()
-    //             .entity_mut(parent)
-    //             .get::<ParentSync>(),
-    //         Some(&ParentSync(None))
-    //     );
-    //
-    //     // 2. make sure that the parent has been removed on the receiver side, and that ParentSync has been updated
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world_mut()
-    //             .entity_mut(client_parent)
-    //             .get::<ParentSync>(),
-    //         Some(&ParentSync(None))
-    //     );
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world_mut()
-    //             .entity_mut(client_parent)
-    //             .get::<ChildOf>(),
-    //         None,
-    //     );
-    //     assert!(stepper
-    //         .client_app
-    //         .world_mut()
-    //         .entity_mut(client_grandparent)
-    //         .get::<Children>()
-    //         .is_none());
-    // }
-    //
-    // #[test]
-    // fn test_propagate_hierarchy() {
-    //     // tracing_subscriber::FmtSubscriber::builder()
-    //     //     .with_max_level(tracing::Level::ERROR)
-    //     //     .init();
-    //     let (mut stepper, grandparent, parent, child) = setup_hierarchy();
-    //
-    //     stepper
-    //         .server_app
-    //         .world_mut()
-    //         .entity_mut(grandparent)
-    //         .insert(Replicate::default());
-    //
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // 1. check that the parent and child have been replicated
-    //     let client_grandparent = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-    //         .get_single(stepper.client_app.world())
-    //         .unwrap();
-    //     let client_parent = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
-    //         .get_single(stepper.client_app.world())
-    //         .unwrap();
-    //     let client_child = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
-    //         .get_single(stepper.client_app.world())
-    //         .unwrap();
-    //
-    //     // 2. check that the hierarchies have been replicated
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world_mut()
-    //             .entity_mut(client_parent)
-    //             .get::<ChildOf>()
-    //             .unwrap()
-    //             .deref(),
-    //         &client_grandparent
-    //     );
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world_mut()
-    //             .entity_mut(client_child)
-    //             .get::<ChildOf>()
-    //             .unwrap()
-    //             .deref(),
-    //         &client_parent
-    //     );
-    //
-    //     // 3. check that the replication group has been set correctly
-    //     assert_eq!(
-    //         stepper
-    //             .server_app
-    //             .world_mut()
-    //             .entity_mut(parent)
-    //             .get::<ReplicationGroup>(),
-    //         Some(&ReplicationGroup::new_id(grandparent.to_bits()))
-    //     );
-    //     assert_eq!(
-    //         stepper
-    //             .server_app
-    //             .world_mut()
-    //             .entity_mut(child)
-    //             .get::<ReplicationGroup>(),
-    //         Some(&ReplicationGroup::new_id(grandparent.to_bits()))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn test_propagate_hierarchy_client_to_server() {
-    //     let mut stepper = BevyStepper::default();
-    //     let child = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .spawn(ComponentClientToServer(0.0))
-    //         .id();
-    //     let parent = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .spawn((ComponentSyncModeFull(0.0), client::Replicate::default()))
-    //         .add_child(child)
-    //         .id();
-    //
-    //     for _ in 0..10 {
-    //         stepper.frame_step();
-    //     }
-    //
-    //     // check that both the parent and the child were replicated
-    //     let server_parent = stepper
-    //         .server_app
-    //         .world_mut()
-    //         .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-    //         .get_single(stepper.server_app.world())
-    //         .expect("parent entity was not replicated");
-    //     let server_child = stepper
-    //         .server_app
-    //         .world_mut()
-    //         .query_filtered::<Entity, With<ComponentClientToServer>>()
-    //         .get_single(stepper.server_app.world())
-    //         .expect("child entity was not replicated");
-    //     assert_eq!(
-    //         stepper
-    //             .server_app
-    //             .world()
-    //             .get::<ChildOf>(server_child)
-    //             .unwrap()
-    //             .get(),
-    //         server_parent
-    //     );
-    //     assert_eq!(
-    //         stepper
-    //             .server_app
-    //             .world()
-    //             .get::<ParentSync>(server_child)
-    //             .unwrap(),
-    //         &ParentSync(Some(server_parent))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn test_remove_child() {
-    //     let mut stepper = BevyStepper::default();
-    //     let child = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .spawn(ComponentSyncModeFull(0.0))
-    //         .id();
-    //     let parent = stepper
-    //         .client_app
-    //         .world_mut()
-    //         .spawn((ComponentSyncModeSimple(0.0), client::Replicate::default()))
-    //         .add_child(child)
-    //         .id();
-    //     stepper
-    //         .client_app
-    //         .world_mut()
-    //         .commands()
-    //         .entity(child)
-    //         .despawn();
-    //
-    //     for _ in 0..10 {
-    //         stepper.frame_step();
-    //     }
-    //
-    //     // check that child was removed
-    //     let server_child = stepper
-    //         .server_app
-    //         .world_mut()
-    //         .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-    //         .get_single(stepper.server_app.world());
-    //     assert!(server_child.is_err());
-    // }
-    //
-    // /// https://github.com/cBournhonesque/lightyear/issues/649
-    // /// P1 with child C1
-    // /// If you add a new client to the replication target of P1, then both
-    // /// P1 and C1 should be replicated to the new client.
-    // /// (the issue says that only P1 was replicated)
-    // #[test]
-    // fn test_new_client_is_added_to_parent() {
-    //     let mut stepper = MultiBevyStepper::default();
-    //
-    //     let c1 = ClientId::Netcode(TEST_CLIENT_ID_1);
-    //     let c2 = ClientId::Netcode(TEST_CLIENT_ID_2);
-    //
-    //     let server_child = stepper.server_app.world_mut().spawn_empty().id();
-    //     let server_parent = stepper
-    //         .server_app
-    //         .world_mut()
-    //         .spawn(server::Replicate {
-    //             target: ReplicationTarget {
-    //                 target: NetworkTarget::Single(c1),
-    //             },
-    //             ..default()
-    //         })
-    //         .add_child(server_child)
-    //         .id();
-    //
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     let c1_child = stepper
-    //         .client_app_1
-    //         .world()
-    //         .resource::<client::ConnectionManager>()
-    //         .replication_receiver
-    //         .remote_entity_map
-    //         .get_local(server_child)
-    //         .expect("child entity was not replicated to client 1");
-    //     let c1_parent = stepper
-    //         .client_app_1
-    //         .world()
-    //         .resource::<client::ConnectionManager>()
-    //         .replication_receiver
-    //         .remote_entity_map
-    //         .get_local(server_parent)
-    //         .expect("parent entity was not replicated to client 1");
-    //
-    //     // change the replication target to include a new client
-    //     stepper
-    //         .server_app
-    //         .world_mut()
-    //         .get_mut::<ReplicationTarget>(server_parent)
-    //         .unwrap()
-    //         .target = NetworkTarget::Only(vec![c1, c2]);
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // check that both parent and child were replicated to the new client
-    //     let c2_child = stepper
-    //         .client_app_2
-    //         .world()
-    //         .resource::<client::ConnectionManager>()
-    //         .replication_receiver
-    //         .remote_entity_map
-    //         .get_local(server_child)
-    //         .expect("child entity was not replicated to client 2");
-    //     let c2_parent = stepper
-    //         .client_app_2
-    //         .world()
-    //         .resource::<client::ConnectionManager>()
-    //         .replication_receiver
-    //         .remote_entity_map
-    //         .get_local(server_parent)
-    //         .expect("parent entity was not replicated to client 2");
-    // }
-    //
-    // /// https://github.com/cBournhonesque/lightyear/issues/547
-    // /// Test that when a new child is added to a parent that has ReplicateHierarchy.true
-    // /// the child is also replicated to the remote
-    // #[test]
-    // fn test_propagate_hierarchy_new_child() {
-    //     let mut stepper = BevyStepper::default();
-    //     let server_parent = stepper
-    //         .server_app
-    //         .world_mut()
-    //         .spawn(server::Replicate::default())
-    //         .id();
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //     let client_parent = stepper
-    //         .client_app
-    //         .world()
-    //         .resource::<client::ConnectionManager>()
-    //         .replication_receiver
-    //         .remote_entity_map
-    //         .get_local(server_parent)
-    //         .expect("parent entity was not replicated to client");
-    //
-    //     // add a child to the entity
-    //     let server_child = stepper.server_app.world_mut().spawn_empty().id();
-    //     stepper
-    //         .server_app
-    //         .world_mut()
-    //         .entity_mut(server_parent)
-    //         .add_child(server_child);
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //
-    //     // check that Replicate was propagated to the child, and that the child
-    //     // was replicated to the client
-    //     let client_child = stepper
-    //         .client_app
-    //         .world()
-    //         .resource::<client::ConnectionManager>()
-    //         .replication_receiver
-    //         .remote_entity_map
-    //         .get_local(server_child)
-    //         .expect("child entity was not replicated to client");
-    // }
+
+    #[test]
+    fn test_update_parent() {
+        let (mut stepper, grandparent, parent, child) = setup_hierarchy();
+
+        let replicate = Replicate {
+            ..default()
+        };
+        // disable propagation to the child, so the child won't have ReplicateLike or RelationshipSync
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(child)
+            .insert(DisableReplicateHierarchy);
+        // add Replicate, which should propagate the RelationshipSync and ReplicateLike through the hierarchy
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(grandparent)
+            .insert(replicate.clone());
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the parent got replicated, along with the hierarchy information
+        let client_grandparent = stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
+            .get_single(stepper.client_app.world())
+            .unwrap();
+        let (client_parent, client_parent_sync, client_parent_component) = stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<(Entity, &ChildOfSync, &ChildOf), With<ComponentSyncModeSimple>>()
+            .get_single(stepper.client_app.world())
+            .unwrap();
+
+        assert_eq!(client_parent_sync.entity, Some(client_grandparent));
+        assert_eq!(client_parent_component.get(), client_grandparent);
+
+        // check that the child did not get replicated
+        assert!(stepper.server_app.world().get::<ChildOfSync>(child).is_none());
+        assert!(stepper.server_app.world().get::<ReplicateLike>(child).is_none());
+
+        // remove the hierarchy on the sender side
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(parent)
+            .remove::<ChildOf>();
+        let replicate_like = stepper
+            .server_app
+            .world_mut()
+            .get::<ReplicateLike>(parent);
+        stepper.frame_step();
+        stepper.frame_step();
+        // 1. make sure that parent sync has been updated on the sender side
+        assert_eq!(
+            stepper
+                .server_app
+                .world_mut()
+                .entity_mut(parent)
+                .get::<ChildOfSync>(),
+            Some(&ChildOfSync::from(None))
+        );
+
+        // 2. make sure that the parent has been removed on the receiver side, and that ParentSync has been updated
+        assert_eq!(
+            stepper
+                .client_app
+                .world_mut()
+                .entity_mut(client_parent)
+                .get::<ChildOfSync>(),
+            Some(&ChildOfSync::from(None))
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world_mut()
+                .entity_mut(client_parent)
+                .get::<ChildOf>(),
+            None,
+        );
+        assert!(stepper
+            .client_app
+            .world_mut()
+            .entity_mut(client_grandparent)
+            .get::<Children>()
+            .is_none());
+    }
+
+    #[test]
+    fn test_propagate_hierarchy() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
+        let (mut stepper, grandparent, parent, child) = setup_hierarchy();
+
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(grandparent)
+            .insert(Replicate::default());
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let a = stepper.server_app.world().get::<ReplicateLike>(parent);
+        let b = stepper.server_app.world().get::<ChildOfSync>(parent);
+        dbg!(a, b);
+        let a = stepper.server_app.world().get::<ReplicateLike>(child);
+        let b = stepper.server_app.world().get::<ChildOfSync>(child);
+        dbg!(a, b);
+
+        // 1. check that the parent and child have been replicated
+        let client_grandparent = stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
+            .get_single(stepper.client_app.world())
+            .unwrap();
+        let client_parent = stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
+            .get_single(stepper.client_app.world())
+            .unwrap();
+        let client_child = stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
+            .get_single(stepper.client_app.world())
+            .unwrap();
+
+        // 2. check that the hierarchies have been replicated
+        assert_eq!(
+            stepper
+                .client_app
+                .world_mut()
+                .entity_mut(client_parent)
+                .get::<ChildOf>()
+                .unwrap()
+                .get(),
+            client_grandparent
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world_mut()
+                .entity_mut(client_child)
+                .get::<ChildOf>()
+                .unwrap()
+                .get(),
+            client_parent
+        );
+
+        // 3. check that the replication group has been set correctly
+        // (all 3 entities have been sent in the same group)
+        let group_id = ReplicationGroupId(grandparent.to_bits());
+            assert_eq!(stepper
+                .client_app
+                .world()
+                .resource::<ClientConnectionManager>()
+                .replication_receiver
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .local_entities
+                .len(), 3);
+    }
+
+    #[test]
+    fn test_propagate_hierarchy_client_to_server() {
+        let mut stepper = BevyStepper::default();
+        let child = stepper
+            .client_app
+            .world_mut()
+            .spawn(ComponentClientToServer(0.0))
+            .id();
+        let parent = stepper
+            .client_app
+            .world_mut()
+            .spawn((ComponentSyncModeFull(0.0), ClientReplicate::default()))
+            .add_child(child)
+            .id();
+
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
+
+        // check that both the parent and the child were replicated
+        let server_parent = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
+            .get_single(stepper.server_app.world())
+            .expect("parent entity was not replicated");
+        let server_child = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<ComponentClientToServer>>()
+            .get_single(stepper.server_app.world())
+            .expect("child entity was not replicated");
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<ChildOf>(server_child)
+                .unwrap()
+                .get(),
+            server_parent
+        );
+        assert_eq!(
+            stepper
+                .server_app
+                .world()
+                .get::<ChildOfSync>(server_child)
+                .unwrap(),
+            &ChildOfSync::from(Some(server_parent))
+        );
+    }
+
+
+    /// https://github.com/cBournhonesque/lightyear/issues/649
+    /// P1 with child C1
+    /// If you add a new client to the replication target of P1, then both
+    /// P1 and C1 should be replicated to the new client.
+    /// (the issue says that only P1 was replicated)
+    #[test]
+    fn test_new_client_is_added_to_parent() {
+        let mut stepper = MultiBevyStepper::default();
+
+        let c1 = ClientId::Netcode(TEST_CLIENT_ID_1);
+        let c2 = ClientId::Netcode(TEST_CLIENT_ID_2);
+
+        let server_child = stepper.server_app.world_mut().spawn_empty().id();
+        let server_parent = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate {
+                target: ReplicationTarget {
+                    target: NetworkTarget::Single(c1),
+                },
+                ..default()
+            })
+            .add_child(server_child)
+            .id();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let c1_child = stepper
+            .client_app_1
+            .world()
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_child)
+            .expect("child entity was not replicated to client 1");
+        let c1_parent = stepper
+            .client_app_1
+            .world()
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_parent)
+            .expect("parent entity was not replicated to client 1");
+
+        // change the replication target to include a new client
+        stepper
+            .server_app
+            .world_mut()
+            .get_mut::<ReplicationTarget>(server_parent)
+            .unwrap()
+            .target = NetworkTarget::Only(vec![c1, c2]);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that both parent and child were replicated to the new client
+        let c2_child = stepper
+            .client_app_2
+            .world()
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_child)
+            .expect("child entity was not replicated to client 2");
+        let c2_parent = stepper
+            .client_app_2
+            .world()
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_parent)
+            .expect("parent entity was not replicated to client 2");
+    }
+
+
+    /// https://github.com/cBournhonesque/lightyear/issues/547
+    /// Test that when a new child is added to a parent
+    /// the child is also replicated to the remote
+    #[test]
+    fn test_propagate_hierarchy_new_child() {
+        let mut stepper = BevyStepper::default();
+        let server_parent = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate::default())
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_parent = stepper
+            .client_app
+            .world()
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_parent)
+            .expect("parent entity was not replicated to client");
+
+        // add a child to the entity
+        let server_child = stepper.server_app.world_mut().spawn_empty().id();
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_parent)
+            .add_child(server_child);
+        dbg!(&server_parent, &server_child);
+        stepper.frame_step();
+        let b = stepper.server_app.world().get::<ReplicateLike>(server_child);
+        dbg!(b);
+        stepper.frame_step();
+
+        // check that Replicate was propagated to the child, and that the child
+        // was replicated to the client
+        let client_child = stepper
+            .client_app
+            .world()
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_child)
+            .expect("child entity was not replicated to client");
+    }
 }

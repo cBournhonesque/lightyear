@@ -156,8 +156,10 @@ pub(crate) mod send {
 
             // we add this condition to not add a plugin twice if running in HostServer mode
             if !app.is_plugin_added::<shared::SharedPlugin>() {
-                app.add_plugins(shared::SharedPlugin)
-                    .add_plugins(HierarchySendPlugin::<ChildOf>::default());
+                app.add_plugins(shared::SharedPlugin);
+            }
+            if !app.is_plugin_added::<HierarchySendPlugin<ChildOf>>() {
+                app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
             }
             app.add_plugins(ResourceSendPlugin::<R>::default());
 

@@ -355,7 +355,7 @@ pub struct GroupChannel {
     // set of local entities that are part of the same Replication Group
     // (we use local entities because we might not be aware of the remote entities,
     //  if the remote is doing pre-mapping)
-    local_entities: HashSet<Entity>,
+    pub(crate) local_entities: HashSet<Entity>,
     // actions
     pub(crate) actions_pending_recv_message_id: MessageId,
     pub(crate) actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionsMessage)>,
@@ -580,6 +580,7 @@ impl GroupChannel {
             ?message,
             "Received replication actions from remote: {remote:?}"
         );
+        dbg!(&message);
         // NOTE: order matters here, because some components can depend on other entities.
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
