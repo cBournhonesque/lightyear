@@ -141,7 +141,6 @@ pub(crate) mod send {
             );
 
             app.add_observer(replicate_entity_local_despawn);
-            app.add_observer(replicate_entity_local_despawn_child);
             app.add_observer(add_has_authority_component);
             app.add_observer(handle_pre_predicted);
         }
@@ -863,28 +862,12 @@ pub(crate) mod send {
             });
     }
 
-    /// Despawn entities when ReplicateLike gets removed on local world
-    pub(crate) fn replicate_entity_local_despawn_child(
-        trigger: Trigger<OnRemove, ReplicateLike>,
-        parent_query: Query<&ReplicateLike>,
-        root_query: Query<
-            (
-                &ReplicationGroup,
-                &ReplicationTarget,
-                Option<&CachedNetworkRelevance>,
-            ),
-            With<Replicating>,
-        >,
-        mut sender: ResMut<ConnectionManager>,
-    ) {
-        let root = parent_query.get(trigger.target()).unwrap().0;
-        send_entity_despawn(trigger.target(), root, &root_query, &mut sender);
-    }
 
     /// Despawn entities when the entity gets despawned on local world
     pub(crate) fn replicate_entity_local_despawn(
         // we use the removal of ReplicationGroup to detect the despawn
-        trigger: Trigger<OnRemove, ReplicationGroup>,
+        trigger: Trigger<OnRemove, (ReplicationGroup, ReplicateLike)>,
+        root_query: Query<&ReplicateLike>,
         // only replicate despawns to entities that still had Replicating at the time of their despawn
         query: Query<
             (
@@ -897,23 +880,9 @@ pub(crate) mod send {
         mut sender: ResMut<ConnectionManager>,
     ) {
         let entity = trigger.target();
-        send_entity_despawn(entity, entity, &query, &mut sender);
-    }
-
-    fn send_entity_despawn(
-        despawn_entity: Entity,
-        root_entity: Entity,
-        query: &Query<
-            (
-                &ReplicationGroup,
-                &ReplicationTarget,
-                Option<&CachedNetworkRelevance>,
-            ),
-            With<Replicating>,
-        >,
-        sender: &mut ResMut<ConnectionManager>,
-    ) {
-        if let Ok((replication_group, network_target, cached_relevance)) = query.get(root_entity) {
+        let root = root_query.get(entity).map_or(entity, |r| r.0);
+        // TODO: be able to override the root components with the ones from the child if any are available!
+        if let Ok((replication_group, network_target, cached_relevance)) = query.get(root) {
             // only send the despawn to clients who were in the target of the entity
             let mut target = network_target.clone().target;
             // only send the despawn to clients that had visibility of the entity
@@ -925,8 +894,8 @@ pub(crate) mod send {
             }
             let _ = sender
                 .prepare_entity_despawn(
-                    despawn_entity,
-                    replication_group.group_id(Some(root_entity)),
+                    entity,
+                    replication_group.group_id(Some(root)),
                     target,
                 )
                 // TODO: bubble up errors to user via ConnectionEvents?

@@ -20,10 +20,6 @@ pub enum InternalReplicationSet<M> {
     SetPreSpawnedHash,
     /// System that handles the addition/removal of the `Replicate` component
     BeforeBuffer,
-    /// Gathers entity despawns and component removals
-    /// Needs to run once per frame instead of once per send_interval
-    /// because they rely on bevy events that are cleared every frame
-    BufferDespawnsAndRemovals,
 
     /// System Set to gather all the replication updates to send
     /// These systems only run once every send_interval

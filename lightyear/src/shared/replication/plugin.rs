@@ -199,7 +199,6 @@ pub(crate) mod send {
                     (
                         InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
-                        InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::Buffer),
                     (
@@ -209,7 +208,6 @@ pub(crate) mod send {
                         // TODO: verify this, why does handle-replicate-update need to run every frame?
                         //  because Removed<Replicate> is cleared every frame?
                         // NOTE: HandleReplicateUpdate should also run every frame?
-                        // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                         InternalReplicationSet::<R::SetMarker>::AfterBuffer,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::SendMessages),
