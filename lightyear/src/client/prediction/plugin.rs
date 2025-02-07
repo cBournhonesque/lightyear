@@ -1,10 +1,5 @@
 use super::pre_prediction::PrePredictionPlugin;
-use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::apply_confirmed_update;
-use super::predicted_history::{add_component_history, apply_confirmed_update};
-use super::resource_history::{
-    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
-};
 use super::resource_history::{
     handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
@@ -12,11 +7,6 @@ use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
     prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
 };
-use super::rollback::{
-    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
-};
-use super::spawn::spawn_predicted_entity;
 use super::spawn::spawn_predicted_entity;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
@@ -38,7 +28,6 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
-use bevy::ecs::component::Mutable;
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;

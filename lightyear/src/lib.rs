@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 /*! # Lightyear
 
 Lightyear is a networking library for Bevy.
