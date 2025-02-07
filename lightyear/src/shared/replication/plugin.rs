@@ -1,7 +1,7 @@
 //! This module contains the `ReplicationReceivePlugin` and `ReplicationSendPlugin` plugins, which control
 //! the replication of entities and resources.
 //!
-use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};
+use crate::shared::replication::hierarchy::{RelationshipReceivePlugin, RelationshipSendPlugin};
 use crate::shared::replication::resources::{
     receive::ResourceReceivePlugin, send::ResourceSendPlugin,
 };
@@ -74,7 +74,7 @@ pub(crate) mod receive {
             if !app.is_plugin_added::<shared::SharedPlugin>() {
                 app.add_plugins(shared::SharedPlugin);
             }
-            app.add_plugins(HierarchyReceivePlugin::<R, ChildOf>::default())
+            app.add_plugins(RelationshipReceivePlugin::<R, ChildOf>::default())
                 .add_plugins(ResourceReceivePlugin::<R>::default());
 
             // SYSTEMS
@@ -89,6 +89,7 @@ pub(crate) mod receive {
 pub(crate) mod send {
     use super::*;
     use crate::prelude::{Replicating, ReplicationGroup, TimeManager};
+    use crate::shared::replication::hierarchy::HierarchySendPlugin;
 
     pub(crate) struct ReplicationSendPlugin<R> {
         send_interval: Duration,
@@ -158,10 +159,11 @@ pub(crate) mod send {
             if !app.is_plugin_added::<shared::SharedPlugin>() {
                 app.add_plugins(shared::SharedPlugin);
             }
-            if !app.is_plugin_added::<HierarchySendPlugin<ChildOf>>() {
-                app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
+            if !app.is_plugin_added::<RelationshipSendPlugin<ChildOf>>() {
+                app.add_plugins(RelationshipSendPlugin::<ChildOf>::default());
             }
             app.add_plugins(ResourceSendPlugin::<R>::default());
+            app.add_plugins(HierarchySendPlugin::<R>::default());
 
             // RESOURCES
             app.insert_resource(SendIntervalTimer::<R> {
@@ -227,10 +229,7 @@ pub(crate) mod send {
                 ),
             );
             // SYSTEMS
-            // propagate ReplicateLike
-            app.add_observer(crate::shared::replication::hierarchy::propagate_replicate_like_children_updated);
-            app.add_observer(crate::shared::replication::hierarchy::propagate_replicate_like_replication_marker_added);
-            app.add_observer(crate::shared::replication::hierarchy::propagate_replicate_like_replication_marker_removed);
+
             app.add_systems(
                 PreUpdate,
                 ReplicationSendPlugin::<R>::tick_send_interval_timer.after(MainSet::Receive),

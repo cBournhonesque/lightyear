@@ -580,7 +580,6 @@ impl GroupChannel {
             ?message,
             "Received replication actions from remote: {remote:?}"
         );
-        dbg!(&message);
         // NOTE: order matters here, because some components can depend on other entities.
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
