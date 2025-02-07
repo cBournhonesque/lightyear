@@ -216,41 +216,6 @@ impl<C> Default for ReplicateOnceComponent<C> {
     }
 }
 
-// TODO: maybe have 3 fields:
-//  - target
-//  - override replication_target: bool (if true, we will completely override the replication target. If false, we do the intersection)
-//  - override visibility: bool (if true, we will completely override the visibility. If false, we do the intersection)
-/// This component lets you override the replication target for a specific component
-#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct OverrideTarget {
-    overrides: HashMap<ComponentKind, NetworkTarget>,
-}
-
-impl OverrideTarget {
-    /// Override the [`NetworkTarget`] for a given component
-    pub fn insert<C: Component>(mut self, target: NetworkTarget) -> Self {
-        self.overrides.insert(ComponentKind::of::<C>(), target);
-        self
-    }
-
-    /// Clear the [`NetworkTarget`] override for the component
-    pub fn clear<C: Component>(mut self, target: NetworkTarget) -> Self {
-        self.overrides.remove(&ComponentKind::of::<C>());
-        self
-    }
-
-    /// Get the overriding [`NetworkTarget`] for the component if there is one
-    pub fn get<C: Component>(&self) -> Option<&NetworkTarget> {
-        self.overrides.get(&ComponentKind::of::<C>())
-    }
-
-    /// Get the overriding [`NetworkTarget`] for the component if there is one
-    pub(crate) fn get_kind(&self, component_kind: ComponentKind) -> Option<&NetworkTarget> {
-        self.overrides.get(&component_kind)
-    }
-}
-
 #[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
 pub enum ReplicationGroupIdBuilder {
     // the group id is the entity id

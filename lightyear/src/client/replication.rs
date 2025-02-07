@@ -148,7 +148,7 @@ pub(crate) mod send {
     use crate::protocol::component::ComponentKind;
 
     use crate::shared::replication::components::{
-        Cached, InitialReplicated, OverrideTarget, Replicating, ReplicationGroupId,
+        Cached, InitialReplicated, Replicating, ReplicationGroupId,
     };
 
     use crate::prelude::server::ReplicationTarget;
@@ -354,7 +354,6 @@ pub(crate) mod send {
                     group_ready,
                     target_entity,
                     disabled_components,
-                    override_target,
                     replication_target_ticks,
                 ) = if let Some(replicate_like) =
                     world.entity(entity).get::<ReplicateLike>().copied()
@@ -388,9 +387,6 @@ pub(crate) mod send {
                         entity_ref
                             .get::<DisabledComponents>()
                             .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<OverrideTarget>()
-                            .or_else(|| query_entity_ref.get()),
                         // SAFETY: we know that the entity has the ReplicateToServer component
                         // because the archetype is in replicated_archetypes
                         unsafe {
@@ -399,8 +395,8 @@ pub(crate) mod send {
                                 .or_else(|| {
                                     query_entity_ref.get_change_ticks::<ReplicateToServer>()
                                 })
-                                .unwrap()
-                        },
+                                .unwrap_unchecked()
+                        }
                     )
                 } else {
                     let entity_ref = world.entity(entity);
@@ -414,14 +410,11 @@ pub(crate) mod send {
                         group_ready,
                         entity_ref.get::<TargetEntity>(),
                         entity_ref.get::<DisabledComponents>(),
-                        entity_ref.get::<OverrideTarget>(),
                         // SAFETY: we know that the entity has the ReplicateToServer component
                         // because the archetype is in replicated_archetypes
-                        unsafe {
-                            entity_ref
-                                .get_change_ticks::<ReplicateToServer>()
-                                .unwrap_unchecked()
-                        },
+                        entity_ref
+                            .get_change_ticks::<ReplicateToServer>()
+                            .unwrap_unchecked()
                     )
                 };
 
@@ -487,7 +480,7 @@ pub(crate) mod send {
                         error!(
                             "Error replicating component {:?} update for entity {:?}: {:?}",
                             replicated_component.kind,
-                            entity.id(),
+                            entity,
                             e
                         )
                     });

@@ -576,7 +576,7 @@ mod interpolation {
 
 mod replication {
     use super::*;
-    use crate::prelude::{DeltaCompression, OverrideTargetComponent, ReplicateOnceComponent};
+    use crate::prelude::{DeltaCompression, ReplicateOnceComponent};
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
@@ -628,7 +628,6 @@ mod replication {
                     component_id: world.register_component::<C>(),
                     delta_compression_id: world.register_component::<DeltaCompression<C>>(),
                     replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
-                    override_target_id: world.register_component::<OverrideTargetComponent<C>>(),
                     write: Self::write::<C>,
                     buffer_insert_fn: Self::buffer_insert::<C>,
                     remove: Some(Self::buffer_remove::<C>),
@@ -918,7 +917,6 @@ mod delta {
                     // NOTE: we set these to 0 because they are never used for the DeltaMessage component
                     delta_compression_id: ComponentId::new(0),
                     replicate_once_id: ComponentId::new(0),
-                    override_target_id: ComponentId::new(0),
                     write,
                     buffer_insert_fn: Self::buffer_insert_delta::<C>,
                     // we never need to remove the DeltaMessage<C> component

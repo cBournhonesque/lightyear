@@ -7,13 +7,15 @@ use crate::client::interpolation::Interpolated;
 use crate::client::prediction::Predicted;
 use crate::connection::client::NetClient;
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{server::is_started, PrePredicted};
+use crate::prelude::{server::is_started, NetworkTarget, PrePredicted};
+use crate::protocol::component::ComponentKind;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
+use crate::utils::collections::HashMap;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ServerReplicationSet {
@@ -54,7 +56,7 @@ pub(crate) mod send {
     use crate::prelude::server::AuthorityCommandExt;
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponents, NetworkRelevanceMode,
-        OverrideTargetComponent, ReplicateLike, ReplicationGroup, ShouldBePredicted, TargetEntity,
+        ReplicateLike, ReplicationGroup, ShouldBePredicted, TargetEntity,
         Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
@@ -67,7 +69,7 @@ pub(crate) mod send {
     };
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
-        Cached, Controlled, InitialReplicated, OverrideTarget, Replicating, ReplicationGroupId,
+        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId,
         ReplicationMarker, ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
@@ -212,6 +214,41 @@ pub(crate) mod send {
             Self {
                 target: NetworkTarget::All,
             }
+        }
+    }
+
+    // TODO: maybe have 3 fields:
+    //  - target
+    //  - override replication_target: bool (if true, we will completely override the replication target. If false, we do the intersection)
+    //  - override visibility: bool (if true, we will completely override the visibility. If false, we do the intersection)
+    /// This component lets you override the replication target for a specific component
+    #[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
+    #[reflect(Component)]
+    pub struct OverrideTarget {
+        overrides: HashMap<ComponentKind, NetworkTarget>,
+    }
+
+    impl OverrideTarget {
+        /// Override the [`NetworkTarget`] for a given component
+        pub fn insert<C: Component>(mut self, target: NetworkTarget) -> Self {
+            self.overrides.insert(ComponentKind::of::<C>(), target);
+            self
+        }
+
+        /// Clear the [`NetworkTarget`] override for the component
+        pub fn clear<C: Component>(mut self, target: NetworkTarget) -> Self {
+            self.overrides.remove(&ComponentKind::of::<C>());
+            self
+        }
+
+        /// Get the overriding [`NetworkTarget`] for the component if there is one
+        pub fn get<C: Component>(&self) -> Option<&NetworkTarget> {
+            self.overrides.get(&ComponentKind::of::<C>())
+        }
+
+        /// Get the overriding [`NetworkTarget`] for the component if there is one
+        pub(crate) fn get_kind(&self, component_kind: ComponentKind) -> Option<&NetworkTarget> {
+            self.overrides.get(&component_kind)
         }
     }
 
@@ -592,7 +629,7 @@ pub(crate) mod send {
                 );
 
                 // If the group is not set to send, skip sending updates for this entity
-                if !should_send {
+                if !group_ready {
                     continue;
                 }
 
@@ -606,7 +643,7 @@ pub(crate) mod send {
                         get_erased_component(
                             table,
                             &world.storages().sparse_sets,
-                            entity,
+                            archetype_entity,
                             replicated_component.storage_type,
                             replicated_component.id,
                         )
@@ -617,7 +654,7 @@ pub(crate) mod send {
                     replicate_component_updates(
                         tick_manager.tick(),
                         &component_registry,
-                        entity.id(),
+                        entity,
                         replicated_component.kind,
                         data,
                         component_ticks,
@@ -1091,7 +1128,7 @@ pub(crate) mod send {
                 Option<&AuthorityPeer>,
                 Option<&CachedNetworkRelevance>,
                 Option<&DisabledComponents>,
-                Option<&OverrideTargetComponent<C>>,
+                Option<&OverrideTarget>,
             ),
             With<Replicating>,
         >,
@@ -1114,10 +1151,8 @@ pub(crate) mod send {
                     return;
                 }
                 // use the overriden target if present
-                let base_target = override_target
-                    .map_or(&replication_target.target, |override_target| {
-                        &override_target.target
-                    });
+                let base_target = override_target.and_then(|o| o.get_kind(ComponentKind::of::<C>()))
+                    .unwrap_or(&replication_target.target);
                 let mut target = match visibility {
                     Some(visibility) => {
                         visibility
@@ -1946,9 +1981,7 @@ pub(crate) mod send {
                 .spawn((
                     Replicate::default(),
                     ComponentSyncModeFull(1.0),
-                    OverrideTargetComponent::<ComponentSyncModeFull>::new(NetworkTarget::Single(
-                        ClientId::Netcode(TEST_CLIENT_ID_1),
-                    )),
+                    OverrideTarget::default().insert::<ComponentSyncModeFull>(NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1))),
                 ))
                 .id();
             stepper.frame_step();
@@ -2006,7 +2039,7 @@ pub(crate) mod send {
                     },
                     ComponentSyncModeFull(1.0),
                     // override target is only client 1
-                    OverrideTargetComponent::<ComponentSyncModeFull>::new(NetworkTarget::Single(
+                    OverrideTarget::default().insert::<ComponentSyncModeFull>(NetworkTarget::Single(
                         ClientId::Netcode(TEST_CLIENT_ID_1),
                     )),
                 ))
@@ -3574,3 +3607,4 @@ pub(crate) mod commands {
         }
     }
 }
+
