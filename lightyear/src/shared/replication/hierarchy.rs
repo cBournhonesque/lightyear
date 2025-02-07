@@ -12,14 +12,16 @@ use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
 use crate::shared::replication::components::{DisableReplicateHierarchy, ReplicationMarker};
 use crate::shared::replication::{ReplicationPeer, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
-use bevy::ecs::component::{ComponentHooks, HookContext, Immutable, StorageType};
+use bevy::ecs::component::{ComponentHooks, HookContext, Immutable, Mutable, StorageType};
 use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
 use bevy::ecs::reflect::{ReflectMapEntities, ReflectVisitEntities, ReflectVisitEntitiesMut};
 use bevy::ecs::relationship::Relationship;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
+use bevy::reflect::GetTypeRegistration;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
+use std::fmt::{Debug, Formatter};
 
 // TODO: ideally this would not be needed, but Relationship are Immutable component
 //  so we would have to update our whole replication/prediction/interpolation code to work on Immutable components
@@ -29,26 +31,74 @@ use smallvec::SmallVec;
 ///
 /// Updates entity's `ChildOf` component on change.
 /// Removes the parent if `None`.
-#[derive(Reflect, Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Reflect, Serialize, Deserialize)]
 #[reflect(Component)]
-pub struct RelationshipSync<R: Relationship + MapEntities>(Option<Entity>);
+pub struct RelationshipSync<R: Relationship>{
+    entity: Option<Entity>,
+    #[reflect(ignore)]
+    marker: std::marker::PhantomData<R>,
+}
+
+// We implement these traits manually because R might not have them
+impl<R: Relationship> Default for RelationshipSync<R> {
+    fn default() -> Self {
+        Self {
+            entity: None,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<R: Relationship> Clone for RelationshipSync<R> {
+    fn clone(&self) -> Self {
+        Self {
+            entity: self.entity,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<R: Relationship> Copy for RelationshipSync<R> {}
+
+impl<R: Relationship> PartialEq for RelationshipSync<R> {
+    fn eq(&self, other: &Self) -> bool {
+        self.entity == other.entity
+    }
+}
+
+impl<R: Relationship> Debug for RelationshipSync<R> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RelationshipSync {{ entity: {:?} }}", self.entity)
+    }
+}
+
+impl<R: Relationship> From<Option<Entity>> for RelationshipSync<R> {
+    fn from(value: Option<Entity>) -> Self {
+        Self {
+            entity: value,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+
 
 impl<R: Relationship> Component for RelationshipSync<R> {
-    const STORAGE_TYPE: StorageType = Default::default();
-    type Mutability = ();
+    const STORAGE_TYPE: StorageType = StorageType::Table;
+    type Mutability = Mutable;
 
     /// When RelationshipSync is added, we set its value to the existing Relationship if it exists
     fn register_component_hooks(hooks: &mut ComponentHooks) {
         hooks.on_add(|mut world: DeferredWorld, ctx: HookContext| {
-            let parent = world.get::<R>(ctx.entity).copied().map(|r| r.get());
-            world.get_mut::<RelationshipSync<R>>(ctx.entity).unwrap().set_if_neq(RelationshipSync(parent));
+            let parent = world.get::<R>(ctx.entity).map(|r| r.get());
+            world.get_mut::<RelationshipSync<R>>(ctx.entity).unwrap().set_if_neq(parent.into());
         });
     }
 }
 
-impl<R: MapEntities> MapEntities for RelationshipSync<R> {
+impl<R: Relationship> MapEntities for RelationshipSync<R> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        if let Some(entity) = &mut self.0 {
+        if let Some(entity) = &mut self.entity {
             *entity = entity_mapper.map_entity(*entity);
         }
     }
@@ -78,7 +128,7 @@ impl<R: Relationship> HierarchySendPlugin<R> {
         mut query: Query<(&R, &mut RelationshipSync<R>)>,
     ) {
         if let Ok((parent, mut parent_sync)) = query.get_mut(trigger.target()) {
-            parent_sync.set_if_neq(RelationshipSync(Some(parent.get())));
+            parent_sync.set_if_neq(Some(parent.get()).into());
         }
     }
 
@@ -88,14 +138,13 @@ impl<R: Relationship> HierarchySendPlugin<R> {
         mut hierarchy: Query<&mut RelationshipSync<R>>,
     ) {
         if let Ok(mut parent_sync) = hierarchy.get_mut(trigger.target()) {
-            parent_sync.0 = None;
+            parent_sync.entity = None;
         }
     }
 }
 
 impl<R: Relationship> Plugin for HierarchySendPlugin<R> {
     fn build(&self, app: &mut App) {
-
         app.add_observer(Self::handle_parent_insert);
         app.add_observer(Self::handle_parent_remove);
     }
@@ -113,7 +162,7 @@ impl<P, R> Default for HierarchyReceivePlugin<P, R> {
     }
 }
 
-impl<P: ReplicationPeer, R: Relationship> HierarchyReceivePlugin<P, R> {
+impl<P: ReplicationPeer, R: Relationship + Debug> HierarchyReceivePlugin<P, R> {
 
     /// Update hierarchy on the receive side if RelationshipSync changed
     fn update_parent(
@@ -130,7 +179,7 @@ impl<P: ReplicationPeer, R: Relationship> HierarchyReceivePlugin<P, R> {
                 parent_sync,
                 parent
             );
-            if let Some(new_parent) = parent_sync.0 {
+            if let Some(new_parent) = parent_sync.entity {
                 if parent.is_none_or(|p| p.get() != new_parent) {
                     commands.entity(entity).insert(R::from(new_parent));
                 }
@@ -141,7 +190,7 @@ impl<P: ReplicationPeer, R: Relationship> HierarchyReceivePlugin<P, R> {
     }
 }
 
-impl<P: ReplicationPeer, R: Relationship> Plugin for HierarchyReceivePlugin<P, R> {
+impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin for HierarchyReceivePlugin<P, R> {
     fn build(&self, app: &mut App) {
         // REFLECTION
         app.register_type::<RelationshipSync<R>>();

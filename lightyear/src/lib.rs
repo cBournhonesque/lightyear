@@ -217,7 +217,7 @@ pub mod prelude {
         ReplicationGroup, ReplicationMarker, ShouldBePredicted, TargetEntity,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
-    pub use crate::shared::replication::hierarchy::ReplicateLike;
+    pub use crate::shared::replication::hierarchy::{RelationshipSync, ReplicateLike};
     pub use crate::shared::replication::network_target::NetworkTarget;
     pub use crate::shared::replication::plugin::ReplicationConfig;
     pub use crate::shared::replication::plugin::SendUpdatesMode;

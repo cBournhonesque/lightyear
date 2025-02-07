@@ -153,11 +153,13 @@ pub(crate) mod send {
     impl<R: ReplicationSend> Plugin for ReplicationSendPlugin<R> {
         fn build(&self, app: &mut App) {
             // PLUGINS
+
+            // we add this condition to not add a plugin twice if running in HostServer mode
             if !app.is_plugin_added::<shared::SharedPlugin>() {
-                app.add_plugins(shared::SharedPlugin);
+                app.add_plugins(shared::SharedPlugin)
+                    .add_plugins(HierarchySendPlugin::<ChildOf>::default());
             }
-            app.add_plugins(ResourceSendPlugin::<R>::default())
-                .add_plugins(HierarchySendPlugin::<ChildOf>::default());
+            app.add_plugins(ResourceSendPlugin::<R>::default());
 
             // RESOURCES
             app.insert_resource(SendIntervalTimer::<R> {
@@ -249,13 +251,11 @@ pub(crate) mod send {
 }
 
 pub(crate) mod shared {
+    use crate::client::components::ComponentSyncMode;
     use crate::client::replication::send::ReplicateToServer;
-    use crate::prelude::{
-        NetworkRelevanceMode, PrePredicted, RemoteEntityMap, Replicated, ReplicationConfig,
-        ReplicationGroup, ShouldBePredicted, TargetEntity,
-    };
+    use crate::prelude::{AppComponentExt, AppMessageExt, ChannelDirection, ComponentRegistry, NetworkRelevanceMode, PrePredicted, PreSpawnedPlayerObject, RelationshipSync, RemoteEntityMap, Replicated, ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity};
     use crate::server::replication::send::ReplicationTarget;
-    use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
+    use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
         Controlled, DisableReplicateHierarchy, Replicating, ReplicationGroupId,
         ReplicationGroupIdBuilder, ShouldBeInterpolated,
@@ -263,7 +263,7 @@ pub(crate) mod shared {
     use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
     use crate::shared::replication::hierarchy::ReplicateLike;
     use crate::shared::replication::network_target::NetworkTarget;
-    use bevy::prelude::{App, Plugin};
+    use bevy::prelude::{App, ChildOf, Plugin};
 
     pub(crate) struct SharedPlugin;
 
@@ -292,6 +292,32 @@ pub(crate) mod shared {
                 .register_type::<HasAuthority>()
                 .register_type::<AuthorityPeer>()
                 .register_type::<InterpolatedEntityMap>();
+        }
+
+        fn finish(&self, app: &mut App) {
+            // PROTOCOL
+            // we register components here because
+            // - we need to run this in `finish` so that all plugins have been built (so ClientPlugin and ServerPlugin
+            // both exists)
+            // - the replication::SharedPlugin should only be added once, even when running in host-server mode
+            app.register_component::<PreSpawnedPlayerObject>(ChannelDirection::Bidirectional);
+            app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
+            app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
+            app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
+            app.register_component::<RelationshipSync<ChildOf>>(ChannelDirection::Bidirectional)
+                // to replicate ReplicationSync on the predicted/interpolated entities so that they spawn their own hierarchies
+                .add_prediction(ComponentSyncMode::Simple)
+                .add_interpolation(ComponentSyncMode::Simple)
+                .add_map_entities();
+            app.register_component::<Controlled>(ChannelDirection::ServerToClient)
+                .add_prediction(ComponentSyncMode::Once)
+                .add_interpolation(ComponentSyncMode::Once);
+
+            app.register_message::<AuthorityChange>(ChannelDirection::ServerToClient)
+                .add_map_entities();
+
+            // check that the protocol was built correctly
+            app.world().resource::<ComponentRegistry>().check();
         }
     }
 }
