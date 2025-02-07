@@ -97,14 +97,11 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
                 interpolation: NetworkTarget::All,
                 ..default()
             },
-            // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
-            hierarchy: ReplicateHierarchy {
-                enabled: false,
-                recursive: false,
-            },
             // NOTE: all predicted entities must be part of the same replication group!
             ..default()
         },
+        // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
+        DisableReplicateHierarchy,
         Transform::from_xyz(-200.0, 10.0, 0.0),
         RigidBody::Kinematic,
         Collider::circle(BOT_RADIUS),
@@ -119,14 +116,11 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
                 prediction: NetworkTarget::All,
                 ..default()
             },
-            // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
-            hierarchy: ReplicateHierarchy {
-                enabled: false,
-                recursive: false,
-            },
             // NOTE: all predicted entities must be part of the same replication group!
             ..default()
         },
+        // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
+        DisableReplicateHierarchy,
         Transform::from_xyz(200.0, 10.0, 0.0),
         RigidBody::Kinematic,
         Collider::circle(BOT_RADIUS),

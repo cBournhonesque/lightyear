@@ -354,7 +354,7 @@ pub(crate) mod send {
                     target_entity,
                     disabled_components,
                     replication_target_ticks,
-                    is_replicate_like_added
+                    is_replicate_like_added,
                 ) = if let Some(replicate_like) =
                     world.entity(entity).get::<ReplicateLike>().copied()
                 {
@@ -401,8 +401,12 @@ pub(crate) mod send {
                                 })
                                 .unwrap_unchecked()
                         },
-                        unsafe { entity_ref.get_change_ticks::<ReplicateLike>()
-                            .unwrap_unchecked().is_changed(system_ticks.last_run(), system_ticks.this_run()) }
+                        unsafe {
+                            entity_ref
+                                .get_change_ticks::<ReplicateLike>()
+                                .unwrap_unchecked()
+                                .is_changed(system_ticks.last_run(), system_ticks.this_run())
+                        },
                     )
                 } else {
                     let entity_ref = world.entity(entity);
@@ -423,7 +427,7 @@ pub(crate) mod send {
                                 .get_change_ticks::<ReplicateToServer>()
                                 .unwrap_unchecked()
                         },
-                        false
+                        false,
                     )
                 };
 
@@ -775,7 +779,11 @@ pub(crate) mod send {
 
             // spawn an entity on server with visibility::All
             let client_entity = stepper.client_app.world_mut().spawn_empty().id();
-            let client_child = stepper.client_app.world_mut().spawn(ChildOf(client_entity)).id();
+            let client_child = stepper
+                .client_app
+                .world_mut()
+                .spawn(ChildOf(client_entity))
+                .id();
             stepper.frame_step();
             stepper.frame_step();
 
@@ -821,7 +829,11 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server with visibility::All
-            let client_entity = stepper.client_app.world_mut().spawn(Replicate::default()).id();
+            let client_entity = stepper
+                .client_app
+                .world_mut()
+                .spawn(Replicate::default())
+                .id();
 
             stepper.frame_step();
             stepper.frame_step();
@@ -851,7 +863,11 @@ pub(crate) mod send {
                 .expect("entity was not replicated to server");
 
             // Add a child
-            let client_child = stepper.client_app.world_mut().spawn(ChildOf(client_entity)).id();
+            let client_child = stepper
+                .client_app
+                .world_mut()
+                .spawn(ChildOf(client_entity))
+                .id();
             for _ in 0..10 {
                 stepper.frame_step();
             }
@@ -1031,11 +1047,7 @@ pub(crate) mod send {
                 .get_entity(server_entity)
                 .is_err());
             // check that the child was despawned
-            assert!(stepper
-                .server_app
-                .world()
-                .get_entity(server_child)
-                .is_err());
+            assert!(stepper.server_app.world().get_entity(server_child).is_err());
         }
 
         /// Check that if you despawn an entity with ReplicateLike,
@@ -1078,11 +1090,7 @@ pub(crate) mod send {
             }
 
             // check that the child was despawned
-            assert!(stepper
-                .server_app
-                .world()
-                .get_entity(server_child)
-                .is_err());
+            assert!(stepper.server_app.world().get_entity(server_child).is_err());
         }
 
         #[test]
@@ -1445,10 +1453,20 @@ pub(crate) mod send {
                 .expect("entity was not replicated to client");
 
             assert_eq!(
-                stepper.server_app.world().entity(server_entity).get::<ComponentSyncModeFull>(), Some(&ComponentSyncModeFull(1.0))
+                stepper
+                    .server_app
+                    .world()
+                    .entity(server_entity)
+                    .get::<ComponentSyncModeFull>(),
+                Some(&ComponentSyncModeFull(1.0))
             );
             assert_eq!(
-                stepper.server_app.world().entity(server_child).get::<ComponentSyncModeFull>(), Some(&ComponentSyncModeFull(1.0))
+                stepper
+                    .server_app
+                    .world()
+                    .entity(server_child)
+                    .get::<ComponentSyncModeFull>(),
+                Some(&ComponentSyncModeFull(1.0))
             );
 
             // remove component on the parent and the child
@@ -1467,22 +1485,18 @@ pub(crate) mod send {
             }
 
             // check that the component was removed
-            assert!(
-                stepper
-                    .server_app
-                    .world()
-                    .entity(server_entity)
-                    .get::<ComponentSyncModeFull>()
-                .is_none()
-            );
-            assert!(
-                stepper
-                    .server_app
-                    .world()
-                    .entity(server_child)
-                    .get::<ComponentSyncModeFull>()
-                    .is_none()
-            );
+            assert!(stepper
+                .server_app
+                .world()
+                .entity(server_entity)
+                .get::<ComponentSyncModeFull>()
+                .is_none());
+            assert!(stepper
+                .server_app
+                .world()
+                .entity(server_child)
+                .get::<ComponentSyncModeFull>()
+                .is_none());
         }
 
         /// Make sure that ServerToClient components are not replicated to the server

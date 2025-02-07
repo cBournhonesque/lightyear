@@ -266,7 +266,8 @@ pub(crate) mod send {
     ///   replication target, or if we should apply interest management logic to determine which clients
     /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
     ///   will be sent together in the same message.
-    /// - [`ReplicateHierarchy`] to specify how the hierarchy of the entity should be replicated
+    /// - [`AuthorityPeer`] to change the peer that has authority (is allowed to send replication updates)
+    ///   over an entity
     ///
     /// Some of the components can be updated at runtime even after the entity has been replicated.
     /// For example you can update the [`ReplicationTarget`] to change which clients should receive the entity.
@@ -862,7 +863,6 @@ pub(crate) mod send {
             });
     }
 
-
     /// Despawn entities when the entity gets despawned on local world
     pub(crate) fn replicate_entity_local_despawn(
         // we use the removal of ReplicationGroup to detect the despawn
@@ -893,11 +893,7 @@ pub(crate) mod send {
                 ))
             }
             let _ = sender
-                .prepare_entity_despawn(
-                    entity,
-                    replication_group.group_id(Some(root)),
-                    target,
-                )
+                .prepare_entity_despawn(entity, replication_group.group_id(Some(root)), target)
                 // TODO: bubble up errors to user via ConnectionEvents?
                 .inspect_err(|e| {
                     error!("error sending entity despawn: {:?}", e);
@@ -1413,6 +1409,11 @@ pub(crate) mod send {
                     ..default()
                 })
                 .id();
+            let server_child = stepper
+                .server_app
+                .world_mut()
+                .spawn(ChildOf(server_entity))
+                .id();
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1443,6 +1444,15 @@ pub(crate) mod send {
                 .remote_entity_map
                 .get_local(server_entity)
                 .expect("entity was not replicated to client");
+            // check that the child was also spawned because it copies the visibility of the parent
+            let client_child = stepper
+                .client_app_1
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_child)
+                .expect("entity was not replicated to client");
             // check that the entity was not spawned on the other client
             assert!(stepper
                 .client_app_2
@@ -1451,6 +1461,14 @@ pub(crate) mod send {
                 .replication_receiver
                 .remote_entity_map
                 .get_local(server_entity)
+                .is_none());
+            assert!(stepper
+                .client_app_2
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_child)
                 .is_none());
         }
 
@@ -3189,7 +3207,11 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
                 .id();
-            let server_child = stepper.server_app.world_mut().spawn((ChildOf(server_entity), ComponentSyncModeOnce(1.0))).id();
+            let server_child = stepper
+                .server_app
+                .world_mut()
+                .spawn((ChildOf(server_entity), ComponentSyncModeOnce(1.0)))
+                .id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = stepper

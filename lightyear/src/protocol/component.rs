@@ -196,7 +196,7 @@ pub struct InterpolationMetadata {
     pub custom_interpolation: bool,
 }
 
-type RawBufferRemoveFn = fn(&mut ComponentRegistry, ComponentNetId);
+type RawBufferRemoveFn = fn(&mut ComponentRegistry);
 type RawWriteFn = fn(
     &ComponentRegistry,
     &mut Reader,
@@ -844,7 +844,7 @@ mod replication {
                 let remove_fn = replication_metadata
                     .remove
                     .expect("the component does not have a remove function");
-                remove_fn(self, net_id);
+                remove_fn(self);
             }
 
             entity_world_mut.remove_by_ids(&self.component_ids);
@@ -854,11 +854,11 @@ mod replication {
         /// Prepare for a component being removed
         /// We don't actually remove the component here, we just push the ComponentId to the `component_ids` vector
         /// so that they can all be removed at the same time
-        pub(crate) fn buffer_remove<C: Component>(&mut self, net_id: ComponentNetId) {
-            let kind = self.kind_map.kind(net_id).expect("unknown component kind");
+        pub(crate) fn buffer_remove<C: Component>(&mut self) {
+            let kind = ComponentKind::of::<C>();
             let replication_metadata = self
                 .replication_map
-                .get(kind)
+                .get(&kind)
                 .expect("the component is not part of the protocol");
             self.component_ids.push(replication_metadata.component_id);
             #[cfg(feature = "metrics")]

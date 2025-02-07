@@ -53,10 +53,7 @@ impl<R: Relationship> Default for RelationshipSync<R> {
 
 impl<R: Relationship> Clone for RelationshipSync<R> {
     fn clone(&self) -> Self {
-        Self {
-            entity: self.entity,
-            marker: std::marker::PhantomData,
-        }
+        *self
     }
 }
 
@@ -235,7 +232,7 @@ pub struct ReplicateLike(pub(crate) Entity);
 ///   we will use the `root` entity's replication components to determine how the replication will happen.
 ///   Any replication component (`OverrideTarget`, etc.) can be added on the child entity to override the
 ///   behaviour only for that child
-///   - this is mainly useful for replicating visibility components through the hierarchy. Instead of having to
+/// - this is mainly useful for replicating visibility components through the hierarchy. Instead of having to
 ///   add all the child entities to a room, or propagating the `CachedNetworkRelevance` through the hierarchy,
 ///   the child entity can just use the root's `CachedNetworkRelevance` value
 ///
@@ -275,11 +272,11 @@ impl<R: ReplicationPeer> Plugin for HierarchySendPlugin<R> {
 impl<R: ReplicationPeer> HierarchySendPlugin<R> {
     /// Propagate certain replication components through the hierarchy.
     /// - If new children are added, `ReplicationMarker` is added, `PrePredicted` is added, we recursively
-    /// go through the descendants and add `ReplicateLike`, `ChildOfSync`, ... if the child does not have
-    /// `DisableReplicateHierarchy` or `ReplicationMarker` already
+    ///   go through the descendants and add `ReplicateLike`, `ChildOfSync`, ... if the child does not have
+    ///   `DisableReplicateHierarchy` or `ReplicationMarker` already
     /// - We run this as a system and not an observer because observers cannot handle Children updates very well
-    /// (if we trigger on ChildOf being added, there is no flush between the ChildOf OnAdd hook and the observer
-    /// so the `&Children` query won't be updated (or the component will not exist on the parent yet)
+    ///   (if we trigger on ChildOf being added, there is no flush between the ChildOf OnAdd hook and the observer
+    ///   so the `&Children` query won't be updated (or the component will not exist on the parent yet)
     fn propagate_through_hierarchy(
         mut commands: Commands,
         root_query: Query<
