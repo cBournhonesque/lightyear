@@ -2,8 +2,8 @@
  */
 use std::iter;
 
-use bevy::prelude::{Component, Entity, Resource};
 use crate::utils::collections::HashMap;
+use bevy::prelude::{Component, Entity, Resource};
 use tracing::trace;
 
 use crate::prelude::{ComponentRegistry, Tick};

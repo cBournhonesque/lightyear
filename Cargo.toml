@@ -59,6 +59,7 @@ rand = "0.8"
 ringbuffer = "0.15"
 thiserror = "2.0.3"
 seahash = "4.1.0"
+smallvec = { version = "1", features = ["union", "const_generics"] }
 variadics_please = "1.1.0"
 zstd = "0.13.1"
 

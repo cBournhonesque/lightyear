@@ -1,7 +1,7 @@
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::{
-    Command, Commands, Component, Entity, OnRemove, Query, Reflect, ReflectComponent,
-    Res, Trigger, With, Without, World,
+    Command, Commands, Component, Entity, OnRemove, Query, Reflect, ReflectComponent, Res, Trigger,
+    With, Without, World,
 };
 use tracing::{debug, error, trace};
 

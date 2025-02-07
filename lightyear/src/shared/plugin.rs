@@ -6,8 +6,8 @@ use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::server::NetworkingState;
 use crate::prelude::{
     AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry, ClientId, ComponentRegistry,
-    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
-    PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
+    LinkConditionerConfig, MessageRegistry, Mode, PingConfig, PrePredicted, PreSpawnedPlayerObject,
+    ShouldBePredicted, TickConfig,
 };
 use crate::server::run_conditions::is_started_ref;
 use crate::shared::config::SharedConfig;
@@ -168,11 +168,15 @@ impl Plugin for SharedPlugin {
         app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
         app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
-        app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
-            // to replicate ParentSync on the predicted/interpolated entities so that they spawn their own hierarchies
-            .add_prediction(ComponentSyncMode::Simple)
-            .add_interpolation(ComponentSyncMode::Simple)
-            .add_map_entities();
+        // // TODO: add Serialize/Deserialize to ChildOf?
+        // app.register_component_custom_serde::<ChildOf>(ChannelDirection::Bidirectional, SerializeFns::<ChildOf>{
+        //     serialize: |message: &ChildOf, writer: &mut Writer| -> Result<(), SerializationError> {message.0.to_bytes(writer)},
+        //     deserialize: |reader: &mut Reader| -> Result<ChildOf, SerializationError> {Ok(ChildOf(Entity::from_bytes(reader)?))},
+        // })
+        //     // to replicate ParentSync on the predicted/interpolated entities so that they spawn their own hierarchies
+        //     .add_prediction(ComponentSyncMode::Simple)
+        //     .add_interpolation(ComponentSyncMode::Simple)
+        //     .add_map_entities();
         app.register_component::<Controlled>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);

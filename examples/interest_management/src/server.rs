@@ -1,6 +1,6 @@
+use bevy::platform_support::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
-use bevy::platform_support::collections::HashMap;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 
 use lightyear::prelude::server::*;

@@ -39,10 +39,10 @@ it just caches the room metadata to keep track of the relevance of entities.
 */
 
 use bevy::app::App;
-use bevy::ecs::entity::{hash_set::EntityHashSet, hash_map::EntityHashMap};
+use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
+use bevy::platform_support::collections::{hash_map::Entry, HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
-use bevy::platform_support::collections::{hash_map::Entry, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -51,7 +51,6 @@ use crate::prelude::server::is_started;
 
 use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceEvents, RelevanceManager};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
-
 
 /// Id for a [`Room`], which is used to perform interest management.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect)]
@@ -359,9 +358,9 @@ pub(super) mod systems {
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::collections::HashMap;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::Events;
-    use crate::utils::collections::HashMap;
 
     use crate::prelude::client::*;
     use crate::prelude::server::Replicate;

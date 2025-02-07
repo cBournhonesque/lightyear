@@ -25,9 +25,9 @@ fn my_system(
 */
 use crate::prelude::{server::is_started, ClientId};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
+use crate::utils::collections::HashMap;
 use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::prelude::*;
-use crate::utils::collections::HashMap;
 use tracing::trace;
 
 /// Event related to [`Entities`](Entity) which are relevant to a client

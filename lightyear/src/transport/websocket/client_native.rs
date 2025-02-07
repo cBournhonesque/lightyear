@@ -6,9 +6,9 @@ use std::{
     sync::Arc,
 };
 
+use crate::utils::collections::HashMap;
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
-use crate::utils::collections::HashMap;
 use futures_util::stream::FusedStream;
 use futures_util::{future, pin_mut, stream::TryStreamExt, SinkExt, StreamExt, TryFutureExt};
 use tokio::{

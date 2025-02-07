@@ -142,19 +142,21 @@ pub(crate) mod send {
 
     use crate::prelude::{
         client::{is_connected, is_synced},
-        is_host_server, ComponentRegistry, DisabledComponents, ReplicateHierarchy, Replicated,
+        is_host_server, ComponentRegistry, DisabledComponents, ReplicateLike, Replicated,
         ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
 
     use crate::shared::replication::components::{
-        InitialReplicated, Replicating, ReplicationGroupId,
+        Cached, InitialReplicated, OverrideTarget, Replicating, ReplicationGroupId,
     };
 
+    use crate::prelude::server::ReplicationTarget;
     use crate::shared::replication::archetypes::{
         get_erased_component, ClientReplicatedArchetypes,
     };
     use crate::shared::replication::authority::HasAuthority;
+    use crate::shared::replication::components::ReplicationMarker;
     use crate::shared::replication::error::ReplicationError;
     use bevy::ecs::system::SystemChangeTick;
     use bevy::ptr::Ptr;
@@ -218,7 +220,7 @@ pub(crate) mod send {
     /// If this component gets removed, we despawn the entity on the server.
     #[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
     #[reflect(Component)]
-    #[require(Replicating, HasAuthority, ReplicationGroup, ReplicateHierarchy)]
+    #[require(Replicating, HasAuthority, ReplicationGroup, ReplicationMarker)]
     pub struct ReplicateToServer;
 
     /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
@@ -255,8 +257,6 @@ pub(crate) mod send {
         // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
         //  it just keeps living but doesn't receive any updates. Should we make this configurable?
         pub group: ReplicationGroup,
-        /// How should the hierarchy of the entity (parents/children) be replicated?
-        pub hierarchy: ReplicateHierarchy,
         /// Marker indicating that we should send replication updates for that entity
         /// If this entity is removed, we pause replication for that entity.
         /// (but the entity is not despawned on the server)
@@ -345,23 +345,86 @@ pub(crate) mod send {
             // replicate_entity_local_despawn(&mut despawn_removed, &mut set.p1());
 
             // 3. go through all entities of that archetype
-            for entity in archetype.entities() {
-                let entity_ref = world.entity(entity.id());
-                let group = entity_ref.get::<ReplicationGroup>();
+            for archetype_entity in archetype.entities() {
+                let entity = archetype_entity.id();
 
-                let group_id = group.map_or(ReplicationGroupId::default(), |g| {
-                    g.group_id(Some(entity.id()))
-                });
-                let priority = group.map_or(1.0, |g| g.priority());
-                let target_entity = entity_ref.get::<TargetEntity>();
-                let disabled_components = entity_ref.get::<DisabledComponents>();
-                // SAFETY: we know that the entity has the ReplicationTarget component
-                // because the archetype is in replicated_archetypes
-                let replication_target_ticks = unsafe {
-                    entity_ref
-                        .get_change_ticks::<ReplicateToServer>()
-                        .unwrap_unchecked()
+                let (
+                    group_id,
+                    priority,
+                    group_ready,
+                    target_entity,
+                    disabled_components,
+                    override_target,
+                    replication_target_ticks,
+                ) = if let Some(replicate_like) =
+                    world.entity(entity).get::<ReplicateLike>().copied()
+                {
+                    let [entity_ref, query_entity_ref] = world.entity(&[entity, replicate_like.0]);
+                    let (group_id, priority, group_ready) =
+                        entity_ref.get::<ReplicationGroup>().map_or_else(
+                            // if ReplicationGroup is not present, we use the parent entity
+                            || {
+                                query_entity_ref
+                                    .get::<ReplicationGroup>()
+                                    .map(|g| {
+                                        (
+                                            g.group_id(Some(replicate_like.0)),
+                                            g.priority(),
+                                            g.should_send,
+                                        )
+                                    })
+                                    .unwrap()
+                            },
+                            // we use the entity itself if ReplicationGroup is present
+                            |g| (g.group_id(Some(entity)), g.priority(), g.should_send),
+                        );
+                    (
+                        group_id,
+                        priority,
+                        group_ready,
+                        entity_ref
+                            .get::<TargetEntity>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<DisabledComponents>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<OverrideTarget>()
+                            .or_else(|| query_entity_ref.get()),
+                        // SAFETY: we know that the entity has the ReplicateToServer component
+                        // because the archetype is in replicated_archetypes
+                        unsafe {
+                            entity_ref
+                                .get_change_ticks::<ReplicateToServer>()
+                                .or_else(|| {
+                                    query_entity_ref.get_change_ticks::<ReplicateToServer>()
+                                })
+                                .unwrap()
+                        },
+                    )
+                } else {
+                    let entity_ref = world.entity(entity);
+                    let (group_id, priority, group_ready) = entity_ref
+                        .get::<ReplicationGroup>()
+                        .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
+                        .unwrap();
+                    (
+                        group_id,
+                        priority,
+                        group_ready,
+                        entity_ref.get::<TargetEntity>(),
+                        entity_ref.get::<DisabledComponents>(),
+                        entity_ref.get::<OverrideTarget>(),
+                        // SAFETY: we know that the entity has the ReplicateToServer component
+                        // because the archetype is in replicated_archetypes
+                        unsafe {
+                            entity_ref
+                                .get_change_ticks::<ReplicateToServer>()
+                                .unwrap_unchecked()
+                        },
+                    )
                 };
+
                 // the update will be 'insert' instead of update if the ReplicateToServer component is new
                 // or the HasAuthority component is new. That's because the remote cannot receive update
                 // without receiving an action first (to populate the latest_tick on the replication-receiver)
@@ -383,17 +446,11 @@ pub(crate) mod send {
                 // we never want to send a spawn if the entity was replicated to us from the server
                 // (because the server already has the entity)
                 if replication_is_changed {
-                    replicate_entity_spawn(
-                        entity.id(),
-                        group_id,
-                        priority,
-                        target_entity,
-                        &mut sender,
-                    );
+                    replicate_entity_spawn(entity, group_id, priority, target_entity, &mut sender);
                 }
 
                 // If the group is not set to send, skip this entity
-                if group.is_some_and(|g| !g.should_send) {
+                if !group_ready {
                     continue;
                 }
 
@@ -407,7 +464,7 @@ pub(crate) mod send {
                         get_erased_component(
                             table,
                             &world.storages().sparse_sets,
-                            entity,
+                            archetype_entity,
                             replicated_component.storage_type,
                             replicated_component.id,
                         )
@@ -415,7 +472,7 @@ pub(crate) mod send {
                     let _ = replicate_component_update(
                         tick_manager.tick(),
                         &component_registry,
-                        entity.id(),
+                        entity,
                         replicated_component.kind,
                         data,
                         component_ticks,
@@ -1306,7 +1363,7 @@ pub(crate) mod send {
 pub(crate) mod commands {
     use crate::prelude::Replicating;
     use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{EntityWorldMut};
+    use bevy::prelude::EntityWorldMut;
 
     fn despawn_without_replication(mut entity_mut: EntityWorldMut) {
         // remove replicating separately so that when we despawn the entity and trigger the observer

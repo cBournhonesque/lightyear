@@ -1,8 +1,8 @@
+use crate::utils::collections::HashMap;
 use bevy::ecs::component::{ComponentId, Mutable};
-use bevy::ecs::entity::{MapEntities};
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{App, Component, EntityWorldMut, Mut, Reflect, Resource, TypePath, World};
 use bevy::ptr::Ptr;
-use crate::utils::collections::HashMap;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::any::TypeId;
@@ -159,7 +159,6 @@ pub struct ReplicationMetadata {
     pub component_id: ComponentId,
     pub delta_compression_id: ComponentId,
     pub replicate_once_id: ComponentId,
-    pub override_target_id: ComponentId,
     pub write: RawWriteFn,
     pub buffer_insert_fn: RawBufferInsertFn,
     pub remove: Option<RawBufferRemoveFn>,
@@ -581,10 +580,10 @@ mod replication {
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
+    use bevy::ecs::component::Mutable;
     use bevy::ptr::OwningPtr;
     use bytes::Bytes;
     use std::alloc::Layout;
-    use bevy::ecs::component::Mutable;
 
     impl ComponentRegistry {
         /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
@@ -617,7 +616,7 @@ mod replication {
                 .map(|metadata| metadata.direction)
         }
 
-        pub(crate) fn set_replication_fns<C: Component<Mutability=Mutable> + PartialEq>(
+        pub(crate) fn set_replication_fns<C: Component<Mutability = Mutable> + PartialEq>(
             &mut self,
             world: &mut World,
             direction: ChannelDirection,
@@ -730,7 +729,7 @@ mod replication {
 
         /// Method that buffers a pointer to the component data that will be inserted
         /// in the entity inside `self.raw_bytes`
-        pub(crate) fn buffer_insert<C: Component<Mutability=Mutable> + PartialEq>(
+        pub(crate) fn buffer_insert<C: Component<Mutability = Mutable> + PartialEq>(
             &mut self,
             reader: &mut Reader,
             net_id: ComponentNetId,
@@ -788,7 +787,7 @@ mod replication {
             Ok(())
         }
 
-        pub(crate) fn write<C: Component<Mutability=Mutable> + PartialEq>(
+        pub(crate) fn write<C: Component<Mutability = Mutable> + PartialEq>(
             &self,
             reader: &mut Reader,
             net_id: ComponentNetId,
@@ -832,14 +831,20 @@ mod replication {
             Ok(())
         }
 
-        pub(crate) fn batch_remove(&mut self, net_ids: Vec<ComponentNetId>, entity_world_mut: &mut EntityWorldMut) {
+        pub(crate) fn batch_remove(
+            &mut self,
+            net_ids: Vec<ComponentNetId>,
+            entity_world_mut: &mut EntityWorldMut,
+        ) {
             for net_id in net_ids {
                 let kind = self.kind_map.kind(net_id).expect("unknown component kind");
                 let replication_metadata = self
                     .replication_map
                     .get(kind)
                     .expect("the component is not part of the protocol");
-                let remove_fn = replication_metadata.remove.expect("the component does not have a remove function");
+                let remove_fn = replication_metadata
+                    .remove
+                    .expect("the component does not have a remove function");
                 remove_fn(self, net_id);
             }
 
@@ -877,12 +882,14 @@ mod delta {
 
     use crate::serialize::writer::Writer;
     use crate::shared::replication::entity_map::SendEntityMap;
-    use std::ptr::NonNull;
     use bevy::ecs::component::Mutable;
+    use std::ptr::NonNull;
 
     impl ComponentRegistry {
         /// Register delta compression functions for a component
-        pub(crate) fn set_delta_compression<C: Component<Mutability=Mutable> + PartialEq + Diffable>(
+        pub(crate) fn set_delta_compression<
+            C: Component<Mutability = Mutable> + PartialEq + Diffable,
+        >(
             &mut self,
             world: &mut World,
         ) where
@@ -991,7 +998,7 @@ mod delta {
         }
 
         /// Deserialize the DeltaMessage<C::Delta> and apply it to the component
-        pub(crate) fn write_delta<C: Component<Mutability=Mutable> + PartialEq + Diffable>(
+        pub(crate) fn write_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
             &self,
             reader: &mut Reader,
             net_id: ComponentNetId,
@@ -1077,7 +1084,9 @@ mod delta {
         /// Insert a component delta into the entity.
         /// If the component is not present on the entity, we put it in a temporary buffer
         /// so that all components can be inserted at once
-        pub(crate) fn buffer_insert_delta<C: Component<Mutability=Mutable> + PartialEq + Diffable>(
+        pub(crate) fn buffer_insert_delta<
+            C: Component<Mutability = Mutable> + PartialEq + Diffable,
+        >(
             &mut self,
             reader: &mut Reader,
             delta_net_id: ComponentNetId,
@@ -1190,7 +1199,9 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
 pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
-    fn register_component<C: Component<Mutability=Mutable> + Message + Serialize + DeserializeOwned + PartialEq>(
+    fn register_component<
+        C: Component<Mutability = Mutable> + Message + Serialize + DeserializeOwned + PartialEq,
+    >(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C>;
@@ -1198,14 +1209,14 @@ pub trait AppComponentExt {
     /// Registers the component in the Registry: this component can now be sent over the network.
     ///
     /// You need to provide your own [`SerializeFns`]
-    fn register_component_custom_serde<C: Component<Mutability=Mutable> + Message + PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability = Mutable> + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
 
     /// Enable rollbacks for a component even if the component is not networked
-    fn add_rollback<C: Component<Mutability=Mutable> + PartialEq + Clone>(&mut self);
+    fn add_rollback<C: Component<Mutability = Mutable> + PartialEq + Clone>(&mut self);
 
     /// Enable rollbacks for a resource.
     fn add_resource_rollback<R: Resource + Clone + Debug>(&mut self);
@@ -1241,7 +1252,7 @@ pub trait AppComponentExt {
     fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>);
 
     /// Enable delta compression when serializing this component
-    fn add_delta_compression<C: Component<Mutability=Mutable> + PartialEq + Diffable>(&mut self)
+    fn add_delta_compression<C: Component<Mutability = Mutable> + PartialEq + Diffable>(&mut self)
     where
         C::Delta: Serialize + DeserializeOwned;
 }
@@ -1344,7 +1355,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// Enable delta compression when serializing this component
     pub fn add_delta_compression(self) -> Self
     where
-        C: Component<Mutability=Mutable> + PartialEq + Diffable,
+        C: Component<Mutability = Mutable> + PartialEq + Diffable,
         C::Delta: Serialize + DeserializeOwned,
     {
         self.app.add_delta_compression::<C>();
@@ -1353,7 +1364,9 @@ impl<C> ComponentRegistration<'_, C> {
 }
 
 impl AppComponentExt for App {
-    fn register_component<C: Component<Mutability=Mutable> + Message + PartialEq + Serialize + DeserializeOwned>(
+    fn register_component<
+        C: Component<Mutability = Mutable> + Message + PartialEq + Serialize + DeserializeOwned,
+    >(
         &mut self,
         direction: ChannelDirection,
     ) -> ComponentRegistration<'_, C> {
@@ -1372,7 +1385,7 @@ impl AppComponentExt for App {
         }
     }
 
-    fn register_component_custom_serde<C: Component<Mutability=Mutable> + Message + PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability = Mutable> + Message + PartialEq>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<C>,
@@ -1394,7 +1407,7 @@ impl AppComponentExt for App {
 
     // TODO: move this away from protocol? since it doesn't even use the registry at all
     //  maybe put this in the PredictionPlugin?
-    fn add_rollback<C: Component<Mutability=Mutable> + PartialEq + Clone>(&mut self) {
+    fn add_rollback<C: Component<Mutability = Mutable> + PartialEq + Clone>(&mut self) {
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_non_networked_rollback_systems::<C>(self);
@@ -1480,7 +1493,7 @@ impl AppComponentExt for App {
         registry.set_interpolation::<C>(interpolation_fn);
     }
 
-    fn add_delta_compression<C: Component<Mutability=Mutable> + PartialEq + Diffable>(&mut self)
+    fn add_delta_compression<C: Component<Mutability = Mutable> + PartialEq + Diffable>(&mut self)
     where
         C::Delta: Serialize + DeserializeOwned,
     {

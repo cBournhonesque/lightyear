@@ -1,4 +1,6 @@
 //! Components used for replication
+
+use bevy::ecs::component::{ComponentHooks, Immutable, StorageType};
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
@@ -10,6 +12,7 @@ use crate::protocol::component::ComponentKind;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::network_target::NetworkTarget;
+use crate::utils::collections::HashMap;
 
 /// Marker that indicates that this entity is to be replicated.
 ///
@@ -17,7 +20,9 @@ use crate::shared::replication::network_target::NetworkTarget;
 /// is currently being replicated. (removing `Replicating` pauses replication updates).
 ///
 /// `ReplicationMarker` is required by `ReplicateToServer` and `ReplicationTarget`
-struct ReplicationMarker;
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct ReplicationMarker;
 
 /// Marker component that indicates that the entity was initially spawned via replication
 /// (it was being replicated from a remote world)
@@ -108,6 +113,14 @@ pub enum TargetEntity {
 #[reflect(Component)]
 pub struct DisableReplicateHierarchy;
 
+// - each entity has a ReplicateLike(entity)
+//   - the entity can be itself or another one (usually a parent)
+// - when we spawn Replicate, etc., we insert a ReplicateLike(itself)
+//   - maybe this is not needed, and in the replication system we have 2 steps; one for ReplicateLike and one for entities that have Replication?
+// - in the replication systems, we iterate through all the ReplicateLike(entity), fetch the components on the 'like' entity, and then go
+//   - if the entity itself has a replication component, we will use that instead of the one from ReplicateLike
+// - if we add DisableReplicateHierarchy, we remove ReplicateLike from all children (but not from itself)
+// - when we remove ReplicateLike, we remove ReplicateLike recursively in all children as well
 
 // TODO: do we need this? or do we just check if delta compression fn is present in the registry?
 /// If this component is present, the component will be replicated via delta-compression.
@@ -208,19 +221,33 @@ impl<C> Default for ReplicateOnceComponent<C> {
 //  - override replication_target: bool (if true, we will completely override the replication target. If false, we do the intersection)
 //  - override visibility: bool (if true, we will completely override the visibility. If false, we do the intersection)
 /// This component lets you override the replication target for a specific component
-#[derive(Component, Clone, Debug, PartialEq, Reflect)]
+#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct OverrideTargetComponent<C> {
-    pub target: NetworkTarget,
-    _marker: std::marker::PhantomData<C>,
+pub struct OverrideTarget {
+    overrides: HashMap<ComponentKind, NetworkTarget>,
 }
 
-impl<C> OverrideTargetComponent<C> {
-    pub fn new(target: NetworkTarget) -> Self {
-        Self {
-            target,
-            _marker: Default::default(),
-        }
+impl OverrideTarget {
+    /// Override the [`NetworkTarget`] for a given component
+    pub fn insert<C: Component>(mut self, target: NetworkTarget) -> Self {
+        self.overrides.insert(ComponentKind::of::<C>(), target);
+        self
+    }
+
+    /// Clear the [`NetworkTarget`] override for the component
+    pub fn clear<C: Component>(mut self, target: NetworkTarget) -> Self {
+        self.overrides.remove(&ComponentKind::of::<C>());
+        self
+    }
+
+    /// Get the overriding [`NetworkTarget`] for the component if there is one
+    pub fn get<C: Component>(&self) -> Option<&NetworkTarget> {
+        self.overrides.get(&ComponentKind::of::<C>())
+    }
+
+    /// Get the overriding [`NetworkTarget`] for the component if there is one
+    pub(crate) fn get_kind(&self, component_kind: ComponentKind) -> Option<&NetworkTarget> {
+        self.overrides.get(&component_kind)
     }
 }
 

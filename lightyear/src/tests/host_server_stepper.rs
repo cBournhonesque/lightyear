@@ -7,8 +7,8 @@ use bevy::input::InputPlugin;
 use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, Time, World};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
-use core::time::Duration;
 use bevy::MinimalPlugins;
+use core::time::Duration;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{

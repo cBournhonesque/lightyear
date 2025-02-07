@@ -2,8 +2,8 @@
 use bevy::reflect::Reflect;
 use std::net::SocketAddr;
 
-use core::time::Duration;
 use cfg_if::cfg_if;
+use core::time::Duration;
 use rand;
 use rand::{thread_rng, Rng};
 

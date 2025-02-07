@@ -13,16 +13,14 @@ use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
 use crate::shared::replication::components::{InitialReplicated, Replicated, ReplicationGroupId};
 #[cfg(test)]
 use crate::utils::captures::Captures;
+use crate::utils::collections::HashSet;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, EntityWorldMut, World};
-use crate::utils::collections::{HashSet};
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
-
-
 
 #[derive(Debug)]
 pub struct ReplicationReceiver {
@@ -1280,16 +1278,24 @@ mod tests {
         );
         stepper.init();
 
-        let server_entity = stepper.server_app.world_mut().spawn((
-            ServerReplicate::default(),
-            ComponentSyncModeOnce(1.0),
-            ComponentSyncModeSimple(1.0),
-        )).id();
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                ServerReplicate::default(),
+                ComponentSyncModeOnce(1.0),
+                ComponentSyncModeSimple(1.0),
+            ))
+            .id();
         stepper.frame_step();
         stepper.frame_step();
 
         // remove both components
-        stepper.server_app.world_mut().entity_mut(server_entity).remove::<(ComponentSyncModeOnce, ComponentSyncModeSimple)>();
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .remove::<(ComponentSyncModeOnce, ComponentSyncModeSimple)>();
 
         stepper.frame_step();
         stepper.frame_step();
@@ -1298,7 +1304,11 @@ mod tests {
         assert!(stepper
             .client_app
             .world_mut()
-            .query_filtered::<(), (With<Replicated>, Without<ComponentSyncModeSimple>, Without<ComponentSyncModeOnce>)>()
+            .query_filtered::<(), (
+                With<Replicated>,
+                Without<ComponentSyncModeSimple>,
+                Without<ComponentSyncModeOnce>
+            )>()
             .get_single(stepper.client_app.world())
             .is_ok());
     }

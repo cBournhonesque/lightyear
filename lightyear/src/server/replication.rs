@@ -54,8 +54,8 @@ pub(crate) mod send {
     use crate::prelude::server::AuthorityCommandExt;
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponents, NetworkRelevanceMode,
-        OverrideTargetComponent, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, Tick, TickManager, TimeManager,
+        OverrideTargetComponent, ReplicateLike, ReplicationGroup, ShouldBePredicted, TargetEntity,
+        Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
@@ -67,8 +67,8 @@ pub(crate) mod send {
     };
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
-        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId,
-        ShouldBeInterpolated,
+        Cached, Controlled, InitialReplicated, OverrideTarget, Replicating, ReplicationGroupId,
+        ReplicationMarker, ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
@@ -200,7 +200,7 @@ pub(crate) mod send {
         ReplicationMarker,
         AuthorityPeer,
         NetworkRelevanceMode,
-        ReplicationGroup,
+        ReplicationGroup
     )]
     pub struct ReplicationTarget {
         /// Which clients should this entity be replicated to
@@ -257,8 +257,6 @@ pub(crate) mod send {
         /// After the entity is first replicated, the replication group of the entity should not be modified.
         /// (but more entities can be added to the replication group)
         pub group: ReplicationGroup,
-        /// How should the hierarchy of the entity (parents/children) be replicated?
-        pub hierarchy: ReplicateHierarchy,
         pub marker: Replicating,
     }
 
@@ -442,39 +440,131 @@ pub(crate) mod send {
             // replicate_entity_local_despawn(&mut despawn_removed, &mut set.p1());
 
             // 3. go through all entities of that archetype
-            for entity in archetype.entities() {
-                let entity_ref = world.entity(entity.id());
-                let group = entity_ref.get::<ReplicationGroup>();
-
-                let group_id = group.map_or(ReplicationGroupId::default(), |g| {
-                    g.group_id(Some(entity.id()))
-                });
-                let priority = group.map_or(1.0, |g| g.priority());
-                let cached_replication_target = entity_ref.get::<Cached<ReplicationTarget>>();
-                let visibility = entity_ref.get::<CachedNetworkRelevance>();
-                let sync_target = entity_ref.get::<SyncTarget>();
-                let target_entity = entity_ref.get::<TargetEntity>();
-                let controlled_by = entity_ref.get::<ControlledBy>();
-                let authority_peer = entity_ref.get::<AuthorityPeer>();
-                let initial_replicated = entity_ref.get::<InitialReplicated>();
-
-                let disabled_components = entity_ref.get::<DisabledComponents>();
-
-                // SAFETY: we know that the entity has the ReplicationTarget component
-                // because the archetype is in replicated_archetypes
-
-                // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
-                // so create the ref manually
-                let replication_target = shared::replication::utils::get_ref::<ReplicationTarget>(
-                    world,
-                    entity.id(),
-                    system_ticks.last_run(),
-                    system_ticks.this_run(),
-                );
+            for archetype_entity in archetype.entities() {
+                let entity = archetype_entity.id();
+                // If ReplicateLike is present, we will use the replication components from the parent entity
+                // (unless the replication component is also present on the entity itself, in which case we overwrite the value)
+                // TODO: where is disabled components used?
+                let (
+                    group_id,
+                    priority,
+                    group_ready,
+                    cached_replication_target,
+                    visibility,
+                    sync_target,
+                    target_entity,
+                    controlled_by,
+                    authority_peer,
+                    initial_replicated,
+                    disabled_components,
+                    override_target,
+                    // SAFETY: we know that the entity has the ReplicationTarget component
+                    // because the archetype is in replicated_archetypes
+                    replication_target,
+                ) = if let Some(replicate_like) =
+                    world.entity(entity).get::<ReplicateLike>().copied()
+                {
+                    let [entity_ref, query_entity_ref] = world.entity(&[entity, replicate_like.0]);
+                    let (group_id, priority, group_ready) =
+                        entity_ref.get::<ReplicationGroup>().map_or_else(
+                            // if ReplicationGroup is not present, we use the parent entity
+                            || {
+                                query_entity_ref
+                                    .get::<ReplicationGroup>()
+                                    .map(|g| {
+                                        (
+                                            g.group_id(Some(replicate_like.0)),
+                                            g.priority(),
+                                            g.should_send,
+                                        )
+                                    })
+                                    .unwrap()
+                            },
+                            // we use the entity itself if ReplicationGroup is present
+                            |g| (g.group_id(Some(entity)), g.priority(), g.should_send),
+                        );
+                    (
+                        group_id,
+                        priority,
+                        group_ready,
+                        entity_ref
+                            .get::<Cached<ReplicationTarget>>()
+                            .or_else(|| query_entity_ref.get::<Cached<ReplicationTarget>>()),
+                        entity_ref
+                            .get::<CachedNetworkRelevance>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<SyncTarget>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<TargetEntity>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<ControlledBy>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<AuthorityPeer>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<InitialReplicated>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<DisabledComponents>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<OverrideTarget>()
+                            .or_else(|| query_entity_ref.get()),
+                        if entity_ref.get::<ReplicationTarget>().is_some() {
+                            // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
+                            // so create the ref manually
+                            shared::replication::utils::get_ref::<ReplicationTarget>(
+                                world,
+                                entity,
+                                system_ticks.last_run(),
+                                system_ticks.this_run(),
+                            )
+                        } else {
+                            shared::replication::utils::get_ref::<ReplicationTarget>(
+                                world,
+                                replicate_like.0,
+                                system_ticks.last_run(),
+                                system_ticks.this_run(),
+                            )
+                        },
+                    )
+                } else {
+                    let entity_ref = world.entity(entity);
+                    let (group_id, priority, group_ready) = entity_ref
+                        .get::<ReplicationGroup>()
+                        .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
+                        .unwrap();
+                    (
+                        group_id,
+                        priority,
+                        group_ready,
+                        entity_ref.get::<Cached<ReplicationTarget>>(),
+                        entity_ref.get::<CachedNetworkRelevance>(),
+                        entity_ref.get::<SyncTarget>(),
+                        entity_ref.get::<TargetEntity>(),
+                        entity_ref.get::<ControlledBy>(),
+                        entity_ref.get::<AuthorityPeer>(),
+                        entity_ref.get::<InitialReplicated>(),
+                        entity_ref.get::<DisabledComponents>(),
+                        entity_ref.get::<OverrideTarget>(),
+                        // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
+                        // so create the ref manually
+                        shared::replication::utils::get_ref::<ReplicationTarget>(
+                            world,
+                            entity,
+                            system_ticks.last_run(),
+                            system_ticks.this_run(),
+                        ),
+                    )
+                };
 
                 // b. add entity despawns from visibility or target change
                 replicate_entity_despawn(
-                    entity.id(),
+                    entity,
                     group_id,
                     &replication_target,
                     cached_replication_target,
@@ -486,7 +576,7 @@ pub(crate) mod send {
                 // c. add all entity spawns
                 replicate_entity_spawn(
                     &component_registry,
-                    entity.id(),
+                    entity,
                     &replication_target,
                     cached_replication_target,
                     initial_replicated,
@@ -502,7 +592,7 @@ pub(crate) mod send {
                 );
 
                 // If the group is not set to send, skip sending updates for this entity
-                if group.is_some_and(|g| !g.should_send) {
+                if !should_send {
                     continue;
                 }
 
@@ -521,14 +611,8 @@ pub(crate) mod send {
                             replicated_component.id,
                         )
                     };
-                    let override_target = replicated_component.override_target.and_then(|id| {
-                        entity_ref
-                            .get_by_id(id)
-                            .ok()
-                            // SAFETY: we know the archetype has the OverrideTarget<C> component
-                            // the OverrideTarget<C> component has the same memory layout as NetworkTarget
-                            .map(|ptr| unsafe { ptr.deref::<NetworkTarget>() })
-                    });
+                    let override_target =
+                        override_target.and_then(|o| o.get_kind(replicated_component.kind));
 
                     replicate_component_updates(
                         tick_manager.tick(),

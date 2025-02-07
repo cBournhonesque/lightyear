@@ -248,16 +248,17 @@ pub(crate) mod send {
 pub(crate) mod shared {
     use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
-        NetworkRelevanceMode, PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated,
-        ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity,
+        NetworkRelevanceMode, PrePredicted, RemoteEntityMap, Replicated, ReplicationConfig,
+        ReplicationGroup, ShouldBePredicted, TargetEntity,
     };
     use crate::server::replication::send::ReplicationTarget;
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
-        Controlled, Replicating, ReplicationGroupId, ReplicationGroupIdBuilder,
-        ShouldBeInterpolated,
+        Controlled, DisableReplicateHierarchy, Replicating, ReplicationGroupId,
+        ReplicationGroupIdBuilder, ShouldBeInterpolated,
     };
     use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
+    use crate::shared::replication::hierarchy::ReplicateLike;
     use crate::shared::replication::network_target::NetworkTarget;
     use bevy::prelude::{App, Plugin};
 
@@ -272,7 +273,8 @@ pub(crate) mod shared {
                 .register_type::<Replicating>()
                 .register_type::<ReplicationTarget>()
                 .register_type::<ReplicateToServer>()
-                .register_type::<ReplicateHierarchy>()
+                .register_type::<DisableReplicateHierarchy>()
+                .register_type::<ReplicateLike>()
                 .register_type::<ReplicationGroupIdBuilder>()
                 .register_type::<ReplicationGroup>()
                 .register_type::<ReplicationConfig>()

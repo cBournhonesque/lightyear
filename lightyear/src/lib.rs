@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 /*! # Lightyear
 
 Lightyear is a networking library for Bevy.
@@ -211,12 +212,12 @@ pub mod prelude {
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::authority::HasAuthority;
     pub use crate::shared::replication::components::{
-        DeltaCompression, DisabledComponents, NetworkRelevanceMode, OverrideTargetComponent,
-        PrePredicted, ReplicateHierarchy, ReplicateOnceComponent, Replicated, Replicating,
-        ReplicationGroup, ShouldBePredicted, TargetEntity,
+        DeltaCompression, DisableReplicateHierarchy, DisabledComponents, NetworkRelevanceMode,
+        OverrideTargetComponent, PrePredicted, ReplicateOnceComponent, Replicated, Replicating,
+        ReplicationGroup, ReplicationMarker, ShouldBePredicted, TargetEntity,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
-    pub use crate::shared::replication::hierarchy::ParentSync;
+    pub use crate::shared::replication::hierarchy::ReplicateLike;
     pub use crate::shared::replication::network_target::NetworkTarget;
     pub use crate::shared::replication::plugin::ReplicationConfig;
     pub use crate::shared::replication::plugin::SendUpdatesMode;

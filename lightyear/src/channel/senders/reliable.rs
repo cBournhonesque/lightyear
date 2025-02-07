@@ -2,8 +2,8 @@ use bevy::prelude::{Timer, TimerMode};
 use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashSet};
 
-use core::time::Duration;
 use bytes::Bytes;
+use core::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::trace;
 
@@ -337,8 +337,8 @@ impl ChannelSend for ReliableSender {
 
 #[cfg(test)]
 mod tests {
-    use core::time::Duration;
     use bytes::Bytes;
+    use core::time::Duration;
 
     use crate::channel::builder::ReliableSettings;
     use crate::packet::message::SingleData;

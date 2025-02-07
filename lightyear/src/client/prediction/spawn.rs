@@ -82,7 +82,7 @@ mod tests {
     use crate::prelude::server::SyncTarget;
     use crate::prelude::{client, server, ClientId, NetworkTarget};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-    use bevy::ecs::hierarchy::{ChildOf};
+    use bevy::ecs::hierarchy::ChildOf;
     use bevy::prelude::default;
 
     /// https://github.com/cBournhonesque/lightyear/issues/627

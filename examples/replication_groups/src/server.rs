@@ -1,6 +1,6 @@
+use bevy::platform_support::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
-use bevy::platform_support::collections::HashMap;
 
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;

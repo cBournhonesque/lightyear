@@ -1,10 +1,10 @@
 //! Specify how a Client sends/receives messages with a Server
+use crate::utils::collections::HashMap;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Event, Resource, World};
-use core::time::Duration;
-use crate::utils::collections::HashMap;
 use bytes::Bytes;
+use core::time::Duration;
 use tracing::{debug, trace, trace_span};
 
 use crate::channel::builder::{

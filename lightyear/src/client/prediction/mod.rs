@@ -33,7 +33,7 @@ impl Component for Predicted {
 
     fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
         hooks.on_add(
-            |mut deferred_world: DeferredWorld, hook_context: HookContext | {
+            |mut deferred_world: DeferredWorld, hook_context: HookContext| {
                 let predicted = hook_context.entity;
                 if let Some(confirmed) = deferred_world
                     .get::<Predicted>(predicted)

@@ -3,10 +3,10 @@
 use crate::prelude::{ComponentRegistry, Message, Tick};
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::ReplicationGroupId;
+use crate::utils::collections::HashMap;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
-use crate::utils::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
