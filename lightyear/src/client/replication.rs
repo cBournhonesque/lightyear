@@ -987,6 +987,11 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn(Replicate::default())
                 .id();
+            let client_child = stepper
+                .client_app
+                .world_mut()
+                .spawn(ChildOf(client_entity))
+                .id();
             for _ in 0..10 {
                 stepper.frame_step();
             }
@@ -1002,6 +1007,16 @@ pub(crate) mod send {
                 .remote_entity_map
                 .get_local(client_entity)
                 .expect("entity was not replicated to client");
+            let server_child = stepper
+                .server_app
+                .world()
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_child)
+                .expect("entity was not replicated to client");
 
             // despawn
             stepper.client_app.world_mut().despawn(client_entity);
@@ -1014,6 +1029,59 @@ pub(crate) mod send {
                 .server_app
                 .world()
                 .get_entity(server_entity)
+                .is_err());
+            // check that the child was despawned
+            assert!(stepper
+                .server_app
+                .world()
+                .get_entity(server_child)
+                .is_err());
+        }
+
+        /// Check that if you despawn an entity with ReplicateLike,
+        /// the despawn is replicated
+        #[test]
+        fn test_entity_despawn_child() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on client
+            let client_entity = stepper
+                .client_app
+                .world_mut()
+                .spawn(Replicate::default())
+                .id();
+            let client_child = stepper
+                .client_app
+                .world_mut()
+                .spawn(ChildOf(client_entity))
+                .id();
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the entity was spawned
+            let server_child = stepper
+                .server_app
+                .world()
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_child)
+                .expect("entity was not replicated to client");
+
+            // despawn
+            stepper.client_app.world_mut().despawn(client_child);
+            for _ in 0..10 {
+                stepper.frame_step();
+            }
+
+            // check that the child was despawned
+            assert!(stepper
+                .server_app
+                .world()
+                .get_entity(server_child)
                 .is_err());
         }
 
@@ -1345,6 +1413,11 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
                 .id();
+            let client_child = stepper
+                .client_app
+                .world_mut()
+                .spawn((ChildOf(client_entity), ComponentSyncModeFull(1.0)))
+                .id();
             for _ in 0..10 {
                 stepper.frame_step();
             }
@@ -1360,30 +1433,56 @@ pub(crate) mod send {
                 .remote_entity_map
                 .get_local(client_entity)
                 .expect("entity was not replicated to client");
+            let server_child = stepper
+                .server_app
+                .world()
+                .resource::<server::ConnectionManager>()
+                .connection(ClientId::Netcode(TEST_CLIENT_ID))
+                .unwrap()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(client_child)
+                .expect("entity was not replicated to client");
 
-            // update component
+            assert_eq!(
+                stepper.server_app.world().entity(server_entity).get::<ComponentSyncModeFull>(), Some(&ComponentSyncModeFull(1.0))
+            );
+            assert_eq!(
+                stepper.server_app.world().entity(server_child).get::<ComponentSyncModeFull>(), Some(&ComponentSyncModeFull(1.0))
+            );
+
+            // remove component on the parent and the child
             stepper
                 .client_app
                 .world_mut()
                 .entity_mut(client_entity)
-                .insert((
-                    ComponentSyncModeFull(2.0),
-                    DisabledComponents::default().disable::<ComponentSyncModeFull>(),
-                ));
+                .remove::<ComponentSyncModeFull>();
+            stepper
+                .client_app
+                .world_mut()
+                .entity_mut(client_child)
+                .remove::<ComponentSyncModeFull>();
             for _ in 0..10 {
                 stepper.frame_step();
             }
 
-            // check that the component was not updated
-            assert_eq!(
+            // check that the component was removed
+            assert!(
                 stepper
                     .server_app
                     .world()
                     .entity(server_entity)
                     .get::<ComponentSyncModeFull>()
-                    .expect("Component missing"),
-                &ComponentSyncModeFull(1.0)
-            )
+                .is_none()
+            );
+            assert!(
+                stepper
+                    .server_app
+                    .world()
+                    .entity(server_child)
+                    .get::<ComponentSyncModeFull>()
+                    .is_none()
+            );
         }
 
         /// Make sure that ServerToClient components are not replicated to the server
