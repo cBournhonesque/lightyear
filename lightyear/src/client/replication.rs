@@ -412,9 +412,11 @@ pub(crate) mod send {
                         entity_ref.get::<DisabledComponents>(),
                         // SAFETY: we know that the entity has the ReplicateToServer component
                         // because the archetype is in replicated_archetypes
-                        entity_ref
-                            .get_change_ticks::<ReplicateToServer>()
-                            .unwrap_unchecked()
+                        unsafe {
+                            entity_ref
+                                .get_change_ticks::<ReplicateToServer>()
+                                .unwrap_unchecked()
+                        }
                     )
                 };
 

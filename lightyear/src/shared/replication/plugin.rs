@@ -74,7 +74,7 @@ pub(crate) mod receive {
             if !app.is_plugin_added::<shared::SharedPlugin>() {
                 app.add_plugins(shared::SharedPlugin);
             }
-            app.add_plugins(HierarchyReceivePlugin::<R>::default())
+            app.add_plugins(HierarchyReceivePlugin::<R, ChildOf>::default())
                 .add_plugins(ResourceReceivePlugin::<R>::default());
 
             // SYSTEMS
@@ -157,7 +157,7 @@ pub(crate) mod send {
                 app.add_plugins(shared::SharedPlugin);
             }
             app.add_plugins(ResourceSendPlugin::<R>::default())
-                .add_plugins(HierarchySendPlugin::<R>::default());
+                .add_plugins(HierarchySendPlugin::<ChildOf>::default());
 
             // RESOURCES
             app.insert_resource(SendIntervalTimer::<R> {
@@ -223,6 +223,9 @@ pub(crate) mod send {
                 ),
             );
             // SYSTEMS
+            // propagate ReplicateLike
+            app.add_observer(crate::shared::replication::hierarchy::propagate_replicate_like_children_updated);
+            app.add_observer(crate::shared::replication::hierarchy::propagate_replicate_like_replication_marker_added);
             app.add_systems(
                 PreUpdate,
                 ReplicationSendPlugin::<R>::tick_send_interval_timer.after(MainSet::Receive),
