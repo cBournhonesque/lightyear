@@ -361,7 +361,7 @@ pub(crate) mod send {
                     let [entity_ref, query_entity_ref] = world.entity(&[entity, replicate_like.0]);
                     if query_entity_ref.get::<ReplicateToServer>().is_none() {
                         // ReplicateLike points to a parent entity that doesn't have ReplicationToServer, skip
-                        continue
+                        continue;
                     };
                     let (group_id, priority, group_ready) =
                         entity_ref.get::<ReplicationGroup>().map_or_else(
@@ -400,7 +400,7 @@ pub(crate) mod send {
                                     query_entity_ref.get_change_ticks::<ReplicateToServer>()
                                 })
                                 .unwrap_unchecked()
-                        }
+                        },
                     )
                 } else {
                     let entity_ref = world.entity(entity);
@@ -420,7 +420,7 @@ pub(crate) mod send {
                             entity_ref
                                 .get_change_ticks::<ReplicateToServer>()
                                 .unwrap_unchecked()
-                        }
+                        },
                     )
                 };
 
@@ -485,9 +485,7 @@ pub(crate) mod send {
                     .inspect_err(|e| {
                         error!(
                             "Error replicating component {:?} update for entity {:?}: {:?}",
-                            replicated_component.kind,
-                            entity,
-                            e
+                            replicated_component.kind, entity, e
                         )
                     });
                 }

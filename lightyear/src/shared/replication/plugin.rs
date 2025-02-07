@@ -255,7 +255,11 @@ pub(crate) mod send {
 pub(crate) mod shared {
     use crate::client::components::ComponentSyncMode;
     use crate::client::replication::send::ReplicateToServer;
-    use crate::prelude::{AppComponentExt, AppMessageExt, ChannelDirection, ComponentRegistry, NetworkRelevanceMode, PrePredicted, PreSpawnedPlayerObject, RelationshipSync, RemoteEntityMap, Replicated, ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity};
+    use crate::prelude::{
+        AppComponentExt, AppMessageExt, ChannelDirection, ComponentRegistry, NetworkRelevanceMode,
+        PrePredicted, PreSpawnedPlayerObject, RelationshipSync, RemoteEntityMap, Replicated,
+        ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity,
+    };
     use crate::server::replication::send::ReplicationTarget;
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{

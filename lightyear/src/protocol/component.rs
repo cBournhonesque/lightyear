@@ -1261,7 +1261,6 @@ pub struct ComponentRegistration<'a, C> {
 }
 
 impl<C> ComponentRegistration<'_, C> {
-
     /// Specify that the component contains entities which should be mapped from the remote world to the local world
     /// upon deserialization
     pub fn add_map_entities(self) -> Self

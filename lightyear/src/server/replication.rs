@@ -56,8 +56,8 @@ pub(crate) mod send {
     use crate::prelude::server::AuthorityCommandExt;
     use crate::prelude::{
         is_host_server, ClientId, ComponentRegistry, DisabledComponents, NetworkRelevanceMode,
-        ReplicateLike, ReplicationGroup, ShouldBePredicted, TargetEntity,
-        Tick, TickManager, TimeManager,
+        ReplicateLike, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager,
+        TimeManager,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
@@ -69,8 +69,8 @@ pub(crate) mod send {
     };
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
-        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId,
-        ReplicationMarker, ShouldBeInterpolated,
+        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId, ReplicationMarker,
+        ShouldBeInterpolated,
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
@@ -141,6 +141,7 @@ pub(crate) mod send {
             );
 
             app.add_observer(replicate_entity_local_despawn);
+            app.add_observer(replicate_entity_local_despawn_child);
             app.add_observer(add_has_authority_component);
             app.add_observer(handle_pre_predicted);
         }
@@ -197,11 +198,7 @@ pub(crate) mod send {
     /// Component that indicates which clients the entity should be replicated to.
     #[derive(Component, Clone, Debug, PartialEq, Reflect)]
     #[reflect(Component)]
-    #[require(
-        ReplicationMarker,
-        AuthorityPeer,
-        NetworkRelevanceMode,
-    )]
+    #[require(ReplicationMarker, AuthorityPeer, NetworkRelevanceMode)]
     pub struct ReplicationTarget {
         /// Which clients should this entity be replicated to
         pub target: NetworkTarget,
@@ -496,15 +493,15 @@ pub(crate) mod send {
                     // SAFETY: we know that the entity has the ReplicationTarget component
                     // because the archetype is in replicated_archetypes
                     replication_target,
+                    is_replicate_like_added,
                 ) = if let Some(replicate_like) =
                     world.entity(entity).get::<ReplicateLike>().copied()
                 {
                     let [entity_ref, query_entity_ref] = world.entity(&[entity, replicate_like.0]);
                     if query_entity_ref.get::<ReplicationTarget>().is_none() {
                         // ReplicateLike points to a parent entity that doesn't have ReplicationTarget, skip
-                        continue
+                        continue;
                     };
-                    dbg!(&entity, &replicate_like);
                     let (group_id, priority, group_ready) =
                         entity_ref.get::<ReplicationGroup>().map_or_else(
                             // if ReplicationGroup is not present, we use the parent entity
@@ -571,6 +568,13 @@ pub(crate) mod send {
                                 system_ticks.this_run(),
                             )
                         },
+                        shared::replication::utils::get_ref::<ReplicateLike>(
+                            world,
+                            entity,
+                            system_ticks.last_run(),
+                            system_ticks.this_run(),
+                        )
+                        .is_added(),
                     )
                 } else {
                     let entity_ref = world.entity(entity);
@@ -599,6 +603,7 @@ pub(crate) mod send {
                             system_ticks.last_run(),
                             system_ticks.this_run(),
                         ),
+                        false,
                     )
                 };
 
@@ -618,6 +623,7 @@ pub(crate) mod send {
                     &component_registry,
                     entity,
                     &replication_target,
+                    is_replicate_like_added,
                     cached_replication_target,
                     initial_replicated,
                     group_id,
@@ -683,13 +689,17 @@ pub(crate) mod send {
 
     /// Send entity spawn replication messages to clients
     /// Also handles:
+    /// - an entity that becomes newly visible will be spawned remotely
+    /// - send a spawn if the ReplicationTarget changes to include a new client
     /// - newly_connected_clients should receive the entity spawn message even if the entity was not just spawned
+    /// - adding a ReplicateLike on an entity will send a Spawn for it
     /// - adds ControlledBy, ShouldBePredicted, ShouldBeInterpolated component
     /// - handles TargetEntity if it's a Preexisting entity
     pub(crate) fn replicate_entity_spawn(
         component_registry: &ComponentRegistry,
         entity: Entity,
         replication_target: &Ref<ReplicationTarget>,
+        is_replicate_like_added: bool,
         cached_replication_target: Option<&Cached<ReplicationTarget>>,
         initial_replicated: Option<&InitialReplicated>,
         group_id: ReplicationGroupId,
@@ -741,7 +751,7 @@ pub(crate) mod send {
             None => {
                 let mut target = NetworkTarget::None;
                 // only try to replicate if the replicate component was just added
-                if replication_target.is_added() {
+                if is_replicate_like_added || replication_target.is_added() {
                     trace!(?entity, "send entity spawn");
                     // TODO: avoid this clone!
                     target = replication_target.target.clone();
@@ -853,6 +863,24 @@ pub(crate) mod send {
             });
     }
 
+    /// Despawn entities when ReplicateLike gets removed on local world
+    pub(crate) fn replicate_entity_local_despawn_child(
+        trigger: Trigger<OnRemove, ReplicateLike>,
+        parent_query: Query<&ReplicateLike>,
+        root_query: Query<
+            (
+                &ReplicationGroup,
+                &ReplicationTarget,
+                Option<&CachedNetworkRelevance>,
+            ),
+            With<Replicating>,
+        >,
+        mut sender: ResMut<ConnectionManager>,
+    ) {
+        let root = parent_query.get(trigger.target()).unwrap().0;
+        send_entity_despawn(trigger.target(), root, &root_query, &mut sender);
+    }
+
     /// Despawn entities when the entity gets despawned on local world
     pub(crate) fn replicate_entity_local_despawn(
         // we use the removal of ReplicationGroup to detect the despawn
@@ -866,13 +894,26 @@ pub(crate) mod send {
             ),
             With<Replicating>,
         >,
-        // TODO: should we use Option<ResMut> so that this observer doesn't trigger
-        //  when we are not connected?
         mut sender: ResMut<ConnectionManager>,
     ) {
         let entity = trigger.target();
-        if let Ok((replication_group, network_target, cached_relevance)) = query.get(entity) {
-            trace!(?entity, "Replicate entity despawn");
+        send_entity_despawn(entity, entity, &query, &mut sender);
+    }
+
+    fn send_entity_despawn(
+        despawn_entity: Entity,
+        root_entity: Entity,
+        query: &Query<
+            (
+                &ReplicationGroup,
+                &ReplicationTarget,
+                Option<&CachedNetworkRelevance>,
+            ),
+            With<Replicating>,
+        >,
+        sender: &mut ResMut<ConnectionManager>,
+    ) {
+        if let Ok((replication_group, network_target, cached_relevance)) = query.get(root_entity) {
             // only send the despawn to clients who were in the target of the entity
             let mut target = network_target.clone().target;
             // only send the despawn to clients that had visibility of the entity
@@ -882,9 +923,12 @@ pub(crate) mod send {
                     network_relevance.clients_cache.keys().copied().collect(),
                 ))
             }
-            trace!(?entity, ?target, "send entity despawn");
             let _ = sender
-                .prepare_entity_despawn(entity, replication_group.group_id(Some(entity)), target)
+                .prepare_entity_despawn(
+                    despawn_entity,
+                    replication_group.group_id(Some(root_entity)),
+                    target,
+                )
                 // TODO: bubble up errors to user via ConnectionEvents?
                 .inspect_err(|e| {
                     error!("error sending entity despawn: {:?}", e);
@@ -1122,7 +1166,9 @@ pub(crate) mod send {
 
     /// This system sends updates for all components that were removed
     pub(crate) fn send_component_removed<C: Component>(
+        trigger: Trigger<OnRemove, C>,
         registry: Res<ComponentRegistry>,
+        child_query: Query<&ReplicateLike>,
         // only remove the component for entities that are being actively replicated
         query: Query<
             (
@@ -1135,78 +1181,67 @@ pub(crate) mod send {
             ),
             With<Replicating>,
         >,
-        mut removed: RemovedComponents<C>,
         mut sender: ResMut<ConnectionManager>,
     ) {
+        let entity = trigger.target();
         let kind = registry.net_id::<C>();
-        removed.read().for_each(|entity| {
-            if let Ok((
-                replication_target,
-                group,
-                authority_peer,
-                visibility,
-                disabled_components,
-                override_target,
-            )) = query.get(entity)
-            {
-                // do not replicate components that are disabled
-                if disabled_components.is_some_and(|d| !d.enabled::<C>()) {
-                    return;
-                }
-                // use the overriden target if present
-                let base_target = override_target.and_then(|o| o.get_kind(ComponentKind::of::<C>()))
-                    .unwrap_or(&replication_target.target);
-                let mut target = match visibility {
-                    Some(visibility) => {
-                        visibility
-                            .clients_cache
-                            .iter()
-                            .filter_map(|(client_id, visibility)| {
-                                if base_target.targets(client_id) {
-                                    // TODO: maybe send no matter the vis?
-                                    if matches!(visibility, ClientRelevance::Maintained) {
-                                        // TODO: USE THE CUSTOM REPLICATE TARGET FOR THIS COMPONENT IF PRESENT!
-                                        return Some(*client_id);
-                                    }
-                                };
-                                None
-                            })
-                            .collect()
-                    }
-                    None => {
-                        trace!("sending component remove!");
-                        // TODO: USE THE CUSTOM REPLICATE TARGET FOR THIS COMPONENT IF PRESENT!
-                        base_target.clone()
-                    }
-                };
-                if let Some(AuthorityPeer::Client(c)) = authority_peer {
-                    target.exclude(&NetworkTarget::Single(*c));
-                }
-                if target.is_empty() {
-                    return;
-                }
-                let group_id = group.group_id(Some(entity));
-                debug!(?entity, ?kind, "Sending RemoveComponent");
-                let _ = sender.prepare_component_remove(entity, kind, group, target);
+        // the root entity is either the ReplicateLike root or the entity itself
+        let root_entity = child_query.get(entity).map_or(entity, |r| r.0);
+        // TODO: allow overriding some components on the child
+        if let Ok((
+            replication_target,
+            group,
+            authority_peer,
+            visibility,
+            disabled_components,
+            override_target,
+        )) = query.get(root_entity)
+        {
+            // do not replicate components that are disabled
+            if disabled_components.is_some_and(|d| !d.enabled::<C>()) {
+                return;
             }
-        })
+            // use the overriden target if present
+            let base_target = override_target
+                .and_then(|o| o.get::<C>())
+                .unwrap_or(&replication_target.target);
+            let mut target = match visibility {
+                Some(visibility) => {
+                    visibility
+                        .clients_cache
+                        .iter()
+                        .filter_map(|(client_id, visibility)| {
+                            if base_target.targets(client_id) {
+                                // TODO: maybe send no matter the vis?
+                                if matches!(visibility, ClientRelevance::Maintained) {
+                                    // TODO: USE THE CUSTOM REPLICATE TARGET FOR THIS COMPONENT IF PRESENT!
+                                    return Some(*client_id);
+                                }
+                            };
+                            None
+                        })
+                        .collect()
+                }
+                None => {
+                    trace!("sending component remove!");
+                    // TODO: USE THE CUSTOM REPLICATE TARGET FOR THIS COMPONENT IF PRESENT!
+                    base_target.clone()
+                }
+            };
+            if let Some(AuthorityPeer::Client(c)) = authority_peer {
+                target.exclude(&NetworkTarget::Single(*c));
+            }
+            if target.is_empty() {
+                return;
+            }
+            let group_id = group.group_id(Some(entity));
+            debug!(?entity, ?kind, "Sending RemoveComponent");
+            let _ = sender.prepare_component_remove(entity, kind, group, target);
+        }
     }
 
     pub(crate) fn register_replicate_component_send<C: Component>(app: &mut App) {
-        app.add_systems(
-            PostUpdate,
-            (
-                // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
-                //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
-                //  It is ok to run it every frame because it creates at most one message per despawn
-                send_component_removed::<C>
-                    .in_set(InternalReplicationSet::<ServerMarker>::BufferDespawnsAndRemovals),
-                // // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
-                // //  and use up all the bandwidth
-                // send_component_update::<C>
-                //     .in_set(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates),
-            ),
-        );
+        app.add_observer(send_component_removed::<C>);
     }
 
     #[cfg(test)]
@@ -1238,6 +1273,11 @@ pub(crate) mod send {
 
             // spawn an entity on server
             let server_entity = stepper.server_app.world_mut().spawn_empty().id();
+            let server_child = stepper
+                .server_app
+                .world_mut()
+                .spawn(ChildOf(server_entity))
+                .id();
             stepper.frame_step();
             stepper.frame_step();
             // check that entity wasn't spawned
@@ -1279,6 +1319,14 @@ pub(crate) mod send {
                 .remote_entity_map
                 .get_local(server_entity)
                 .expect("entity was not replicated to client");
+            let client_child = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_child)
+                .expect("entity was not replicated to client");
             // check that prediction, interpolation, controlled was handled correctly
             let confirmed = stepper
                 .client_app
@@ -1294,6 +1342,68 @@ pub(crate) mod send {
                 .entity(client_entity)
                 .get::<Controlled>()
                 .is_some());
+
+            // check that prediction, interpolation, controlled was handled correctly for the child
+            let confirmed = stepper
+                .client_app
+                .world()
+                .entity(client_child)
+                .get::<Confirmed>()
+                .expect("Confirmed component missing");
+            assert!(confirmed.predicted.is_some());
+            assert!(confirmed.interpolated.is_some());
+            assert!(stepper
+                .client_app
+                .world()
+                .entity(client_child)
+                .get::<Controlled>()
+                .is_some());
+        }
+
+        /// Check that a child is replicated correctly if ReplicateLike is added to it
+        /// For example an existing entity is already replicated and we add a child to it.
+        /// ReplicateLike should be added to the child, which should trigger a spawn.
+        #[test]
+        fn test_entity_spawn_child() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(Replicate::default())
+                .id();
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the entity was spawned
+            let client_entity = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+
+            // add a child to an already replicated entity
+            let server_child = stepper
+                .server_app
+                .world_mut()
+                .spawn(ChildOf(server_entity))
+                .id();
+
+            stepper.frame_step();
+            stepper.frame_step();
+
+            let client_child = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_child)
+                .expect("entity was not replicated to client");
         }
 
         #[test]
@@ -1482,6 +1592,11 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn(Replicate::default())
                 .id();
+            let server_child = stepper
+                .server_app
+                .world_mut()
+                .spawn(ChildOf(server_entity))
+                .id();
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1493,6 +1608,14 @@ pub(crate) mod send {
                 .replication_receiver
                 .remote_entity_map
                 .get_local(server_entity)
+                .expect("entity was not replicated to client");
+            let client_child = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_child)
                 .expect("entity was not replicated to client");
 
             // despawn
@@ -1506,6 +1629,46 @@ pub(crate) mod send {
                 .world()
                 .get_entity(client_entity)
                 .is_err());
+            // check that the child was despawned
+            assert!(stepper.client_app.world().get_entity(client_child).is_err());
+        }
+
+        /// Check that a despawn of a child with ReplicateLike is replicated
+        #[test]
+        fn test_entity_despawn_child() {
+            let mut stepper = BevyStepper::default();
+
+            // spawn an entity on server
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn(Replicate::default())
+                .id();
+            let server_child = stepper
+                .server_app
+                .world_mut()
+                .spawn(ChildOf(server_entity))
+                .id();
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the entity was spawned
+            let client_child = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_child)
+                .expect("entity was not replicated to client");
+
+            // despawn
+            stepper.server_app.world_mut().despawn(server_child);
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the child was despawned
+            assert!(stepper.client_app.world().get_entity(client_child).is_err());
         }
 
         /// Check that if interest management is used, a client losing visibility of an entity
@@ -1984,7 +2147,9 @@ pub(crate) mod send {
                 .spawn((
                     Replicate::default(),
                     ComponentSyncModeFull(1.0),
-                    OverrideTarget::default().insert::<ComponentSyncModeFull>(NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1))),
+                    OverrideTarget::default().insert::<ComponentSyncModeFull>(
+                        NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
+                    ),
                 ))
                 .id();
             stepper.frame_step();
@@ -2042,9 +2207,9 @@ pub(crate) mod send {
                     },
                     ComponentSyncModeFull(1.0),
                     // override target is only client 1
-                    OverrideTarget::default().insert::<ComponentSyncModeFull>(NetworkTarget::Single(
-                        ClientId::Netcode(TEST_CLIENT_ID_1),
-                    )),
+                    OverrideTarget::default().insert::<ComponentSyncModeFull>(
+                        NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
+                    ),
                 ))
                 .id();
             // entity is visible to both
@@ -3055,6 +3220,7 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
                 .id();
+            let server_child = stepper.server_app.world_mut().spawn((ChildOf(server_entity), ComponentSyncModeOnce(1.0))).id();
             stepper.frame_step();
             stepper.frame_step();
             let client_entity = stepper
@@ -3065,6 +3231,14 @@ pub(crate) mod send {
                 .remote_entity_map
                 .get_local(server_entity)
                 .expect("entity was not replicated to client");
+            let client_child = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_child)
+                .expect("entity was not replicated to client");
             assert_eq!(
                 stepper
                     .client_app
@@ -3074,6 +3248,15 @@ pub(crate) mod send {
                     .expect("component missing"),
                 &ComponentSyncModeFull(1.0)
             );
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .entity(client_child)
+                    .get::<ComponentSyncModeOnce>()
+                    .expect("component missing"),
+                &ComponentSyncModeOnce(1.0)
+            );
 
             // remove component
             stepper
@@ -3081,15 +3264,26 @@ pub(crate) mod send {
                 .world_mut()
                 .entity_mut(server_entity)
                 .remove::<ComponentSyncModeFull>();
+            stepper
+                .server_app
+                .world_mut()
+                .entity_mut(server_child)
+                .remove::<ComponentSyncModeOnce>();
             stepper.frame_step();
             stepper.frame_step();
 
-            // check that the component was replicated
+            // check that the remove was replicated
             assert!(stepper
                 .client_app
                 .world()
                 .entity(client_entity)
                 .get::<ComponentSyncModeFull>()
+                .is_none());
+            assert!(stepper
+                .client_app
+                .world()
+                .entity(client_child)
+                .get::<ComponentSyncModeOnce>()
                 .is_none());
         }
 
@@ -3610,4 +3804,3 @@ pub(crate) mod commands {
         }
     }
 }
-

@@ -4,9 +4,8 @@ use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::ServerConnections;
 use crate::prelude::server::NetworkingState;
 use crate::prelude::{
-    ChannelRegistry, ClientId, ComponentRegistry,
-    LinkConditionerConfig, MessageRegistry, Mode, PingConfig
-    , TickConfig,
+    ChannelRegistry, ClientId, ComponentRegistry, LinkConditionerConfig, MessageRegistry, Mode,
+    PingConfig, TickConfig,
 };
 use crate::server::run_conditions::is_started_ref;
 use crate::shared::config::SharedConfig;
@@ -153,8 +152,6 @@ impl Plugin for SharedPlugin {
         });
         app.add_plugins(TimePlugin);
     }
-
-
 }
 
 #[cfg(feature = "visualizer")]

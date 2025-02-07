@@ -35,7 +35,7 @@ pub type ChildOfSync = RelationshipSync<ChildOf>;
 /// Removes the parent if `None`.
 #[derive(Component, Reflect, Serialize, Deserialize)]
 #[reflect(Component)]
-pub struct RelationshipSync<R: Relationship>{
+pub struct RelationshipSync<R: Relationship> {
     entity: Option<Entity>,
     #[reflect(ignore)]
     marker: std::marker::PhantomData<R>,
@@ -83,7 +83,6 @@ impl<R: Relationship> From<Option<Entity>> for RelationshipSync<R> {
     }
 }
 
-
 impl<R: Relationship> MapEntities for RelationshipSync<R> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         if let Some(entity) = &mut self.entity {
@@ -91,7 +90,6 @@ impl<R: Relationship> MapEntities for RelationshipSync<R> {
         }
     }
 }
-
 
 /// Plugin that lets you send replication updates for a given [`Relationship`] `R`
 pub struct RelationshipSendPlugin<R> {
@@ -107,14 +105,16 @@ impl<R: Relationship> Default for RelationshipSendPlugin<R> {
 }
 
 impl<R: Relationship> RelationshipSendPlugin<R> {
-
     /// If the relationship changes (a new Relationship component was inserted)
     /// or if RelationshipSync is inserted,
     /// update the RelationshipSync to match the parent value
     fn handle_parent_insert(
         trigger: Trigger<OnAdd, (R, RelationshipSync<R>)>,
         // include filter to make sure that this is running on the send side
-        mut query: Query<(&R, &mut RelationshipSync<R>), Or<(With<ReplicationMarker>, With<ReplicateLike>)>>,
+        mut query: Query<
+            (&R, &mut RelationshipSync<R>),
+            Or<(With<ReplicationMarker>, With<ReplicateLike>)>,
+        >,
     ) {
         if let Ok((parent, mut parent_sync)) = query.get_mut(trigger.target()) {
             parent_sync.set_if_neq(Some(parent.get()).into());
@@ -125,7 +125,10 @@ impl<R: Relationship> RelationshipSendPlugin<R> {
     fn handle_parent_remove(
         trigger: Trigger<OnRemove, R>,
         // include filter to make sure that this is running on the send side
-        mut hierarchy: Query<&mut RelationshipSync<R>, Or<(With<ReplicationMarker>, With<ReplicateLike>)>>,
+        mut hierarchy: Query<
+            &mut RelationshipSync<R>,
+            Or<(With<ReplicationMarker>, With<ReplicateLike>)>,
+        >,
     ) {
         if let Ok(mut parent_sync) = hierarchy.get_mut(trigger.target()) {
             parent_sync.entity = None;
@@ -154,7 +157,6 @@ impl<P, R> Default for RelationshipReceivePlugin<P, R> {
 }
 
 impl<P: ReplicationPeer, R: Relationship + Debug> RelationshipReceivePlugin<P, R> {
-
     /// Update hierarchy on the receive side if RelationshipSync changed
     fn update_parent(
         mut commands: Commands,
@@ -184,7 +186,9 @@ impl<P: ReplicationPeer, R: Relationship + Debug> RelationshipReceivePlugin<P, R
     }
 }
 
-impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin for RelationshipReceivePlugin<P, R> {
+impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
+    for RelationshipReceivePlugin<P, R>
+{
     fn build(&self, app: &mut App) {
         // REFLECTION
         app.register_type::<RelationshipSync<R>>();
@@ -203,7 +207,6 @@ impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePat
     }
 }
 
-
 /// Marker component that indicates that this entity should be replicated similarly to the entity
 /// contained in the component.
 ///
@@ -219,7 +222,6 @@ impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePat
     Debug
 )]
 pub struct ReplicateLike(pub(crate) Entity);
-
 
 /// Plugin that helps lightyear propagate replication components through the ChildOf relationship.
 ///
@@ -271,7 +273,6 @@ impl<R: ReplicationPeer> Plugin for HierarchySendPlugin<R> {
 }
 
 impl<R: ReplicationPeer> HierarchySendPlugin<R> {
-
     /// Propagate certain replication components through the hierarchy.
     /// - If new children are added, `ReplicationMarker` is added, `PrePredicted` is added, we recursively
     /// go through the descendants and add `ReplicateLike`, `ChildOfSync`, ... if the child does not have
@@ -283,12 +284,27 @@ impl<R: ReplicationPeer> HierarchySendPlugin<R> {
         mut commands: Commands,
         root_query: Query<
             (Entity, Has<PrePredicted>),
-            (With<ReplicationMarker>, Without<DisableReplicateHierarchy>, With<Children>, Or<(Changed<Children>, Added<PrePredicted>, Added<ReplicationMarker>)>)
+            (
+                With<ReplicationMarker>,
+                Without<DisableReplicateHierarchy>,
+                With<Children>,
+                Or<(
+                    Changed<Children>,
+                    Added<PrePredicted>,
+                    Added<ReplicationMarker>,
+                )>,
+            ),
         >,
         children_query: Query<&Children>,
         // exclude those that have `ReplicationMarker` (as we don't want to overwrite the `ReplicateLike` component
         // for their descendants, and we don't want to add `ReplicateLike` on them)
-        child_filter: Query<(), (Without<DisableReplicateHierarchy>, Without<ReplicationMarker>)>,
+        child_filter: Query<
+            (),
+            (
+                Without<DisableReplicateHierarchy>,
+                Without<ReplicationMarker>,
+            ),
+        >,
     ) {
         root_query.iter().for_each(|(root, pre_predicted)| {
             // we go through all the descendants (instead of just the children) so that the root is added
@@ -299,9 +315,9 @@ impl<R: ReplicationPeer> HierarchySendPlugin<R> {
                 for child in children_query.relationship_sources(parent) {
                     if let Ok(()) = child_filter.get(child) {
                         // TODO: should we buffer those inside a SmallVec for batch insert?
-                        commands.entity(child).insert(
-                            (ReplicateLike(root), ChildOfSync::from(Some(parent)))
-                        );
+                        commands
+                            .entity(child)
+                            .insert((ReplicateLike(root), ChildOfSync::from(Some(parent))));
                         if pre_predicted {
                             commands.entity(child).insert(PrePredicted::default());
                         }
@@ -311,7 +327,6 @@ impl<R: ReplicationPeer> HierarchySendPlugin<R> {
             }
         })
     }
-
 
     // TODO: for simplicity we currently conflate replicating the hierarchy component (RelationshipSync<ChildOf>)
     //  with propagating the replication components to children. Ideally we would be differentiating between
@@ -345,7 +360,13 @@ impl<R: ReplicationPeer> HierarchySendPlugin<R> {
         children_query: Query<&Children>,
         // exclude those that have `ReplicationMarker` (as we don't want to overwrite the `ReplicateLike` component
         // for their descendants, and we don't want to add `ReplicateLike` on them)
-        child_filter: Query<(), (Without<DisableReplicateHierarchy>, Without<ReplicationMarker>)>,
+        child_filter: Query<
+            (),
+            (
+                Without<DisableReplicateHierarchy>,
+                Without<ReplicationMarker>,
+            ),
+        >,
         mut commands: Commands,
     ) {
         let root = trigger.target();
@@ -361,9 +382,9 @@ impl<R: ReplicationPeer> HierarchySendPlugin<R> {
                 if let Ok(()) = child_filter.get(child) {
                     // TODO: should we buffer those inside a SmallVec for batch insert?
                     // we also insert RelationshipSync on the descendants
-                    commands.entity(child).insert(
-                        (ReplicateLike(root), ChildOfSync::from(Some(parent)))
-                    );
+                    commands
+                        .entity(child)
+                        .insert((ReplicateLike(root), ChildOfSync::from(Some(parent))));
                     stack.push(child);
                 }
             }
@@ -403,7 +424,9 @@ impl<R: ReplicationPeer> HierarchySendPlugin<R> {
         while let Some(parent) = stack.pop() {
             for child in children_query.relationship_sources(parent) {
                 if let Ok(()) = child_filter.get(child) {
-                    commands.entity(child).remove::<(ReplicateLike, ChildOfSync)>();
+                    commands
+                        .entity(child)
+                        .remove::<(ReplicateLike, ChildOfSync)>();
                 }
             }
         }
@@ -444,10 +467,7 @@ impl<R: ReplicationPeer> HierarchySendPlugin<R> {
         //     &child_filter,
         //     &mut commands);
     }
-
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -618,11 +638,11 @@ mod tests {
 
         // DisableReplicateHierarchy means that ReplicateLike is not propagated and is not added
         // on the entity itself either
-        assert!(
-            stepper
-                .server_app
-                .world()
-                .get::<ReplicateLike>(parent_4).is_none());
+        assert!(stepper
+            .server_app
+            .world()
+            .get::<ReplicateLike>(parent_4)
+            .is_none());
         assert!(stepper
             .server_app
             .world()
@@ -771,11 +791,11 @@ mod tests {
 
         // DisableReplicateHierarchy means that ReplicateLike is not propagated and is not added
         // on the entity itself either
-        assert!(
-            stepper
-                .server_app
-                .world()
-                .get::<ReplicateLike>(parent_4).is_none());
+        assert!(stepper
+            .server_app
+            .world()
+            .get::<ReplicateLike>(parent_4)
+            .is_none());
         assert!(stepper
             .server_app
             .world()
@@ -783,14 +803,11 @@ mod tests {
             .is_none());
     }
 
-
     #[test]
     fn test_update_parent() {
         let (mut stepper, grandparent, parent, child) = setup_hierarchy();
 
-        let replicate = Replicate {
-            ..default()
-        };
+        let replicate = Replicate { ..default() };
         // disable propagation to the child, so the child won't have ReplicateLike or RelationshipSync
         stepper
             .server_app
@@ -824,8 +841,16 @@ mod tests {
         assert_eq!(client_parent_component.get(), client_grandparent);
 
         // check that the child did not get replicated
-        assert!(stepper.server_app.world().get::<ChildOfSync>(child).is_none());
-        assert!(stepper.server_app.world().get::<ReplicateLike>(child).is_none());
+        assert!(stepper
+            .server_app
+            .world()
+            .get::<ChildOfSync>(child)
+            .is_none());
+        assert!(stepper
+            .server_app
+            .world()
+            .get::<ReplicateLike>(child)
+            .is_none());
 
         // remove the hierarchy on the sender side
         stepper
@@ -833,10 +858,7 @@ mod tests {
             .world_mut()
             .entity_mut(parent)
             .remove::<ChildOf>();
-        let replicate_like = stepper
-            .server_app
-            .world_mut()
-            .get::<ReplicateLike>(parent);
+        let replicate_like = stepper.server_app.world_mut().get::<ReplicateLike>(parent);
         stepper.frame_step();
         stepper.frame_step();
         // 1. make sure that parent sync has been updated on the sender side
@@ -890,7 +912,6 @@ mod tests {
         stepper.frame_step();
         stepper.frame_step();
 
-
         // 1. check that the parent and child have been replicated
         let client_grandparent = stepper
             .client_app
@@ -936,7 +957,8 @@ mod tests {
         // 3. check that the replication group has been set correctly
         // (all 3 entities have been sent in the same group)
         let group_id = ReplicationGroupId(grandparent.to_bits());
-            assert_eq!(stepper
+        assert_eq!(
+            stepper
                 .client_app
                 .world()
                 .resource::<ClientConnectionManager>()
@@ -945,7 +967,9 @@ mod tests {
                 .get(&group_id)
                 .unwrap()
                 .local_entities
-                .len(), 3);
+                .len(),
+            3
+        );
     }
 
     #[test]
@@ -998,7 +1022,6 @@ mod tests {
             &ChildOfSync::from(Some(server_parent))
         );
     }
-
 
     /// https://github.com/cBournhonesque/lightyear/issues/649
     /// P1 with child C1
@@ -1073,7 +1096,6 @@ mod tests {
             .get_local(server_parent)
             .expect("parent entity was not replicated to client 2");
     }
-
 
     /// https://github.com/cBournhonesque/lightyear/issues/547
     /// Test that when a new child is added to a parent
