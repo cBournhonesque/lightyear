@@ -129,27 +129,23 @@ impl<T: UserAction> InputBuffer<T> {
     /// We received a new input message from the user, and use it to update the input buffer
     /// TODO: should we keep track of which inputs in the input buffer are absent and only update those?
     ///  The current tick is the current server tick, no need to update the buffer for ticks that are older than that
-    pub(crate) fn update_from_message(&mut self, message: InputMessage<T>) {
+    pub(crate) fn update_from_message(&mut self, message: &InputMessage<T>) {
         let message_start_tick = Tick(message.end_tick.0) - message.inputs.len() as u16 + 1;
-        let mut prev_value = None;
 
-        for (delta, input) in message.inputs.into_iter().enumerate() {
+        for (delta, input) in message.inputs.iter().enumerate() {
             let tick = message_start_tick + Tick(delta as u16);
             match input {
                 InputData::Absent => {
-                    prev_value = None;
                     self.set(tick, None);
                 }
                 InputData::SameAsPrecedent => {
-                    self.set(tick, prev_value.clone());
+                    self.set(tick, self.get(tick-1).cloned());
                 }
                 InputData::Input(input) => {
-                    prev_value = Some(input);
-                    if self.get(tick) == prev_value.as_ref() {
+                    if self.get(tick).is_some_and(|v| v == input) {
                         continue;
-                    } else {
-                        self.set(tick, prev_value.clone());
                     }
+                    self.set(tick, Some(input.clone()));
                 }
             }
         }
@@ -253,7 +249,7 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        input_buffer.update_from_message(message);
+        input_buffer.update_from_message(&message);
 
         assert_eq!(input_buffer.get(Tick(20)), None);
         assert_eq!(input_buffer.get(Tick(19)), None);

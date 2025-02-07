@@ -23,6 +23,7 @@ use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
+use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
@@ -40,6 +41,7 @@ pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
 /// By splitting the data into packets and sending them through a given transport
 #[derive(Debug)]
 pub struct MessageManager {
+    pub(crate) writer: Writer,
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketBuilder,
     priority_manager: PriorityManager,
@@ -59,6 +61,7 @@ impl MessageManager {
         priority_config: PriorityConfig,
     ) -> Self {
         Self {
+            writer: Writer::default(),
             packet_manager: PacketBuilder::new(nack_rtt_multiple),
             priority_manager: PriorityManager::new(priority_config),
             channels: channel_registry.channels(),

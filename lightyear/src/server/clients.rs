@@ -48,8 +48,9 @@ mod systems {
         for (entity, controlled_by) in query.iter() {
             // TODO: avoid clone
             sender
-                .connected_targets(controlled_by.target.clone())
-                .for_each(|client_id| {
+                .connected_targets(&controlled_by.target)
+                .for_each(|connection| {
+                    let client_id = connection.client_id;
                     if let Ok(client_entity) = sender.client_entity(client_id) {
                         if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
                             // first check if it already contains, to not trigger change detection needlessly
@@ -81,8 +82,9 @@ mod systems {
         if let Ok(controlled_by) = query.get(entity) {
             // TODO: avoid clone
             sender
-                .connected_targets(controlled_by.target.clone())
-                .for_each(|client_id| {
+                .connected_targets(&controlled_by.target)
+                .for_each(|connection| {
+                    let client_id = connection.client_id;
                     if let Ok(client_entity) = sender.client_entity(client_id) {
                         if let Ok(mut controlled_entities) = client_query.get_mut(client_entity) {
                             // first check if it already contains, to not trigger change detection needlessly
@@ -169,7 +171,7 @@ impl Plugin for ClientsMetadataPlugin {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::networking::ClientCommands;
+    use crate::client::networking::ClientCommandsExt;
     use crate::prelude::server::{ConnectionManager, ControlledBy, Replicate};
     use crate::prelude::{client, ClientId, NetworkTarget, Replicated};
     use crate::server::clients::ControlledEntities;
@@ -335,11 +337,7 @@ mod tests {
         );
 
         // client disconnects
-        stepper
-            .client_app
-            .world_mut()
-            .commands()
-            .disconnect_client();
+        stepper.client_app.world_mut().disconnect_client();
 
         // TODO: why do we need to run frame_step twice for this to work?
         stepper.frame_step();

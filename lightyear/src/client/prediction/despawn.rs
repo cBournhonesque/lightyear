@@ -1,15 +1,11 @@
 use bevy::ecs::system::EntityCommands;
-use bevy::prelude::{
-    Command, Commands, Component, Entity, OnRemove, Query, Reflect, ReflectComponent, Res, Trigger,
-    With, Without, World,
-};
+use bevy::prelude::*;
 use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;
 use crate::prelude::{
-    ComponentRegistry, Mode, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
+    AppIdentityExt, ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
 };
 use crate::shared::tick_manager::Tick;
 
@@ -35,8 +31,9 @@ impl Command for PredictionDespawnCommand {
         let current_tick = tick_manager.tick();
 
         // if we are in host server mode, there is no rollback so we can despawn the entity immediately
-        if world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
+        if world.is_host_server() {
             world.entity_mut(self.entity).despawn();
+            return;
         }
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {

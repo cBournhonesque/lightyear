@@ -45,7 +45,7 @@ pub(crate) mod receive {
                     PreUpdate,
                     ServerReplicationSet::ClientReplication
                         .run_if(is_started)
-                        .after(InternalMainSet::<ServerMarker>::EmitEvents),
+                        .after(InternalMainSet::<ServerMarker>::ReceiveEvents),
                 );
         }
     }
@@ -796,71 +796,69 @@ pub(crate) mod send {
         trace!(?entity, ?target, "Prepare entity spawn to client");
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         //  (i.e. before we received an ack?)
-        let _ = connection_manager
-            .connected_targets(target)
-            .try_for_each(|client_id| {
-                // convert the entity to a network entity (possibly mapped)
-                // this can happen in the case of PrePrediction where the spawned entity has been pre-mapped
-                // to the client's confirmed entity!
-                let entity = connection_manager
-                    .connection_mut(client_id)?
-                    .replication_receiver
-                    .remote_entity_map
-                    .to_remote(entity);
+        let _ = crate::server::connection::connected_targets_mut(
+            &mut connection_manager.connections,
+            &target,
+        )
+        .try_for_each(|connection| {
+            let client_id = connection.client_id;
+            // convert the entity to a network entity (possibly mapped)
+            // this can happen in the case of PrePrediction where the spawned entity has been pre-mapped
+            // to the client's confirmed entity!
+            let entity = connection
+                .replication_receiver
+                .remote_entity_map
+                .to_remote(entity);
 
-                // let the client know that this entity is controlled by them
-                if controlled_by.is_some_and(|c| c.targets(&client_id)) {
-                    connection_manager.prepare_typed_component_insert(
-                        entity,
-                        group_id,
-                        client_id,
-                        component_registry,
-                        &mut Controlled,
-                    )?;
-                }
-                // if we need to do prediction/interpolation, send a marker component to indicate that to the client
-                if sync_target.is_some_and(|sync| sync.prediction.targets(&client_id)) {
-                    // TODO: the serialized data is always the same; cache it somehow?
-                    connection_manager.prepare_typed_component_insert(
-                        entity,
-                        group_id,
-                        client_id,
-                        component_registry,
-                        &mut ShouldBePredicted,
-                    )?;
-                }
-                if sync_target.is_some_and(|sync| sync.interpolation.targets(&client_id)) {
-                    connection_manager.prepare_typed_component_insert(
-                        entity,
-                        group_id,
-                        client_id,
-                        component_registry,
-                        &mut ShouldBeInterpolated,
-                    )?;
-                }
+            // let the client know that this entity is controlled by them
+            if controlled_by.is_some_and(|c| c.targets(&client_id)) {
+                connection.prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &mut Controlled,
+                )?;
+            }
+            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
+            if sync_target.is_some_and(|sync| sync.prediction.targets(&client_id)) {
+                // TODO: the serialized data is always the same; cache it somehow?
+                connection.prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &mut ShouldBePredicted,
+                )?;
+            }
+            if sync_target.is_some_and(|sync| sync.interpolation.targets(&client_id)) {
+                connection.prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &mut ShouldBeInterpolated,
+                )?;
+            }
 
-                if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
-                    connection_manager
-                        .connection_mut(client_id)?
-                        .replication_sender
-                        .prepare_entity_spawn_reuse(entity, group_id, *remote_entity);
-                } else {
-                    connection_manager
-                        .connection_mut(client_id)?
-                        .replication_sender
-                        .prepare_entity_spawn(entity, group_id);
-                }
-
-                // also set the priority for the group when we spawn it
-                connection_manager
-                    .connection_mut(client_id)?
+            if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
+                connection.replication_sender.prepare_entity_spawn_reuse(
+                    entity,
+                    group_id,
+                    *remote_entity,
+                );
+            } else {
+                connection
                     .replication_sender
-                    .update_base_priority(group_id, priority);
-                Ok(())
-            })
-            .inspect_err(|e: &ServerError| {
-                error!("error sending entity spawn: {:?}", e);
-            });
+                    .prepare_entity_spawn(entity, group_id);
+            }
+
+            // also set the priority for the group when we spawn it
+            connection
+                .replication_sender
+                .update_base_priority(group_id, priority);
+            Ok(())
+        })
+        .inspect_err(|e: &ServerError| {
+            error!("error sending entity spawn: {:?}", e);
+        });
     }
 
     /// Despawn entities when the entity gets despawned on local world
@@ -1059,13 +1057,13 @@ pub(crate) mod send {
                         if replicate_once {
                             trace!(?entity,
                                 "not replicating updates for {:?} because it is marked as replicate_once",
-                                "COMPONENT_KIND"
+                                component_kind
                             );
-                            return;
+                        } else {
+                            // otherwise send an update for all components that changed since the
+                            // last update we have ack-ed
+                            update_target.union(target);
                         }
-                        // otherwise send an update for all components that changed since the
-                        // last update we have ack-ed
-                        update_target.union(target);
                     }
 
                     let new_connected_clients = sender.new_connected_clients();
@@ -3157,6 +3155,67 @@ pub(crate) mod send {
                 .id();
             stepper.frame_step();
             stepper.frame_step();
+            let client_entity = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
+            // check that the component was replicated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .entity(client_entity)
+                    .get::<ComponentSyncModeFull>()
+                    .expect("component missing"),
+                &ComponentSyncModeFull(1.0)
+            );
+
+            // update component
+            stepper
+                .server_app
+                .world_mut()
+                .entity_mut(server_entity)
+                .insert(ComponentSyncModeFull(2.0));
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the component was not updated
+            assert_eq!(
+                stepper
+                    .client_app
+                    .world()
+                    .entity(client_entity)
+                    .get::<ComponentSyncModeFull>()
+                    .expect("component missing"),
+                &ComponentSyncModeFull(1.0)
+            );
+        }
+
+        #[test]
+        fn test_component_update_replicate_once_new_client() {
+            let mut stepper = BevyStepper::default_no_init();
+
+            // spawn an entity on server (before the client is connected)
+            let server_entity = stepper
+                .server_app
+                .world_mut()
+                .spawn((
+                    Replicate::default(),
+                    ComponentSyncModeFull(1.0),
+                    ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
+                ))
+                .id();
+            stepper.frame_step();
+
+            // a client connects
+            stepper.init();
+            stepper.frame_step();
+            stepper.frame_step();
+
             let client_entity = stepper
                 .client_app
                 .world()

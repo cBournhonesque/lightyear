@@ -85,7 +85,6 @@ impl Plugin for SetupPlugin {
         // NOTE: SharedPlugin needs to be added after config
         if !app.is_plugin_added::<SharedPlugin>() {
             app.add_plugins(SharedPlugin {
-                // TODO: move shared config out of server_config?
                 config: self.config.shared,
             });
         }

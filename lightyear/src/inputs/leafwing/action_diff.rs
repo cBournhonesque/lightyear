@@ -65,15 +65,11 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                         };
                         if button_data_after.state.pressed() && !button_data_before.state.pressed()
                         {
-                            diffs.push(ActionDiff::Pressed {
-                                action: action.clone(),
-                            });
+                            diffs.push(ActionDiff::Pressed { action: *action });
                         } else if !button_data_after.state.pressed()
                             && button_data_before.state.pressed()
                         {
-                            diffs.push(ActionDiff::Released {
-                                action: action.clone(),
-                            });
+                            diffs.push(ActionDiff::Released { action: *action });
                         }
                     }
                     ActionKindData::Axis(axis_data_after) => {
@@ -83,7 +79,7 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                         };
                         if axis_data_after.value != axis_data_before.value {
                             diffs.push(ActionDiff::AxisChanged {
-                                action: action.clone(),
+                                action: *action,
                                 value: axis_data_after.value,
                             });
                         }
@@ -95,7 +91,7 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                         };
                         if dual_axis_after.pair != dual_axis_before.pair {
                             diffs.push(ActionDiff::AxisPairChanged {
-                                action: action.clone(),
+                                action: *action,
                                 axis_pair: dual_axis_after.pair,
                             });
                         }
@@ -107,7 +103,7 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                         };
                         if triple_axis_after.triple != triple_axis_before.triple {
                             diffs.push(ActionDiff::AxisTripleChanged {
-                                action: action.clone(),
+                                action: *action,
                                 axis_triple: triple_axis_after.triple,
                             });
                         }
@@ -117,30 +113,26 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
                 match &action_data_after.kind_data {
                     ActionKindData::Button(button) => {
                         if button.pressed() {
-                            diffs.push(ActionDiff::Pressed {
-                                action: action.clone(),
-                            });
+                            diffs.push(ActionDiff::Pressed { action: *action });
                         } else {
-                            diffs.push(ActionDiff::Released {
-                                action: action.clone(),
-                            });
+                            diffs.push(ActionDiff::Released { action: *action });
                         }
                     }
                     ActionKindData::Axis(axis) => {
                         diffs.push(ActionDiff::AxisChanged {
-                            action: action.clone(),
+                            action: *action,
                             value: axis.value,
                         });
                     }
                     ActionKindData::DualAxis(dual_axis) => {
                         diffs.push(ActionDiff::AxisPairChanged {
-                            action: action.clone(),
+                            action: *action,
                             axis_pair: dual_axis.pair,
                         });
                     }
                     ActionKindData::TripleAxis(triple_axis) => {
                         diffs.push(ActionDiff::AxisTripleChanged {
-                            action: action.clone(),
+                            action: *action,
                             axis_triple: triple_axis.triple,
                         });
                     }

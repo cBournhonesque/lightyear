@@ -17,16 +17,18 @@ use crate::protocol::*;
 use crate::shared;
 use crate::shared::shared_movement_behaviour;
 
-pub struct ExampleServerPlugin;
+pub struct ExampleServerPlugin {
+    pub(crate) is_dedicated_server: bool,
+}
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Lobbies::default());
-        app.add_systems(
-            Startup,
-            // start the dedicated server immediately (but not host servers)
-            start_dedicated_server.run_if(is_mode_separate),
-        );
+
+        // start the dedicated server immediately (but not host servers)
+        if self.is_dedicated_server {
+            app.add_systems(Startup, start_dedicated_server);
+        }
         app.add_systems(
             FixedUpdate,
             game::movement.run_if(in_state(NetworkingState::Started)),
@@ -43,16 +45,17 @@ impl Plugin for ExampleServerPlugin {
             )
                 .run_if(is_host_server),
         );
-        app.add_systems(
-            Update,
-            // the lobby systems are only called on the dedicated server
-            (
-                lobby::handle_lobby_join,
-                lobby::handle_lobby_exit,
-                lobby::handle_start_game,
-            )
-                .run_if(is_mode_separate),
-        );
+        if self.is_dedicated_server {
+            app.add_systems(
+                Update,
+                // the lobby systems are only called on the dedicated server
+                (
+                    lobby::handle_lobby_join,
+                    lobby::handle_lobby_exit,
+                    lobby::handle_start_game,
+                ),
+            );
+        }
     }
 }
 
@@ -161,7 +164,7 @@ mod lobby {
     /// - update the `Lobbies` resource
     /// - add the Client to the room corresponding to the lobby
     pub(super) fn handle_lobby_join(
-        mut events: EventReader<MessageEvent<JoinLobby>>,
+        mut events: EventReader<ServerReceiveMessage<JoinLobby>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
         mut commands: Commands,
@@ -189,7 +192,7 @@ mod lobby {
     /// - update the `Lobbies` resource
     /// - remove the Client from the room corresponding to the lobby
     pub(super) fn handle_lobby_exit(
-        mut events: EventReader<MessageEvent<ExitLobby>>,
+        mut events: EventReader<ServerReceiveMessage<ExitLobby>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
     ) {
@@ -205,7 +208,7 @@ mod lobby {
     /// for each player in the lobby
     pub(super) fn handle_start_game(
         mut connection_manager: ResMut<ConnectionManager>,
-        mut events: EventReader<MessageEvent<StartGame>>,
+        mut events: EventReader<ServerReceiveMessage<StartGame>>,
         mut lobbies: ResMut<Lobbies>,
         mut room_manager: ResMut<RoomManager>,
         mut commands: Commands,

@@ -1,19 +1,15 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
-
+use crate::client::networking::ClientCommandsExt;
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, ClientCommands, ClientConfig, ClientTransport, InterpolationConfig, NetConfig,
-    NetworkingState, PredictionConfig, SyncConfig,
+    Authentication, ClientConfig, ClientTransport, NetConfig, NetworkingState,
 };
-use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
+use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
-use bevy::ecs::system::RunSystemOnce;
 use bevy::input::InputPlugin;
-use bevy::prelude::{default, App, Commands, Mut, PluginGroup, Real, State, Time, World};
+use bevy::prelude::{default, App, Mut, PluginGroup, Real, State, Time, World};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
@@ -162,7 +158,9 @@ impl BevyStepper {
         };
         let client_config = ClientConfig::default();
 
-        Self::new(shared_config, client_config, frame_duration)
+        let mut stepper = Self::new(shared_config, client_config, frame_duration);
+        stepper.build();
+        stepper
     }
 
     pub(crate) fn interpolation_tick(&mut self) -> Tick {
@@ -213,17 +211,10 @@ impl BevyStepper {
         self.client_app.cleanup();
         self.server_app.finish();
         self.server_app.cleanup();
-        let _ = self
-            .server_app
-            .world_mut()
-            .run_system_once(|mut commands: Commands| commands.start_server());
-        let _ = self
-            .client_app
-            .world_mut()
-            .run_system_once(|mut commands: Commands| commands.connect_client());
     }
     pub(crate) fn init(&mut self) {
-        self.build();
+        let _ = self.server_app.world_mut().start_server();
+        let _ = self.client_app.world_mut().connect_client();
         self.wait_for_connection();
         self.wait_for_sync();
     }
@@ -260,14 +251,8 @@ impl BevyStepper {
     }
 
     pub(crate) fn start(&mut self) {
-        let _ = self
-            .server_app
-            .world_mut()
-            .run_system_once(|mut commands: Commands| commands.start_server());
-        let _ = self
-            .client_app
-            .world_mut()
-            .run_system_once(|mut commands: Commands| commands.connect_client());
+        let _ = self.server_app.world_mut().start_server();
+        let _ = self.client_app.world_mut().connect_client();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
@@ -284,14 +269,8 @@ impl BevyStepper {
     }
 
     pub(crate) fn stop(&mut self) {
-        let _ = self
-            .server_app
-            .world_mut()
-            .run_system_once(|mut commands: Commands| commands.stop_server());
-        let _ = self
-            .client_app
-            .world_mut()
-            .run_system_once(|mut commands: Commands| commands.disconnect_client());
+        let _ = self.server_app.world_mut().stop_server();
+        let _ = self.client_app.world_mut().disconnect_client();
 
         // Advance the world to let the disconnection process complete
         for _ in 0..100 {

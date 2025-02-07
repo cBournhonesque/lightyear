@@ -3,10 +3,6 @@
 //! The simulation logic (movement, etc.) should be shared between client and server to guarantee that there won't be
 //! mispredictions/rollbacks.
 use bevy::prelude::*;
-use core::time::Duration;
-
-use lightyear::prelude::*;
-use lightyear::shared::config::Mode;
 
 use crate::protocol::*;
 

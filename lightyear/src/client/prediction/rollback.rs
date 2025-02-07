@@ -1042,6 +1042,7 @@ mod integration_tests {
             .register_component::<ComponentWithEntity>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Full)
             .add_map_entities();
+        stepper.build();
         stepper.init();
 
         // Spawn a remote entity with a `ComponentWithEntity` component that

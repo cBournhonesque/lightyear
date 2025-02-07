@@ -484,7 +484,7 @@ impl ReplicationSender {
                         component_data,
                         writer,
                         kind,
-                        Some(&mut remote_entity_map.local_to_remote),
+                        &mut remote_entity_map.local_to_remote,
                     )?;
                 }
                 Ok::<Bytes, ReplicationError>(writer.split())
@@ -497,7 +497,7 @@ impl ReplicationSender {
                         component_data,
                         writer,
                         kind,
-                        Some(&mut remote_entity_map.local_to_remote),
+                        &mut remote_entity_map.local_to_remote,
                     )?;
                 }
                 Ok::<Bytes, ReplicationError>(writer.split())

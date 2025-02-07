@@ -15,7 +15,7 @@ use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear::prelude::{Deserialize, Serialize};
 use lightyear_examples_common::app::{Apps, Cli, Mode};
-use lightyear_examples_common::settings::{ServerTransports, Settings};
+use lightyear_examples_common::settings::ServerTransports;
 
 #[cfg(feature = "client")]
 mod client;
@@ -32,12 +32,14 @@ pub const HOST_SERVER_PORT: u16 = 5050;
 fn main() {
     let mut cli = Cli::default();
     let mut settings = get_settings();
+    let mut is_dedicated_server = true;
 
     // in this example, every client will actually launch in host-server mode
     // the reason is that we want every client to be able to be the 'host' of a lobby
     // so every client needs to have the ServerPlugins included in the app
     match cli.mode {
         Some(Mode::Client { client_id }) => {
+            is_dedicated_server = false;
             cli.mode = Some(Mode::HostServer { client_id });
             // when the client acts as host, we will use port UDP:5050 for the transport
             settings.server.transport = vec![ServerTransports::Udp {
@@ -56,7 +58,9 @@ fn main() {
     apps.add_user_shared_plugin(SharedPlugin);
     #[cfg(feature = "client")]
     apps.add_user_client_plugin(client::ExampleClientPlugin { settings });
-    apps.add_user_server_plugin(server::ExampleServerPlugin);
+    apps.add_user_server_plugin(server::ExampleServerPlugin {
+        is_dedicated_server,
+    });
     #[cfg(feature = "gui")]
     apps.add_user_renderer_plugin(renderer::ExampleRendererPlugin);
 

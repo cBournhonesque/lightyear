@@ -17,6 +17,7 @@
 //!
 //! ```rust
 //! use bevy::prelude::*;
+//! use lightyear::prelude::client::*;
 //! use lightyear::prelude::*;
 //!
 //! #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -28,6 +29,7 @@
 //! }
 //!
 //! let mut app = App::new();
+//! # app.add_plugins(ClientPlugins::new(ClientConfig::default()));
 //! app.add_plugins(InputPlugin::<MyInput>::default());
 //! ```
 //!
@@ -175,8 +177,8 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             )
                 .chain(),
         );
-        // SYSTEMS
 
+        // SYSTEMS
         // Host server mode only!
         app.add_systems(
             FixedPreUpdate,

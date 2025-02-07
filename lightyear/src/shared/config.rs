@@ -12,30 +12,6 @@ pub struct SharedConfig {
     pub server_replication_send_interval: Duration,
     /// configuration for the [`FixedUpdate`](bevy::prelude::FixedUpdate) schedule
     pub tick: TickConfig,
-    pub mode: Mode,
-}
-
-// TODO: maybe the modes should just be
-//  - server and client are running in separate apps: need to add SharedPlugin on client, etc.
-//  - server and client are running in same app: need to add SharedPlugin on client, need to only add LeafwingInputOnce
-//    - host-server mode activated <> we use LocalTransport on client, server runs some connections <> disable all prediction, etc. on client
-//    - host-server mode non-activate <> we use a non-Local transport on client, server has no connections <> still run all prediction, networking on client; disable server entirely
-
-// TODO: maybe we can figure the mode out directly from the registered plugins and the networking state instead of requiring
-//  the user to specify the mode.
-//  - If we see only the client plugin or the server plugin, we are in Separate mode
-//  - If we see both plugins and we use LocalTransport on Client and the server is started, we are in HostServer mode
-//  - If we see both plugins and we use a non-local transport on client or the server is not started, we are in ClientOnly mode?
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
-pub enum Mode {
-    #[default]
-    /// We will create two bevy Apps: a client app and a server app.
-    /// Data gets passed between the two via channels.
-    Separate,
-    /// Run the app in headless mode
-    /// We have the client and the server running inside the same app.
-    /// The server will also act as a client. (i.e. one client acts as the 'host')
-    HostServer,
 }
 
 impl Default for SharedConfig {
@@ -43,7 +19,6 @@ impl Default for SharedConfig {
         Self {
             server_replication_send_interval: Duration::from_millis(0),
             tick: TickConfig::new(Duration::from_millis(16)),
-            mode: Mode::default(),
         }
     }
 }

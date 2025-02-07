@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;
-use lightyear::prelude::server::ServerCommands;
+use lightyear::prelude::server::ServerCommandsExt;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -372,7 +372,7 @@ mod lobby {
                     AppState::Game => {}
                 };
                 match state.get() {
-                    NetworkingState::Disconnected => {
+                    NetworkingState::Disconnected | NetworkingState::Disconnecting => {
                         if ui.button("Join lobby list").clicked() {
                             // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
                             // - the new host must run in host-server
@@ -430,7 +430,7 @@ mod lobby {
     /// - set the AppState to Game
     pub(crate) fn receive_start_game_message(
         mut commands: Commands,
-        mut events: EventReader<MessageEvent<StartGame>>,
+        mut events: EventReader<ReceiveMessage<StartGame>>,
         lobby_table: Res<LobbyTable>,
         mut next_app_state: ResMut<NextState<AppState>>,
         mut config: ResMut<ClientConfig>,

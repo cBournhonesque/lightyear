@@ -1,26 +1,19 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
-use crate::client::networking::ClientCommands;
-use bevy::app::TaskPoolThreadAssignmentPolicy;
-use bevy::ecs::system::RunSystemOnce;
-use bevy::prelude::{
-    default, App, Commands, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time,
-};
+use crate::client::networking::ClientCommandsExt;
+use bevy::prelude::{default, App, PluginGroup, Real, Time};
 use bevy::state::app::StatesPlugin;
-use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
 use core::time::Duration;
 
 use crate::connection::netcode::generate_key;
-use crate::connection::server::{NetServer, ServerConnections};
 use crate::prelude::client::{
-    Authentication, ClientConfig, ClientConnection, ClientTransport, InterpolationConfig,
-    NetClient, NetConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientConfig, ClientTransport, InterpolationConfig, NetClient, NetConfig,
+    PredictionConfig, SyncConfig,
 };
-use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig, ServerTransport};
+use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport};
 use crate::prelude::*;
 use crate::tests::protocol::*;
-use crate::tests::stepper::BevyStepper;
 use crate::transport::LOCAL_SOCKET;
 
 pub(crate) const TEST_CLIENT_ID_1: u64 = 1;
@@ -56,6 +49,7 @@ impl Default for MultiBevyStepper {
             interpolation_config,
             frame_duration,
         );
+        stepper.build();
         stepper.init();
         stepper
     }
@@ -190,25 +184,20 @@ impl MultiBevyStepper {
         }
     }
 
-    pub fn init(&mut self) {
+    pub fn build(&mut self) {
         self.server_app.finish();
         self.server_app.cleanup();
-        let _ = self
-            .server_app
-            .world_mut()
-            .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_app_1.finish();
         self.client_app_1.cleanup();
-        let _ = self
-            .client_app_1
-            .world_mut()
-            .run_system_once(|mut commands: Commands| commands.connect_client());
         self.client_app_2.finish();
         self.client_app_2.cleanup();
-        let _ = self
-            .client_app_2
-            .world_mut()
-            .run_system_once(|mut commands: Commands| commands.connect_client());
+    }
+
+    pub fn init(&mut self) {
+        let _ = self.server_app.world_mut().start_server();
+        let _ = self.client_app_1.world_mut().connect_client();
+
+        let _ = self.client_app_2.world_mut().connect_client();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {

@@ -21,6 +21,7 @@ fn test_multi_transport() {
         InterpolationConfig::default(),
         frame_duration,
     );
+    stepper.build();
     stepper.init();
 
     stepper.frame_step();

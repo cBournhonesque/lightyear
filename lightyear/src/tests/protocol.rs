@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::client::components::ComponentSyncMode;
 use crate::prelude::*;
+use crate::protocol::message::registry::AppMessageExt;
+use crate::protocol::message::resource::AppResourceExt;
+use crate::protocol::message::trigger::AppTriggerExt;
 use crate::protocol::serialize::SerializeFns;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
@@ -208,7 +211,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // events
-        app.register_event::<IntegerEvent>(ChannelDirection::Bidirectional);
+        app.register_trigger::<IntegerEvent>(ChannelDirection::Bidirectional);
         // messages
         app.register_message::<StringMessage>(ChannelDirection::Bidirectional);
         app.register_message::<EntityMessage>(ChannelDirection::Bidirectional)

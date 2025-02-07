@@ -127,6 +127,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                             NetworkingState::Connecting | NetworkingState::Connected => {
                                 commands.disconnect_client();
                             }
+                            _ => {}
                         };
                     },
                 );
@@ -148,6 +149,7 @@ pub(crate) fn update_button_text(
             NetworkingState::Connected => {
                 text.0 = "Disconnect".to_string();
             }
+            _ => {}
         };
     }
 }
