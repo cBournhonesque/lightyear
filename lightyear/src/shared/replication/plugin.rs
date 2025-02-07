@@ -228,6 +228,7 @@ pub(crate) mod send {
             // propagate ReplicateLike
             app.add_observer(crate::shared::replication::hierarchy::propagate_replicate_like_children_updated);
             app.add_observer(crate::shared::replication::hierarchy::propagate_replicate_like_replication_marker_added);
+            app.add_observer(crate::shared::replication::hierarchy::propagate_replicate_like_replication_marker_removed);
             app.add_systems(
                 PreUpdate,
                 ReplicationSendPlugin::<R>::tick_send_interval_timer.after(MainSet::Receive),

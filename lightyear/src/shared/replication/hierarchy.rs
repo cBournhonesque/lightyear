@@ -227,7 +227,7 @@ impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePat
 pub struct ReplicateLike(pub(crate) Entity);
 
 
-/// If `ReplicateLike` is added on an entity that has `ReplicationMarker` (i.e. has the replication components)
+/// If `ReplicationMarker` is added on an entity that has `Children`
 /// then we add `ReplicateLike(root)` on all the descendants.
 ///
 /// Note that this doesn't happen if the `DisableReplicateHierarchy` is present.
@@ -262,6 +262,46 @@ pub(crate) fn propagate_replicate_like_replication_marker_added(
         &child_filter,
         &mut commands,
     );
+}
+
+/// If `ReplicationMarker` is removed on an entity that has `Children`
+/// then we remove `ReplicateLike(Entity)` on all the descendants.
+///
+/// Note that this doesn't happen if the `DisableReplicateHierarchy` is present.
+///
+/// If a child entity already has the `ReplicationMarker` component, we ignore it and its descendants.
+pub(crate) fn propagate_replicate_like_replication_marker_removed(
+    trigger: Trigger<OnRemove, ReplicationMarker>,
+    root_query: Query<
+        (),
+        (
+            With<Children>,
+            Without<DisableReplicateHierarchy>,
+            With<ReplicationMarker>,
+        ),
+    >,
+    children_query: Query<&Children>,
+    // exclude those that have `ReplicationMarker` (as we don't want to remove the `ReplicateLike` component
+    // for their descendants)
+    child_filter: Query<(), Without<ReplicationMarker>>,
+    mut commands: Commands,
+) {
+    let root = trigger.target();
+    // if `DisableReplicateHierarchy` is present, return early since we don't need to propagate `ReplicateLike`
+    let Ok(()) = root_query.get(root) else { return };
+    let children = children_query.get(root).unwrap();
+    // we go through all the descendants (instead of just the children) so that the root is added
+    // and we don't need to search for the root ancestor in the replication systems
+    let mut stack = SmallVec::<[Entity; 8]>::new();
+    stack.push(root);
+    while let Some(parent) = stack.pop() {
+        for child in children_query.relationship_sources(parent) {
+            if let Ok(()) = child_filter.get(child) {
+                commands.entity(child).remove::<ReplicateLike>();
+            }
+        }
+    }
+
 }
 
 /// If `ReplicateLike` is added on an entity that has `ReplicationMarker` (i.e. has the replication components)

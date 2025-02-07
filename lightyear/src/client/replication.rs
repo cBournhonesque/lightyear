@@ -220,7 +220,7 @@ pub(crate) mod send {
     /// If this component gets removed, we despawn the entity on the server.
     #[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
     #[reflect(Component)]
-    #[require(Replicating, HasAuthority, ReplicationGroup, ReplicationMarker)]
+    #[require(HasAuthority, ReplicationMarker)]
     pub struct ReplicateToServer;
 
     /// Bundle that indicates how an entity should be replicated. Add this to an entity to start replicating
@@ -359,6 +359,10 @@ pub(crate) mod send {
                     world.entity(entity).get::<ReplicateLike>().copied()
                 {
                     let [entity_ref, query_entity_ref] = world.entity(&[entity, replicate_like.0]);
+                    if query_entity_ref.get::<ReplicateToServer>().is_none() {
+                        // ReplicateLike points to a parent entity that doesn't have ReplicationToServer, skip
+                        continue
+                    };
                     let (group_id, priority, group_ready) =
                         entity_ref.get::<ReplicationGroup>().map_or_else(
                             // if ReplicationGroup is not present, we use the parent entity

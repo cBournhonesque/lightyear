@@ -198,11 +198,9 @@ pub(crate) mod send {
     #[derive(Component, Clone, Debug, PartialEq, Reflect)]
     #[reflect(Component)]
     #[require(
-        Replicating,
         ReplicationMarker,
         AuthorityPeer,
         NetworkRelevanceMode,
-        ReplicationGroup
     )]
     pub struct ReplicationTarget {
         /// Which clients should this entity be replicated to
@@ -502,6 +500,10 @@ pub(crate) mod send {
                     world.entity(entity).get::<ReplicateLike>().copied()
                 {
                     let [entity_ref, query_entity_ref] = world.entity(&[entity, replicate_like.0]);
+                    if query_entity_ref.get::<ReplicationTarget>().is_none() {
+                        // ReplicateLike points to a parent entity that doesn't have ReplicationTarget, skip
+                        continue
+                    };
                     let (group_id, priority, group_ready) =
                         entity_ref.get::<ReplicationGroup>().map_or_else(
                             // if ReplicationGroup is not present, we use the parent entity

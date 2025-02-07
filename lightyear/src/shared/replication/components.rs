@@ -2,7 +2,7 @@
 
 use bevy::ecs::component::{ComponentHooks, Immutable, StorageType};
 use bevy::ecs::reflect::ReflectComponent;
-use bevy::prelude::{Component, Entity, Reflect};
+use bevy::prelude::{require, Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,7 @@ use crate::utils::collections::HashMap;
 /// `ReplicationMarker` is required by `ReplicateToServer` and `ReplicationTarget`
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
+#[require(ReplicationGroup, Replicating)]
 pub struct ReplicationMarker;
 
 /// Marker component that indicates that the entity was initially spawned via replication
