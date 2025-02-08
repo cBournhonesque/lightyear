@@ -243,7 +243,9 @@ pub mod prelude {
         pub use crate::client::events::EntityDespawnEvent as ClientEntityDespawnEvent;
         pub use crate::client::events::EntitySpawnEvent as ClientEntitySpawnEvent;
         pub use crate::client::message::ReceiveMessage as ClientReceiveMessage;
+        pub use crate::client::message::ReceiveMessage as FromServer;
         pub use crate::client::message::SendMessage as ClientSendMessage;
+        pub use crate::client::message::SendMessage as ToServer;
         pub use crate::client::replication::send::Replicate as ClientReplicate;
 
         pub use crate::client::connection::ConnectionManager as ClientConnectionManager;
@@ -256,7 +258,9 @@ pub mod prelude {
         pub use crate::server::events::EntityDespawnEvent as ServerEntityDespawnEvent;
         pub use crate::server::events::EntitySpawnEvent as ServerEntitySpawnEvent;
         pub use crate::server::message::ReceiveMessage as ServerReceiveMessage;
+        pub use crate::server::message::ReceiveMessage as FromClients;
         pub use crate::server::message::SendMessage as ServerSendMessage;
+        pub use crate::server::message::SendMessage as ToClients;
 
         pub use crate::server::connection::ConnectionManager as ServerConnectionManager;
 
