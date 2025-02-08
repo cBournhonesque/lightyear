@@ -547,7 +547,7 @@ pub fn server_app(
     };
     #[cfg(not(feature = "gui"))]
     let app = new_headless_app();
-    info!("server_app. gui={}", cfg!(feature = "gui"));
+    info!("server_app. gui={}", cfg!(feature = "gui") && enable_gui);
     // configure the network configuration
     let mut net_configs = get_server_net_configs(&settings);
     let extra_net_configs = extra_transport_configs.into_iter().map(|c| {

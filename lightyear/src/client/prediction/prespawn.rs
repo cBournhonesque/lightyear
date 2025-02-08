@@ -14,18 +14,12 @@ use crate::prelude::client::PredictionSet;
 use crate::prelude::{ComponentRegistry, Replicated, ShouldBePredicted, TickManager};
 
 use crate::shared::replication::prespawn::compute_default_hash;
-use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 #[derive(Default)]
 pub(crate) struct PreSpawnedPlayerObjectPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PreSpawnedPlayerObjectSet {
-    // PreUpdate Sets
-    /// When we receive an entity from the server that contains the [`PreSpawnedPlayerObject`] component,
-    /// that means that it was already spawned on the client.
-    /// Do the matching process to find the corresponding client entity
-    Spawn,
     // PostUpdate Sets
     /// Add the necessary information to the PrePrediction component (before replication)
     /// Clean up the PreSpawnedPlayerObject entities for which we couldn't find a mapped server entity
@@ -35,51 +29,14 @@ pub enum PreSpawnedPlayerObjectSet {
 impl Plugin for PreSpawnedPlayerObjectPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
-            PreUpdate,
-            PreSpawnedPlayerObjectSet::Spawn.in_set(PredictionSet::SpawnPrediction),
-        );
-        app.configure_sets(
             PostUpdate,
             PreSpawnedPlayerObjectSet::CleanUp.in_set(PredictionSet::All),
         );
-        app.configure_sets(
-            FixedPostUpdate,
-            // we run the prespawn hash at FixedUpdate AND PostUpdate (to handle entities spawned during Update)
-            // TODO: entities spawned during update might have a tick that is off by 1 or more...
-            //  account for this when setting the hash?
-            // NOTE: we need to call this before SpawnHistory otherwise the history would affect the hash.
-            // TODO: find a way to exclude predicted history from the hash
-            InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash
-                .in_set(PredictionSet::All)
-                .before(PredictionSet::Sync),
-        );
-
-        app.add_systems(
-            PreUpdate,
-            // we first try to see if the entity was a PreSpawnedPlayerObject
-            // if we couldn't match it then the component gets removed and then should we try the normal spawn-prediction flow
-            // TODO: or should we just consider that there was an error, and not go through the normal prediction flow?
-            (Self::match_with_received_server_entity, ApplyDeferred)
-                .chain()
-                .in_set(PreSpawnedPlayerObjectSet::Spawn),
-        );
-        app.add_systems(
-            FixedPostUpdate,
-            // adds new prespawn hashes to the prediction manager
-            Self::register_prespawn_hashes
-                .in_set(InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash),
-        );
-
+        app.add_observer(Self::match_with_received_server_entity);
+        app.add_observer(Self::register_prespawn_hashes);
         app.add_systems(
             PostUpdate,
-            (
-                Self::pre_spawned_player_object_cleanup.in_set(PreSpawnedPlayerObjectSet::CleanUp),
-                // TODO: right now we only support pre-spawning during FixedUpdate::Main because we need the exact
-                //  tick to compute the hash
-                // compute hashes for all pre-spawned player objects
-                // Self::compute_prespawn_hash
-                //     .in_set(InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash),
-            ),
+            Self::pre_spawned_player_object_cleanup.in_set(PreSpawnedPlayerObjectSet::CleanUp),
         );
     }
 }
@@ -87,30 +44,22 @@ impl Plugin for PreSpawnedPlayerObjectPlugin {
 impl PreSpawnedPlayerObjectPlugin {
     /// For all newly added prespawn hashes, register them in the prediction manager
     pub(crate) fn register_prespawn_hashes(
-        // ignore replicated entities, we only want to iterate through entities spawned on the client
-        // directly
-        // we need a param-set because of https://github.com/bevyengine/bevy/issues/7255
-        // (entity-mut conflicts with resources)
-        mut set: ParamSet<(
-            Query<
-                (Entity, &PreSpawnedPlayerObject),
-                (
-                    Without<Replicated>,
-                    Without<Confirmed>,
-                    Added<PreSpawnedPlayerObject>,
-                ),
-            >,
-            ResMut<PredictionManager>,
-        )>,
+        trigger: Trigger<OnAdd, PreSpawnedPlayerObject>,
+        query: Query<
+            &PreSpawnedPlayerObject,
+            // run this only when the component was added on a client-spawned entity (not server-replicated)
+            Without<Replicated>,
+        >,
+        mut prediction_manager: ResMut<PredictionManager>,
         component_registry: Res<ComponentRegistry>,
         tick_manager: Res<TickManager>,
         rollback: Res<Rollback>,
         components: &Components,
     ) {
-        let mut prediction_manager = std::mem::take(&mut *set.p1());
-        // get the rollback tick if the pre-spawned entity is being recreated during rollback!
-        let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
-        for (entity, prespawn) in set.p0().iter() {
+        let entity = trigger.target();
+        if let Ok(prespawn) = query.get(entity) {
+            // get the rollback tick if the pre-spawned entity is being recreated during rollback!
+            let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
             // the hash can be None when PreSpawnedPlayerObject is inserted, but the component
             // hook will calculate it, so it can't be None here.
             let hash = prespawn
@@ -145,21 +94,7 @@ impl PreSpawnedPlayerObjectPlugin {
             // add a timer on the entity so that it gets despawned if the interpolation tick
             // reaches it without matching with any server entity
             prediction_manager.prespawn_tick_to_hash.push(tick, hash);
-            // predicted_entities.push(entity);
         }
-
-        *set.p1() = prediction_manager;
-
-        // NOTE: originally I wanted to remove PreSpawnedPlayerObject here because I wanted to call `compute_hash`
-        // at PostUpdate, which would run twice (at the end of FixedUpdate and at PostUpdate)
-        // But actually we need the component to be present so that we spawn a ComponentHistory
-
-        // for entity in predicted_entities {
-        //     info!("remove PreSpawnedPlayerObject");
-        //     // we stored the relevant information in the PredictionManager resource
-        //     // so we can remove the component here
-        //     world.entity_mut(entity).remove::<PreSpawnedPlayerObject>();
-        // }
     }
 
     // TODO: should we require that ShouldBePredicted is present on the entity?
@@ -168,15 +103,19 @@ impl PreSpawnedPlayerObjectPlugin {
     /// Try to match which client entity it is and take authority over it.
     /// TODO WARNING see duplicated logic in server/prediction.rs compute_hash
     pub(crate) fn match_with_received_server_entity(
+        trigger: Trigger<OnAdd, PreSpawnedPlayerObject>,
         mut commands: Commands,
         connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
         query: Query<
-            (Entity, &PreSpawnedPlayerObject),
-            (Added<Replicated>, Added<PreSpawnedPlayerObject>),
+            &PreSpawnedPlayerObject,
+            // only trigger this when the entity is received on the client via server-replication
+            // (this is valid because Replicated is added before the components are inserted
+            Added<Replicated>,
         >,
     ) {
-        query.iter().for_each(|(confirmed_entity, server_prespawn)| {
+        let confirmed_entity = trigger.target();
+        if let Ok(server_prespawn) = query.get(confirmed_entity) {
             // we handle the PreSpawnedPlayerObject hash in this system and don't need it afterwards
             commands
                 .entity(confirmed_entity)
@@ -188,6 +127,10 @@ impl PreSpawnedPlayerObjectPlugin {
             let Some(mut client_entity_list) =
                 manager.prespawn_hash_to_entities.remove(&server_hash)
             else {
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("prespawn::no_match").increment(1);
+                }
                 debug!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
                 // remove the PreSpawnedPlayerObject so that the entity can be normal-predicted
                 commands
@@ -205,6 +148,10 @@ impl PreSpawnedPlayerObjectPlugin {
             //  and add a Predicted component to it
             let predicted_entity =
                 if let Some(mut entity_commands) = commands.get_entity(client_entity) {
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("prespawn::match::found").increment(1);
+                    }
                     debug!("re-using existing entity");
                     entity_commands
                         .remove::<PreSpawnedPlayerObject>()
@@ -213,6 +160,10 @@ impl PreSpawnedPlayerObjectPlugin {
                         });
                     client_entity
                 } else {
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("prespawn::match::missing").increment(1);
+                    }
                     debug!("spawning new entity");
                     // 1.b if the client_entity does not exist, re-create it (because server has authority)
                     commands
@@ -256,7 +207,7 @@ impl PreSpawnedPlayerObjectPlugin {
                     .prespawn_hash_to_entities
                     .insert(server_hash, client_entity_list);
             }
-        });
+        }
     }
 
     /// Cleanup the client prespawned entities for which we couldn't find a mapped server entity
@@ -310,6 +261,12 @@ impl PreSpawnedPlayerObjectPlugin {
 #[derive(Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq, Reflect)]
 /// Added to indicate the client has prespawned the predicted version of this entity.
 ///
+/// The server should spawn a similar component and replicate it to the client, when the
+/// client receive that replicated entity, it will try to match it with the prespawned entity
+/// using the hash value.
+///
+/// Prespawned entities must be spawned in the `FixedMain` schedule.
+///
 /// ```rust,ignore
 /// // Default hashing implementation: (tick + components)
 /// PreSpawnedPlayerObject::default();
@@ -334,8 +291,6 @@ pub struct PreSpawnedPlayerObject {
     /// distinguish between bullets spawned on the same tick, but by different players.
     #[serde(skip)]
     pub user_salt: Option<u64>,
-    //
-    // pub conflict_resolution: ConflictResolution,
 }
 
 impl PreSpawnedPlayerObject {
@@ -370,7 +325,8 @@ impl Component for PreSpawnedPlayerObject {
                 .entity(entity)
                 .get::<PreSpawnedPlayerObject>()
                 .unwrap();
-            // The user may have provided the hash for us, in which case do nothing.
+            // The user may have provided the hash for us, or the hash is already present because the component
+            // has been replicated from the server, in which case do nothing.
             if prespawned_obj.hash.is_some() {
                 return;
             }
@@ -408,91 +364,6 @@ impl Component for PreSpawnedPlayerObject {
         });
     }
 }
-
-// pub enum ClientNoMatchHandling {
-//     /// If we don't get any server-entity that matches this prespawned player object, then we despawn it on the client
-//     /// Once we are sure that we won't get any more server updates for that entity
-//     /// (i.e. once interpolation_tick is reached)
-//     Despawn,
-//
-//     /// Even if we don't get any server-entity that matches this prespawned player object, we don't bother despawning it
-//     /// and we just leave it as is
-//     Allow,
-// }
-//
-// pub enum ServerNoMatchHandling {
-//     /// If the server sends an entity that doesn't match any existing client prespawned player object, we consider that the server
-//     /// entity is still valid and we spawn a Predicted entity for it.
-//     ForcePrediction,
-// }
-
-// pub enum ConflictResolution {
-//     /// If we don't get any server-entity that matches this prespawned player object, then we despawn it on the client
-//     /// Once we are sure that we won't get any more server updates for that entity
-//     /// (i.e. once interpolation_tick is reached)
-//     DespawnClient,
-//     /// If the server sends us an entity that doesn't match any client prespawned player object, we consider that the entity
-//     /// should still be predicted normally.
-//     AllowDuplicate,
-// }
-
-// TODO: maybe provide a prediction_spawn command instead of running the `compute_hash` in both FixedUpdate and PostUpdate?
-
-// /// This command must be used to spawn predicted entities
-// /// - It will insert the
-// /// - If the entity is confirmed, we despawn both the predicted and confirmed entities
-// pub struct PredictionSpawnCommand {
-//     entity: Entity,
-//     _marker: PhantomData,
-// }
-//
-// impl Command for PredictionSpawnCommand {
-//     fn apply(self, world: &mut World) {
-//         todo!()
-//     }
-// }
-//
-// pub trait PredictionSpawnCommandsExt {
-//     fn prediction_spawn(&mut self);
-//
-// }
-// impl PredictionSpawnCommandsExt for EntityCommands<'_, '_, '_> {
-//     fn prediction_spawn(&mut self, pre) {
-//         let entity = self.id();
-//         self.commands().add(PredictionDespawnCommand {
-//             entity,
-//             _marker: PhantomData::,
-//         })
-//     }
-// }
-
-// At the end of Update, maintain a HashMap from hash -> entity for the client-side pre-spawned entities
-// when we get a server entity with PreSpawned
-
-// pub enum PredictedMode {
-//     /// The entity is spawned on the server and then replicated to the client, which will spawn a Confirmed and a Predicted entity
-//     FromServer,
-//     /// The entity is spawned on the client, which will send a message to the server to tell it to spawn an entity.
-
-//     /// The client can predict-spawn an entity, and it expects the server to also spawn the same entity when it receives
-//     /// the information about the first entity.
-//     /// Then the server replicates back its spawned entity to the client, and grabs authority over the entity.
-//     /// All inputs that act on the entity after its spawned will be sent to the server.
-//     PreSpawnedUserControlled {
-//         /// the client entity that was pre-spawned and will be sent to the server
-//         client_entity: Option<Entity>,
-//         /// this is set by the server to know which client did the pre-prediction (in case the client is running
-//         /// prediction for other client's entities as well)
-//         client_id: Option<ClientId>,
-//     },
-//     /// The entity is created on both the client (in the predicted-timeline) and server side, preferably with the same system.
-//     /// (for example a bullet that is shot by the player)
-//     /// When the server replicates the bullet to the client, it finds the corresponding client prespawned entity and takes authority over it.
-//     PreSpawnedPlayerObject {
-//         /// Hash that will identify the entity
-//         hash: u64,
-//     },
-// }
 
 #[cfg(test)]
 mod tests {
@@ -545,7 +416,10 @@ mod tests {
         assert_eq!(
             prediction_manager.prespawn_tick_to_hash.heap.peek(),
             Some(&ItemWithReadyKey {
-                key: current_tick,
+                // NOTE: in this test we have to add + 1 here because the `register_prespawn_hashes` observer
+                //  runs outside of the FixedUpdate schedule so the entity is registered with the previous tick
+                //  in a real situation the entity would be spawned inside FixedUpdate so the hash would be correct
+                key: current_tick - 1,
                 item: expected_hash,
             })
         );

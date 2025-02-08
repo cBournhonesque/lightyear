@@ -151,7 +151,7 @@ pub(crate) mod send {
         InitialReplicated, Replicating, ReplicationGroupId,
     };
 
-    
+
     use crate::shared::replication::archetypes::{
         get_erased_component, ClientReplicatedArchetypes,
     };
@@ -757,7 +757,6 @@ pub(crate) mod send {
     #[cfg(test)]
     mod tests {
         use crate::client::replication::send::ReplicateToServer;
-        use crate::prelude::client::Replicate;
         use crate::prelude::{
             server, ChannelDirection, ClientId, ComponentRegistry, DisabledComponents,
             ReplicateOnceComponent, Replicated, TargetEntity,
@@ -786,7 +785,7 @@ pub(crate) mod send {
                 .client_app
                 .world_mut()
                 .entity_mut(client_entity)
-                .insert(Replicate::default());
+                .insert(ReplicateToServer);
             // TODO: we need to run a couple frames because the server doesn't read the client's updates
             //  because they are from the future
             for _ in 0..10 {
@@ -826,7 +825,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToServer)
                 .id();
 
             stepper.frame_step();
@@ -837,7 +836,7 @@ pub(crate) mod send {
                 .client_app
                 .world_mut()
                 .entity_mut(client_entity)
-                .insert(Replicate::default());
+                .insert(ReplicateToServer);
             // TODO: we need to run a couple frames because the server doesn't read the client's updates
             //  because they are from the future
             for _ in 0..10 {
@@ -886,7 +885,7 @@ pub(crate) mod send {
             stepper
                 .client_app
                 .world_mut()
-                .spawn_batch(vec![Replicate::default(); 2]);
+                .spawn_batch(vec![ReplicateToServer; 2]);
             for _ in 0..10 {
                 stepper.frame_step();
             }
@@ -908,7 +907,7 @@ pub(crate) mod send {
                 .client_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToServer,
                     TargetEntity::Preexisting(server_entity),
                 ))
                 .id();
@@ -952,7 +951,7 @@ pub(crate) mod send {
                 .client_app
                 .world_mut()
                 .entity_mut(client_entity)
-                .insert(Replicate::default());
+                .insert(ReplicateToServer);
             // TODO: we need to run a couple frames because the server doesn't read the client's updates
             //  because they are from the future
             for _ in 0..10 {
@@ -995,7 +994,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToServer)
                 .id();
             let client_child = stepper
                 .client_app
@@ -1054,7 +1053,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToServer)
                 .id();
             let client_child = stepper
                 .client_app
@@ -1095,7 +1094,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToServer)
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1143,7 +1142,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToServer)
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1193,7 +1192,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
+                .spawn((ReplicateToServer, ComponentSyncModeFull(1.0)))
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1307,7 +1306,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
+                .spawn((ReplicateToServer, ComponentSyncModeFull(1.0)))
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1362,7 +1361,7 @@ pub(crate) mod send {
                 .client_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToServer,
                     ComponentSyncModeFull(1.0),
                     ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
                 ))
@@ -1413,7 +1412,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
+                .spawn((ReplicateToServer, ComponentSyncModeFull(1.0)))
                 .id();
             let client_child = stepper
                 .client_app
@@ -1511,7 +1510,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn((Replicate::default(), ComponentSyncModeOnce(1.0)))
+                .spawn((ReplicateToServer, ComponentSyncModeOnce(1.0)))
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
