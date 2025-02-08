@@ -618,8 +618,10 @@ mod prediction {
                 (prediction_metadata.buffer_sync)(self, confirmed, predicted, world);
             });
             // insert all the components in the predicted entity
-            let mut entity_world_mut = world.entity_mut(predicted);
-            self.temp_write_buffer.batch_insert(&mut entity_world_mut);
+            if let Ok(mut entity_world_mut) = world.get_entity_mut(predicted) {
+                self.temp_write_buffer.batch_insert(&mut entity_world_mut);
+            };
+            
         }
 
         /// Sync a component value from the confirmed entity to the predicted entity
@@ -662,16 +664,18 @@ mod prediction {
             if world.get::<C>(predicted).is_some() {
                 return;
             }
-            let value = world.get::<C>(confirmed).unwrap();
-            let mut clone = value.clone();
-            world
-                .resource::<PredictionManager>()
-                .map_entities(&mut clone, self)
-                .unwrap();
-            unsafe {
-                self.temp_write_buffer
-                    .buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
-            };
+            if let Some(value) = world.get::<C>(confirmed) {
+                let mut clone = value.clone();
+                world
+                    .resource::<PredictionManager>()
+                    .map_entities(&mut clone, self)
+                    .unwrap();
+                unsafe {
+                    self.temp_write_buffer
+                        .buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
+                };
+            }
+           
         }
     }
 }
