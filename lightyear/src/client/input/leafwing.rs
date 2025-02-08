@@ -51,10 +51,7 @@ use crate::client::sync::SyncSet;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{
-    is_host_server, ChannelKind, ChannelRegistry, InputMessage, MessageRegistry,
-    ReplicateOnceComponent, TickManager, TimeManager,
-};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage, MessageRegistry, ReplicateOnceComponent, ServerReceiveMessage, TickManager, TimeManager};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::shared::replication::components::PrePredicted;
@@ -727,7 +724,8 @@ fn receive_tick_events<A: LeafwingUserAction>(
 fn receive_remote_player_input_messages<A: LeafwingUserAction>(
     mut commands: Commands,
     tick_manager: Res<TickManager>,
-    mut connection: ResMut<ConnectionManager>,
+    mut received_inputs: ResMut<Events<ClientReceiveMessage<InputMessage<A>>>>,
+    connection: Res<ConnectionManager>,
     prediction_manager: Res<PredictionManager>,
     message_registry: Res<MessageRegistry>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
@@ -737,100 +735,81 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
         (Without<InputMap<A>>, With<Predicted>),
     >,
 ) {
-    let current_tick = tick_manager.tick();
-    let kind = MessageKind::of::<InputMessage<A>>();
-    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
-        error!(
-            "Could not find the network id for the message kind: {:?}",
-            kind
-        );
-        return;
-    };
-
-    // enable split borrows
-    let connection = connection.as_mut();
-    if let Some(message_list) = connection.received_leafwing_input_messages.get_mut(&net) {
-        message_list.drain(..).for_each(|message_bytes| {
-            let mut reader = Reader::from(message_bytes);
-            match message_registry.deserialize::<InputMessage<A>>(
-                &mut reader,
-                &mut connection
-                    .replication_receiver
-                    .remote_entity_map
-                    .remote_to_local,
-            ) {
-                Ok(message) => {
-                    debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-                    for target_data in &message.diffs {
-                        // - the input target has already been set to the server entity in the InputMessage
-                        // - it has been mapped to a client-entity on the client during deserialization
-                        //   ONLY if it's PrePredicted (look at the MapEntities implementation)
-                        let entity = match target_data.target {
-                            InputTarget::Entity(entity) => {
-                                // TODO: find a better way!
-                                // if InputTarget = Entity, we still need to do the mapping
-                                connection
-                                    .replication_receiver
-                                    .remote_entity_map
-                                    .get_local(entity)
-                            }
-                            InputTarget::PrePredictedEntity(entity) => Some(entity),
-                            InputTarget::Global => continue,
-                        };
-                        if let Some(entity) = entity {
-                            debug!(
-                                "received input message for entity: {:?}. Applying to diff buffer.",
-                                entity
-                            );
-                            if let Ok(confirmed) = confirmed_query.get(entity) {
-                                if let Some(predicted) = confirmed.predicted {
-                                    if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
-                                        debug!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
-                                        if let Some(mut input_buffer) = input_buffer {
-                                            input_buffer.update_from_message(
-                                                message.end_tick,
-                                                &target_data.start_state,
-                                                &target_data.diffs,
-                                            );
-                                            #[cfg(feature = "metrics")]
-                                            {
-                                                metrics::gauge!(format!(
+    let tick = tick_manager.tick();
+    received_inputs.drain().for_each(|event| {
+        let message = event.message;
+        debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+        for target_data in &message.diffs {
+            // - the input target has already been set to the server entity in the InputMessage
+            // - it has been mapped to a client-entity on the client during deserialization
+            //   ONLY if it's PrePredicted (look at the MapEntities implementation)
+            let entity = match target_data.target {
+                InputTarget::Entity(entity) => {
+                    // TODO: find a better way!
+                    // if InputTarget = Entity, we still need to do the mapping
+                    connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .get_local(entity)
+                }
+                InputTarget::PrePredictedEntity(entity) => Some(entity),
+                InputTarget::Global => continue,
+            };
+            if let Some(entity) = entity {
+                debug!(
+                    "received input message for entity: {:?}. Applying to diff buffer.",
+                    entity
+                );
+                if let Ok(confirmed) = confirmed_query.get(entity) {
+                    if let Some(predicted) = confirmed.predicted {
+                        if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
+                            debug!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+                            if let Some(mut input_buffer) = input_buffer {
+                                input_buffer.update_from_message(
+                                    message.end_tick,
+                                    &target_data.start_state,
+                                    &target_data.diffs,
+                                );
+                                #[cfg(feature = "metrics")]
+                                {
+                                    let margin = input_buffer.end_tick().unwrap() - tick;
+                                    metrics::gauge!(format!(
+                                                    "inputs::{}::remote_player::{}::buffer_margin",
+                                                    std::any::type_name::<A>(),
+                                                    entity
+                                                ))
+                                        .set(margin as f64);
+                                    metrics::gauge!(format!(
                                                     "inputs::{}::remote_player::{}::buffer_size",
                                                     std::any::type_name::<A>(),
                                                     entity
                                                 ))
-                                                .set(input_buffer.len() as f64);
-                                            }
-                                        } else {
-                                            // add the ActionState or InputBuffer if they are missing
-                                            let mut input_buffer = InputBuffer::<A>::default();
-                                            input_buffer.update_from_message(
-                                                message.end_tick,
-                                                &target_data.start_state,
-                                                &target_data.diffs,
-                                            );
-                                            // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
-                                            commands.entity(predicted).insert((
-                                                input_buffer,
-                                                ActionState::<A>::default(),
-                                            ));
-                                        }
-                                    }
+                                        .set(input_buffer.len() as f64);
                                 }
                             } else {
-                                error!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
-                            }
-                        } else {
-                            error!("received remote player input message for unrecognized entity");
+                                // add the ActionState or InputBuffer if they are missing
+                                let mut input_buffer = InputBuffer::<A>::default();
+                                input_buffer.update_from_message(
+                                    message.end_tick,
+                                    &target_data.start_state,
+                                    &target_data.diffs,
+                                );
+                                // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
+                                commands.entity(predicted).insert((
+                                    input_buffer,
+                                    ActionState::<A>::default(),
+                                ));
+                            };
                         }
                     }
+                } else {
+                    error!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                 }
-                Err(e) => {
-                    error!(?e, "could not deserialize leafwing input message");
-                }
+            } else {
+                error!("received remote player input message for unrecognized entity");
             }
-        })
-    }
+        }
+    });
 }
 
 #[cfg(test)]
@@ -841,8 +820,9 @@ mod tests {
     use std::time::Duration;
 
     use crate::prelude::client::{InterpolationDelay, PredictionConfig};
-    use crate::prelude::server::Replicate;
-    use crate::prelude::{client, SharedConfig, TickConfig};
+    use crate::prelude::server::{Replicate, SyncTarget};
+    use crate::prelude::{client, NetworkTarget, ServerSendMessage, SharedConfig, TickConfig};
+    use crate::tests::multi_stepper::MultiBevyStepper;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
 
@@ -1110,5 +1090,73 @@ mod tests {
             .get_single(stepper.server_app.world())
             .unwrap();
         assert_eq!(delay.delay_ms, 20);
+    }
+
+
+    pub(crate) fn replicate_inputs(
+        mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<LeafwingInput1>>>>,
+        mut send_inputs: EventWriter<ServerSendMessage<InputMessage<LeafwingInput1>>>,
+    ) {
+        // rebroadcast the input to other clients
+        // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
+        // so that the server had the time to process the inputs
+        send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+            ServerSendMessage::new_with_target::<InputChannel>(
+                ev.message,
+                NetworkTarget::AllExceptSingle(ev.from),
+            )
+        }));
+    }
+    #[test]
+    fn test_receive_inputs_other_clients() {
+        let mut stepper = MultiBevyStepper::default();
+        // server propagate inputs to other clients
+        stepper.server_app.add_systems(PreUpdate, replicate_inputs.after(crate::server::input::leafwing::InputSystemSet::ReceiveInputs));
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                ActionState::<LeafwingInput1>::default(),
+                Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        interpolation: None,
+                    },
+                    ..default()
+                }
+            ))
+            .id();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let client_entity_2 = stepper
+            .client_app_2
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        let client_entity_1 = stepper
+            .client_app_1
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        stepper.client_app_2.world_mut().entity_mut(client_entity_2).insert(
+            InputMap::<LeafwingInput1>::new([(
+                LeafwingInput1::Jump,
+                KeyCode::KeyA,
+            )])
+        );
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // client 1 should have received the InputMessage from client 2 which was broadcasted by the client
+        assert!(stepper.client_app_1.world().get::<ActionState<LeafwingInput1>>(client_entity_1).is_some());
+        assert!(stepper.client_app_1.world().get::<InputBuffer<LeafwingInput1>>(client_entity_1).unwrap().end_tick().is_some());
     }
 }

@@ -1020,7 +1020,7 @@ mod integration_tests {
 
         impl MapEntities for ComponentWithEntity {
             fn map_entities<M: bevy::prelude::EntityMapper>(&mut self, entity_mapper: &mut M) {
-                self.0 = entity_mapper.map_entity(self.0);
+                self.0 = entity_mapper.get_mapped(self.0);
             }
         }
 

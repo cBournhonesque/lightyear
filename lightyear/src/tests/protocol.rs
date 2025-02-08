@@ -33,7 +33,7 @@ pub struct EntityMessage(pub Entity);
 
 impl MapEntities for EntityMessage {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 
@@ -82,7 +82,7 @@ pub struct ComponentMapEntities(pub Entity);
 
 impl MapEntities for ComponentMapEntities {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 

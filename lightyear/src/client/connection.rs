@@ -73,10 +73,6 @@ pub struct ConnectionManager {
     pub(crate) events: ConnectionEvents,
     pub ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
-
-    /// Used to read the leafwing InputMessages from other clients
-    #[cfg(feature = "leafwing")]
-    pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: Vec<(NetId, Bytes)>,
     pub(crate) writer: Writer,
@@ -112,8 +108,6 @@ impl Default for ConnectionManager {
             ping_manager: PingManager::new(PingConfig::default()),
             sync_manager: SyncManager::new(SyncConfig::default(), PredictionConfig::default()),
             events: ConnectionEvents::default(),
-            #[cfg(feature = "leafwing")]
-            received_leafwing_input_messages: HashMap::default(),
             received_messages: Vec::default(),
             writer: Writer::with_capacity(0),
             messages_to_send: Vec::default(),
@@ -163,8 +157,6 @@ impl ConnectionManager {
             ping_manager: PingManager::new(client_config.ping),
             sync_manager: SyncManager::new(client_config.sync, client_config.prediction),
             events: ConnectionEvents::default(),
-            #[cfg(feature = "leafwing")]
-            received_leafwing_input_messages: HashMap::default(),
             received_messages: Vec::default(),
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_send: Vec::default(),

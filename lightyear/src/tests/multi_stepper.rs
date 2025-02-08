@@ -1,11 +1,5 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
 use crate::client::networking::ClientCommandsExt;
-use bevy::prelude::{default, App, PluginGroup, Real, Time};
-use bevy::state::app::StatesPlugin;
-use bevy::time::TimeUpdateStrategy;
-use bevy::MinimalPlugins;
-use core::time::Duration;
-
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
     Authentication, ClientConfig, ClientTransport, InterpolationConfig, NetClient, NetConfig,
@@ -15,6 +9,12 @@ use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, Ser
 use crate::prelude::*;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
+use bevy::input::InputPlugin;
+use bevy::prelude::{default, App, PluginGroup, Real, Time};
+use bevy::state::app::StatesPlugin;
+use bevy::time::TimeUpdateStrategy;
+use bevy::MinimalPlugins;
+use core::time::Duration;
 
 pub(crate) const TEST_CLIENT_ID_1: u64 = 1;
 pub(crate) const TEST_CLIENT_ID_2: u64 = 2;
@@ -150,6 +150,11 @@ impl MultiBevyStepper {
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
+        #[cfg(feature = "leafwing")]
+        {
+            server_app.add_plugins(LeafwingInputPlugin::<LeafwingInput1>::default());
+            server_app.add_plugins(LeafwingInputPlugin::<LeafwingInput2>::default());
+        }
 
         let build_client = |net_config: NetConfig| -> App {
             let mut client_app = App::new();
@@ -171,6 +176,12 @@ impl MultiBevyStepper {
                 .get_resource_mut::<Time<Real>>()
                 .unwrap()
                 .update_with_instant(now);
+            #[cfg(feature = "leafwing")]
+            {
+                client_app.add_plugins(LeafwingInputPlugin::<LeafwingInput1>::default());
+                client_app.add_plugins(LeafwingInputPlugin::<LeafwingInput2>::default());
+                client_app.add_plugins(InputPlugin);
+            }
             client_app
         };
 

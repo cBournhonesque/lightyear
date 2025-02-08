@@ -40,7 +40,7 @@ impl<E> MapEntities for TriggerMessage<E> {
         self.target_entities = self
             .target_entities
             .iter()
-            .map(|e| entity_mapper.map_entity(*e))
+            .map(|e| entity_mapper.get_mapped(*e))
             .collect();
     }
 }
@@ -54,7 +54,7 @@ impl<E> MapEntities for TriggerMessage<E> {
 // impl<E: MapEntities> TriggerMessageMapped<E> {
 //     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
 //         self.message.map_entities(entity_mapper);
-//         self.target_entities = self.target_entities.iter().map(|e| entity_mapper.map_entity(*e)).collect();
+//         self.target_entities = self.target_entities.iter().map(|e| entity_mapper.get_mapped(*e)).collect();
 //     }
 // }
 

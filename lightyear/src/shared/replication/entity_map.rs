@@ -20,7 +20,7 @@ pub struct EntityMap(pub(crate) EntityHashMap<Entity>);
 
 impl EntityMapper for EntityMap {
     /// Try to map the entity using the map, or don't do anything if it fails
-    fn map_entity(&mut self, entity: Entity) -> Entity {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
         self.0.get(&entity).copied().unwrap_or_else(|| {
             debug!("Failed to map entity {entity:?}");
             entity
@@ -33,7 +33,7 @@ pub struct SendEntityMap(pub(crate) EntityHashMap<Entity>);
 
 impl EntityMapper for SendEntityMap {
     /// Try to map the entity using the map, or return the initial entity if it doesn't work
-    fn map_entity(&mut self, entity: Entity) -> Entity {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
         // if we have the entity in our mapping, map it and mark it as mapped
         // so that on the receive side we don't map it again
         if let Some(mapped) = self.0.get(&entity) {
@@ -51,7 +51,7 @@ pub struct ReceiveEntityMap(pub(crate) EntityHashMap<Entity>);
 
 impl EntityMapper for ReceiveEntityMap {
     /// Map an entity from the remote World to the local World
-    fn map_entity(&mut self, entity: Entity) -> Entity {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
         // if the entity was already mapped on the send side, we don't need to map it again
         // since it's the local world entity
         if RemoteEntityMap::is_mapped(entity) {

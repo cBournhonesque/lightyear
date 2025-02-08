@@ -74,7 +74,7 @@ impl<R: Relationship> From<Option<Entity>> for RelationshipSync<R> {
 impl<R: Relationship> MapEntities for RelationshipSync<R> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         if let Some(entity) = &mut self.entity {
-            *entity = entity_mapper.map_entity(*entity);
+            *entity = entity_mapper.get_mapped(*entity);
         }
     }
 }

@@ -84,7 +84,7 @@ impl<A: LeafwingUserAction> MapEntities for InputMessage<A> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.diffs.iter_mut().for_each(|data| {
             if let InputTarget::PrePredictedEntity(ref mut e) = data.target {
-                *e = entity_mapper.map_entity(*e);
+                *e = entity_mapper.get_mapped(*e);
             }
         });
     }

@@ -128,7 +128,7 @@ pub struct PlayerParent(Entity);
 
 impl MapEntities for PlayerParent {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 
