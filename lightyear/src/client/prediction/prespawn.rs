@@ -51,7 +51,7 @@ impl PreSpawnedPlayerObjectPlugin {
             // run this only when the component was added on a client-spawned entity (not server-replicated)
             Without<Replicated>,
         >,
-        prediction_manager: ResMut<PredictionManager>,
+        mut prediction_manager: ResMut<PredictionManager>,
         component_registry: Res<ComponentRegistry>,
         tick_manager: Res<TickManager>,
         rollback: Res<Rollback>,
@@ -414,7 +414,10 @@ mod tests {
         assert_eq!(
             prediction_manager.prespawn_tick_to_hash.heap.peek(),
             Some(&ItemWithReadyKey {
-                key: current_tick,
+                // NOTE: in this test we have to add + 1 here because the `register_prespawn_hashes` observer
+                //  runs outside of the FixedUpdate schedule so the entity is registered with the previous tick
+                //  in a real situation the entity would be spawned inside FixedUpdate so the hash would be correct
+                key: current_tick - 1,
                 item: expected_hash,
             })
         );

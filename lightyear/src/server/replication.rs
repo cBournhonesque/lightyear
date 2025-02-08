@@ -10,7 +10,6 @@ use crate::prelude::client::ClientConnection;
 use crate::prelude::{server::is_started, PrePredicted};
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
-use crate::server::prediction::compute_hash;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
