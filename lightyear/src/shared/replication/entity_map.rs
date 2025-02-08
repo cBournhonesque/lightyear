@@ -26,6 +26,10 @@ impl EntityMapper for EntityMap {
             entity
         })
     }
+
+    fn set_mapped(&mut self, source: Entity, target: Entity) {
+        self.0.set_mapped(source, target);
+    }
 }
 
 #[derive(Default, Debug, Reflect, Deref, DerefMut)]
@@ -43,6 +47,10 @@ impl EntityMapper for SendEntityMap {
             // otherwise just send the entity as is, and the receiver will map it
             entity
         }
+    }
+
+    fn set_mapped(&mut self, source: Entity, target: Entity) {
+        self.0.insert(source, target);
     }
 }
 
@@ -63,6 +71,10 @@ impl EntityMapper for ReceiveEntityMap {
                 Entity::PLACEHOLDER
             })
         }
+    }
+
+    fn set_mapped(&mut self, source: Entity, target: Entity) {
+        self.0.insert(source, target);
     }
 }
 

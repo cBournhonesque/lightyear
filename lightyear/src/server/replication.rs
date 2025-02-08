@@ -183,6 +183,7 @@ pub(crate) mod send {
     /// Component that indicates which clients the entity should be replicated to.
     #[derive(Component, Clone, Debug, PartialEq, Reflect)]
     #[reflect(Component)]
+    #[require(ReplicationMarker, NetworkRelevanceMode)]
     pub struct ReplicateToClient {
         /// Which clients should this entity be replicated to
         pub target: NetworkTarget,
@@ -1243,17 +1244,17 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(Replicate {
-                    sync: SyncTarget {
+                .insert((
+                    ReplicateToClient::default(),
+                    SyncTarget {
                         prediction: NetworkTarget::All,
                         interpolation: NetworkTarget::All,
                     },
-                    controlled_by: ControlledBy {
+                    ControlledBy {
                         target: NetworkTarget::All,
                         ..default()
                     },
-                    ..default()
-                });
+                ));
 
             stepper.frame_step();
             stepper.frame_step();
@@ -1319,7 +1320,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToClient::default())
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1387,10 +1388,10 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate {
-                    relevance_mode: NetworkRelevanceMode::InterestManagement,
-                    ..default()
-                })
+                .spawn((
+                    ReplicateToClient::default(),
+                    NetworkRelevanceMode::InterestManagement,
+                ))
                 .id();
             let server_child = stepper
                 .server_app
@@ -1469,7 +1470,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToClient::default(),
                     TargetEntity::Preexisting(client_entity),
                 ))
                 .id();
@@ -1510,12 +1511,11 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate {
-                    target: ReplicateToClient {
+                .spawn(
+                    ReplicateToClient {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
-                    },
-                    ..default()
-                })
+                    }
+                )
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1530,13 +1530,14 @@ pub(crate) mod send {
                 .expect("entity was not replicated to client 1");
 
             // update the replication target
+            // we purposefully use a mutation instead of an update so that no observers are triggered
+            // TODO: switch to immutable component + OnReplace observer
             stepper
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(ReplicateToClient {
-                    target: NetworkTarget::All,
-                });
+                .get_mut::<ReplicateToClient>()
+                .unwrap().target = NetworkTarget::All;
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1560,7 +1561,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToClient::default())
                 .id();
             let server_child = stepper
                 .server_app
@@ -1612,7 +1613,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToClient::default())
                 .id();
             let server_child = stepper
                 .server_app
@@ -1651,10 +1652,10 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate {
-                    relevance_mode: NetworkRelevanceMode::InterestManagement,
-                    ..default()
-                })
+                .spawn((
+                    ReplicateToClient::default(),
+                    NetworkRelevanceMode::InterestManagement,
+                ))
                 .id();
             stepper
                 .server_app
@@ -1704,20 +1705,20 @@ pub(crate) mod send {
             let server_entity_1 = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate {
-                    relevance_mode: NetworkRelevanceMode::InterestManagement,
-                    group: ReplicationGroup::new_id(1),
-                    ..default()
-                })
+                .spawn((
+                    ReplicateToClient::default(),
+                    NetworkRelevanceMode::InterestManagement,
+                    ReplicationGroup::new_id(1),
+                ))
                 .id();
             let server_entity_2 = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate {
-                    relevance_mode: NetworkRelevanceMode::InterestManagement,
-                    group: ReplicationGroup::new_id(1),
-                    ..default()
-                })
+                .spawn((
+                    ReplicateToClient::default(),
+                    NetworkRelevanceMode::InterestManagement,
+                    ReplicationGroup::new_id(1),
+                ))
                 .id();
             stepper
                 .server_app
@@ -1786,12 +1787,11 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate {
-                    target: ReplicateToClient {
+                .spawn(
+                    ReplicateToClient {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
                     },
-                    ..default()
-                })
+                )
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1810,9 +1810,9 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(ReplicateToClient {
-                    target: NetworkTarget::None,
-                });
+                .get_mut::<ReplicateToClient>()
+                .unwrap()
+                .target = NetworkTarget::None;
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1832,7 +1832,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToClient::default())
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1875,7 +1875,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToClient::default())
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1921,7 +1921,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToClient::default(),
                     ComponentDeltaCompression(vec![1, 2]),
                     DeltaCompression::<ComponentDeltaCompression>::default(),
                 ))
@@ -1971,10 +1971,10 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate {
-                    relevance_mode: NetworkRelevanceMode::InterestManagement,
-                    ..default()
-                })
+                .spawn((
+                    ReplicateToClient::default(),
+                    NetworkRelevanceMode::InterestManagement,
+                ))
                 .id();
             stepper
                 .server_app
@@ -2021,10 +2021,10 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate {
-                    relevance_mode: NetworkRelevanceMode::InterestManagement,
-                    ..default()
-                })
+                .spawn((
+                    ReplicateToClient::default(),
+                    NetworkRelevanceMode::InterestManagement,
+                ))
                 .id();
 
             stepper.frame_step();
@@ -2072,7 +2072,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate::default())
+                .spawn(ReplicateToClient::default())
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -2115,7 +2115,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToClient::default(),
                     ComponentSyncModeFull(1.0),
                     OverrideTarget::default().insert::<ComponentSyncModeFull>(
                         NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
@@ -2170,11 +2170,9 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate {
-                        // target is both
-                        relevance_mode: NetworkRelevanceMode::InterestManagement,
-                        ..default()
-                    },
+                    // target is both
+                    ReplicateToClient::default(),
+                    NetworkRelevanceMode::InterestManagement,
                     ComponentSyncModeFull(1.0),
                     // override target is only client 1
                     OverrideTarget::default().insert::<ComponentSyncModeFull>(
@@ -2234,7 +2232,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
+                .spawn((ReplicateToClient::default(), ComponentSyncModeFull(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -2276,7 +2274,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
+                .spawn((ComponentSyncModeFull(0.0), ReplicateToClient::default()))
                 .id();
 
             // replicate to client
@@ -2339,12 +2337,10 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate {
-                        // replicate every 4 ticks
-                        group: ReplicationGroup::new_from_entity()
-                            .set_send_frequency(Duration::from_millis(40)),
-                        ..default()
-                    },
+                    ReplicateToClient::default(),
+                    // replicate every 4 ticks
+                    ReplicationGroup::new_from_entity()
+                        .set_send_frequency(Duration::from_millis(40)),
                     ComponentSyncModeFull(1.0),
                 ))
                 .id();
@@ -2401,7 +2397,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToClient::default(),
                     ComponentDeltaCompression(vec![1, 2]),
                     DeltaCompression::<ComponentDeltaCompression>::default(),
                 ))
@@ -2545,7 +2541,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToClient::default(),
                     ComponentSyncModeFull(1.0),
                     ComponentDeltaCompression(vec![1, 2]),
                     DeltaCompression::<ComponentDeltaCompression>::default(),
@@ -2729,7 +2725,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToClient::default(),
                     ComponentDeltaCompression(vec![1, 2]),
                     DeltaCompression::<ComponentDeltaCompression>::default(),
                 ))
@@ -2901,7 +2897,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToClient::default(),
                     ComponentDeltaCompression2(HashSet::from_iter([1])),
                     DeltaCompression::<ComponentDeltaCompression2>::default(),
                 ))
@@ -3025,7 +3021,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
+                .spawn((ReplicateToClient::default(), ComponentSyncModeFull(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -3087,7 +3083,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
+                .spawn((ReplicateToClient::default(), ComponentSyncModeFull(1.0)))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -3133,7 +3129,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToClient::default(),
                     ComponentSyncModeFull(1.0),
                     ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
                 ))
@@ -3189,7 +3185,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    Replicate::default(),
+                    ReplicateToClient::default(),
                     ComponentSyncModeFull(1.0),
                     ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
                 ))
@@ -3249,7 +3245,7 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn((Replicate::default(), ComponentSyncModeFull(1.0)))
+                .spawn((ReplicateToClient::default(), ComponentSyncModeFull(1.0)))
                 .id();
             let server_child = stepper
                 .server_app
@@ -3331,12 +3327,11 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(Replicate {
-                    target: ReplicateToClient {
+                .spawn(
+                    ReplicateToClient {
                         target: NetworkTarget::None,
                     },
-                    ..default()
-                })
+                )
                 .id();
             stepper.frame_step();
             stepper.frame_step();

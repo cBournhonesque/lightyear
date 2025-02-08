@@ -56,7 +56,7 @@ impl PreSpawnedPlayerObjectPlugin {
         rollback: Res<Rollback>,
         components: &Components,
     ) {
-        let entity = trigger.entity();
+        let entity = trigger.target();
         if let Ok(prespawn) = query.get(entity) {
             // get the rollback tick if the pre-spawned entity is being recreated during rollback!
             let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
@@ -114,7 +114,7 @@ impl PreSpawnedPlayerObjectPlugin {
             Added<Replicated>,
         >,
     ) {
-        let confirmed_entity = trigger.entity();
+        let confirmed_entity = trigger.target();
         if let Ok(server_prespawn) = query.get(confirmed_entity) {
             // we handle the PreSpawnedPlayerObject hash in this system and don't need it afterwards
             commands

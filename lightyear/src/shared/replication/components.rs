@@ -343,6 +343,8 @@ impl ToBytes for ReplicationGroupId {
     }
 }
 
+// NOTE: we don't add a #[require(ReplicateToClient)] attribute here
+//  so that it's possible to override the NetworkRelevanceMode for a ReplicateLike entity
 #[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub enum NetworkRelevanceMode {
