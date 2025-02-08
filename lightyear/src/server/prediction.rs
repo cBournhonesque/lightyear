@@ -62,15 +62,15 @@ pub(crate) fn handle_pre_predicted(
     trigger: Trigger<OnAdd, PrePredicted>,
     mut commands: Commands,
     mut manager: ResMut<ServerConnectionManager>,
-    identity: Option<Res<State<NetworkIdentityState>>>,
     q: Query<(Entity, &PrePredicted, &Replicated)>,
 ) {
-    // no need to do anything in host-server mode, we directly add the `Predicted` component on the client
-    if is_host_server(identity) {
-        return;
-    }
     if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.entity()) {
         let sending_client = replicated.from.unwrap();
+        // if the client who created the PrePredicted entity is the local client, no need to do anything!
+        // (the client Observer already adds Predicted on the entity)
+        if sending_client.is_local() {
+            return
+        }
         let confirmed_entity = pre_predicted.confirmed_entity.unwrap();
         // update the mapping so that when we send updates, the server entity gets mapped
         // to the client's confirmed entity
