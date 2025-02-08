@@ -1,14 +1,8 @@
 //! Handles logic related to prespawning entities
 
 use crate::prelude::server::{AuthorityCommandExt, AuthorityPeer};
-use crate::prelude::{
-    is_host_server, ComponentRegistry, NetworkIdentityState, PrePredicted, PreSpawnedPlayerObject,
-    Replicated, ServerConnectionManager, TickManager,
-};
-use crate::shared::replication::prespawn::compute_default_hash;
-use bevy::ecs::component::Components;
+use crate::prelude::{PrePredicted, Replicated, ServerConnectionManager};
 use bevy::prelude::*;
-
 
 /// When we receive an entity that a clients wants PrePredicted,
 /// we immediately transfer authority back to the server. The server will replicate the PrePredicted
@@ -26,7 +20,7 @@ pub(crate) fn handle_pre_predicted(
         // if the client who created the PrePredicted entity is the local client, no need to do anything!
         // (the client Observer already adds Predicted on the entity)
         if sending_client.is_local() {
-            return
+            return;
         }
         let confirmed_entity = pre_predicted.confirmed_entity.unwrap();
         // update the mapping so that when we send updates, the server entity gets mapped

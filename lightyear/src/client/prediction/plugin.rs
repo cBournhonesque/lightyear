@@ -11,9 +11,7 @@ use crate::client::prediction::predicted_history::{
     apply_component_removal_predicted, handle_tick_event_prediction_history,
     update_prediction_history,
 };
-use crate::client::prediction::prespawn::{
-    PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
-};
+use crate::client::prediction::prespawn::PreSpawnedPlayerObjectPlugin;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
@@ -405,8 +403,7 @@ impl Plugin for PredictionPlugin {
                 //     If no match we do nothing and treat this as a normal-predicted entity
                 //   - the entity has a PrePredicted component. If it does, remove ShouldBePredicted to not trigger normal prediction-spawn system
                 // - then we check via a system if we should spawn a new predicted entity
-                spawn_predicted_entity
-                    .in_set(PredictionSet::SpawnPrediction),
+                spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
                 run_rollback.in_set(PredictionSet::Rollback),
                 #[cfg(feature = "metrics")]
                 super::rollback::no_rollback

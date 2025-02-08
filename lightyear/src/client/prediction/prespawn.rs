@@ -14,7 +14,6 @@ use crate::prelude::client::PredictionSet;
 use crate::prelude::{ComponentRegistry, Replicated, ShouldBePredicted, TickManager};
 
 use crate::shared::replication::prespawn::compute_default_hash;
-use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 #[derive(Default)]
 pub(crate) struct PreSpawnedPlayerObjectPlugin;
@@ -108,7 +107,8 @@ impl PreSpawnedPlayerObjectPlugin {
         mut commands: Commands,
         connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
-        query: Query<&PreSpawnedPlayerObject,
+        query: Query<
+            &PreSpawnedPlayerObject,
             // only trigger this when the entity is received on the client via server-replication
             // (this is valid because Replicated is added before the components are inserted
             Added<Replicated>,
@@ -360,8 +360,6 @@ impl Component for PreSpawnedPlayerObject {
         });
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
