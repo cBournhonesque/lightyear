@@ -1,3 +1,4 @@
+use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use tracing::{debug, error, trace};
@@ -9,21 +10,28 @@ use crate::prelude::{
 };
 use crate::shared::tick_manager::Tick;
 
-// - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
-//   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity
 
-/// This command must be used to despawn the predicted or confirmed entity.
-/// - If the entity is predicted, it can still be re-created if we realize during a rollback that it should not have been despawned.
+/// This command must be used to despawn Predicted entities.
+/// The reason is that we might want to not completely despawn the entity in case it gets 'restored' during a rollback.
+/// (i.e. we do a rollback and we realize the entity should not have been despawned)
+/// Instead we will Disable the entity so that it stops showing up.
+///
+/// The general flow is:
+/// - we run predicted_despawn on the predicted entity
+/// TODO: or make our own PredictedDisable marker!
+/// - `Disabled` is added on the entity. (maybe also add a `PredictedDespawn` marker?). We can stop updating its PredictionHistory,
+///    which will only contain empty values (None)
+/// - if the Confirmed entity is also despawned in the next few ticks, then the Predicted entity also gets despawned
+/// - we still do rollback checks using the Confirmed updates against the `PredictedDespawn` entity! If there is a rollback,
+///     we can remove the Disabled marker on the predicted entity, restore all its components to the Confirmed value, and then
+///     re-run the last few-ticks (which might re-Disable the entity)
 pub struct PredictionDespawnCommand {
     entity: Entity,
 }
 
 #[derive(Component, PartialEq, Debug, Reflect)]
 #[reflect(Component)]
-pub(crate) struct PredictionDespawnMarker {
-    // TODO: do we need this?
-    death_tick: Tick,
-}
+pub(crate) struct PredictionDespawnMarker;
 
 impl Command for PredictionDespawnCommand {
     fn apply(self, world: &mut World) {
@@ -46,11 +54,8 @@ impl Command for PredictionDespawnCommand {
                 // add a PredictionDespawn component to it to mark that it should be despawned as soon
                 // as the confirmed entity catches up to it
                 trace!("inserting prediction despawn marker");
-                entity.insert(PredictionDespawnMarker {
-                    // TODO: death_tick can be removed
-                    //  - we can just wait until until the confirmed entity catches up and gets despawned as well
-                    death_tick: current_tick,
-                });
+                // mark the entity as Disabled so it stops showing up in queries
+                entity.insert((PredictionDespawnMarker, Disabled));
                 // TODO: if we want the death to be immediate on predicted,
                 //  we should despawn all components immediately (except Predicted and History)
             } else if let Some(confirmed) = entity.get::<Confirmed>() {
@@ -87,76 +92,17 @@ pub(crate) fn despawn_confirmed(
     }
 }
 
-#[derive(Component)]
-pub(crate) struct RemovedCache<C: Component>(pub Option<C>);
-
-#[allow(clippy::type_complexity)]
-/// Instead of despawning the entity, we remove all components except the history and the predicted marker
-pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
-    component_registry: Res<ComponentRegistry>,
-    mut commands: Commands,
-    full_query: Query<Entity, (With<C>, With<PredictionDespawnMarker>)>,
-    simple_query: Query<(Entity, &C), With<PredictionDespawnMarker>>,
-) {
-    match component_registry.prediction_mode::<C>() {
-        // for full components, we can delete the component
-        // it will get re-instated during rollback if the confirmed entity doesn't get despawned
-        ComponentSyncMode::Full => {
-            for entity in full_query.iter() {
-                trace!("removing full component for prediction_despawn");
-                commands.entity(entity).remove::<C>();
-            }
-        }
-        // for simple/once components, there is no rollback, we can just cache them temporarily
-        // and restore them in case of rollback
-        ComponentSyncMode::Simple | ComponentSyncMode::Once => {
-            for (entity, component) in simple_query.iter() {
-                trace!("removing simple/once component for prediction_despawn");
-                commands
-                    .entity(entity)
-                    .remove::<C>()
-                    .insert(RemovedCache(Some(component.clone())));
-            }
-        }
-        ComponentSyncMode::None => {}
-    }
-}
-
-// TODO: compare the performance of cloning the component versus popping from the World directly
-/// In case of a rollback, check if there were any entities that were predicted-despawn
-/// that we need to re-instate. (all the entities that have `RemovedCache<C>` are in this scenario)
-/// If we didn't need to re-instate them, the Confirmed entity would have been despawned.
-///
-/// Remember to reinstate components if SyncComponent != Full
-pub(crate) fn restore_components_if_despawn_rolled_back<C: SyncComponent>(
-    mut commands: Commands,
-    mut query: Query<(Entity, &mut RemovedCache<C>), Without<C>>,
-) {
-    for (entity, mut cache) in query.iter_mut() {
-        debug!("restoring component after rollback");
-        let Some(component) = std::mem::take(&mut cache.0) else {
-            debug!("could not find component");
-            continue;
-        };
-        commands
-            .entity(entity)
-            .insert(component)
-            .remove::<RemovedCache<C>>();
-    }
-}
 
 /// Remove the despawn marker: if during rollback the entity are re-spawned, we don't want to re-despawn it again
 /// PredictionDespawnMarker should only be present on the frame where we call `prediction_despawn`
 pub(crate) fn remove_despawn_marker(
     mut commands: Commands,
-    query: Query<Entity, With<PredictionDespawnMarker>>,
+    query: Query<Entity, (With<PredictionDespawnMarker>, With<Disabled>)>,
 ) {
     for entity in query.iter() {
-        trace!("removing prediction despawn markerk");
-        // SAFETY: bevy guarantees that the entity exists
+        trace!("removing prediction despawn marker");
         commands
-            .get_entity(entity)
-            .unwrap()
+            .entity(entity)
             .remove::<PredictionDespawnMarker>();
     }
 }
