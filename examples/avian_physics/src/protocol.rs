@@ -7,7 +7,8 @@ use crate::shared::color_from_id;
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::prelude::client;
-use lightyear::prelude::server::{Replicate, SyncTarget};
+use lightyear::prelude::client::ReplicateToServer;
+use lightyear::prelude::server::{Replicate, ReplicateToClient, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::utils::avian2d::*;
 use lightyear::utils::bevy::TransformLinearInterpolation;
@@ -26,7 +27,7 @@ pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: Position,
     color: ColorComponent,
-    replicate: client::Replicate,
+    replicate: ReplicateToServer,
     physics: PhysicsBundle,
     inputs: InputManagerBundle<PlayerActions>,
     // IMPORTANT: this lets the server know that the entity is pre-predicted
@@ -43,7 +44,7 @@ impl PlayerBundle {
             id: PlayerId(id),
             position: Position(position),
             color: ColorComponent(color),
-            replicate: client::Replicate::default(),
+            replicate: ReplicateToServer::default(),
             physics: PhysicsBundle::player(),
             inputs: InputManagerBundle::<PlayerActions> {
                 action_state: ActionState::default(),

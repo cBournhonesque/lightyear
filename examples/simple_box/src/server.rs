@@ -48,19 +48,18 @@ pub(crate) fn handle_connections(
 ) {
     for connection in connections.read() {
         let client_id = connection.client_id;
-        // in host-server mode, server and client are running in the same app, no need to replicate to the local client
-        let replicate = Replicate {
-            sync: SyncTarget {
+        let entity = commands.spawn((
+            PlayerBundle::new(client_id, Vec2::ZERO),
+            ReplicateToClient::default(),
+            SyncTarget {
                 prediction: NetworkTarget::Single(client_id),
                 interpolation: NetworkTarget::AllExceptSingle(client_id),
             },
-            controlled_by: ControlledBy {
+            ControlledBy {
                 target: NetworkTarget::Single(client_id),
                 ..default()
-            },
-            ..default()
-        };
-        let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
+            }
+        ));
 
         entity_map.0.insert(client_id, entity.id());
 

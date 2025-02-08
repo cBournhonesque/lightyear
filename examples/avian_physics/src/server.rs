@@ -124,28 +124,24 @@ pub(crate) fn replicate_players(
         if let Some(mut e) = commands.get_entity(entity) {
             // we want to replicate back to the original client, since they are using a pre-predicted entity
             let mut sync_target = SyncTarget::default();
-
             if global.predict_all {
                 sync_target.prediction = NetworkTarget::All;
             } else {
                 // we want the other clients to apply interpolation for the player
                 sync_target.interpolation = NetworkTarget::AllExceptSingle(client_id);
             }
-            let replicate = Replicate {
-                sync: sync_target,
-                controlled_by: ControlledBy {
+            e.insert((
+                ReplicateToClient::default(),
+                sync_target,
+                // make sure that all entities that are predicted are part of the same replication group
+                REPLICATION_GROUP,
+                ControlledBy {
                     target: NetworkTarget::Single(client_id),
                     ..default()
                 },
-                // make sure that all entities that are predicted are part of the same replication group
-                group: REPLICATION_GROUP,
-                ..default()
-            };
-            e.insert((
-                replicate,
                 // if we receive a pre-predicted entity, only send the prepredicted component back
                 // to the original client
-                OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(client_id)),
+                OverrideTarget::default().insert::<PrePredicted>(NetworkTarget::Single(client_id)),
                 // not all physics components are replicated over the network, so add them on the server as well
                 PhysicsBundle::player(),
             ));

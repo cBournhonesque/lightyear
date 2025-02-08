@@ -68,24 +68,22 @@ fn init(mut commands: Commands) {
         // Floors don't need to be predicted since they will never move.
         // We put it in the same replication group to avoid having the players be replicated before the floor
         // and falling infinitely
-        Replicate {
-            group: REPLICATION_GROUP,
-            ..default()
-        },
+        ReplicateToClient::default(),
+        REPLICATION_GROUP,
     ));
 
     // Blocks need to be predicted because their position, rotation, velocity
     // may change.
-    let block_replicate_component = Replicate {
-        sync: SyncTarget {
+    let block_replicate_component = (
+        ReplicateToClient::default(),
+        SyncTarget {
             prediction: NetworkTarget::All,
             ..default()
         },
         // Make sure that all entities that are predicted are part of the
         // same replication group
-        group: REPLICATION_GROUP,
-        ..default()
-    };
+        REPLICATION_GROUP,
+    );
     // commands.spawn((
     //     Name::new("Block"),
     //     BlockPhysicsBundle::default(),
@@ -131,22 +129,6 @@ pub(crate) fn handle_connections(
     for connection in connections.read() {
         let client_id = connection.client_id;
         info!("Client connected with client-id {client_id:?}. Spawning character entity.");
-        // Replicate newly connected clients to all players
-        let replicate = Replicate {
-            sync: SyncTarget {
-                prediction: NetworkTarget::All,
-                ..default()
-            },
-            controlled_by: ControlledBy {
-                target: NetworkTarget::Single(client_id),
-                ..default()
-            },
-            // Make sure that all entities that are predicted are part of the
-            // same replication group
-            group: REPLICATION_GROUP,
-            ..default()
-        };
-
         // Pick color and position for player.
         let available_colors = [
             css::LIMEGREEN,
@@ -174,7 +156,19 @@ pub(crate) fn handle_connections(
                 Name::new("Character"),
                 ActionState::<CharacterAction>::default(),
                 Position(Vec3::new(x, 3.0, z)),
-                replicate,
+                // replicate newly connected clients
+                ReplicateToClient::default(),
+                SyncTarget {
+                    prediction: NetworkTarget::All,
+                    ..default()
+                },
+                // Make sure that all entities that are predicted are part of the
+                // same replication group
+                REPLICATION_GROUP,
+                ControlledBy {
+                    target: NetworkTarget::Single(client_id),
+                    ..default()
+                },
                 CharacterPhysicsBundle::default(),
                 ColorComponent(color.into()),
                 CharacterMarker,
