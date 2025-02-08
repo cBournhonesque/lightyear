@@ -662,7 +662,7 @@ mod prediction {
             if world.get::<C>(predicted).is_some() {
                 return;
             }
-            if let Ok(value) = world.get::<C>(confirmed) {
+            if let Some(value) = world.get::<C>(confirmed) {
                 let mut clone = value.clone();
                 world
                     .resource::<PredictionManager>()
