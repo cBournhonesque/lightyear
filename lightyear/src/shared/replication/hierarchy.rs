@@ -460,7 +460,7 @@ impl<R: ReplicationPeer> HierarchySendPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::server::{Replicate, ReplicationTarget};
+    use crate::prelude::server::{Replicate, ReplicateToClient};
     use crate::prelude::{ClientConnectionManager, ClientId, ClientReplicate, NetworkTarget};
     use crate::shared::replication::components::ReplicationGroupId;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
@@ -1028,7 +1028,7 @@ mod tests {
             .server_app
             .world_mut()
             .spawn(Replicate {
-                target: ReplicationTarget {
+                target: ReplicateToClient {
                     target: NetworkTarget::Single(c1),
                 },
                 ..default()
@@ -1060,7 +1060,7 @@ mod tests {
         stepper
             .server_app
             .world_mut()
-            .get_mut::<ReplicationTarget>(server_parent)
+            .get_mut::<ReplicateToClient>(server_parent)
             .unwrap()
             .target = NetworkTarget::Only(vec![c1, c2]);
         stepper.frame_step();

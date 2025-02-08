@@ -12,7 +12,7 @@ use crate::prelude::{
     is_host_server, DisableReplicateHierarchy, HasAuthority, NetworkIdentityState, ReplicateLike,
     Replicating, ReplicationGroup, ShouldBePredicted, TickManager,
 };
-use crate::server::replication::send::ReplicationTarget;
+use crate::server::replication::send::ReplicateToClient;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
@@ -65,7 +65,7 @@ impl PrePredictionPlugin {
             // remove Replicating first so that we don't replicate a despawn
             commands.entity(entity).remove::<Replicating>();
             commands.entity(entity).remove::<(
-                ReplicationTarget,
+                ReplicateToClient,
                 ReplicateToServer,
                 ReplicationGroup,
                 DisableReplicateHierarchy,

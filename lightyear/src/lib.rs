@@ -159,7 +159,7 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 ```
 
 [`Replicated`]: prelude::Replicated
-[`ReplicationTarget`]: prelude::server::ReplicationTarget
+[`ReplicationTarget`]: prelude::server::ReplicateToClient
 [`Replicating`]: prelude::Replicating
 [`SharedConfig`]: prelude::SharedConfig
  */
@@ -333,7 +333,7 @@ pub mod prelude {
         pub use crate::server::replication::commands::DespawnReplicationCommandExt;
         pub use crate::server::replication::{
             send::{
-                ControlledBy, Lifetime, OverrideTarget, Replicate, ReplicationTarget, ServerFilter,
+                ControlledBy, Lifetime, OverrideTarget, Replicate, ReplicateToClient, ServerFilter,
                 SyncTarget,
             },
             ReplicationSet, ServerReplicationSet,

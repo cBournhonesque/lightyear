@@ -258,7 +258,7 @@ pub(crate) mod shared {
         PrePredicted, PreSpawnedPlayerObject, RelationshipSync, RemoteEntityMap, Replicated,
         ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity,
     };
-    use crate::server::replication::send::ReplicationTarget;
+    use crate::server::replication::send::ReplicateToClient;
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
         Controlled, DisableReplicateHierarchy, Replicating, ReplicationGroupId,
@@ -278,7 +278,7 @@ pub(crate) mod shared {
                 .register_type::<Replicated>()
                 .register_type::<Controlled>()
                 .register_type::<Replicating>()
-                .register_type::<ReplicationTarget>()
+                .register_type::<ReplicateToClient>()
                 .register_type::<ReplicateToServer>()
                 .register_type::<DisableReplicateHierarchy>()
                 .register_type::<ReplicateLike>()

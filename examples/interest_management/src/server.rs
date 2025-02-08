@@ -93,9 +93,9 @@ pub(crate) fn interest_management(
     mut relevance_manager: ResMut<RelevanceManager>,
     player_query: Query<
         (&PlayerId, Ref<Position>),
-        (Without<CircleMarker>, With<ReplicationTarget>),
+        (Without<CircleMarker>, With<ReplicateToClient>),
     >,
-    circle_query: Query<(Entity, &Position), (With<CircleMarker>, With<ReplicationTarget>)>,
+    circle_query: Query<(Entity, &Position), (With<CircleMarker>, With<ReplicateToClient>)>,
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {

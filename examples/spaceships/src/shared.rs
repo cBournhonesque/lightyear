@@ -12,7 +12,7 @@ use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
 
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::{DespawnReplicationCommandExt, ReplicationTarget};
+use lightyear::prelude::server::{DespawnReplicationCommandExt, ReplicateToClient};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
@@ -196,7 +196,7 @@ pub fn shared_player_firing(
             Has<Controlled>,
             &Player,
         ),
-        Or<(With<Predicted>, With<ReplicationTarget>)>,
+        Or<(With<Predicted>, With<ReplicateToClient>)>,
     >,
     mut commands: Commands,
     tick_manager: Res<TickManager>,

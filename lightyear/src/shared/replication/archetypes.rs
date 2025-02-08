@@ -4,7 +4,7 @@ use std::mem;
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::{ChannelDirection, ComponentRegistry, ReplicateLike, Replicating};
 use crate::protocol::component::ComponentKind;
-use crate::server::replication::send::ReplicationTarget;
+use crate::server::replication::send::ReplicateToClient;
 use crate::shared::replication::authority::HasAuthority;
 use bevy::ecs::archetype::ArchetypeEntity;
 use bevy::ecs::component::{ComponentTicks, StorageType};
@@ -21,7 +21,7 @@ use bevy::{
 /// Cached information about all replicated archetypes.
 ///
 /// The generic component is the component that is used to identify if the archetype is used for Replication.
-/// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
+/// This is the [`ReplicateToServer`] or [`ReplicateToClient`] component.
 /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
 // NOTE: we keep the generic so that we can have both resources in the same world in
 // host-server mode
@@ -30,7 +30,7 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     /// Function that returns true if the direction is compatible with sending from this peer
     send_direction: SendDirectionFn,
     /// ID of the component identifying if the archetype is used for Replication.
-    /// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
+    /// This is the [`ReplicateToServer`] or [`ReplicateToClient`] component.
     /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
     replication_component_id: ComponentId,
     /// ID of the [`Replicating`] component, which indicates that the entity is being replicated.
@@ -69,7 +69,7 @@ fn send_to_client(direction: ChannelDirection) -> bool {
 }
 
 pub(crate) type ClientReplicatedArchetypes = ReplicatedArchetypes<ReplicateToServer>;
-pub(crate) type ServerReplicatedArchetypes = ReplicatedArchetypes<ReplicationTarget>;
+pub(crate) type ServerReplicatedArchetypes = ReplicatedArchetypes<ReplicateToClient>;
 
 impl FromWorld for ClientReplicatedArchetypes {
     fn from_world(world: &mut World) -> Self {
@@ -100,7 +100,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
     pub(crate) fn server(world: &mut World) -> Self {
         Self {
             send_direction: send_to_client,
-            replication_component_id: world.register_component::<ReplicationTarget>(),
+            replication_component_id: world.register_component::<ReplicateToClient>(),
             replicating_component_id: world.register_component::<Replicating>(),
             replicate_like_component_id: world.register_component::<ReplicateLike>(),
             has_authority_component_id: None,

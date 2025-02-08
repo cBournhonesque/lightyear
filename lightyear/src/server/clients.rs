@@ -176,7 +176,7 @@ mod tests {
     use crate::prelude::{client, ClientId, NetworkTarget, Replicated};
     use crate::server::clients::ControlledEntities;
     use crate::server::replication::send::Lifetime;
-    use crate::server::replication::send::ReplicationTarget;
+    use crate::server::replication::send::ReplicateToClient;
     use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::ecs::entity::hash_map::EntityHashMap;
@@ -381,7 +381,7 @@ mod tests {
             .world_mut()
             .entity_mut(server_entity)
             .insert(Replicate {
-                target: ReplicationTarget {
+                target: ReplicateToClient {
                     target: NetworkTarget::None,
                 },
                 controlled_by: ControlledBy {

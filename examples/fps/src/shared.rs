@@ -11,7 +11,7 @@ use std::ops::DerefMut;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::{Replicate, ReplicationTarget, SyncTarget};
+use lightyear::prelude::server::{Replicate, ReplicateToClient, SyncTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
@@ -100,7 +100,7 @@ fn player_movement(
     tick_manager: Res<TickManager>,
     mut player_query: Query<
         (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
-        Or<(With<Predicted>, With<ReplicationTarget>)>,
+        Or<(With<Predicted>, With<ReplicateToClient>)>,
     >,
 ) {
     for (transform, action_state, player_id) in player_query.iter_mut() {
@@ -189,7 +189,7 @@ pub(crate) fn shoot_bullet(
             &ColorComponent,
             &mut ActionState<PlayerActions>,
         ),
-        Or<(With<Predicted>, With<ReplicationTarget>)>,
+        Or<(With<Predicted>, With<ReplicateToClient>)>,
     >,
 ) {
     let tick = tick_manager.tick();

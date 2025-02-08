@@ -7,7 +7,7 @@ use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::client::interpolation::VisualInterpolationPlugin;
 use lightyear::prelude::client::{Interpolated, Predicted, VisualInterpolateStatus};
-use lightyear::prelude::server::ReplicationTarget;
+use lightyear::prelude::server::ReplicateToClient;
 use lightyear::prelude::{NetworkIdentity, PreSpawnedPlayerObject, Replicated};
 use lightyear_avian::prelude::AabbEnvelopeHolder;
 
@@ -92,7 +92,7 @@ pub struct VisibleFilter {
         // to show prespawned entities
         With<PreSpawnedPlayerObject>,
         With<Interpolated>,
-        With<ReplicationTarget>,
+        With<ReplicateToClient>,
     )>,
     // we don't show any replicated (confirmed) entities
     b: Without<Replicated>,

@@ -196,13 +196,12 @@ pub(crate) mod send {
     /// Component that indicates which clients the entity should be replicated to.
     #[derive(Component, Clone, Debug, PartialEq, Reflect)]
     #[reflect(Component)]
-    #[require(ReplicationMarker, AuthorityPeer, NetworkRelevanceMode)]
-    pub struct ReplicationTarget {
+    pub struct ReplicateToClient {
         /// Which clients should this entity be replicated to
         pub target: NetworkTarget,
     }
 
-    impl Default for ReplicationTarget {
+    impl Default for ReplicateToClient {
         fn default() -> Self {
             Self {
                 target: NetworkTarget::All,
@@ -258,7 +257,7 @@ pub(crate) mod send {
     /// ```
     ///
     /// The bundle is composed of several components:
-    /// - [`ReplicationTarget`] to specify which clients should receive the entity
+    /// - [`ReplicateToClient`] to specify which clients should receive the entity
     /// - [`SyncTarget`] to specify which clients should predict/interpolate the entity
     /// - [`ControlledBy`] to specify which client controls the entity
     /// - [`NetworkRelevanceMode`] to specify if we should replicate the entity to all clients in the
@@ -269,11 +268,11 @@ pub(crate) mod send {
     ///   over an entity
     ///
     /// Some of the components can be updated at runtime even after the entity has been replicated.
-    /// For example you can update the [`ReplicationTarget`] to change which clients should receive the entity.
+    /// For example you can update the [`ReplicateToClient`] to change which clients should receive the entity.
     #[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
     pub struct Replicate {
         /// Which clients should this entity be replicated to?
-        pub target: ReplicationTarget,
+        pub target: ReplicateToClient,
         // TODO: if AuthorityPeer::Server is added, need to add HasAuthority (via observer)
         /// Who has authority over the entity? i.e. who is in charge of simulating the entity and sending replication updates?
         pub authority: AuthorityPeer,
@@ -320,7 +319,7 @@ pub(crate) mod send {
         mut commands: Commands,
         query: Query<(
             Entity,
-            Ref<ReplicationTarget>,
+            Ref<ReplicateToClient>,
             &SyncTarget,
             Option<Ref<ControlledBy>>,
             Option<&PrePredicted>,
@@ -383,7 +382,7 @@ pub(crate) mod send {
         pub(crate) replication_clients_cache: Vec<ClientId>,
     }
 
-    /// Keep a cached version of the [`ReplicationTarget`] component so that when it gets updated
+    /// Keep a cached version of the [`ReplicateToClient`] component so that when it gets updated
     /// we can compute a diff with the previous value.
     ///
     /// This needs to run after we compute the diff, so after the `replicate` system runs
@@ -392,10 +391,10 @@ pub(crate) mod send {
         mut query: Query<
             (
                 Entity,
-                &ReplicationTarget,
-                Option<&mut Cached<ReplicationTarget>>,
+                &ReplicateToClient,
+                Option<&mut Cached<ReplicateToClient>>,
             ),
-            Changed<ReplicationTarget>,
+            Changed<ReplicateToClient>,
         >,
     ) {
         for (entity, replication_target, cached) in query.iter_mut() {
@@ -497,7 +496,7 @@ pub(crate) mod send {
                     world.entity(entity).get::<ReplicateLike>().copied()
                 {
                     let [entity_ref, query_entity_ref] = world.entity(&[entity, replicate_like.0]);
-                    if query_entity_ref.get::<ReplicationTarget>().is_none() {
+                    if query_entity_ref.get::<ReplicateToClient>().is_none() {
                         // ReplicateLike points to a parent entity that doesn't have ReplicationTarget, skip
                         continue;
                     };
@@ -524,8 +523,8 @@ pub(crate) mod send {
                         priority,
                         group_ready,
                         entity_ref
-                            .get::<Cached<ReplicationTarget>>()
-                            .or_else(|| query_entity_ref.get::<Cached<ReplicationTarget>>()),
+                            .get::<Cached<ReplicateToClient>>()
+                            .or_else(|| query_entity_ref.get::<Cached<ReplicateToClient>>()),
                         entity_ref
                             .get::<CachedNetworkRelevance>()
                             .or_else(|| query_entity_ref.get()),
@@ -550,17 +549,17 @@ pub(crate) mod send {
                         entity_ref
                             .get::<OverrideTarget>()
                             .or_else(|| query_entity_ref.get()),
-                        if entity_ref.get::<ReplicationTarget>().is_some() {
+                        if entity_ref.get::<ReplicateToClient>().is_some() {
                             // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
                             // so create the ref manually
-                            shared::replication::utils::get_ref::<ReplicationTarget>(
+                            shared::replication::utils::get_ref::<ReplicateToClient>(
                                 world,
                                 entity,
                                 system_ticks.last_run(),
                                 system_ticks.this_run(),
                             )
                         } else {
-                            shared::replication::utils::get_ref::<ReplicationTarget>(
+                            shared::replication::utils::get_ref::<ReplicateToClient>(
                                 world,
                                 replicate_like.0,
                                 system_ticks.last_run(),
@@ -585,7 +584,7 @@ pub(crate) mod send {
                         group_id,
                         priority,
                         group_ready,
-                        entity_ref.get::<Cached<ReplicationTarget>>(),
+                        entity_ref.get::<Cached<ReplicateToClient>>(),
                         entity_ref.get::<CachedNetworkRelevance>(),
                         entity_ref.get::<SyncTarget>(),
                         entity_ref.get::<TargetEntity>(),
@@ -596,7 +595,7 @@ pub(crate) mod send {
                         entity_ref.get::<OverrideTarget>(),
                         // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
                         // so create the ref manually
-                        shared::replication::utils::get_ref::<ReplicationTarget>(
+                        shared::replication::utils::get_ref::<ReplicateToClient>(
                             world,
                             entity,
                             system_ticks.last_run(),
@@ -697,9 +696,9 @@ pub(crate) mod send {
     pub(crate) fn replicate_entity_spawn(
         component_registry: &ComponentRegistry,
         entity: Entity,
-        replication_target: &Ref<ReplicationTarget>,
+        replication_target: &Ref<ReplicateToClient>,
         is_replicate_like_added: bool,
-        cached_replication_target: Option<&Cached<ReplicationTarget>>,
+        cached_replication_target: Option<&Cached<ReplicateToClient>>,
         initial_replicated: Option<&InitialReplicated>,
         group_id: ReplicationGroupId,
         priority: f32,
@@ -869,7 +868,7 @@ pub(crate) mod send {
         query: Query<
             (
                 &ReplicationGroup,
-                &ReplicationTarget,
+                &ReplicateToClient,
                 Option<&CachedNetworkRelevance>,
             ),
             With<Replicating>,
@@ -904,8 +903,8 @@ pub(crate) mod send {
     pub(crate) fn replicate_entity_despawn(
         entity: Entity,
         group_id: ReplicationGroupId,
-        replication_target: &Ref<ReplicationTarget>,
-        cached_replication_target: Option<&Cached<ReplicationTarget>>,
+        replication_target: &Ref<ReplicateToClient>,
+        cached_replication_target: Option<&Cached<ReplicateToClient>>,
         authority_peer: Option<&AuthorityPeer>,
         visibility: Option<&CachedNetworkRelevance>,
         sender: &mut ConnectionManager,
@@ -974,7 +973,7 @@ pub(crate) mod send {
         component_kind: ComponentKind,
         component_data: Ptr,
         component_ticks: ComponentTicks,
-        replication_target: &Ref<ReplicationTarget>,
+        replication_target: &Ref<ReplicateToClient>,
         sync_target: Option<&SyncTarget>,
         group_id: ReplicationGroupId,
         authority_peer: Option<&AuthorityPeer>,
@@ -1134,7 +1133,7 @@ pub(crate) mod send {
         // only remove the component for entities that are being actively replicated
         query: Query<
             (
-                &ReplicationTarget,
+                &ReplicateToClient,
                 &ReplicationGroup,
                 Option<&AuthorityPeer>,
                 Option<&CachedNetworkRelevance>,
@@ -1525,7 +1524,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn(Replicate {
-                    target: ReplicationTarget {
+                    target: ReplicateToClient {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
                     },
                     ..default()
@@ -1548,7 +1547,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(ReplicationTarget {
+                .insert(ReplicateToClient {
                     target: NetworkTarget::All,
                 });
             stepper.frame_step();
@@ -1801,7 +1800,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn(Replicate {
-                    target: ReplicationTarget {
+                    target: ReplicateToClient {
                         target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
                     },
                     ..default()
@@ -1824,7 +1823,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(ReplicationTarget {
+                .insert(ReplicateToClient {
                     target: NetworkTarget::None,
                 });
             stepper.frame_step();
@@ -3058,7 +3057,7 @@ pub(crate) mod send {
                 .world_mut()
                 .entity_mut(server_entity)
                 .insert(ComponentSyncModeFull(2.0))
-                .remove::<ReplicationTarget>();
+                .remove::<ReplicateToClient>();
             stepper.frame_step();
             stepper.frame_step();
 
@@ -3078,7 +3077,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .entity_mut(server_entity)
-                .insert(ReplicationTarget::default());
+                .insert(ReplicateToClient::default());
             stepper.frame_step();
             stepper.frame_step();
             // check that the component gets updated
@@ -3346,7 +3345,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn(Replicate {
-                    target: ReplicationTarget {
+                    target: ReplicateToClient {
                         target: NetworkTarget::None,
                     },
                     ..default()
@@ -3362,7 +3361,7 @@ pub(crate) mod send {
                 .entity_mut(server_entity)
                 .insert((
                     NetworkRelevanceMode::InterestManagement,
-                    ReplicationTarget {
+                    ReplicateToClient {
                         target: NetworkTarget::All,
                     },
                 ));
@@ -3533,7 +3532,7 @@ pub(crate) mod send {
 
 pub(crate) mod commands {
     use crate::channel::builder::AuthorityChannel;
-    use crate::prelude::server::{ReplicationTarget, SyncTarget};
+    use crate::prelude::server::{ReplicateToClient, SyncTarget};
     use crate::prelude::{
         ClientId, PrePredicted, Replicated, Replicating, ReplicationGroup, ServerConnectionManager,
     };
@@ -3597,7 +3596,7 @@ pub(crate) mod commands {
                     // check that the entity has the Replicate bundle
                     // - so that the authority components are correct
                     // - so that we know the send-group-id of the entity
-                    assert!(world.get::<ReplicationTarget>(entity).is_some(), "The Replicate bundle must be added to the entity BEFORE transferring authority to the server");
+                    assert!(world.get::<ReplicateToClient>(entity).is_some(), "The Replicate bundle must be added to the entity BEFORE transferring authority to the server");
                     let group_id = world.get::<ReplicationGroup>(entity).map_or(ReplicationGroupId(entity.to_bits()), |group| group.group_id(Some(entity)));
                     // if the entity was initially replicated from this client, then we need to spawn it back
                     // to that client:
