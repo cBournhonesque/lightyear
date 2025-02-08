@@ -618,8 +618,10 @@ mod prediction {
                 (prediction_metadata.buffer_sync)(self, confirmed, predicted, world);
             });
             // insert all the components in the predicted entity
-            let mut entity_world_mut = world.entity_mut(predicted);
-            self.temp_write_buffer.batch_insert(&mut entity_world_mut);
+            if let Ok(mut entity_world_mut) = world.get_entity_mut(predicted) {
+                self.temp_write_buffer.batch_insert(&mut entity_world_mut);
+            };
+            
         }
 
         /// Sync a component value from the confirmed entity to the predicted entity
