@@ -1,14 +1,15 @@
+use crate::protocol::*;
+use crate::shared;
+use crate::shared::{color_from_id, shared_movement_behaviour};
 use avian2d::prelude::*;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::prelude::*;
+use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour};
+use lightyear::shared::replication::components::Controlled;
 
 pub struct ExampleClientPlugin;
 
@@ -40,6 +41,18 @@ impl Plugin for ExampleClientPlugin {
                 handle_interpolated_spawn,
             ),
         );
+
+        app.add_systems(FixedUpdate, log_inputs);
+    }
+}
+
+pub(crate) fn log_inputs(
+    tick_manager: Res<TickManager>,
+    query: Query<&InputBuffer<PlayerActions>, Without<Controlled>>
+) {
+    let tick = tick_manager.tick();
+    for input_buffer in query.iter() {
+        error!(?tick, "End tick in buffer: {:?}", input_buffer.end_tick());
     }
 }
 
