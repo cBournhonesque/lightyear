@@ -14,16 +14,6 @@ pub(crate) struct Avian2dPlugin;
 
 impl Plugin for Avian2dPlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(
-            FixedPostUpdate,
-            // Ensure PreSpawned hash calculated before physics runs, to avoid any physics interaction affecting it
-            // TODO: maybe use observers so that we don't have any ordering requirements?
-            (
-                InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
-                InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
-            )
-                .before(PhysicsSet::Prepare), // Runs right before physics.
-        );
         // NB: the three main physics sets in FixedPostUpdate run in this order:
         // pub enum PhysicsSet {
         //     Prepare,

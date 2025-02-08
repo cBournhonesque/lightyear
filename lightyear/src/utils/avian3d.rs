@@ -12,16 +12,6 @@ use tracing::trace;
 pub(crate) struct Avian3dPlugin;
 impl Plugin for Avian3dPlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(
-            FixedPostUpdate,
-            // Ensure PreSpawned hash set before physics runs, to avoid any physics interaction affecting it
-            // TODO: maybe use observers so that we don't have any ordering requirements?
-            (
-                InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash,
-                InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash,
-            )
-                .before(PhysicsSet::Prepare), // Runs right before physics.
-        );
         // NB: the three main physics sets in FixedPostUpdate run in this order:
         // pub enum PhysicsSet {
         //     Prepare,

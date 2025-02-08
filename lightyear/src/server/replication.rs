@@ -100,19 +100,7 @@ pub(crate) mod send {
                 // SYSTEM SETS
                 .configure_sets(
                     PostUpdate,
-                    // on server: we need to set the hash value before replicating the component
-                    InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash
-                        .before(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates)
-                        .in_set(InternalReplicationSet::<ServerMarker>::All),
-                )
-                .configure_sets(
-                    PostUpdate,
                     InternalReplicationSet::<ServerMarker>::All.run_if(is_started),
-                )
-                // SYSTEMS
-                .add_systems(
-                    PostUpdate,
-                    compute_hash.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
                 );
             // SYSTEMS
             app.add_systems(

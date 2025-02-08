@@ -400,11 +400,12 @@ impl Plugin for PredictionPlugin {
         app.add_systems(
             PreUpdate,
             (
-                // - we first check if the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted
-                // - then we check if it is a PrePredicted entity. If match, remove ShouldBePredicted
-                // - then we check if we should spawn a new predicted entity
+                // - we first check via observer if:
+                //   - the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted.
+                //     If no match we do nothing and treat this as a normal-predicted entity
+                //   - the entity has a PrePredicted component. If it does, remove ShouldBePredicted to not trigger normal prediction-spawn system
+                // - then we check via a system if we should spawn a new predicted entity
                 spawn_predicted_entity
-                    .after(PreSpawnedPlayerObjectSet::Spawn)
                     .in_set(PredictionSet::SpawnPrediction),
                 run_rollback.in_set(PredictionSet::Rollback),
                 #[cfg(feature = "metrics")]
