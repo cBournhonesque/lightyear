@@ -131,17 +131,15 @@ impl<T: UserAction> InputBuffer<T> {
     ///  The current tick is the current server tick, no need to update the buffer for ticks that are older than that
     pub(crate) fn update_from_message(&mut self, message: &InputMessage<T>) {
         let message_start_tick = Tick(message.end_tick.0) - message.inputs.len() as u16 + 1;
-        let mut prev_value = None;
 
         for (delta, input) in message.inputs.iter().enumerate() {
             let tick = message_start_tick + Tick(delta as u16);
             match input {
                 InputData::Absent => {
-                    prev_value = None;
                     self.set(tick, None);
                 }
                 InputData::SameAsPrecedent => {
-                    self.set(tick, prev_value.clone());
+                    self.set(tick, self.get(tick-1).cloned());
                 }
                 InputData::Input(input) => {
                     if self
@@ -149,9 +147,8 @@ impl<T: UserAction> InputBuffer<T> {
                         .is_some_and(|existing_value| existing_value == input)
                     {
                         continue;
-                    } else {
-                        self.set(tick, Some(input.clone()));
                     }
+                    self.set(tick, Some(input.clone()));
                 }
             }
         }
