@@ -195,7 +195,7 @@ pub(crate) fn receive_packets(
             {
                 // TODO: convert into packets/bytes per second
                 let packets = 1.0 as u64;
-                let bytes = payload.payload.len() as u64;
+                let bytes = payload.len() as u64;
                 metrics::counter!(format!("transport::{:?}::receive::packets", client_id))
                     .increment(packets);
                 metrics::counter!(format!("transport::{:?}::receive::bytes", client_id))
