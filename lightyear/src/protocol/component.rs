@@ -662,16 +662,18 @@ mod prediction {
             if world.get::<C>(predicted).is_some() {
                 return;
             }
-            let value = world.get::<C>(confirmed).unwrap();
-            let mut clone = value.clone();
-            world
-                .resource::<PredictionManager>()
-                .map_entities(&mut clone, self)
-                .unwrap();
-            unsafe {
-                self.temp_write_buffer
-                    .buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
-            };
+            if let Ok(value) = world.get::<C>(confirmed) {
+                let mut clone = value.clone();
+                world
+                    .resource::<PredictionManager>()
+                    .map_entities(&mut clone, self)
+                    .unwrap();
+                unsafe {
+                    self.temp_write_buffer
+                        .buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
+                };
+            }
+           
         }
     }
 }
