@@ -41,7 +41,6 @@ impl Plugin for ExampleClientPlugin {
                 handle_interpolated_spawn,
             ),
         );
-
         app.add_systems(FixedUpdate, log_inputs);
     }
 }
@@ -123,7 +122,7 @@ fn add_player_physics(
     connection: Res<ClientConnection>,
     mut commands: Commands,
     mut player_query: Query<
-        (Entity, &PlayerId),
+        (Entity, &PlayerId, Has<Predicted>),
         (
             // insert the physics components on the player that is displayed on screen
             // (either interpolated or predicted)
@@ -132,7 +131,7 @@ fn add_player_physics(
     >,
 ) {
     let client_id = connection.id();
-    for (entity, player_id) in player_query.iter_mut() {
+    for (entity, player_id, is_predicted) in player_query.iter_mut() {
         if player_id.0 == client_id {
             // only need to do this for other players' entities
             debug!(
@@ -144,6 +143,11 @@ fn add_player_physics(
         }
         info!(?entity, ?player_id, "adding physics to predicted player");
         commands.entity(entity).insert(PhysicsBundle::player());
+        // if the other player is predicted, we will add an input buffer so that we can receive
+        // their inputs to predict their actions
+        if is_predicted {
+            commands.entity(entity).insert(InputBuffer::<PlayerActions>::default());
+        }
     }
 }
 

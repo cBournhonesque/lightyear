@@ -40,7 +40,7 @@ pub(crate) fn get_settings() -> MySettings {
                 headless: false,
                 inspector: true,
                 conditioner: Some(Conditioner {
-                    latency_ms: 200,
+                    latency_ms: 100,
                     jitter_ms: 20,
                     packet_loss: 0.05,
                 }),

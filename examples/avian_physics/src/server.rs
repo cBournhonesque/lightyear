@@ -90,13 +90,14 @@ pub(crate) fn movement(
 /// When we receive the input of a client, broadcast it to other clients
 /// so that they can predict this client's movements accurately
 pub(crate) fn replicate_inputs(
-    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<PlayerActions>>>>,
-    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<PlayerActions>>>,
+    mut receive_inputs: ResMut<Events<FromClients<InputMessage<PlayerActions>>>>,
+    mut send_inputs: EventWriter<ToClients<InputMessage<PlayerActions>>>,
 ) {
     // rebroadcast the input to other clients
     // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
     // so that the server had the time to process the inputs
     send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+        error!("Rebroadcasting input to all except {:?}!", ev.from);
         ServerSendMessage::new_with_target::<InputChannel>(
             ev.message,
             NetworkTarget::AllExceptSingle(ev.from),
