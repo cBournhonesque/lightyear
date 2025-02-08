@@ -509,7 +509,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                     // return the buffer to the pool
                     // self.conn_cache.buffer_pool.attach(reader);
 
-                    // TODO: use a pool of buffers to avoid re-allocation
+                    // TODO: use a pool of buffers to avoid re-allocation + Bytes::from_owner
                     let buf = bytes::Bytes::copy_from_slice(packet.buf);
                     self.conn_cache.packet_queue.push_back((buf, idx));
                 }

@@ -57,8 +57,8 @@ Lightyear provides various commands and resources that can you can use to intera
 On the client, you can initiate the connection by using the [`connect_client`](prelude::client::ClientCommands::connect_client) Command.
 You can also disconnect with the [`disconnect_client`](prelude::client::ClientCommands::disconnect_client) Command.
 
-On the server, you can start listening for connections by using the [`start_server`](prelude::server::ServerCommands::start_server) Command.
-You can stop the server using the [`stop_server`](prelude::server::ServerCommands::stop_server) Command.
+On the server, you can start listening for connections by using the [`start_server`](prelude::server::ServerCommandsExt::start_server) Command.
+You can stop the server using the [`stop_server`](prelude::server::ServerCommandsExt::stop_server) Command.
 
 While the client or server are disconnected, you can update the [`ClientConfig`](prelude::client::ClientConfig) and [`ServerConfig`](prelude::server::ServerConfig) resources,
 and the new configuration will take effect on the next connection attempt.
@@ -288,7 +288,7 @@ pub mod prelude {
         pub use crate::client::io::config::ClientTransport;
         pub use crate::client::io::Io;
         pub use crate::client::message::ReceiveMessage;
-        pub use crate::client::networking::{ClientCommands, ConnectedState, NetworkingState};
+        pub use crate::client::networking::{ClientCommandsExt, ConnectedState, NetworkingState};
         pub use crate::client::plugin::ClientPlugins;
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::despawn::PredictionDespawnCommandsExt;
@@ -325,7 +325,7 @@ pub mod prelude {
         };
         pub use crate::server::io::config::ServerTransport;
         pub use crate::server::io::Io;
-        pub use crate::server::networking::{NetworkingState, ServerCommands};
+        pub use crate::server::networking::{NetworkingState, ServerCommandsExt};
         pub use crate::server::plugin::ServerPlugins;
         pub use crate::server::relevance::immediate::RelevanceManager;
         pub use crate::server::relevance::room::{RoomId, RoomManager};

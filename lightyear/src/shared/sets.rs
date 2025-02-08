@@ -15,9 +15,6 @@ pub enum InternalReplicationSet<M> {
     ReceiveResourceUpdates,
 
     // SEND
-    /// Set the hash for each entity that is pre-spawned on the client
-    /// (has a PreSpawnedPlayerObject component)
-    SetPreSpawnedHash,
     /// System that handles the addition/removal of the `Replicate` component
     BeforeBuffer,
     /// Gathers entity despawns and component removals

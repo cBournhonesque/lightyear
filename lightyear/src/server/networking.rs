@@ -428,7 +428,7 @@ fn on_stopped() {
     info!("Server is stopped.");
 }
 
-pub trait ServerCommands {
+pub trait ServerCommandsExt {
     /// Start the server: start tasks that are listening for incoming connections
     fn start_server(&mut self);
 
@@ -439,7 +439,27 @@ pub trait ServerCommands {
     fn disconnect(&mut self, client_id: ClientId);
 }
 
-impl ServerCommands for Commands<'_, '_> {
+impl ServerCommandsExt for Commands<'_, '_> {
+    fn start_server(&mut self) {
+        self.queue(move |world: &mut World| {
+            world.start_server();
+        });
+    }
+
+    fn stop_server(&mut self) {
+        self.queue(move |world: &mut World| {
+            world.stop_server();
+        });
+    }
+
+    fn disconnect(&mut self, client_id: ClientId) {
+        self.queue(move |world: &mut World| {
+            world.disconnect(client_id);
+        });
+    }
+}
+
+impl ServerCommandsExt for World {
     fn start_server(&mut self) {
         self.insert_resource(NextState::Pending(NetworkingState::Starting));
     }
@@ -449,30 +469,28 @@ impl ServerCommands for Commands<'_, '_> {
     }
 
     fn disconnect(&mut self, client_id: ClientId) {
-        self.queue(move |world: &mut World| {
-            if let Some(mut connections) = world.get_resource_mut::<ServerConnections>() {
-                // remove the client from the client-server map
-                // call disconnect on the NetServer
-                //  - for netcode:
-                //    - remove the connection from the list of connections
-                //    - send disconnect packets
-                //    - add the client_id to the list of disconnections
-                connections.disconnect(client_id).unwrap_or_else(|e| {
-                    error!("Error disconnecting client: {:?}", e);
-                });
-            }
-            if let Some(mut connection_manager) = world.get_resource_mut::<ConnectionManager>() {
-                // remove the Connection from the ConnectionManager
-                // send a ClientDisconnected event
-                connection_manager.remove(client_id);
-            }
-        });
+        if let Some(mut connections) = self.get_resource_mut::<ServerConnections>() {
+            // remove the client from the client-server map
+            // call disconnect on the NetServer
+            //  - for netcode:
+            //    - remove the connection from the list of connections
+            //    - send disconnect packets
+            //    - add the client_id to the list of disconnections
+            connections.disconnect(client_id).unwrap_or_else(|e| {
+                error!("Error disconnecting client: {:?}", e);
+            });
+        }
+        if let Some(mut connection_manager) = self.get_resource_mut::<ConnectionManager>() {
+            // remove the Connection from the ConnectionManager
+            // send a ClientDisconnected event
+            connection_manager.remove(client_id);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::server::{ControlledBy, ControlledEntities, ServerCommands};
+    use crate::prelude::server::{ControlledBy, ControlledEntities, ServerCommandsExt};
     use crate::prelude::{client, server, ClientId, NetworkTarget, ServerConnectionManager};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::{default, Entity, With};
