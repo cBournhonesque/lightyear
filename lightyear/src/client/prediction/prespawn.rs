@@ -117,9 +117,7 @@ impl PreSpawnedPlayerObjectPlugin {
         let confirmed_entity = trigger.target();
         if let Ok(server_prespawn) = query.get(confirmed_entity) {
             // we handle the PreSpawnedPlayerObject hash in this system and don't need it afterwards
-            commands
-                .entity(confirmed_entity)
-                .remove::<PreSpawned>();
+            commands.entity(confirmed_entity).remove::<PreSpawned>();
             let Some(server_hash) = server_prespawn.hash else {
                 error!("Received a PreSpawnedPlayerObject entity from the server without a hash");
                 return;
@@ -133,9 +131,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 }
                 debug!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
                 // remove the PreSpawnedPlayerObject so that the entity can be normal-predicted
-                commands
-                    .entity(confirmed_entity)
-                    .remove::<PreSpawned>();
+                commands.entity(confirmed_entity).remove::<PreSpawned>();
                 return;
             };
 
@@ -153,11 +149,9 @@ impl PreSpawnedPlayerObjectPlugin {
                         metrics::counter!("prespawn::match::found").increment(1);
                     }
                     debug!("re-using existing entity");
-                    entity_commands
-                        .remove::<PreSpawned>()
-                        .insert(Predicted {
-                            confirmed_entity: Some(confirmed_entity),
-                        });
+                    entity_commands.remove::<PreSpawned>().insert(Predicted {
+                        confirmed_entity: Some(confirmed_entity),
+                    });
                     client_entity
                 } else {
                     #[cfg(feature = "metrics")]
@@ -321,10 +315,7 @@ impl Component for PreSpawned {
     fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
         hooks.on_add(|mut deferred_world, context: HookContext| {
             let entity = context.entity;
-            let prespawned_obj = deferred_world
-                .entity(entity)
-                .get::<PreSpawned>()
-                .unwrap();
+            let prespawned_obj = deferred_world.entity(entity).get::<PreSpawned>().unwrap();
             // The user may have provided the hash for us, or the hash is already present because the component
             // has been replicated from the server, in which case do nothing.
             if prespawned_obj.hash.is_some() {
@@ -388,18 +379,12 @@ mod tests {
         let entity_1 = stepper
             .client_app
             .world_mut()
-            .spawn((
-                ComponentSyncModeFull(1.0),
-                PreSpawned::default(),
-            ))
+            .spawn((ComponentSyncModeFull(1.0), PreSpawned::default()))
             .id();
         let entity_2 = stepper
             .client_app
             .world_mut()
-            .spawn((
-                ComponentSyncModeFull(1.0),
-                PreSpawned::default(),
-            ))
+            .spawn((ComponentSyncModeFull(1.0), PreSpawned::default()))
             .id();
         stepper.frame_step();
 

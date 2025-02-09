@@ -3,16 +3,17 @@ use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
     handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
-use super::rollback::{check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable,
-                      run_rollback, Rollback, RollbackState};
+use super::rollback::{
+    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
+    prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback,
+    Rollback, RollbackState,
+};
 use super::spawn::spawn_predicted_entity;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
-use crate::client::prediction::despawn::{
-    despawn_confirmed, PredictionDisable,
-};
+use crate::client::prediction::despawn::{despawn_confirmed, PredictionDisable};
 use crate::client::prediction::predicted_history::{
     add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
     apply_component_removal_predicted, handle_tick_event_prediction_history,
@@ -427,9 +428,7 @@ impl Plugin for PredictionPlugin {
         );
         app.add_systems(
             FixedPostUpdate,
-            (
-                increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
-            ),
+            (increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),),
         );
 
         // PostUpdate systems

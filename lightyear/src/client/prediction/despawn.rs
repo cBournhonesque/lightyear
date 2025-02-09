@@ -5,10 +5,7 @@ use tracing::{error, trace};
 
 use crate::client::components::Confirmed;
 use crate::client::prediction::Predicted;
-use crate::prelude::{
-    AppIdentityExt, PreSpawned, ShouldBePredicted, TickManager,
-};
-
+use crate::prelude::{AppIdentityExt, PreSpawned, ShouldBePredicted, TickManager};
 
 /// This command must be used to despawn Predicted entities.
 /// The reason is that we might want to not completely despawn the entity in case it gets 'restored' during a rollback.
@@ -210,6 +207,7 @@ mod tests {
                 .unwrap(),
             &ComponentSyncModeFull(2.0)
         );
+        // non-Full components are also present
         assert_eq!(
             stepper
                 .client_app

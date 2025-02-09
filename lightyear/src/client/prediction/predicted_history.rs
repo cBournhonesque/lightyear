@@ -10,9 +10,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{
-    ComponentRegistry, HistoryBuffer, PrePredicted, PreSpawned, TickManager,
-};
+use crate::prelude::{ComponentRegistry, HistoryBuffer, PrePredicted, PreSpawned, TickManager};
 use crate::shared::tick_manager::TickEvent;
 
 pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
@@ -168,11 +166,7 @@ pub(crate) fn add_prediction_history<C: Component>(
         (),
         (
             Without<PredictionHistory<C>>,
-            Or<(
-                With<Predicted>,
-                With<PrePredicted>,
-                With<PreSpawned>,
-            )>,
+            Or<(With<Predicted>, With<PrePredicted>, With<PreSpawned>)>,
         ),
     >,
 ) {

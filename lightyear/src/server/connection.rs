@@ -23,8 +23,7 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::prelude::server::DisconnectEvent;
 use crate::prelude::{
-    ChannelKind, Message, PreSpawned, ReplicationConfig, ReplicationGroup,
-    ShouldBePredicted,
+    ChannelKind, Message, PreSpawned, ReplicationConfig, ReplicationGroup, ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{

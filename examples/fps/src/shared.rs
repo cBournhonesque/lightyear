@@ -249,10 +249,7 @@ pub(crate) fn shoot_bullet(
                     // on the client, just spawn the ball
                     // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    commands.spawn((
-                        bullet_bundle,
-                        PreSpawned::default_with_salt(salt),
-                    ));
+                    commands.spawn((bullet_bundle, PreSpawned::default_with_salt(salt)));
                 }
             }
         }

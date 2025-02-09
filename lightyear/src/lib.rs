@@ -269,9 +269,7 @@ pub mod prelude {
     pub use rename::*;
 
     pub mod client {
-        pub use crate::client::components::{
-            ComponentSyncMode, Confirmed, LerpFn, SyncMetadata,
-        };
+        pub use crate::client::components::{ComponentSyncMode, Confirmed, LerpFn, SyncMetadata};
         pub use crate::client::config::{ClientConfig, NetcodeConfig, PacketConfig};
         pub use crate::client::connection::ConnectionManager;
         pub use crate::client::error::ClientError;

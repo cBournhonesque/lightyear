@@ -110,7 +110,7 @@ impl Server {
             server,
             config,
             listen_socket: None,
-            connections: HashMap::new(),
+            connections: HashMap::default(),
             packet_queue: VecDeque::new(),
             new_connections: Vec::new(),
             new_disconnections: Vec::new(),

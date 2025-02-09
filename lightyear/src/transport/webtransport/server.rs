@@ -43,8 +43,8 @@ impl ServerTransportBuilder for WebTransportServerSocketBuilder {
         let (close_tx, close_rx) = async_channel::unbounded();
         // channels used to check the status of the io task
         let (status_tx, status_rx) = async_channel::unbounded();
-        let to_client_senders = Arc::new(Mutex::new(HashMap::new()));
-        let addr_to_task = Arc::new(Mutex::new(HashMap::new()));
+        let to_client_senders = Arc::new(Mutex::new(HashMap::default()));
+        let addr_to_task = Arc::new(Mutex::new(HashMap::default()));
 
         let sender = WebTransportServerSocketSender {
             server_addr: self.server_addr,

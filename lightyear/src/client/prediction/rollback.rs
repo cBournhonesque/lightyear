@@ -107,7 +107,10 @@ pub(crate) fn check_rollback<C: SyncComponent>(
     tick_manager: Res<TickManager>,
     connection: Res<ConnectionManager>,
     // we include Disabled in the filter to also check rollback for predicted despawn entities
-    mut predicted_query: Query<(Option<&mut PredictionHistory<C>>, Has<Disabled>), (With<Predicted>, Without<Confirmed>)>,
+    mut predicted_query: Query<
+        (Option<&mut PredictionHistory<C>>, Has<Disabled>),
+        (With<Predicted>, Without<Confirmed>),
+    >,
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     rollback: Res<Rollback>,
@@ -284,7 +287,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
 pub(crate) fn remove_prediction_disable(
     mut commands: Commands,
     // TODO: use our own custom Disable marker when this is possible
-    query: Query<Entity, (With<Predicted>, With<Disabled>)>
+    query: Query<Entity, (With<Predicted>, With<Disabled>)>,
 ) {
     query.iter().for_each(|e| {
         commands.entity(e).remove::<Disabled>();
@@ -308,11 +311,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             &mut PredictionHistory<C>,
             Option<&mut Correction<C>>,
         ),
-        (
-            With<Predicted>,
-            Without<Confirmed>,
-            Without<PreSpawned>,
-        ),
+        (With<Predicted>, Without<Confirmed>, Without<PreSpawned>),
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     rollback: Res<Rollback>,
@@ -448,11 +447,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
         (Entity, Option<&mut C>, &mut PredictionHistory<C>),
-        (
-            With<PreSpawned>,
-            Without<Confirmed>,
-            Without<Predicted>,
-        ),
+        (With<PreSpawned>, Without<Confirmed>, Without<Predicted>),
     >,
     rollback: Res<Rollback>,
 ) {

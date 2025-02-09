@@ -255,8 +255,8 @@ pub(crate) mod shared {
     use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
         AppComponentExt, AppMessageExt, ChannelDirection, ComponentRegistry, NetworkRelevanceMode,
-        PrePredicted, PreSpawned, RelationshipSync, RemoteEntityMap, Replicated,
-        ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity,
+        PrePredicted, PreSpawned, RelationshipSync, RemoteEntityMap, Replicated, ReplicationConfig,
+        ReplicationGroup, ShouldBePredicted, TargetEntity,
     };
     use crate::server::replication::send::ReplicateToClient;
     use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};

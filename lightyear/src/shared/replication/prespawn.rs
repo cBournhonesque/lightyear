@@ -1,8 +1,6 @@
 //! Shared logic to handle prespawning entities
 
-use crate::prelude::{
-    ComponentRegistry, PrePredicted, PreSpawned, ShouldBePredicted, Tick,
-};
+use crate::prelude::{ComponentRegistry, PrePredicted, PreSpawned, ShouldBePredicted, Tick};
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::replication::hierarchy::ReplicateLike;

@@ -770,7 +770,6 @@ mod replication {
 
     use bytes::Bytes;
 
-
     impl ComponentRegistry {
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
             self.replication_map
