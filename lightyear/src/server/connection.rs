@@ -23,8 +23,7 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::prelude::server::DisconnectEvent;
 use crate::prelude::{
-    ChannelKind, Message, PreSpawnedPlayerObject, ReplicationConfig, ReplicationGroup,
-    ShouldBePredicted,
+    ChannelKind, Message, PreSpawned, ReplicationConfig, ReplicationGroup, ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{
@@ -795,7 +794,7 @@ impl ConnectionManager {
         // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
         let mut actual_target = target;
         let should_be_predicted_kind = ComponentKind::of::<ShouldBePredicted>();
-        let pre_spawned_player_object_kind = ComponentKind::of::<PreSpawnedPlayerObject>();
+        let pre_spawned_player_object_kind = ComponentKind::of::<PreSpawned>();
         if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
             actual_target = prediction_target.unwrap().clone();
         }

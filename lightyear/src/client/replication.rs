@@ -151,7 +151,6 @@ pub(crate) mod send {
         InitialReplicated, Replicating, ReplicationGroupId,
     };
 
-
     use crate::shared::replication::archetypes::{
         get_erased_component, ClientReplicatedArchetypes,
     };
@@ -822,11 +821,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on server with visibility::All
-            let client_entity = stepper
-                .client_app
-                .world_mut()
-                .spawn(ReplicateToServer)
-                .id();
+            let client_entity = stepper.client_app.world_mut().spawn(ReplicateToServer).id();
 
             stepper.frame_step();
             stepper.frame_step();
@@ -906,10 +901,7 @@ pub(crate) mod send {
             let client_entity = stepper
                 .client_app
                 .world_mut()
-                .spawn((
-                    ReplicateToServer,
-                    TargetEntity::Preexisting(server_entity),
-                ))
+                .spawn((ReplicateToServer, TargetEntity::Preexisting(server_entity)))
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -991,11 +983,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on client
-            let client_entity = stepper
-                .client_app
-                .world_mut()
-                .spawn(ReplicateToServer)
-                .id();
+            let client_entity = stepper.client_app.world_mut().spawn(ReplicateToServer).id();
             let client_child = stepper
                 .client_app
                 .world_mut()
@@ -1050,11 +1038,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on client
-            let client_entity = stepper
-                .client_app
-                .world_mut()
-                .spawn(ReplicateToServer)
-                .id();
+            let client_entity = stepper.client_app.world_mut().spawn(ReplicateToServer).id();
             let client_child = stepper
                 .client_app
                 .world_mut()
@@ -1091,11 +1075,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on client
-            let client_entity = stepper
-                .client_app
-                .world_mut()
-                .spawn(ReplicateToServer)
-                .id();
+            let client_entity = stepper.client_app.world_mut().spawn(ReplicateToServer).id();
             for _ in 0..10 {
                 stepper.frame_step();
             }
@@ -1139,11 +1119,7 @@ pub(crate) mod send {
             let mut stepper = BevyStepper::default();
 
             // spawn an entity on client
-            let client_entity = stepper
-                .client_app
-                .world_mut()
-                .spawn(ReplicateToServer)
-                .id();
+            let client_entity = stepper.client_app.world_mut().spawn(ReplicateToServer).id();
             for _ in 0..10 {
                 stepper.frame_step();
             }

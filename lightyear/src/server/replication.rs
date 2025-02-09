@@ -1511,11 +1511,9 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(
-                    ReplicateToClient {
-                        target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
-                    }
-                )
+                .spawn(ReplicateToClient {
+                    target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID_1)),
+                })
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1537,7 +1535,8 @@ pub(crate) mod send {
                 .world_mut()
                 .entity_mut(server_entity)
                 .get_mut::<ReplicateToClient>()
-                .unwrap().target = NetworkTarget::All;
+                .unwrap()
+                .target = NetworkTarget::All;
             stepper.frame_step();
             stepper.frame_step();
 
@@ -1787,11 +1786,9 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(
-                    ReplicateToClient {
-                        target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
-                    },
-                )
+                .spawn(ReplicateToClient {
+                    target: NetworkTarget::Single(ClientId::Netcode(TEST_CLIENT_ID)),
+                })
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -3327,11 +3324,9 @@ pub(crate) mod send {
             let server_entity = stepper
                 .server_app
                 .world_mut()
-                .spawn(
-                    ReplicateToClient {
-                        target: NetworkTarget::None,
-                    },
-                )
+                .spawn(ReplicateToClient {
+                    target: NetworkTarget::None,
+                })
                 .id();
             stepper.frame_step();
             stepper.frame_step();

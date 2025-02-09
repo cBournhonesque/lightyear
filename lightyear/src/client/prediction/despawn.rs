@@ -1,29 +1,33 @@
+use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
-use tracing::{debug, error, trace};
+use tracing::{error, trace};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::components::Confirmed;
 use crate::client::prediction::Predicted;
-use crate::prelude::{
-    AppIdentityExt, ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
-};
-use crate::shared::tick_manager::Tick;
+use crate::prelude::{AppIdentityExt, PreSpawned, ShouldBePredicted, TickManager};
 
-// - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
-//   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity
-
-/// This command must be used to despawn the predicted or confirmed entity.
-/// - If the entity is predicted, it can still be re-created if we realize during a rollback that it should not have been despawned.
+/// This command must be used to despawn Predicted entities.
+/// The reason is that we might want to not completely despawn the entity in case it gets 'restored' during a rollback.
+/// (i.e. we do a rollback and we realize the entity should not have been despawned)
+/// Instead we will Disable the entity so that it stops showing up.
+///
+/// The general flow is:
+/// - we run predicted_despawn on the predicted entity
+/// - `PredictedDespawnDisable` is added on the entity. We use our own custom marker instead of Disable in case users want to genuinely just
+/// Disable a Predicted entity.
+/// - We can stop updating its PredictionHistory, or only update it with empty values (None)
+/// - if the Confirmed entity is also despawned in the next few ticks, then the Predicted entity also gets despawned
+/// - we still do rollback checks using the Confirmed updates against the `PredictedDespawn` entity! If there is a rollback,
+///     we can remove the Disabled marker on all predicted entities, restore all their components to the Confirmed value, and then
+///     re-run the last few-ticks (which might re-Disable the entity)
 pub struct PredictionDespawnCommand {
     entity: Entity,
 }
 
 #[derive(Component, PartialEq, Debug, Reflect)]
 #[reflect(Component)]
-pub(crate) struct PredictionDespawnMarker {
-    // TODO: do we need this?
-    death_tick: Tick,
-}
+pub(crate) struct PredictionDisable;
 
 impl Command for PredictionDespawnCommand {
     fn apply(self, world: &mut World) {
@@ -40,19 +44,14 @@ impl Command for PredictionDespawnCommand {
             if entity.get::<Predicted>().is_some()
                 || entity.get::<ShouldBePredicted>().is_some()
                 // see https://github.com/cBournhonesque/lightyear/issues/818
-                || entity.get::<PreSpawnedPlayerObject>().is_some()
+                || entity.get::<PreSpawned>().is_some()
             {
-                // if this is a predicted or pre-predicted entity, do not despawn the entity immediately but instead
-                // add a PredictionDespawn component to it to mark that it should be despawned as soon
-                // as the confirmed entity catches up to it
-                trace!("inserting prediction despawn marker");
-                entity.insert(PredictionDespawnMarker {
-                    // TODO: death_tick can be removed
-                    //  - we can just wait until until the confirmed entity catches up and gets despawned as well
-                    death_tick: current_tick,
-                });
-                // TODO: if we want the death to be immediate on predicted,
-                //  we should despawn all components immediately (except Predicted and History)
+                // if this is a predicted entity, do not despawn the entity immediately but instead
+                // add a PredictionDisable component to it to mark it as disabled until the confirmed
+                // entity catches up to it
+                trace!("inserting prediction disable marker");
+                // TODO: use our own PredictionDisabled when it is possible
+                entity.insert(Disabled);
             } else if let Some(confirmed) = entity.get::<Confirmed>() {
                 // TODO: actually we should never despawn directly on the client a Confirmed entity
                 //  it should only get despawned when replicating!
@@ -87,89 +86,15 @@ pub(crate) fn despawn_confirmed(
     }
 }
 
-#[derive(Component)]
-pub(crate) struct RemovedCache<C: Component>(pub Option<C>);
-
-#[allow(clippy::type_complexity)]
-/// Instead of despawning the entity, we remove all components except the history and the predicted marker
-pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
-    component_registry: Res<ComponentRegistry>,
-    mut commands: Commands,
-    full_query: Query<Entity, (With<C>, With<PredictionDespawnMarker>)>,
-    simple_query: Query<(Entity, &C), With<PredictionDespawnMarker>>,
-) {
-    match component_registry.prediction_mode::<C>() {
-        // for full components, we can delete the component
-        // it will get re-instated during rollback if the confirmed entity doesn't get despawned
-        ComponentSyncMode::Full => {
-            for entity in full_query.iter() {
-                trace!("removing full component for prediction_despawn");
-                commands.entity(entity).remove::<C>();
-            }
-        }
-        // for simple/once components, there is no rollback, we can just cache them temporarily
-        // and restore them in case of rollback
-        ComponentSyncMode::Simple | ComponentSyncMode::Once => {
-            for (entity, component) in simple_query.iter() {
-                trace!("removing simple/once component for prediction_despawn");
-                commands
-                    .entity(entity)
-                    .remove::<C>()
-                    .insert(RemovedCache(Some(component.clone())));
-            }
-        }
-        ComponentSyncMode::None => {}
-    }
-}
-
-// TODO: compare the performance of cloning the component versus popping from the World directly
-/// In case of a rollback, check if there were any entities that were predicted-despawn
-/// that we need to re-instate. (all the entities that have `RemovedCache<C>` are in this scenario)
-/// If we didn't need to re-instate them, the Confirmed entity would have been despawned.
-///
-/// Remember to reinstate components if SyncComponent != Full
-pub(crate) fn restore_components_if_despawn_rolled_back<C: SyncComponent>(
-    mut commands: Commands,
-    mut query: Query<(Entity, &mut RemovedCache<C>), Without<C>>,
-) {
-    for (entity, mut cache) in query.iter_mut() {
-        debug!("restoring component after rollback");
-        let Some(component) = std::mem::take(&mut cache.0) else {
-            debug!("could not find component");
-            continue;
-        };
-        commands
-            .entity(entity)
-            .insert(component)
-            .remove::<RemovedCache<C>>();
-    }
-}
-
-/// Remove the despawn marker: if during rollback the entity are re-spawned, we don't want to re-despawn it again
-/// PredictionDespawnMarker should only be present on the frame where we call `prediction_despawn`
-pub(crate) fn remove_despawn_marker(
-    mut commands: Commands,
-    query: Query<Entity, With<PredictionDespawnMarker>>,
-) {
-    for entity in query.iter() {
-        trace!("removing prediction despawn markerk");
-        // SAFETY: bevy guarantees that the entity exists
-        commands
-            .get_entity(entity)
-            .unwrap()
-            .remove::<PredictionDespawnMarker>();
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::client::prediction::despawn::PredictionDespawnMarker;
     use crate::client::prediction::resource::PredictionManager;
     use crate::prelude::client::{Confirmed, PredictionDespawnCommandsExt};
     use crate::prelude::server::SyncTarget;
     use crate::prelude::{client, server, NetworkTarget};
     use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeSimple};
     use crate::tests::stepper::BevyStepper;
+    use bevy::ecs::entity_disabling::Disabled;
     use bevy::prelude::{default, Component};
 
     #[derive(Component, Debug, PartialEq)]
@@ -214,6 +139,23 @@ mod tests {
             .get::<Confirmed>()
             .expect("Confirmed component missing");
         let predicted_entity = confirmed.predicted.unwrap();
+        // check that a rollback occurred to add the components on the predicted entity
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentSyncModeFull>(predicted_entity)
+                .unwrap(),
+            &ComponentSyncModeFull(1.0)
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentSyncModeSimple>(predicted_entity)
+                .unwrap(),
+            &ComponentSyncModeSimple(1.0)
+        );
         // try adding a non-protocol component (which could be some rendering component)
         stepper
             .client_app
@@ -229,13 +171,7 @@ mod tests {
             .entity(predicted_entity)
             .prediction_despawn();
         stepper.frame_step();
-        // TODO: this does not work!
-        // make sure that all components have been removed
-        // assert!(stepper
-        //     .client_app
-        //     .world()
-        //     .get::<TestComponent>(predicted_entity)
-        //     .is_none());
+        // make sure that the entity is disabled
         assert!(stepper
             .client_app
             .world()
@@ -244,19 +180,8 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<ComponentSyncModeFull>(predicted_entity)
-            .is_none());
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<ComponentSyncModeSimple>(predicted_entity)
-            .is_none());
-        // the despawn marker should be removed immediately
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PredictionDespawnMarker>(predicted_entity)
-            .is_none());
+            .get::<Disabled>(predicted_entity)
+            .is_some());
 
         // update the server entity to trigger a rollback where the predicted entity should be 're-spawned'
         stepper
@@ -268,6 +193,12 @@ mod tests {
         stepper.frame_step();
         stepper.frame_step();
 
+        // Check that the entity was rolled back and the Disabled marker was removed
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<Disabled>(predicted_entity)
+            .is_none());
         assert_eq!(
             stepper
                 .client_app
@@ -276,16 +207,7 @@ mod tests {
                 .unwrap(),
             &ComponentSyncModeFull(2.0)
         );
-        // TODO: NON-REGISTERED COMPONENTS DO NOT WORK!
-        // the non-Full components should also get restored
-        // assert_eq!(
-        //     stepper
-        //         .client_app
-        //         .world()
-        //         .get::<TestComponent>(predicted_entity)
-        //         .unwrap(),
-        //     &TestComponent(1)
-        // );
+        // non-Full components are also present
         assert_eq!(
             stepper
                 .client_app

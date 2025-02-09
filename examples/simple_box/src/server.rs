@@ -58,7 +58,7 @@ pub(crate) fn handle_connections(
             ControlledBy {
                 target: NetworkTarget::Single(client_id),
                 ..default()
-            }
+            },
         ));
 
         entity_map.0.insert(client_id, entity.id());

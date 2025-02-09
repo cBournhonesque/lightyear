@@ -51,7 +51,10 @@ use crate::client::sync::SyncSet;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage, MessageRegistry, ReplicateOnceComponent, ServerReceiveMessage, TickManager, TimeManager};
+use crate::prelude::{
+    is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage,
+    MessageRegistry, ReplicateOnceComponent, ServerReceiveMessage, TickManager, TimeManager,
+};
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::shared::replication::components::PrePredicted;
@@ -1092,7 +1095,6 @@ mod tests {
         assert_eq!(delay.delay_ms, 20);
     }
 
-
     pub(crate) fn replicate_inputs(
         mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<LeafwingInput1>>>>,
         mut send_inputs: EventWriter<ServerSendMessage<InputMessage<LeafwingInput1>>>,
@@ -1111,7 +1113,10 @@ mod tests {
     fn test_receive_inputs_other_clients() {
         let mut stepper = MultiBevyStepper::default();
         // server propagate inputs to other clients
-        stepper.server_app.add_systems(PreUpdate, replicate_inputs.after(crate::server::input::leafwing::InputSystemSet::ReceiveInputs));
+        stepper.server_app.add_systems(
+            PreUpdate,
+            replicate_inputs.after(crate::server::input::leafwing::InputSystemSet::ReceiveInputs),
+        );
         let server_entity = stepper
             .server_app
             .world_mut()
@@ -1123,7 +1128,7 @@ mod tests {
                         interpolation: None,
                     },
                     ..default()
-                }
+                },
             ))
             .id();
 
@@ -1146,17 +1151,29 @@ mod tests {
             .remote_entity_map
             .get_local(server_entity)
             .expect("entity was not replicated to client");
-        stepper.client_app_2.world_mut().entity_mut(client_entity_2).insert(
-            InputMap::<LeafwingInput1>::new([(
+        stepper
+            .client_app_2
+            .world_mut()
+            .entity_mut(client_entity_2)
+            .insert(InputMap::<LeafwingInput1>::new([(
                 LeafwingInput1::Jump,
                 KeyCode::KeyA,
-            )])
-        );
+            )]));
         stepper.frame_step();
         stepper.frame_step();
 
         // client 1 should have received the InputMessage from client 2 which was broadcasted by the client
-        assert!(stepper.client_app_1.world().get::<ActionState<LeafwingInput1>>(client_entity_1).is_some());
-        assert!(stepper.client_app_1.world().get::<InputBuffer<LeafwingInput1>>(client_entity_1).unwrap().end_tick().is_some());
+        assert!(stepper
+            .client_app_1
+            .world()
+            .get::<ActionState<LeafwingInput1>>(client_entity_1)
+            .is_some());
+        assert!(stepper
+            .client_app_1
+            .world()
+            .get::<InputBuffer<LeafwingInput1>>(client_entity_1)
+            .unwrap()
+            .end_tick()
+            .is_some());
     }
 }

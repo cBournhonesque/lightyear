@@ -228,7 +228,7 @@ pub(crate) fn shoot_bullet(
                         // between the two bullets, we add additional information to the hash.
                         // NOTE: if you don't add the salt, the 'left' bullet on the server might get matched with the
                         // 'right' bullet on the client, and vice versa. This is not critical, but it will cause a rollback
-                        PreSpawnedPlayerObject::default_with_salt(salt),
+                        PreSpawned::default_with_salt(salt),
                         Replicate {
                             sync: SyncTarget {
                                 // the bullet is predicted for the client who shot it
@@ -249,10 +249,7 @@ pub(crate) fn shoot_bullet(
                     // on the client, just spawn the ball
                     // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    commands.spawn((
-                        bullet_bundle,
-                        PreSpawnedPlayerObject::default_with_salt(salt),
-                    ));
+                    commands.spawn((bullet_bundle, PreSpawned::default_with_salt(salt)));
                 }
             }
         }

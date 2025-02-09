@@ -10,7 +10,7 @@ use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use leafwing_input_manager::action_state::ActionState;
-use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
+use lightyear::client::prediction::prespawn::PreSpawned;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::Replicating;
@@ -209,14 +209,14 @@ fn draw_predicted_entities(
             &Rotation,
             &ColorComponent,
             &Collider,
-            Has<PreSpawnedPlayerObject>,
+            Has<PreSpawned>,
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<PlayerActions>>,
         ),
         (
             // skip drawing bullet outlines, since we add a mesh + material to them
             Without<BulletMarker>,
-            Or<(With<PreSpawnedPlayerObject>, With<Predicted>)>,
+            Or<(With<PreSpawned>, With<Predicted>)>,
         ),
     >,
     tick_manager: Res<TickManager>,

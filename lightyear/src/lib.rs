@@ -188,7 +188,7 @@ pub mod prelude {
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         InputChannel, ReliableSettings,
     };
-    pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
+    pub use crate::client::prediction::prespawn::PreSpawned;
     pub use crate::connection::id::ClientId;
     pub use crate::connection::netcode::{generate_key, ConnectToken, Key};
     #[cfg(feature = "leafwing")]
@@ -269,9 +269,7 @@ pub mod prelude {
     pub use rename::*;
 
     pub mod client {
-        pub use crate::client::components::{
-            ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
-        };
+        pub use crate::client::components::{ComponentSyncMode, Confirmed, LerpFn, SyncMetadata};
         pub use crate::client::config::{ClientConfig, NetcodeConfig, PacketConfig};
         pub use crate::client::connection::ConnectionManager;
         pub use crate::client::error::ClientError;

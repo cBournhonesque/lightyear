@@ -40,12 +40,12 @@ impl ServerTransportBuilder for WebSocketServerSocketBuilder {
         Option<ServerNetworkEventSender>,
     )> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
-        let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
+        let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::default()));
         // channels used to cancel the task
         let (close_tx, close_rx) = async_channel::unbounded();
         // channels used to check the status of the io task
         let (status_tx, status_rx) = async_channel::unbounded();
-        let addr_to_task = Arc::new(Mutex::new(HashMap::new()));
+        let addr_to_task = Arc::new(Mutex::new(HashMap::default()));
 
         let sender = WebSocketServerSocketSender {
             server_addr: self.server_addr,

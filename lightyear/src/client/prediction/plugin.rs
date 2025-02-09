@@ -5,17 +5,15 @@ use super::resource_history::{
 };
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
+    prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback,
+    Rollback, RollbackState,
 };
 use super::spawn::spawn_predicted_entity;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
-use crate::client::prediction::despawn::{
-    despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
-    restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
-};
+use crate::client::prediction::despawn::{despawn_confirmed, PredictionDisable};
 use crate::client::prediction::predicted_history::{
     add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
     apply_component_removal_predicted, handle_tick_event_prediction_history,
@@ -24,15 +22,14 @@ use crate::client::prediction::predicted_history::{
 use crate::client::prediction::prespawn::PreSpawnedPlayerObjectPlugin;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
+use crate::prelude::client::is_connected;
+use crate::prelude::{is_host_server, PreSpawned};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 use core::time::Duration;
-
-use crate::prelude::client::is_connected;
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Reflect)]
@@ -187,6 +184,11 @@ pub enum PredictionSet {
     RestoreVisualCorrection,
     /// Check if rollback is needed
     CheckRollback,
+
+    // ROLLBACK
+    /// If any Predicted entity was marked as despawned, instead of despawning them we simply disabled the entity.
+    /// If we do a rollback we want to restore those entities.
+    RemoveDisable,
     /// Prepare rollback by snapping the current state to the confirmed state and clearing histories
     /// For pre-spawned entities, we just roll them back to their historical state.
     /// If they didn't exist in the rollback tick, despawn them
@@ -325,28 +327,11 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                 (
                     // for SyncMode::Simple, just copy the confirmed components
                     apply_confirmed_update::<C>.in_set(PredictionSet::CheckRollback),
-                    // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
-                    restore_components_if_despawn_rolled_back::<C>
-                        // .before(run_rollback::)
-                        .in_set(PredictionSet::PrepareRollback),
                 ),
-            );
-        }
-        ComponentSyncMode::Once => {
-            app.add_systems(
-                PreUpdate,
-                // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
-                restore_components_if_despawn_rolled_back::<C>
-                    // .before(run_rollback::)
-                    .in_set(PredictionSet::PrepareRollback),
             );
         }
         _ => {}
     };
-    app.add_systems(
-        FixedPostUpdate,
-        remove_component_for_despawn_predicted::<C>.in_set(PredictionSet::EntityDespawn),
-    );
 }
 
 impl Plugin for PredictionPlugin {
@@ -362,10 +347,10 @@ impl Plugin for PredictionPlugin {
         // REFLECTION
         app.register_type::<Predicted>()
             .register_type::<Confirmed>()
-            .register_type::<PreSpawnedPlayerObject>()
+            .register_type::<PreSpawned>()
             .register_type::<Rollback>()
             .register_type::<RollbackState>()
-            .register_type::<PredictionDespawnMarker>()
+            .register_type::<PredictionDisable>()
             .register_type::<PredictionConfig>();
 
         // RESOURCES
@@ -386,6 +371,7 @@ impl Plugin for PredictionPlugin {
                     PredictionSet::Sync,
                     PredictionSet::RestoreVisualCorrection,
                     PredictionSet::CheckRollback,
+                    PredictionSet::RemoveDisable.run_if(is_in_rollback),
                     PredictionSet::PrepareRollback.run_if(is_in_rollback),
                     PredictionSet::Rollback.run_if(is_in_rollback),
                 )
@@ -407,6 +393,7 @@ impl Plugin for PredictionPlugin {
                 //   - the entity has a PrePredicted component. If it does, remove ShouldBePredicted to not trigger normal prediction-spawn system
                 // - then we check via a system if we should spawn a new predicted entity
                 spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
+                remove_prediction_disable.in_set(PredictionSet::RemoveDisable),
                 run_rollback.in_set(PredictionSet::Rollback),
                 #[cfg(feature = "metrics")]
                 super::rollback::no_rollback
@@ -441,10 +428,7 @@ impl Plugin for PredictionPlugin {
         );
         app.add_systems(
             FixedPostUpdate,
-            (
-                remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
-                increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
-            ),
+            (increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),),
         );
 
         // PostUpdate systems
@@ -462,6 +446,7 @@ impl Plugin for PredictionPlugin {
     }
 
     // We run this after `build` and `finish` to make sure that all components were registered before we create the observer
+    // that will trigger on all predicted components
     fn cleanup(&self, app: &mut App) {
         add_sync_systems(app);
     }

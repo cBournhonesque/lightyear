@@ -16,13 +16,12 @@ use std::ptr::NonNull;
 
 use tracing::{debug, error, trace};
 
-use crate::client::components::ComponentSyncMode;
+use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::prediction::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
 };
-use crate::prelude::client::SyncComponent;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, Message, Tick};
 use crate::protocol::delta::ErasedDeltaFns;
@@ -519,7 +518,6 @@ mod serialize {
 
 mod prediction {
     use super::*;
-    use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
     use bevy::prelude::Entity;
 
@@ -661,23 +659,25 @@ mod prediction {
                 .prediction_map
                 .get(&kind)
                 .expect("the component is not part of the protocol");
-            // for Full components, also insert a PredictionHistory component
-            // no need to add any value to it because otherwise it would contain a value with the wrong tick
-            // since we are running this outside of FixedUpdate
-            if prediction_metadata.prediction_mode == ComponentSyncMode::Full {
-                // if the predicted entity already had a PredictionHistory component (for example
-                // if the entity was PreSpawned entity), we don't want to overwrite it.
-                if world.get::<PredictionHistory<C>>(predicted).is_none() {
-                    unsafe {
-                        self.temp_write_buffer.buffer_insert_raw_ptrs(
-                            PredictionHistory::<C>::default(),
-                            world
-                                .component_id::<PredictionHistory<C>>()
-                                .expect("PredictionHistory not registered"),
-                        )
-                    };
-                }
-            }
+
+            // NOTE: this is not needed because we have an observer that inserts the History as soon as C is inserted.
+            // // for Full components, also insert a PredictionHistory component
+            // // no need to add any value to it because otherwise it would contain a value with the wrong tick
+            // // since we are running this outside of FixedUpdate
+            // if prediction_metadata.prediction_mode == ComponentSyncMode::Full {
+            //     // if the predicted entity already had a PredictionHistory component (for example
+            //     // if the entity was PreSpawned entity), we don't want to overwrite it.
+            //     if world.get::<PredictionHistory<C>>(predicted).is_none() {
+            //         unsafe {
+            //             self.temp_write_buffer.buffer_insert_raw_ptrs(
+            //                 PredictionHistory::<C>::default(),
+            //                 world
+            //                     .component_id::<PredictionHistory<C>>()
+            //                     .expect("PredictionHistory not registered"),
+            //             )
+            //         };
+            //     }
+            // }
 
             // TODO: add a test for this! For PreSpawned/PrePredicted we don't want to sync from Confirmed to Predicted
             // TODO: does this interact well with cases where the component is removed on the predicted entity?
@@ -767,9 +767,8 @@ mod replication {
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
     use bevy::ecs::component::Mutable;
-    
+
     use bytes::Bytes;
-    
 
     impl ComponentRegistry {
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
