@@ -270,7 +270,7 @@ pub mod prelude {
 
     pub mod client {
         pub use crate::client::components::{
-            ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
+            ComponentSyncMode, Confirmed, LerpFn, SyncMetadata,
         };
         pub use crate::client::config::{ClientConfig, NetcodeConfig, PacketConfig};
         pub use crate::client::connection::ConnectionManager;

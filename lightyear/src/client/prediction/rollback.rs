@@ -10,14 +10,12 @@ use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
-use smallvec::SmallVec;
 use tracing::{debug, error, trace, trace_span};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
-use crate::client::prediction::despawn::PredictionDisable;
 use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::{ComponentRegistry, HistoryState, PreSpawned, Tick, TickManager};
@@ -153,7 +151,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
 
         let tick = confirmed.tick;
         // This will happen if the entity has been marked as PredictionDisable
-        let Ok((mut predicted_history, _)) = predicted_query.get_mut(p) else {
+        let Ok((predicted_history, _)) = predicted_query.get_mut(p) else {
             // TODO: we could try using a PredictedDisableMarker marker, for now we consider that there's a rollback if we
             //  cannot find the entity
             debug!(

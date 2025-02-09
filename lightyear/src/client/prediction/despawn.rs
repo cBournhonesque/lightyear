@@ -1,14 +1,13 @@
 use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
-use tracing::{debug, error, trace};
+use tracing::{error, trace};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::components::Confirmed;
 use crate::client::prediction::Predicted;
 use crate::prelude::{
-    AppIdentityExt, ComponentRegistry, PreSpawned, ShouldBePredicted, TickManager,
+    AppIdentityExt, PreSpawned, ShouldBePredicted, TickManager,
 };
-use crate::shared::tick_manager::Tick;
 
 
 /// This command must be used to despawn Predicted entities.

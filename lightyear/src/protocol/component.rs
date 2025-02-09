@@ -16,13 +16,12 @@ use std::ptr::NonNull;
 
 use tracing::{debug, error, trace};
 
-use crate::client::components::ComponentSyncMode;
+use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::prediction::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
 };
-use crate::prelude::client::SyncComponent;
 use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, Message, Tick};
 use crate::protocol::delta::ErasedDeltaFns;

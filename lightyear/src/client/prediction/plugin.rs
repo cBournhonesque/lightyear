@@ -25,7 +25,6 @@ use crate::prelude::client::is_connected;
 use crate::prelude::{is_host_server, PreSpawned};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use bevy::ecs::component::Mutable;
-use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;

@@ -5,7 +5,7 @@ use bevy::ecs::component::ComponentId;
 use bevy::prelude::*;
 use std::ops::Deref;
 
-use crate::client::components::{ComponentSyncMode, Confirmed, MutComponent, SyncComponent};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
