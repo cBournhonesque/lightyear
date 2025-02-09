@@ -634,6 +634,7 @@ mod prediction {
             predicted: Entity,
             world: &mut World,
         ) {
+            dbg!("batch sync", &confirmed, &predicted);
             // clone each component to be synced into a temporary buffer
             component_ids.iter().for_each(|component_id| {
                 let kind = self.component_id_to_kind.get(component_id).unwrap();
@@ -668,6 +669,7 @@ mod prediction {
                 // if the predicted entity already had a PredictionHistory component (for example
                 // if the entity was PreSpawned entity), we don't want to overwrite it.
                 if world.get::<PredictionHistory<C>>(predicted).is_none() {
+                    dbg!(std::any::type_name::<PredictionHistory<C>>());
                     unsafe {
                         self.temp_write_buffer.buffer_insert_raw_ptrs(
                             PredictionHistory::<C>::default(),
@@ -767,9 +769,9 @@ mod replication {
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
     use bevy::ecs::component::Mutable;
-    
+
     use bytes::Bytes;
-    
+
 
     impl ComponentRegistry {
         pub(crate) fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {

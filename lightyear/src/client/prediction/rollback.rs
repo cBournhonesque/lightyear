@@ -4,23 +4,23 @@ use std::ops::{Deref, DerefMut};
 use bevy::app::FixedMain;
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::hash_set::EntityHashSet;
+use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::reflect::ReflectResource;
-use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, Resource, With, Without,
-    World,
-};
+use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
+use smallvec::SmallVec;
 use tracing::{debug, error, trace, trace_span};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
+use crate::client::prediction::despawn::PredictionDisable;
 use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::{ComponentRegistry, HistoryState, PreSpawnedPlayerObject, Tick, TickManager};
+use crate::prelude::{ComponentRegistry, HistoryState, PreSpawned, Tick, TickManager};
 
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
@@ -109,7 +109,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
     tick_manager: Res<TickManager>,
     connection: Res<ConnectionManager>,
     // We also snap the value of the component to the server state if we are in rollback
-    mut predicted_query: Query<&mut PredictionHistory<C>, (With<Predicted>, Without<Confirmed>)>,
+    mut predicted_query: Query<Option<&mut PredictionHistory<C>>, (With<Predicted>, Without<Confirmed>)>,
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     rollback: Res<Rollback>,
@@ -127,7 +127,9 @@ pub(crate) fn check_rollback<C: SyncComponent>(
     }
 
     let current_tick = tick_manager.tick();
-    for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
+    // TODO: run this in parallel (maybe by doing predicted_query.par_iter()!) and doing a separate logic for the cases
+    //  where confirmed exists but predicted does not
+    confirmed_query.iter().for_each(|(confirmed_entity, confirmed_component, confirmed)| {
         // NOTE: it is not enough to check if we received any ComponentRemoveEvent<C>, ComponentUpdateEvent<C> and ComponentInsertEvent<C>
         //  because we could have entity A and B in the same ReplicationGroup.
         //  We receive a message with entity B updates, but no entity A updates, **which means that entity A is still in the same state as before**
@@ -142,21 +144,32 @@ pub(crate) fn check_rollback<C: SyncComponent>(
         // 0. only check rollback when any entity in the replication group has been updated
         // (i.e. the confirmed tick has been updated)
         if !confirmed.is_changed() {
-            continue;
+            return;
         }
-
         // 1. Get the predicted entity, and it's history
         let Some(p) = confirmed.predicted else {
-            continue;
+            return;
         };
-        let Ok(mut predicted_history) = predicted_query.get_mut(p) else {
+
+        let tick = confirmed.tick;
+        // This will happen if the entity has been marked as PredictionDisable
+        let Ok((mut predicted_history)) = predicted_query.get_mut(p) else {
+            // TODO: we could try using a PredictedDisableMarker marker, for now we consider that there's a rollback if we
+            //  cannot find the entity
+            dbg!("cant find predicted history", &confirmed_entity, &p);
             debug!(
                 "Predicted entity {:?} was not found when checking rollback for {:?}",
                 confirmed.predicted,
                 std::any::type_name::<C>()
             );
-            continue;
+            rollback.set_rollback_tick(tick + 1);
+            return;
         };
+        dbg!(predicted_history.is_some());
+        let Some(mut prediction_history) = predicted_history else {
+            return;
+        };
+
         #[cfg(feature = "metrics")]
         metrics::gauge!(format!(
             "prediction::rollbacks::history::{:?}::num_values",
@@ -168,7 +181,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
         // - Confirmed contains the server state at the tick
         // - History contains the history of what we predicted at the tick
         // get the tick that the confirmed entity is at
-        let tick = confirmed.tick;
+
         if tick > current_tick {
             debug!(
                 "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
@@ -176,7 +189,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 tick,
                 current_tick
             );
-            continue;
+            return;
         }
 
         // 3.a We are still not sure if we should do rollback. Compare history against confirmed
@@ -262,7 +275,20 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                    tick, kind, current_tick
                    );
         }
-    }
+    });
+}
+
+// TODO: maybe restore only the ones for which the Confirmed entity is not disabled?
+/// Before we start preparing for rollback, restore any Disabled predicted entity
+pub(crate) fn remove_prediction_disable(
+    mut commands: Commands,
+    // TODO: use our own custom Disable marker when this is possible
+    query: Query<Entity, (With<Predicted>, With<Disabled>)>
+) {
+    query.iter().for_each(|e| {
+        dbg!("remove disable");
+        commands.entity(e).despawn();
+    });
 }
 
 /// If there is a mismatch, prepare rollback for all components
@@ -285,7 +311,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         (
             With<Predicted>,
             Without<Confirmed>,
-            Without<PreSpawnedPlayerObject>,
+            Without<PreSpawned>,
         ),
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
@@ -326,6 +352,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             continue;
         };
 
+        dbg!(std::any::type_name::<C>());
         // 2. we need to clear the history so we can write a new one
         predicted_history.clear();
         // SAFETY: we know the predicted entity exists
@@ -423,7 +450,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
     mut predicted_query: Query<
         (Entity, Option<&mut C>, &mut PredictionHistory<C>),
         (
-            With<PreSpawnedPlayerObject>,
+            With<PreSpawned>,
             Without<Confirmed>,
             Without<Predicted>,
         ),

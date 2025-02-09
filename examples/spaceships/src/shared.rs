@@ -245,7 +245,7 @@ pub fn shared_player_firing(
 
         // the default hashing algorithm uses the tick and component list. in order to disambiguate
         // between two players spawning a bullet on the same tick, we add client_id to the mix.
-        let prespawned = PreSpawnedPlayerObject::default_with_salt(player.client_id.to_bits());
+        let prespawned = PreSpawned::default_with_salt(player.client_id.to_bits());
 
         let bullet_entity = commands
             .spawn((

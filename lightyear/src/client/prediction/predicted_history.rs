@@ -5,13 +5,13 @@ use bevy::ecs::component::ComponentId;
 use bevy::prelude::*;
 use std::ops::Deref;
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::components::{ComponentSyncMode, Confirmed, MutComponent, SyncComponent};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::prelude::client::PredictionSet;
 use crate::prelude::{
-    ComponentRegistry, HistoryBuffer, PrePredicted, PreSpawnedPlayerObject, TickManager,
+    ComponentRegistry, HistoryBuffer, PrePredicted, PreSpawned, TickManager,
 };
 use crate::shared::tick_manager::TickEvent;
 
@@ -20,7 +20,7 @@ pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
 /// If ComponentSyncMode::Full, we store every update on the predicted entity in the PredictionHistory
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
-pub(crate) fn update_prediction_history<T: Component + PartialEq + Clone>(
+pub(crate) fn update_prediction_history<T: Component + Clone>(
     mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
     tick_manager: Res<TickManager>,
     rollback: Res<Rollback>,
@@ -57,7 +57,7 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
 
 /// If a component is removed on the Predicted entity, and the ComponentSyncMode == FULL
 /// Add the removal to the history (for potential rollbacks)
-pub(crate) fn apply_component_removal_predicted<C: Component + PartialEq + Clone>(
+pub(crate) fn apply_component_removal_predicted<C: Component>(
     trigger: Trigger<OnRemove, C>,
     tick_manager: Res<TickManager>,
     rollback: Res<Rollback>,
@@ -75,7 +75,7 @@ pub(crate) fn apply_component_removal_predicted<C: Component + PartialEq + Clone
 /// - if the ComponentSyncMode == ONCE, do nothing (we only care about replicating the component once)
 /// - if the ComponentSyncMode == SIMPLE, remove the component from the Predicted entity
 /// - if the ComponentSyncMode == FULL, do nothing. We might get a rollback by comparing with the history.
-pub(crate) fn apply_component_removal_confirmed<C: SyncComponent>(
+pub(crate) fn apply_component_removal_confirmed<C: Component>(
     trigger: Trigger<OnRemove, C>,
     mut commands: Commands,
     confirmed_query: Query<&Confirmed>,
@@ -152,11 +152,14 @@ fn apply_predicted_sync(world: &mut World) {
     });
 }
 
-/// If a ComponentSyncMode::Full gets added to a Predicted, PrePredicted or PreSpawned entity,
+/// If a ComponentSyncMode::Full gets added to [`PrePredicted`] or [`PreSpawned`] entity,
 /// add a PredictionHistory component.
 ///
-/// We don't put any value in the history because the `update_history` systems will add the value
-pub(crate) fn add_prediction_history<C: SyncComponent>(
+/// We don't need to run this for [`Predicted`] entities because the confirmed->sync observers already
+/// instead a PredictionHistory component if it's missing on the Predicted entity.
+///
+/// We don't put any value in the history because the `update_history` systems will add the value.
+pub(crate) fn add_prediction_history<C: Component>(
     trigger: Trigger<OnAdd, C>,
     mut commands: Commands,
     // TODO: should we also have With<ShouldBePredicted>?
@@ -165,9 +168,8 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
         (
             Without<PredictionHistory<C>>,
             Or<(
-                With<Predicted>,
                 With<PrePredicted>,
-                With<PreSpawnedPlayerObject>,
+                With<PreSpawned>,
             )>,
         ),
     >,
@@ -182,10 +184,10 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
 /// When the Confirmed component is added, sync components to the Predicted entity
 ///
 /// This is needed in two cases:
-/// - when an entity is replicated, the components are added onto the Confirmed entity before the Confirmed
+/// - when an entity is replicated, the components are replicated onto the Confirmed entity before the Confirmed
 ///   component is added
 /// - when a client spawned on the client transfers authority to the server, the Confirmed
-///   component can be added even though the entity already had components
+///   component can be added even though the entity already had existing components
 ///
 /// We have some ordering constraints related to syncing hierarchy so we don't want to sync components
 /// immediately here (because the ParentSync component might not be able to get mapped properly since the parent entity

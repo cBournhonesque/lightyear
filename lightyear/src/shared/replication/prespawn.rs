@@ -1,7 +1,7 @@
 //! Shared logic to handle prespawning entities
 
 use crate::prelude::{
-    ComponentRegistry, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, Tick,
+    ComponentRegistry, PrePredicted, PreSpawned, ShouldBePredicted, Tick,
 };
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
@@ -45,7 +45,7 @@ pub(crate) fn compute_default_hash(
             if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
                 // ignore some book-keeping components that are included in the component registry
                 if type_id != TypeId::of::<PrePredicted>()
-                    && type_id != TypeId::of::<PreSpawnedPlayerObject>()
+                    && type_id != TypeId::of::<PreSpawned>()
                     && type_id != TypeId::of::<ShouldBePredicted>()
                     && type_id != TypeId::of::<ShouldBeInterpolated>()
                     && type_id != TypeId::of::<Controlled>()

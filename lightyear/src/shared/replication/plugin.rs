@@ -255,7 +255,7 @@ pub(crate) mod shared {
     use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
         AppComponentExt, AppMessageExt, ChannelDirection, ComponentRegistry, NetworkRelevanceMode,
-        PrePredicted, PreSpawnedPlayerObject, RelationshipSync, RemoteEntityMap, Replicated,
+        PrePredicted, PreSpawned, RelationshipSync, RemoteEntityMap, Replicated,
         ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity,
     };
     use crate::server::replication::send::ReplicateToClient;
@@ -304,7 +304,7 @@ pub(crate) mod shared {
             // - we need to run this in `finish` so that all plugins have been built (so ClientPlugin and ServerPlugin
             // both exists)
             // - the replication::SharedPlugin should only be added once, even when running in host-server mode
-            app.register_component::<PreSpawnedPlayerObject>(ChannelDirection::Bidirectional);
+            app.register_component::<PreSpawned>(ChannelDirection::Bidirectional);
             app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
             app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
             app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);

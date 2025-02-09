@@ -44,6 +44,7 @@ pub(crate) fn spawn_predicted_entity(
             "Spawning predicted entity {:?} for confirmed: {:?}",
             predicted_entity, confirmed_entity
         );
+        dbg!("Spawn", &predicted_entity, &confirmed_entity);
         #[cfg(feature = "metrics")]
         {
             metrics::counter!("prediction::pre_predicted_spawn").increment(1);
