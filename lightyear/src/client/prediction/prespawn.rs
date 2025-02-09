@@ -371,12 +371,13 @@ mod tests {
     use crate::client::prediction::resource::PredictionManager;
     use crate::prelude::client::{is_in_rollback, PredictionDespawnCommandsExt, PredictionSet};
     use crate::prelude::client::{Confirmed, Predicted};
-    use crate::prelude::server::{Replicate, SyncTarget};
+    use crate::prelude::server::{Replicate, ReplicateToClient, SyncTarget};
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use crate::utils::ready_buffer::ItemWithReadyKey;
     use bevy::app::PreUpdate;
+    use bevy::ecs::entity_disabling::Disabled;
     use bevy::prelude::{default, Entity, IntoSystemConfigs, With};
 
     #[test]
@@ -643,6 +644,7 @@ mod tests {
             .entity(client_prespawn)
             .prediction_despawn();
         stepper.frame_step();
+        // check that the entity is disabled
         assert!(stepper
             .client_app
             .world()
@@ -651,13 +653,8 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<ComponentSyncModeFull>(client_prespawn)
-            .is_none());
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<ComponentSyncModeSimple>(client_prespawn)
-            .is_none());
+            .get::<Disabled>(client_prespawn)
+            .is_some());
 
         // if enough frames pass without match, the entity gets cleaned
         stepper.frame_step();
@@ -720,7 +717,7 @@ mod tests {
         for tick in server_tick + 1..client_tick {
             stepper.frame_step();
         }
-        // make sure that the components were removed on the client prespawned
+        // make sure that the client_prespawn entity was disabled
         assert!(stepper
             .client_app
             .world()
@@ -729,13 +726,8 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<ComponentSyncModeFull>(client_prespawn)
-            .is_none());
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<ComponentSyncModeSimple>(client_prespawn)
-            .is_none());
+            .get::<Disabled>(client_prespawn)
+            .is_some());
 
         // spawn the server prespawned entity
         let server_prespawn = stepper
@@ -745,11 +737,9 @@ mod tests {
                 PreSpawned::new(1),
                 ComponentSyncModeFull(1.0),
                 ComponentSyncModeSimple(1.0),
-                Replicate {
-                    sync: SyncTarget {
-                        prediction: NetworkTarget::All,
-                        ..default()
-                    },
+                ReplicateToClient::default(),
+                SyncTarget {
+                    prediction: NetworkTarget::All,
                     ..default()
                 },
             ))
@@ -758,8 +748,7 @@ mod tests {
         stepper.frame_step();
 
         // the server entity gets replicated to the client
-        // we should have a match with no rollbacks.
-        // the ComponentSyncMode::Simple components should not be reinstated (they will be only if there is a rollback)
+        // we should have a match with no rollbacks since the history matches with the confirmed state
         stepper.frame_step();
         let confirmed = stepper
             .client_app

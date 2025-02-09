@@ -155,10 +155,11 @@ fn apply_predicted_sync(world: &mut World) {
 /// If a ComponentSyncMode::Full gets added to [`PrePredicted`] or [`PreSpawned`] entity,
 /// add a PredictionHistory component.
 ///
-/// We don't need to run this for [`Predicted`] entities because the confirmed->sync observers already
-/// instead a PredictionHistory component if it's missing on the Predicted entity.
+
 ///
 /// We don't put any value in the history because the `update_history` systems will add the value.
+// TODO: We could not run this for [`Predicted`] entities and instead have the confirmed->sync observers already
+//  add a PredictionHistory component if it's missing on the Predicted entity.
 pub(crate) fn add_prediction_history<C: Component>(
     trigger: Trigger<OnAdd, C>,
     mut commands: Commands,
@@ -168,6 +169,7 @@ pub(crate) fn add_prediction_history<C: Component>(
         (
             Without<PredictionHistory<C>>,
             Or<(
+                With<Predicted>,
                 With<PrePredicted>,
                 With<PreSpawned>,
             )>,

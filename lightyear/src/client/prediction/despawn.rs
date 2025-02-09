@@ -126,7 +126,6 @@ mod tests {
             ))
             .id();
         stepper.frame_step();
-        dbg!("server about to replicate");
         stepper.frame_step();
         let confirmed_entity = stepper
             .client_app
@@ -144,7 +143,23 @@ mod tests {
             .get::<Confirmed>()
             .expect("Confirmed component missing");
         let predicted_entity = confirmed.predicted.unwrap();
-        dbg!(&confirmed_entity, &predicted_entity);
+        // check that a rollback occurred to add the components on the predicted entity
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentSyncModeFull>(predicted_entity)
+                .unwrap(),
+            &ComponentSyncModeFull(1.0)
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentSyncModeSimple>(predicted_entity)
+                .unwrap(),
+            &ComponentSyncModeSimple(1.0)
+        );
         // try adding a non-protocol component (which could be some rendering component)
         stepper
             .client_app
@@ -153,7 +168,6 @@ mod tests {
             .insert(TestComponent(1));
 
         // despawn the predicted entity locally
-        dbg!("prediction despawn");
         stepper
             .client_app
             .world_mut()
