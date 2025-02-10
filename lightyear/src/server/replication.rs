@@ -52,7 +52,11 @@ pub(crate) mod receive {
 pub(crate) mod send {
     use super::*;
     use crate::prelude::server::AuthorityCommandExt;
-    use crate::prelude::{is_host_server, ClientId, ComponentRegistry, DeltaCompression, DisabledComponents, NetworkRelevanceMode, ReplicateLike, ReplicateOnce, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager, TimeManager};
+    use crate::prelude::{
+        is_host_server, ClientId, ComponentRegistry, DeltaCompression, DisabledComponents,
+        NetworkRelevanceMode, ReplicateLike, ReplicateOnce, ReplicationGroup, ShouldBePredicted,
+        TargetEntity, Tick, TickManager, TimeManager,
+    };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::prediction::handle_pre_predicted;
@@ -653,8 +657,10 @@ pub(crate) mod send {
                         override_target.and_then(|o| o.get_kind(replicated_component.kind));
                     // TODO: maybe the old method was faster because we had-precached the delta-compression data
                     //  for the archetype?
-                    let delta_compression = delta_compression.is_some_and(|d| d.enabled_kind(replicated_component.kind));
-                    let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(replicated_component.kind));
+                    let delta_compression = delta_compression
+                        .is_some_and(|d| d.enabled_kind(replicated_component.kind));
+                    let replicate_once =
+                        replicate_once.is_some_and(|r| r.enabled_kind(replicated_component.kind));
 
                     replicate_component_updates(
                         tick_manager.tick(),

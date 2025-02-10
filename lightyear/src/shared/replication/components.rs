@@ -153,8 +153,6 @@ impl DeltaCompression {
     }
 }
 
-
-
 /// If this component is present, we won't replicate the component
 ///
 /// (By default, all components that are present in the [`ComponentRegistry`](crate::prelude::ComponentRegistry) will be replicated.)
@@ -251,8 +249,6 @@ impl ReplicateOnce {
         self.kinds.contains(&kind)
     }
 }
-
-
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
 pub enum ReplicationGroupIdBuilder {

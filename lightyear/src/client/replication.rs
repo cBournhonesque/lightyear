@@ -140,7 +140,11 @@ pub(crate) mod send {
 
     use crate::prelude::client::{ClientConfig, NetClient};
 
-    use crate::prelude::{client::{is_connected, is_synced}, is_host_server, ComponentRegistry, DeltaCompression, DisabledComponents, ReplicateLike, ReplicateOnce, Replicated, ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager};
+    use crate::prelude::{
+        client::{is_connected, is_synced},
+        is_host_server, ComponentRegistry, DeltaCompression, DisabledComponents, ReplicateLike,
+        ReplicateOnce, Replicated, ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
+    };
     use crate::protocol::component::ComponentKind;
 
     use crate::shared::replication::components::{
@@ -482,8 +486,10 @@ pub(crate) mod send {
                     };
                     // TODO: maybe the old method was faster because we had-precached the delta-compression data
                     //  for the archetype?
-                    let delta_compression = delta_compression.is_some_and(|d| d.enabled_kind(replicated_component.kind));
-                    let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(replicated_component.kind));
+                    let delta_compression = delta_compression
+                        .is_some_and(|d| d.enabled_kind(replicated_component.kind));
+                    let replicate_once =
+                        replicate_once.is_some_and(|r| r.enabled_kind(replicated_component.kind));
                     let _ = replicate_component_update(
                         tick_manager.tick(),
                         &component_registry,

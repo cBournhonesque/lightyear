@@ -332,9 +332,13 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
         // but don't replicate any updates after we replicated the initial component spawn
         //
         // Be careful to not overwrite an existing ReplicateOnce if present
-        commands.entity(entity).entry::<ReplicateOnce>()
+        commands
+            .entity(entity)
+            .entry::<ReplicateOnce>()
             .or_default()
-            .and_modify(|mut v| {v.add_mut::<ActionState<A>>();});
+            .and_modify(|mut v| {
+                v.add_mut::<ActionState<A>>();
+            });
         if !has_action_state {
             commands.entity(entity).insert(ActionState::<A>::default());
         }
