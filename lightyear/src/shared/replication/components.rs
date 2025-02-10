@@ -125,17 +125,31 @@ pub struct DisableReplicateHierarchy;
 ///
 /// Instead of sending the full component every time, we will only send the diffs between the old
 /// and new state.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct DeltaCompression<C> {
-    _marker: std::marker::PhantomData<C>,
+pub struct DeltaCompression {
+    // we use a Vec instead of a HashSet to go faster, I doubt there would be many cases
+    // where we have duplicate kinds here
+    kinds: Vec<ComponentKind>,
 }
 
-impl<C> Default for DeltaCompression<C> {
-    fn default() -> Self {
-        Self {
-            _marker: Default::default(),
-        }
+impl DeltaCompression {
+    pub fn add<C: Component>(mut self) -> Self {
+        self.kinds.push(ComponentKind::of::<C>());
+        self
+    }
+
+    pub fn remove<C: Component>(mut self) -> Self {
+        self.kinds.retain(|kind| *kind != ComponentKind::of::<C>());
+        self
+    }
+
+    pub fn enabled<C: Component>(&self) -> bool {
+        self.enabled_kind(ComponentKind::of::<C>())
+    }
+
+    pub(crate) fn enabled_kind(&self, kind: ComponentKind) -> bool {
+        self.kinds.contains(&kind)
     }
 }
 
@@ -198,19 +212,41 @@ impl DisabledComponents {
     }
 }
 
-/// If this component is present, we will replicate only the inserts/removals of the component,
-/// not the updates (i.e. the component will get only replicated once at entity spawn)
-#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+/// Component that can be used to specify which components we will only send inserts/removals
+/// but not component updates. The component will only get replicated once at entity spawn.
+#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct ReplicateOnceComponent<C> {
-    _marker: std::marker::PhantomData<C>,
+pub struct ReplicateOnce {
+    // we use a Vec instead of a HashSet to go faster, I doubt there would be many cases
+    // where we have duplicate kinds here
+    kinds: Vec<ComponentKind>,
 }
 
-impl<C> Default for ReplicateOnceComponent<C> {
-    fn default() -> Self {
-        Self {
-            _marker: Default::default(),
-        }
+impl ReplicateOnce {
+    pub fn add<C: Component>(mut self) -> Self {
+        self.add_mut::<C>();
+        self
+    }
+
+    pub fn add_mut<C: Component>(&mut self) {
+        self.kinds.push(ComponentKind::of::<C>());
+    }
+
+    pub fn remove<C: Component>(mut self) -> Self {
+        self.remove_mut::<C>();
+        self
+    }
+
+    pub fn remove_mut<C: Component>(&mut self) {
+        self.kinds.retain(|kind| *kind != ComponentKind::of::<C>());
+    }
+
+    pub fn enabled<C: Component>(&self) -> bool {
+        self.enabled_kind(ComponentKind::of::<C>())
+    }
+
+    pub(crate) fn enabled_kind(&self, kind: ComponentKind) -> bool {
+        self.kinds.contains(&kind)
     }
 }
 

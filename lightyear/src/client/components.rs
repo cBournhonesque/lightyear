@@ -26,10 +26,10 @@ pub struct Confirmed {
     pub tick: Tick,
 }
 
-pub(crate) trait MutComponent: Component<Mutability = Mutable> {}
+pub trait MutComponent: Component<Mutability = Mutable> {}
 
 impl<T> MutComponent for T where T: Component<Mutability = Mutable> {}
-pub(crate) trait SyncComponent: MutComponent + Clone + PartialEq + Message {}
+pub trait SyncComponent: MutComponent + Clone + PartialEq + Message {}
 impl<T> SyncComponent for T where T: MutComponent + Clone + PartialEq + Message {}
 
 /// Function that will interpolate between two values

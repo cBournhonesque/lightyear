@@ -22,7 +22,7 @@ use tracing::{info, trace};
 pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: PlayerPosition,
-    delta: DeltaCompression<PlayerPosition>,
+    delta: DeltaCompression,
     color: PlayerColor,
 }
 
@@ -36,7 +36,7 @@ impl PlayerBundle {
         Self {
             id: PlayerId(id),
             position: PlayerPosition(position),
-            delta: DeltaCompression::default(),
+            delta: DeltaCompression::default().add::<PlayerPosition>(),
             color: PlayerColor(color),
         }
     }

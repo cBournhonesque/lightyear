@@ -142,8 +142,8 @@ pub(crate) mod send {
 
     use crate::prelude::{
         client::{is_connected, is_synced},
-        is_host_server, ComponentRegistry, DisabledComponents, ReplicateLike, Replicated,
-        ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
+        is_host_server, ComponentRegistry, DeltaCompression, DisabledComponents, ReplicateLike,
+        ReplicateOnce, Replicated, ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
 
@@ -352,6 +352,8 @@ pub(crate) mod send {
                     group_ready,
                     target_entity,
                     disabled_components,
+                    delta_compression,
+                    replicate_once,
                     replication_target_ticks,
                     is_replicate_like_added,
                 ) = if let Some(replicate_like) =
@@ -390,6 +392,12 @@ pub(crate) mod send {
                         entity_ref
                             .get::<DisabledComponents>()
                             .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<DeltaCompression>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<ReplicateOnce>()
+                            .or_else(|| query_entity_ref.get()),
                         // SAFETY: we know that the entity has the ReplicateToServer component
                         // because the archetype is in replicated_archetypes
                         unsafe {
@@ -419,6 +427,8 @@ pub(crate) mod send {
                         group_ready,
                         entity_ref.get::<TargetEntity>(),
                         entity_ref.get::<DisabledComponents>(),
+                        entity_ref.get::<DeltaCompression>(),
+                        entity_ref.get::<ReplicateOnce>(),
                         // SAFETY: we know that the entity has the ReplicateToServer component
                         // because the archetype is in replicated_archetypes
                         unsafe {
@@ -474,6 +484,12 @@ pub(crate) mod send {
                             replicated_component.id,
                         )
                     };
+                    // TODO: maybe the old method was faster because we had-precached the delta-compression data
+                    //  for the archetype?
+                    let delta_compression = delta_compression
+                        .is_some_and(|d| d.enabled_kind(replicated_component.kind));
+                    let replicate_once =
+                        replicate_once.is_some_and(|r| r.enabled_kind(replicated_component.kind));
                     let _ = replicate_component_update(
                         tick_manager.tick(),
                         &component_registry,
@@ -483,8 +499,8 @@ pub(crate) mod send {
                         component_ticks,
                         replication_is_changed,
                         group_id,
-                        replicated_component.delta_compression,
-                        replicated_component.replicate_once,
+                        delta_compression,
+                        replicate_once,
                         &system_ticks,
                         &mut sender,
                     )
@@ -758,7 +774,7 @@ pub(crate) mod send {
         use crate::client::replication::send::ReplicateToServer;
         use crate::prelude::{
             server, ChannelDirection, ClientId, ComponentRegistry, DisabledComponents,
-            ReplicateOnceComponent, Replicated, TargetEntity,
+            ReplicateOnce, Replicated, TargetEntity,
         };
         use crate::protocol::component::ComponentKind;
         use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeOnce};
@@ -1339,7 +1355,7 @@ pub(crate) mod send {
                 .spawn((
                     ReplicateToServer,
                     ComponentSyncModeFull(1.0),
-                    ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
+                    ReplicateOnce::default().add::<ComponentSyncModeFull>(),
                 ))
                 .id();
             for _ in 0..10 {

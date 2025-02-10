@@ -235,8 +235,6 @@ impl TempWriteBuffer {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
     pub direction: ChannelDirection,
-    pub delta_compression_id: ComponentId,
-    pub replicate_once_id: ComponentId,
     pub write: RawWriteFn,
     pub buffer_insert_fn: RawBufferInsertFn,
     pub remove: Option<RawBufferRemoveFn>,
@@ -762,7 +760,6 @@ mod interpolation {
 
 mod replication {
     use super::*;
-    use crate::prelude::{DeltaCompression, ReplicateOnceComponent};
     use crate::serialize::reader::Reader;
     use crate::serialize::ToBytes;
     use crate::shared::replication::entity_map::ReceiveEntityMap;
@@ -786,8 +783,6 @@ mod replication {
                 ComponentKind::of::<C>(),
                 ReplicationMetadata {
                     direction,
-                    delta_compression_id: world.register_component::<DeltaCompression<C>>(),
-                    replicate_once_id: world.register_component::<ReplicateOnceComponent<C>>(),
                     write: Self::write::<C>,
                     buffer_insert_fn: Self::buffer_insert::<C>,
                     remove: Some(Self::buffer_remove::<C>),
@@ -1052,9 +1047,6 @@ mod delta {
                         .get(&kind)
                         .map(|m| m.direction)
                         .unwrap_or(ChannelDirection::Bidirectional),
-                    // NOTE: we set these to 0 because they are never used for the DeltaMessage component
-                    delta_compression_id: ComponentId::new(0),
-                    replicate_once_id: ComponentId::new(0),
                     write,
                     buffer_insert_fn: Self::buffer_insert_delta::<C>,
                     // we never need to remove the DeltaMessage<C> component
