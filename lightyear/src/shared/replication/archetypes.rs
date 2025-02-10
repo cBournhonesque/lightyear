@@ -118,8 +118,6 @@ pub(crate) struct ReplicatedArchetype {
 }
 
 pub(crate) struct ReplicatedComponent {
-    pub(crate) delta_compression: bool,
-    pub(crate) replicate_once: bool,
     pub(crate) id: ComponentId,
     pub(crate) kind: ComponentKind,
     pub(crate) storage_type: StorageType,
@@ -205,21 +203,10 @@ impl<C: Component> ReplicatedArchetypes<C> {
                     }
                     trace!("including {:?} in replicated components", info.name());
 
-                    // check per component metadata
-                    // TODO: should we store the components in a hashmap for faster lookup?
-                    let delta_compression = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.delta_compression_id);
-                    let replicate_once = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.replicate_once_id);
-
                     // SAFETY: component ID obtained from this archetype.
                     let storage_type =
                         unsafe { archetype.get_storage_type(component).unwrap_unchecked() };
                     replicated_archetype.components.push(ReplicatedComponent {
-                        delta_compression,
-                        replicate_once,
                         id: component,
                         kind,
                         storage_type,

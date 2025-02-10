@@ -52,11 +52,7 @@ pub(crate) mod receive {
 pub(crate) mod send {
     use super::*;
     use crate::prelude::server::AuthorityCommandExt;
-    use crate::prelude::{
-        is_host_server, ClientId, ComponentRegistry, DisabledComponents, NetworkRelevanceMode,
-        ReplicateLike, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager,
-        TimeManager,
-    };
+    use crate::prelude::{is_host_server, ClientId, ComponentRegistry, DeltaCompression, DisabledComponents, NetworkRelevanceMode, ReplicateLike, ReplicateOnce, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager, TimeManager};
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::prediction::handle_pre_predicted;
@@ -475,6 +471,8 @@ pub(crate) mod send {
                     authority_peer,
                     initial_replicated,
                     disabled_components,
+                    delta_compression,
+                    replicate_once,
                     override_target,
                     // SAFETY: we know that the entity has the ReplicationTarget component
                     // because the archetype is in replicated_archetypes
@@ -535,6 +533,12 @@ pub(crate) mod send {
                             .get::<DisabledComponents>()
                             .or_else(|| query_entity_ref.get()),
                         entity_ref
+                            .get::<DeltaCompression>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
+                            .get::<ReplicateOnce>()
+                            .or_else(|| query_entity_ref.get()),
+                        entity_ref
                             .get::<OverrideTarget>()
                             .or_else(|| query_entity_ref.get()),
                         if entity_ref.get::<ReplicateToClient>().is_some() {
@@ -580,6 +584,8 @@ pub(crate) mod send {
                         entity_ref.get::<AuthorityPeer>(),
                         entity_ref.get::<InitialReplicated>(),
                         entity_ref.get::<DisabledComponents>(),
+                        entity_ref.get::<DeltaCompression>(),
+                        entity_ref.get::<ReplicateOnce>(),
                         entity_ref.get::<OverrideTarget>(),
                         // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
                         // so create the ref manually
@@ -645,6 +651,10 @@ pub(crate) mod send {
                     };
                     let override_target =
                         override_target.and_then(|o| o.get_kind(replicated_component.kind));
+                    // TODO: maybe the old method was faster because we had-precached the delta-compression data
+                    //  for the archetype?
+                    let delta_compression = delta_compression.is_some_and(|d| d.enabled_kind(replicated_component.kind));
+                    let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(replicated_component.kind));
 
                     replicate_component_updates(
                         tick_manager.tick(),
@@ -658,8 +668,8 @@ pub(crate) mod send {
                         group_id,
                         authority_peer,
                         visibility,
-                        replicated_component.delta_compression,
-                        replicated_component.replicate_once,
+                        delta_compression,
+                        replicate_once,
                         override_target,
                         &system_ticks,
                         &mut sender,
@@ -1201,7 +1211,7 @@ pub(crate) mod send {
         use crate::prelude::server::{ControlledBy, NetConfig, RelevanceManager, Replicate};
         use crate::prelude::{
             client, server, ChannelDirection, DeltaCompression, LinkConditionerConfig,
-            ReplicateOnceComponent, Replicated,
+            ReplicateOnce, Replicated,
         };
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
@@ -1920,7 +1930,7 @@ pub(crate) mod send {
                 .spawn((
                     ReplicateToClient::default(),
                     ComponentDeltaCompression(vec![1, 2]),
-                    DeltaCompression::<ComponentDeltaCompression>::default(),
+                    DeltaCompression::default().add::<ComponentDeltaCompression>(),
                 ))
                 .id();
             stepper.frame_step();
@@ -2396,7 +2406,7 @@ pub(crate) mod send {
                 .spawn((
                     ReplicateToClient::default(),
                     ComponentDeltaCompression(vec![1, 2]),
-                    DeltaCompression::<ComponentDeltaCompression>::default(),
+                    DeltaCompression::default().add::<ComponentDeltaCompression>(),
                 ))
                 .id();
             let group_id = ReplicationGroupId(server_entity.to_bits());
@@ -2541,7 +2551,7 @@ pub(crate) mod send {
                     ReplicateToClient::default(),
                     ComponentSyncModeFull(1.0),
                     ComponentDeltaCompression(vec![1, 2]),
-                    DeltaCompression::<ComponentDeltaCompression>::default(),
+                    DeltaCompression::default().add::<ComponentDeltaCompression>(),
                 ))
                 .id();
             let group_id = ReplicationGroupId(server_entity.to_bits());
@@ -2724,7 +2734,7 @@ pub(crate) mod send {
                 .spawn((
                     ReplicateToClient::default(),
                     ComponentDeltaCompression(vec![1, 2]),
-                    DeltaCompression::<ComponentDeltaCompression>::default(),
+                    DeltaCompression::default().add::<ComponentDeltaCompression>(),
                 ))
                 .id();
             let group_id = ReplicationGroupId(server_entity.to_bits());
@@ -2896,7 +2906,7 @@ pub(crate) mod send {
                 .spawn((
                     ReplicateToClient::default(),
                     ComponentDeltaCompression2(HashSet::from_iter([1])),
-                    DeltaCompression::<ComponentDeltaCompression2>::default(),
+                    DeltaCompression::default().add::<ComponentDeltaCompression2>(),
                 ))
                 .id();
             let group_id = ReplicationGroupId(server_entity.to_bits());
@@ -3128,7 +3138,7 @@ pub(crate) mod send {
                 .spawn((
                     ReplicateToClient::default(),
                     ComponentSyncModeFull(1.0),
-                    ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
+                    ReplicateOnce::default().add::<ComponentSyncModeFull>(),
                 ))
                 .id();
             stepper.frame_step();
@@ -3184,7 +3194,7 @@ pub(crate) mod send {
                 .spawn((
                     ReplicateToClient::default(),
                     ComponentSyncModeFull(1.0),
-                    ReplicateOnceComponent::<ComponentSyncModeFull>::default(),
+                    ReplicateOnce::default().add::<ComponentSyncModeFull>(),
                 ))
                 .id();
             stepper.frame_step();

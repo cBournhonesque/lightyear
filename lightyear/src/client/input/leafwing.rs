@@ -53,13 +53,14 @@ use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{
     is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage,
-    MessageRegistry, ReplicateOnceComponent, ServerReceiveMessage, TickManager, TimeManager,
+    MessageRegistry, ReplicateOnce, ServerReceiveMessage, TickManager, TimeManager,
 };
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
+use crate::tests::protocol::ComponentSyncModeFull;
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Copy, Clone, Resource)]
@@ -323,13 +324,17 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
 
     for (entity, has_action_state) in player_entities.iter() {
         trace!(?entity, "adding actions state buffer");
-        commands.entity(entity).insert((
+        commands.entity(entity).insert(
             // input buffer needed to rollback to a previous ActionState
             InputBuffer::<A>::default(),
-            // make sure that the server entity has an ActionState component (if we use PrePrediction),
-            // but don't replicate any updates after we replicated the initial component spawn
-            ReplicateOnceComponent::<ActionState<A>>::default(),
-        ));
+        );
+        // make sure that the server entity has an ActionState component (if we use PrePrediction),
+        // but don't replicate any updates after we replicated the initial component spawn
+        //
+        // Be careful to not overwrite an existing ReplicateOnce if present
+        commands.entity(entity).entry::<ReplicateOnce>()
+            .or_default()
+            .and_modify(|mut v| {v.add_mut::<ActionState<A>>();});
         if !has_action_state {
             commands.entity(entity).insert(ActionState::<A>::default());
         }

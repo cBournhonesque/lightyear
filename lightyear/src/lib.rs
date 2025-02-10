@@ -214,7 +214,7 @@ pub mod prelude {
     pub use crate::shared::replication::authority::HasAuthority;
     pub use crate::shared::replication::components::{
         DeltaCompression, DisableReplicateHierarchy, DisabledComponents, NetworkRelevanceMode,
-        PrePredicted, ReplicateOnceComponent, Replicated, Replicating, ReplicationGroup,
+        PrePredicted, ReplicateOnce, Replicated, Replicating, ReplicationGroup,
         ReplicationMarker, ShouldBePredicted, TargetEntity,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
