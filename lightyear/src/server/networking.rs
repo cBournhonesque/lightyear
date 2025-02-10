@@ -4,10 +4,7 @@ use crate::connection::server::{
     ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections,
 };
 use crate::prelude::server::is_stopped;
-use crate::prelude::{
-    is_host_server, ChannelRegistry, ClientId, MainSet, MessageRegistry, TickManager, TimeManager,
-};
-use crate::protocol::component::ComponentRegistry;
+use crate::prelude::{is_host_server, ChannelRegistry, ClientId, ComponentRegistry, MainSet, MessageRegistry, TickManager, TimeManager};
 use crate::serialize::reader::Reader;
 use crate::server::clients::ControlledEntities;
 use crate::server::config::ServerConfig;

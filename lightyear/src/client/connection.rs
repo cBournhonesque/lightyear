@@ -24,7 +24,7 @@ use crate::packet::priority_manager::PriorityConfig;
 use crate::prelude::client::PredictionConfig;
 use crate::prelude::{ChannelKind, ClientId, Message, MessageRegistry, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::ComponentRegistry;
+use crate::protocol::component::registry::ComponentRegistry;
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;

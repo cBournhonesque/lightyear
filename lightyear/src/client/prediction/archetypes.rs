@@ -1,13 +1,13 @@
 use crate::client::components::Confirmed;
 use crate::client::prediction::Predicted;
 use crate::prelude::client::ComponentSyncMode;
-use crate::prelude::ComponentRegistry;
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::archetypes::{ClientReplicatedArchetypes, ReplicatedArchetype};
 use bevy::ecs::archetype::{ArchetypeGeneration, ArchetypeId};
 use bevy::ecs::component::{ComponentId, StorageType};
 use bevy::prelude::{Component, FromWorld, Resource, World};
 use tracing::trace;
+use crate::prelude::ComponentRegistry;
 
 /// Cached list of archetypes that are predicted.
 ///
@@ -35,8 +35,10 @@ pub(crate) struct PredictedArchetype {
 pub(crate) struct PredictedComponent {
     pub(crate) id: ComponentId,
     pub(crate) kind: ComponentKind,
+    pub(crate) name: &'static str,
     pub(crate) storage_type: StorageType,
     pub(crate) sync_mode: ComponentSyncMode,
+    pub(crate) history_id: Option<ComponentId>,
 }
 
 impl FromWorld for PredictedArchetypes {
@@ -83,6 +85,8 @@ impl PredictedArchetypes {
                         unsafe { archetype.get_storage_type(component).unwrap_unchecked() };
                     predicted_archetype.components.push(PredictedComponent {
                         id: component,
+                        history_id: prediction_metadata.history_id,
+                        name: registry.name(kind),
                         kind,
                         storage_type,
                         sync_mode: prediction_metadata.sync_mode,
