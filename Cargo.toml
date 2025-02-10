@@ -207,7 +207,7 @@ bevy_egui = { version = "0.32", default-features = false, features = [
   "render",
 ] }
 bevy_metrics_dashboard = "0.4"
-egui_extras = "0.30"
+egui_extras = "0.31"
 
 # bevygap for deploying on Edgegap
 bevygap_server_plugin = { version = "0.3.1" }
