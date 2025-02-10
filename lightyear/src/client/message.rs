@@ -342,7 +342,8 @@ fn read_triggers(
 mod tests {
     use super::*;
     use crate::prelude::client::ClientTriggerExt;
-    use crate::prelude::{ClientSendMessage, ServerReceiveMessage};
+    use crate::prelude::server::ReplicateToClient;
+    use crate::prelude::{client, ClientSendMessage, ServerReceiveMessage};
     use crate::serialize::writer::Writer;
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, IntegerEvent, StringMessage};
@@ -459,14 +460,27 @@ mod tests {
     fn client_send_trigger_via_send_event() {
         let mut stepper = HostServerStepper::default();
 
-        stepper.server_app.init_resource::<Counter>();
-        stepper.server_app.add_observer(count_messages_observer);
+        let server_entity = stepper.server_app.world_mut().spawn(ReplicateToClient::default()).id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
 
-        // Send the message by writing to the SendMessage<M> Events
+        stepper.server_app.init_resource::<Counter>();
+        // spawn observer that watches a given entity
+        stepper.server_app.world_mut().spawn(Observer::new(count_messages_observer).with_entity(server_entity));
+
+        // Send the message from the remote client
         stepper
             .client_app
             .world_mut()
-            .client_trigger::<Channel1>(IntegerEvent(10));
+            .client_trigger_with_targets::<Channel1>(IntegerEvent(10), vec![client_entity]);
 
         stepper.frame_step();
         stepper.frame_step();
@@ -478,8 +492,9 @@ mod tests {
         stepper
             .server_app
             .world_mut()
-            .client_trigger::<Channel1>(IntegerEvent(10));
+            .client_trigger_with_targets::<Channel1>(IntegerEvent(10), vec![server_entity]);
 
+        stepper.frame_step();
         stepper.frame_step();
         stepper.frame_step();
 
