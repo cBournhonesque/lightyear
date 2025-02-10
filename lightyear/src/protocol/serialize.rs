@@ -219,7 +219,6 @@ impl ErasedSerializeFns {
             map_entities(PtrMut::from(&mut message), entity_map);
         }
         Ok(message)
-        // erased_deserialize_fn::<M>(self, reader, entity_map)?.read()
     }
 }
 
