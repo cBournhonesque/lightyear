@@ -2,11 +2,13 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
 use bevy::app::FixedMain;
-use bevy::ecs::component::Mutable;
+use bevy::ecs::archetype::Archetypes;
+use bevy::ecs::component::{Components, Mutable};
 use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::reflect::ReflectResource;
 use bevy::ecs::system::SystemChangeTick;
+use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
@@ -101,98 +103,101 @@ impl Rollback {
     }
 }
 
-// fn check_rollback(
-//     world: &World,
-//     component_registry: Res<ComponentRegistry>,
-//     connection: Res<ConnectionManager>,
-//     tick_manager: Res<TickManager>,
-//     system_ticks: SystemChangeTick,
-//     rollback: ResMut<Rollback>,
-//     // TODO: instead of a local, put this in a resource?
-//     mut predicted_archetypes: Local<PredictedArchetypes>,
-// ) {
-//     // TODO: maybe we can check if we receive any replication packets?
-//     // no need to check for rollback if we didn't receive any packet
-//     if !connection.received_new_server_tick() {
-//         return;
-//     }
-//     let tick = tick_manager.tick();
-//     predicted_archetypes.update(world, &component_registry);
-//
-//     // TODO: iterate through each archetype in parallel? using rayon
-//
-//     // TODO: maybe have a sparse-set component with ConfirmedUpdated to quickly query only through predicted entities
-//     //  that received a confirmed update? Would the iteration even be faster? since entities with or without sparse-set
-//     //  would still be in the same table
-//     for predicted_archetype in predicted_archetypes.archetypes.iter() {
-//         // SAFETY: update() makes sure that we have a valid archetype
-//         let archetype = unsafe {
-//             world
-//                 .archetypes()
-//                 .get(predicted_archetype.id)
-//                 .unwrap_unchecked()
-//         };
-//         let table = unsafe {
-//             world
-//                 .storages()
-//                 .tables
-//                 .get(archetype.table_id())
-//                 .unwrap_unchecked()
-//         };
-//
-//         for archetype_entity in archetype.entities() {
-//             let predicted = archetype_entity.id();
-//             let Some(confirmed) = world.get::<Predicted>(predicted).and_then(|p| p.confirmed_entity) else {
-//                 // skip if the confirmed entity does not exist
-//                 continue
-//             };
-//             let [confirmed_ref, predicted_ref] = world.entity(&[confirmed, predicted]);
-//             // TODO: should we send an event when an en entity receives an update? so that we check rollback
-//             //  only for entities that receive an update?
-//             // skip the entity if the replication group did not receive any updates
-//             let confirmed_component = get_ref::<Confirmed>(
-//                 world,
-//                 confirmed,
-//                 system_ticks.last_run(),
-//                 system_ticks.this_run(),
-//             );
-//             if !confirmed_component.is_changed() {
-//                 continue
-//             };
-//             let confirmed_tick = confirmed_component.tick;
-//             if confirmed_tick > tick {
-//                 warn!(
-//                 "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
-//                 confirmed,
-//                 confirmed_tick,
-//                 tick
-//             );
-//                 return;
-//             }
-//
-//             for predicted_component in predicted_archetype
-//                 .components
-//                 .iter()
-//                 .filter(|c| c.sync_mode == ComponentSyncMode::Full) {
-//
-//                 // if the history is not present on the entity, but the confirmed component is present, we need to rollback
-//                 let Ok(prediction_history) = predicted_ref.get_by_id(predicted_component.history_id.unwrap()) else {
-//                     if confirmed_ref.get_by_id(predicted_component.id).is_ok() {
-//                         rollback.set_rollback_tick(tick + 1);
-//                     }
-//                     continue
-//                 };
-//
-//
-//
-//
-//             }
-//         }
-//
-//
-//     }
-//
-// }
+fn check_rollback(
+    archetypes: Archetypes,
+    components: Components,
+    confirmed_entities: FilteredEntityRef,
+    predicted_entities: FilteredEntityMut,
+    component_registry: Res<ComponentRegistry>,
+    connection: Res<ConnectionManager>,
+    tick_manager: Res<TickManager>,
+    system_ticks: SystemChangeTick,
+    rollback: ResMut<Rollback>,
+    // TODO: instead of a local, put this in a resource?
+    mut predicted_archetypes: Local<PredictedArchetypes>,
+) {
+    // TODO: maybe we can check if we receive any replication packets?
+    // no need to check for rollback if we didn't receive any packet
+    if !connection.received_new_server_tick() {
+        return;
+    }
+    let tick = tick_manager.tick();
+    predicted_archetypes.update(archetypes, components, &component_registry);
+
+    // TODO: iterate through each archetype in parallel? using rayon
+
+    // TODO: maybe have a sparse-set component with ConfirmedUpdated to quickly query only through predicted entities
+    //  that received a confirmed update? Would the iteration even be faster? since entities with or without sparse-set
+    //  would still be in the same table
+    for predicted_archetype in predicted_archetypes.archetypes.iter() {
+        // SAFETY: update() makes sure that we have a valid archetype
+        let archetype = unsafe {
+            world
+                .archetypes()
+                .get(predicted_archetype.id)
+                .unwrap_unchecked()
+        };
+        let table = unsafe {
+            world
+                .storages()
+                .tables
+                .get(archetype.table_id())
+                .unwrap_unchecked()
+        };
+
+        for archetype_entity in archetype.entities() {
+            let predicted = archetype_entity.id();
+            let Some(confirmed) = world.get::<Predicted>(predicted).and_then(|p| p.confirmed_entity) else {
+                // skip if the confirmed entity does not exist
+                continue
+            };
+            let [confirmed_ref, predicted_ref] = world.entity(&[confirmed, predicted]);
+            // TODO: should we send an event when an en entity receives an update? so that we check rollback
+            //  only for entities that receive an update?
+            // skip the entity if the replication group did not receive any updates
+            let confirmed_component = get_ref::<Confirmed>(
+                world,
+                confirmed,
+                system_ticks.last_run(),
+                system_ticks.this_run(),
+            );
+            if !confirmed_component.is_changed() {
+                continue
+            };
+            let confirmed_tick = confirmed_component.tick;
+            if confirmed_tick > tick {
+                warn!(
+                "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
+                confirmed,
+                confirmed_tick,
+                tick
+            );
+                return;
+            }
+
+            for predicted_component in predicted_archetype
+                .components
+                .iter()
+                .filter(|c| c.sync_mode == ComponentSyncMode::Full) {
+
+                // if the history is not present on the entity, but the confirmed component is present, we need to rollback
+                let Ok(prediction_history) = predicted_ref.get_by_id(predicted_component.history_id.unwrap()) else {
+                    if confirmed_ref.get_by_id(predicted_component.id).is_ok() {
+                        rollback.set_rollback_tick(tick + 1);
+                    }
+                    continue
+                };
+
+
+
+
+            }
+        }
+
+
+    }
+
+}
 
 /// Check if we need to do a rollback.
 /// We do this separately from `prepare_rollback` because even if component A is the same between predicted and confirmed,
