@@ -101,7 +101,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
     /// Set the ActionState for the given tick in the InputBuffer
     ///
     /// This should be called every tick.
-    pub(crate) fn set(&mut self, tick: Tick, value: &ActionState<T>) {
+    pub fn set(&mut self, tick: Tick, value: &ActionState<T>) {
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
             self.start_tick = Some(tick);
