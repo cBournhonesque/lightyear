@@ -17,6 +17,8 @@ pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
 
+pub(crate) mod archetypes;
+
 /// Marks an entity that is being predicted by the client
 #[derive(Debug, Reflect)]
 #[reflect(Component)]
