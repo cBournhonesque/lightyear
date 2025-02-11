@@ -59,6 +59,7 @@ pub(crate) mod send {
     use crate::server::prediction::handle_pre_predicted;
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
     use crate::shared;
+    use crate::shared::replication::archetypes::{ClientReplicatedArchetypes, ReplicatedComponent, ServerReplicatedArchetypes};
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
         Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId, ReplicationMarker,
@@ -66,7 +67,8 @@ pub(crate) mod send {
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
-    use bevy::ecs::component::ComponentTicks;
+    use bevy::ecs::archetype::Archetypes;
+    use bevy::ecs::component::{ComponentTicks, Components};
     use bevy::ecs::entity_disabling::Disabled;
     use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
     use bevy::ecs::world::FilteredEntityRef;
@@ -172,6 +174,9 @@ pub(crate) mod send {
                             });
                     });
                 }),
+                ParamBuilder,
+                ParamBuilder,
+                ParamBuilder,
                 ParamBuilder,
                 ParamBuilder,
                 ParamBuilder,
@@ -491,7 +496,13 @@ pub(crate) mod send {
         component_registry: Res<ComponentRegistry>,
         system_ticks: SystemChangeTick,
         mut sender: ResMut<ConnectionManager>,
+        archetypes: &Archetypes,
+        components: &Components,
+        mut replicated_archetypes: Local<ServerReplicatedArchetypes>,
     ) {
+        replicated_archetypes.update(archetypes, components, component_registry.as_ref());
+
+        // TODO: write and serialize in parallel (DashMap + pool of writers)
         query.iter().for_each(|entity_ref| {
             let entity = entity_ref.id();
             // If ReplicateLike is present, we will use the replication components from the parent entity
@@ -648,17 +659,16 @@ pub(crate) mod send {
                 return;
             }
 
+            // NOTE: we pre-cache for each archetype the list of components that should be replicated
             // d. all components that were added or changed and that are not disabled
-            for (kind, component_id) in component_registry.replication_map
-                .iter()
-                .filter(|(_, m)| m.direction != ChannelDirection::ClientToServer)
-                .map(|(kind, _)| (kind, component_registry.kind_to_component_id.get(kind).unwrap()))
-            {
-                let Some(data) = entity_ref.get_by_id(*component_id) else {
+            for ReplicatedComponent {id, kind} in replicated_archetypes.archetypes.get(&entity_ref.archetype().id()).unwrap()
+                .into_iter()
+                .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind))){
+                let Some(data) = entity_ref.get_by_id(*id) else {
                     // component not present on entity, skip
                     return
                 };
-                let component_ticks = entity_ref.get_change_ticks_by_id(*component_id).unwrap();
+                let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
 
                 let override_target =
                     override_target.and_then(|o| o.get_kind(*kind));

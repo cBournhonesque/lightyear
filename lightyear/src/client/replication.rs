@@ -134,7 +134,8 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
-    use bevy::ecs::component::ComponentTicks;
+    use bevy::ecs::archetype::Archetypes;
+    use bevy::ecs::component::{ComponentTicks, Components};
 
     use crate::connection::client::ClientConnection;
 
@@ -148,6 +149,7 @@ pub(crate) mod send {
     use crate::client::components::Confirmed;
     use crate::prelude::server::{AuthorityPeer, ControlledBy, OverrideTarget, ReplicateToClient, SyncTarget};
     use crate::server::relevance::immediate::CachedNetworkRelevance;
+    use crate::shared::replication::archetypes::{ClientReplicatedArchetypes, ReplicatedComponent};
     use crate::shared::replication::authority::HasAuthority;
     use crate::shared::replication::components::ReplicationMarker;
     use crate::shared::replication::error::ReplicationError;
@@ -238,13 +240,16 @@ pub(crate) mod send {
                         // include access to &C for all replication components with the right direction
                         component_registry.replication_map
                             .iter()
-                            .filter(|(_, m)| m.direction != ChannelDirection::ClientToServer)
+                            .filter(|(_, m)| m.direction != ChannelDirection::ServerToClient)
                             .for_each(|(kind, _)| {
                                 let id = component_registry.kind_to_component_id.get(kind).unwrap();
                                 b.ref_id(*id);
                             });
                     });
                 }),
+                ParamBuilder,
+                ParamBuilder,
+                ParamBuilder,
                 ParamBuilder,
                 ParamBuilder,
                 ParamBuilder,
@@ -366,7 +371,13 @@ pub(crate) mod send {
         component_registry: Res<ComponentRegistry>,
         system_ticks: SystemChangeTick,
         mut sender: ResMut<ConnectionManager>,
+        archetypes: &Archetypes,
+        components: &Components,
+        mut replicated_archetypes: Local<ClientReplicatedArchetypes>,
     ) {
+        replicated_archetypes.update(archetypes, components, component_registry.as_ref());
+
+        // TODO: skip disabled entities?
         query.iter().for_each(|entity_ref| {
             let entity = entity_ref.id();
 
@@ -464,7 +475,8 @@ pub(crate) mod send {
                     false,
                 )
             };
-            dbg!(&group_id, &entity);
+
+            dbg!(&disabled_components);
 
 
             // the update will be 'insert' instead of update if the ReplicateToServer component is new
@@ -496,17 +508,21 @@ pub(crate) mod send {
                 return;
             }
 
+            // TODO: should we pre-cache the list of components to replicate per archetype?
             // d. all components that were added or changed and that are not disabled
-            for (kind, component_id) in component_registry.replication_map
-                .iter()
-                .filter(|(_, m)| m.direction != ChannelDirection::ServerToClient)
-                .map(|(kind, _)| (kind, component_registry.kind_to_component_id.get(kind).unwrap()))
-            {
-                let Some(data) = entity_ref.get_by_id(*component_id) else {
+
+            // NOTE: we pre-cache the list of components for each archetype to not iterate through
+            //  all replicated components every time
+            for ReplicatedComponent {id, kind} in replicated_archetypes.archetypes.get(&entity_ref.archetype().id())
+                .unwrap()
+                .into_iter()
+                .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind))){
+
+                let Some(data) = entity_ref.get_by_id(*id) else {
                     // component not present on entity, skip
                     return
                 };
-                let component_ticks = entity_ref.get_change_ticks_by_id(*component_id).unwrap();
+                let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
 
                 // TODO: maybe the old method was faster because we had-precached the delta-compression data
                 //  for the archetype?
@@ -531,7 +547,7 @@ pub(crate) mod send {
                     .inspect_err(|e| {
                         error!(
                             "Error replicating component {:?} update for entity {:?}: {:?}",
-                            *kind, entity, e
+                            kind, entity, e
                         )
                     });
             }
