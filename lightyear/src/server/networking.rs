@@ -5,9 +5,9 @@ use crate::connection::server::{
 };
 use crate::prelude::server::is_stopped;
 use crate::prelude::{
-    is_host_server, ChannelRegistry, ClientId, MainSet, MessageRegistry, TickManager, TimeManager,
+    is_host_server, ChannelRegistry, ClientId, ComponentRegistry, MainSet, MessageRegistry,
+    TickManager, TimeManager,
 };
-use crate::protocol::component::ComponentRegistry;
 use crate::serialize::reader::Reader;
 use crate::server::clients::ControlledEntities;
 use crate::server::config::ServerConfig;

@@ -460,7 +460,11 @@ mod tests {
     fn client_send_trigger_via_send_event() {
         let mut stepper = HostServerStepper::default();
 
-        let server_entity = stepper.server_app.world_mut().spawn(ReplicateToClient::default()).id();
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(ReplicateToClient::default())
+            .id();
         stepper.frame_step();
         stepper.frame_step();
         let client_entity = stepper
@@ -474,7 +478,10 @@ mod tests {
 
         stepper.server_app.init_resource::<Counter>();
         // spawn observer that watches a given entity
-        stepper.server_app.world_mut().spawn(Observer::new(count_messages_observer).with_entity(server_entity));
+        stepper
+            .server_app
+            .world_mut()
+            .spawn(Observer::new(count_messages_observer).with_entity(server_entity));
 
         // Send the message from the remote client
         stepper

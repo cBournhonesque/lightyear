@@ -27,7 +27,7 @@ use crate::prelude::{
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{
-    ComponentError, ComponentKind, ComponentNetId, ComponentRegistry,
+    registry::ComponentRegistry, ComponentError, ComponentKind, ComponentNetId,
 };
 use crate::protocol::message::registry::MessageRegistry;
 use crate::protocol::message::MessageError;
