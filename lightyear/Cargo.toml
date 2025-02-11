@@ -61,7 +61,6 @@ nonzero_ext.workspace = true
 parking_lot.workspace = true
 paste.workspace = true
 rand.workspace = true
-rayon.workspace = true
 ringbuffer.workspace = true
 thiserror.workspace = true
 seahash.workspace = true

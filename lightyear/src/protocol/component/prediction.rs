@@ -64,6 +64,16 @@ impl ComponentRegistry {
                 .filter_map(|kind| self.kind_to_component_id.get(kind).copied())
         }
 
+        pub fn predicted_component_ids_with_mode(
+            &self,
+            mode: ComponentSyncMode,
+        ) -> impl Iterator<Item = ComponentId> + use<'_> {
+            self.prediction_map
+                .iter()
+                .filter(move |(_, m)| m.sync_mode == mode)
+                .filter_map(|(kind, _)| self.kind_to_component_id.get(kind).copied())
+        }
+
         pub fn set_prediction_mode<C: SyncComponent>(&mut self, history_id: Option<ComponentId>, mode: ComponentSyncMode) {
             let kind = ComponentKind::of::<C>();
             self.prediction_map
