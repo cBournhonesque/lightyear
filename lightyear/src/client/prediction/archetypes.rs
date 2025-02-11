@@ -55,9 +55,9 @@ impl PredictedArchetypes {
 
     /// Update the list of predicted archetypes by going through all newly-added archetypes
     pub(crate) fn update(&mut self, archetypes: &Archetypes, components: &Components, registry: &ComponentRegistry) {
-        let old_generation = core::mem::replace(&mut self.generation, archetypes().generation());
+        let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
         // iterate through the newly added archetypes
-        for archetype in archetypes()[old_generation..]
+        for archetype in archetypes[old_generation..]
             .iter()
             .filter(|archetype| {
                 archetype.contains(self.predicted_component_id)
@@ -69,7 +69,7 @@ impl PredictedArchetypes {
             };
             // add all components from the registry that are predicted
             archetype.components().for_each(|component| {
-                let info = unsafe { components().get_info(component).unwrap_unchecked() };
+                let info = unsafe { components.get_info(component).unwrap_unchecked() };
                 // if the component has a type_id (i.e. is a rust type)
                 if let Some(kind) = info.type_id().map(ComponentKind) {
                     // the component is not registered for prediction in the ComponentProtocol

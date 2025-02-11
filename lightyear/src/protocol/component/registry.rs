@@ -444,9 +444,9 @@ impl AppComponentExt for App {
     }
 
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {
-
+        let history_id = (prediction_mode == ComponentSyncMode::Full).then(|| self.world_mut().register_component::<PredictionHistory<C>>());
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
-        registry.set_prediction_mode::<C>(prediction_mode);
+        registry.set_prediction_mode::<C>(history_id, prediction_mode);
 
         // TODO: make prediction/interpolation possible on server?
         let is_client = self.world().get_resource::<ClientConfig>().is_some();

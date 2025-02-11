@@ -6,6 +6,7 @@ use crate::prelude::{ComponentRegistry, HistoryState, Linear, Tick};
 use crate::protocol::component::registry::LerpFn;
 use crate::protocol::component::{ComponentError, ComponentKind};
 use bevy::ecs::component::ComponentId;
+use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy::prelude::*;
 use bevy::ptr::{Ptr, PtrMut};
 
@@ -25,10 +26,14 @@ pub struct PredictionMetadata {
 
 type SyncFn = fn(&mut ComponentRegistry, confirmed: Entity, predicted: Entity, &World);
 
-type CheckRollbackFn = fn(&mut ComponentRegistry, predicted_ref: EntityRef, confirmed_ref: EntityRef, &World) -> bool;
+type CheckRollbackFn = fn(
+    &ComponentRegistry,
+    confirmed_tick: Tick,
+    confirmed_ref: &FilteredEntityRef,
+    predicted_mut: &mut FilteredEntityMut) -> bool;
 
 impl PredictionMetadata {
-    fn default_from<C: SyncComponent>(mode: ComponentSyncMode) -> Self {
+    fn default_from<C: SyncComponent>(history_id: Option<ComponentId>, mode: ComponentSyncMode) -> Self {
         let should_rollback: ShouldRollbackFn<C> = <C as PartialEq>::ne;
         Self {
             history_id,
@@ -59,11 +64,11 @@ impl ComponentRegistry {
                 .filter_map(|kind| self.kind_to_component_id.get(kind).copied())
         }
 
-        pub fn set_prediction_mode<C: SyncComponent>(&mut self, mode: ComponentSyncMode) {
+        pub fn set_prediction_mode<C: SyncComponent>(&mut self, history_id: Option<ComponentId>, mode: ComponentSyncMode) {
             let kind = ComponentKind::of::<C>();
             self.prediction_map
                 .entry(kind)
-                .or_insert_with(|| PredictionMetadata::default_from::<C>(mode));
+                .or_insert_with(|| PredictionMetadata::default_from::<C>(history_id, mode));
         }
 
         pub fn set_should_rollback<C: SyncComponent + PartialEq>(
@@ -227,21 +232,18 @@ impl ComponentRegistry {
             };
         }
 
+        /// Returns true if we should rollback
         pub fn check_rollback<C: SyncComponent>(
             &self,
             confirmed_tick: Tick,
-            confirmed_component: Option<Ptr>,
-            predicted_history: Option<PtrMut>,
-            world,
+            confirmed_ref: &FilteredEntityRef,
+            predicted_mut: &mut FilteredEntityMut,
         ) -> bool {
-            let confirmed_component = confirmed_component.map(|ptr| unsafe { ptr.deref::<C>() });
-            // if the history is not present on the entity, but the confirmed component is present, we need to rollback
-            let Some(mut predicted_history) = predicted_history else {
-                if confirmed_component.is_some() {
-                    return true
-                }
+            let confirmed_component = confirmed_ref.get::<C>();
+            let Some(mut predicted_history) = predicted_mut.get_mut::<PredictionHistory<C>>() else {
+                // if the history is not present on the entity, but the confirmed component is present, we need to rollback
+                return confirmed_component.is_some()
             };
-            let predicted_history = unsafe { predicted_history.deref_mut::<PredictionHistory<C>>() };
 
             #[cfg(feature = "metrics")]
             metrics::gauge!(format!(
