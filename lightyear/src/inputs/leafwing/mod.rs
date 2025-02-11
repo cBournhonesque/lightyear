@@ -8,7 +8,7 @@ use serde::Serialize;
 
 pub(crate) mod action_diff;
 pub mod input_buffer;
-pub(crate) mod input_message;
+pub mod input_message;
 
 /// An enum that represents a list of user actions.
 ///

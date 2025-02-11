@@ -103,7 +103,7 @@ impl<A: LeafwingUserAction> InputMessage<A> {
     ///
     /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
     /// we have an `ActionState`.
-    pub(crate) fn add_inputs(
+    pub fn add_inputs(
         &mut self,
         num_ticks: u16,
         target: InputTarget,
