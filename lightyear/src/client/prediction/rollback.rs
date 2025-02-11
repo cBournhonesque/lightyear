@@ -21,7 +21,6 @@ use super::Predicted;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::prediction::archetypes::PredictedArchetypes;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::resource::PredictionManager;
@@ -207,6 +206,7 @@ fn check_rollback(
         //     system_ticks.last_run(),
         //     system_ticks.this_run(),
         // );
+
         // TODO: should we send an event when an en entity receives an update? so that we check rollback
         //  only for entities that receive an update?
         // skip the entity if the replication group did not receive any updates
@@ -231,7 +231,6 @@ fn check_rollback(
             .take_while(|_| !rollback.is_rollback()) {
             if (prediction_metadata.check_rollback)(&component_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
                 rollback.set_rollback_tick(confirmed_tick + 1);
-                dbg!("set rollback tick");
                 return;
             }
         }
