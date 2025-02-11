@@ -1,13 +1,10 @@
-use crate::client::components::Confirmed;
 use crate::client::prediction::Predicted;
-use crate::prelude::client::ComponentSyncMode;
 use crate::prelude::ComponentRegistry;
 use crate::protocol::component::ComponentKind;
-use crate::shared::replication::archetypes::ClientReplicatedArchetypes;
 use crate::utils::collections::HashMap;
 use bevy::ecs::archetype::{ArchetypeGeneration, ArchetypeId, Archetypes};
-use bevy::ecs::component::{ComponentId, Components, StorageType};
-use bevy::prelude::{Component, FromWorld, Resource, World};
+use bevy::ecs::component::{ComponentId, Components};
+use bevy::prelude::{FromWorld, Resource, World};
 use tracing::trace;
 
 /// Cached list of archetypes that are predicted.
