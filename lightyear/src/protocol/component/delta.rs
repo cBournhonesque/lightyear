@@ -18,9 +18,7 @@ use tracing::trace;
 
 impl ComponentRegistry {
     /// Register delta compression functions for a component
-    pub fn set_delta_compression<
-        C: Component<Mutability = Mutable> + PartialEq + Diffable,
-    >(
+    pub fn set_delta_compression<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
         &mut self,
         world: &mut World,
     ) where
@@ -191,9 +189,7 @@ impl ComponentRegistry {
                 }
                 // store the component value in the delta component history, so that we can compute
                 // diffs from it
-                if let Some(mut history) =
-                    entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
-                {
+                if let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>() {
                     history.buffer.insert(tick, value);
                 } else {
                     // create a DeltaComponentHistory and insert the value
@@ -209,9 +205,7 @@ impl ComponentRegistry {
     /// Insert a component delta into the entity.
     /// If the component is not present on the entity, we put it in a temporary buffer
     /// so that all components can be inserted at once
-    pub fn buffer_insert_delta<
-        C: Component<Mutability = Mutable> + PartialEq + Diffable,
-    >(
+    pub fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
         &mut self,
         reader: &mut Reader,
         tick: Tick,
@@ -260,9 +254,7 @@ impl ComponentRegistry {
                 }
                 // store the component value in the delta component history, so that we can compute
                 // diffs from it
-                if let Some(mut history) =
-                    entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
-                {
+                if let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>() {
                     history.buffer.insert(tick, cloned_value);
                 } else {
                     // create a DeltaComponentHistory and insert the value
@@ -365,7 +357,6 @@ impl ErasedDeltaFns {
 mod tests {
     use super::*;
     use crate::tests::protocol::ComponentDeltaCompression;
-
 
     #[test]
     fn test_erased_clone() {

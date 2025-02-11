@@ -2,8 +2,7 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
 use bevy::app::FixedMain;
-use bevy::ecs::archetype::Archetypes;
-use bevy::ecs::component::{Components, Mutable};
+use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::reflect::ReflectResource;
@@ -25,18 +24,12 @@ use crate::client::prediction::correction::Correction;
 use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::server::ReplicateToClient;
-use crate::prelude::{ComponentRegistry, HistoryState, MessageRegistry, PreSpawned, Tick, TickManager};
-use crate::shared;
-use crate::shared::replication::archetypes::ServerReplicatedArchetypes;
-use crate::shared::replication::utils::get_ref;
-
+use crate::prelude::{ComponentRegistry, HistoryState, PreSpawned, Tick, TickManager};
 
 pub struct RollbackPlugin;
 
 impl Plugin for RollbackPlugin {
-    fn build(&self, app: &mut App) {
-    }
+    fn build(&self, app: &mut App) {}
 
     /// Wait until every component has been registered in the ComponentRegistry
     fn finish(&self, app: &mut App) {
@@ -51,10 +44,11 @@ impl Plugin for RollbackPlugin {
                 builder.data::<&Confirmed>();
                 builder.optional(|b| {
                     // include access to &C for all ComponentSyncMode=Full components
-                    component_registry.predicted_component_ids_with_mode(ComponentSyncMode::Full)
+                    component_registry
+                        .predicted_component_ids_with_mode(ComponentSyncMode::Full)
                         .for_each(|id| {
                             b.ref_id(id);
-                    });
+                        });
                 });
             }),
             QueryParamBuilder::new(|builder| {
@@ -64,7 +58,8 @@ impl Plugin for RollbackPlugin {
                     // include Disabled entities
                     b.data::<&Disabled>();
                     // include access to &mut PredictionHistory<C> for all ComponentSyncMode=Full components
-                    component_registry.prediction_map
+                    component_registry
+                        .prediction_map
                         .values()
                         .filter(|m| m.sync_mode == ComponentSyncMode::Full)
                         .for_each(|m| {
@@ -77,10 +72,14 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
-        ).build_state(app.world_mut())
+        )
+            .build_state(app.world_mut())
             .build_system(check_rollback);
 
-        app.add_systems(PreUpdate, check_rollback.in_set(PredictionSet::CheckRollback));
+        app.add_systems(
+            PreUpdate,
+            check_rollback.in_set(PredictionSet::CheckRollback),
+        );
 
         app.insert_resource(component_registry);
     }
@@ -236,7 +235,6 @@ fn check_rollback(
         }
     })
 }
-
 
 // TODO: maybe restore only the ones for which the Confirmed entity is not disabled?
 /// Before we start preparing for rollback, restore any Disabled predicted entity
@@ -791,7 +789,8 @@ mod unit_tests {
                 builder.data::<&Confirmed>();
                 builder.optional(|b| {
                     // include access to &C for all ComponentSyncMode=Full components
-                    component_registry.predicted_component_ids_with_mode(ComponentSyncMode::Full)
+                    component_registry
+                        .predicted_component_ids_with_mode(ComponentSyncMode::Full)
                         .for_each(|id| {
                             b.ref_id(id);
                         });
@@ -804,7 +803,8 @@ mod unit_tests {
                     // include Disabled entities
                     b.data::<&Disabled>();
                     // include access to &mut PredictionHistory<C> for all ComponentSyncMode=Full components
-                    component_registry.prediction_map
+                    component_registry
+                        .prediction_map
                         .values()
                         .filter(|m| m.sync_mode == ComponentSyncMode::Full)
                         .for_each(|m| {
@@ -817,11 +817,18 @@ mod unit_tests {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
-        ).build_state(stepper.client_app.world_mut())
+        )
+            .build_state(stepper.client_app.world_mut())
             .build_system(check_rollback);
 
-        stepper.client_app.world_mut().insert_resource(component_registry);
-        let check_rollback_id = stepper.client_app.world_mut().register_system(check_rollback);
+        stepper
+            .client_app
+            .world_mut()
+            .insert_resource(component_registry);
+        let check_rollback_id = stepper
+            .client_app
+            .world_mut()
+            .register_system(check_rollback);
 
         // add predicted/confirmed entities
         let tick = stepper.client_tick();
@@ -864,10 +871,7 @@ mod unit_tests {
         // simulate that we received a server message for the confirmed entity on tick `tick`
         // where the PredictionHistory had the value of 1.0
         received_confirmed_update(&mut stepper, confirmed, tick);
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .run_system(check_rollback_id);
+        let _ = stepper.client_app.world_mut().run_system(check_rollback_id);
         assert_eq!(
             stepper
                 .client_app
@@ -891,10 +895,7 @@ mod unit_tests {
             .remove::<ComponentSyncModeFull>();
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .run_system(check_rollback_id);
+        let _ = stepper.client_app.world_mut().run_system(check_rollback_id);
         assert_eq!(
             stepper
                 .client_app
@@ -923,10 +924,7 @@ mod unit_tests {
             .insert(ComponentSyncModeFull(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .run_system(check_rollback_id);
+        let _ = stepper.client_app.world_mut().run_system(check_rollback_id);
         assert_eq!(
             stepper
                 .client_app
@@ -953,10 +951,7 @@ mod unit_tests {
 
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .run_system(check_rollback_id);
+        let _ = stepper.client_app.world_mut().run_system(check_rollback_id);
         assert!(!stepper
             .client_app
             .world()

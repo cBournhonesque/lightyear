@@ -9,7 +9,6 @@ use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::entity_map::ReceiveEntityMap;
 
 use bevy::ecs::component::{Component, ComponentId, Mutable};
-use bevy::ecs::observer::Trigger;
 use bevy::prelude::*;
 use bevy::ptr::OwningPtr;
 use bytes::Bytes;
@@ -124,91 +123,46 @@ type RawBufferInsertFn = fn(
     &mut ConnectionEvents,
 ) -> Result<(), ComponentError>;
 
+impl ComponentRegistry {
+    pub fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
+        self.replication_map
+            .get(&kind)
+            .map(|metadata| metadata.direction)
+    }
 
-    impl ComponentRegistry {
-        pub fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
-            self.replication_map
-                .get(&kind)
-                .map(|metadata| metadata.direction)
-        }
+    pub fn set_replication_fns<C: Component<Mutability = Mutable> + PartialEq>(
+        &mut self,
+        world: &mut World,
+        direction: ChannelDirection,
+    ) {
+        self.replication_map.insert(
+            ComponentKind::of::<C>(),
+            ReplicationMetadata {
+                direction,
+                write: Self::write::<C>,
+                buffer_insert_fn: Self::buffer_insert::<C>,
+                remove: Some(Self::buffer_remove::<C>),
+            },
+        );
+    }
 
-        pub fn set_replication_fns<C: Component<Mutability = Mutable> + PartialEq>(
-            &mut self,
-            world: &mut World,
-            direction: ChannelDirection,
-        ) {
-            self.replication_map.insert(
-                ComponentKind::of::<C>(),
-                ReplicationMetadata {
-                    direction,
-                    write: Self::write::<C>,
-                    buffer_insert_fn: Self::buffer_insert::<C>,
-                    remove: Some(Self::buffer_remove::<C>),
-                },
-            );
-        }
-
-        /// Insert a batch of components on the entity
-        ///
-        /// This method will insert all the components simultaneously.
-        /// If any component already existed on the entity, it will be updated instead of inserted.
-        pub fn batch_insert(
-            &mut self,
-            component_bytes: Vec<Bytes>,
-            entity_world_mut: &mut EntityWorldMut,
-            tick: Tick,
-            entity_map: &mut ReceiveEntityMap,
-            events: &mut ConnectionEvents,
-        ) -> Result<(), ComponentError> {
-            component_bytes.into_iter().try_for_each(|b| {
-                // TODO: reuse a single reader that reads through the entire message ?
-                let mut reader = Reader::from(b);
-                let net_id =
-                    ComponentNetId::from_bytes(&mut reader).map_err(SerializationError::from)?;
-                let kind = self
-                    .kind_map
-                    .kind(net_id)
-                    .ok_or(ComponentError::NotRegistered)?;
-                let replication_metadata = self
-                    .replication_map
-                    .get(kind)
-                    .ok_or(ComponentError::MissingReplicationFns)?;
-                // buffer the component data into the temporary buffer so that
-                // all components can be inserted at once
-                (replication_metadata.buffer_insert_fn)(
-                    self,
-                    &mut reader,
-                    tick,
-                    entity_world_mut,
-                    entity_map,
-                    events,
-                )?;
-                Ok::<(), ComponentError>(())
-            })?;
-
-            // TODO: sort by component id for cache efficiency!
-            //  maybe it's not needed because on the server side we iterate through archetypes in a deterministic order?
-            // # Safety
-            // - Each [`ComponentId`] is from the same world as [`EntityWorldMut`]
-            // - Each [`OwningPtr`] is a valid reference to the type represented by [`ComponentId`]
-            //   (the data is store in self.raw_bytes)
-
-            trace!(?self.temp_write_buffer.component_ids, "Inserting components into entity");
-            // SAFETY: we call `buffer_insert_raw_ptrs` inside the `buffer_insert_fn` function
-            unsafe { self.temp_write_buffer.batch_insert(entity_world_mut) };
-            Ok(())
-        }
-
-        /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
-        pub fn raw_write(
-            &self,
-            reader: &mut Reader,
-            entity_world_mut: &mut EntityWorldMut,
-            tick: Tick,
-            entity_map: &mut ReceiveEntityMap,
-            events: &mut ConnectionEvents,
-        ) -> Result<ComponentKind, ComponentError> {
-            let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
+    /// Insert a batch of components on the entity
+    ///
+    /// This method will insert all the components simultaneously.
+    /// If any component already existed on the entity, it will be updated instead of inserted.
+    pub fn batch_insert(
+        &mut self,
+        component_bytes: Vec<Bytes>,
+        entity_world_mut: &mut EntityWorldMut,
+        tick: Tick,
+        entity_map: &mut ReceiveEntityMap,
+        events: &mut ConnectionEvents,
+    ) -> Result<(), ComponentError> {
+        component_bytes.into_iter().try_for_each(|b| {
+            // TODO: reuse a single reader that reads through the entire message ?
+            let mut reader = Reader::from(b);
+            let net_id =
+                ComponentNetId::from_bytes(&mut reader).map_err(SerializationError::from)?;
             let kind = self
                 .kind_map
                 .kind(net_id)
@@ -217,153 +171,197 @@ type RawBufferInsertFn = fn(
                 .replication_map
                 .get(kind)
                 .ok_or(ComponentError::MissingReplicationFns)?;
-            (replication_metadata.write)(self, reader, tick, entity_world_mut, entity_map, events)?;
-            Ok(*kind)
-        }
+            // buffer the component data into the temporary buffer so that
+            // all components can be inserted at once
+            (replication_metadata.buffer_insert_fn)(
+                self,
+                &mut reader,
+                tick,
+                entity_world_mut,
+                entity_map,
+                events,
+            )?;
+            Ok::<(), ComponentError>(())
+        })?;
 
-        /// Method that buffers a pointer to the component data that will be inserted
-        /// in the entity inside `self.raw_bytes`
-        pub fn buffer_insert<C: Component<Mutability = Mutable> + PartialEq>(
-            &mut self,
-            reader: &mut Reader,
-            tick: Tick,
-            entity_world_mut: &mut EntityWorldMut,
-            entity_map: &mut ReceiveEntityMap,
-            events: &mut ConnectionEvents,
-        ) -> Result<(), ComponentError> {
-            let kind = ComponentKind::of::<C>();
-            let component_id = self
-                .kind_to_component_id
-                .get(&kind)
-                .ok_or(ComponentError::NotRegistered)?;
-            let component = self.raw_deserialize::<C>(reader, entity_map)?;
-            let entity = entity_world_mut.id();
-            debug!("Insert component {} to entity", std::any::type_name::<C>());
+        // TODO: sort by component id for cache efficiency!
+        //  maybe it's not needed because on the server side we iterate through archetypes in a deterministic order?
+        // # Safety
+        // - Each [`ComponentId`] is from the same world as [`EntityWorldMut`]
+        // - Each [`OwningPtr`] is a valid reference to the type represented by [`ComponentId`]
+        //   (the data is store in self.raw_bytes)
 
-            // if the component is already on the entity, no need to insert
-            if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                // TODO: when can we be in this situation? on authority change?
-                // only apply the update if the component is different, to not trigger change detection
-                if c.as_ref() != &component {
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("replication::receive::component::update").increment(1);
-                        metrics::counter!(format!(
-                            "replication::receive::component::{}::update",
-                            std::any::type_name::<C>()
-                        ))
-                        .increment(1);
-                    }
-                    events.push_update_component(entity, kind, tick);
-                    *c = component;
-                }
-            } else {
-                // TODO: add safety comment
-                unsafe {
-                    self.temp_write_buffer
-                        .buffer_insert_raw_ptrs::<C>(component, *component_id)
-                };
-                // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
+        trace!(?self.temp_write_buffer.component_ids, "Inserting components into entity");
+        // SAFETY: we call `buffer_insert_raw_ptrs` inside the `buffer_insert_fn` function
+        unsafe { self.temp_write_buffer.batch_insert(entity_world_mut) };
+        Ok(())
+    }
+
+    /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
+    pub fn raw_write(
+        &self,
+        reader: &mut Reader,
+        entity_world_mut: &mut EntityWorldMut,
+        tick: Tick,
+        entity_map: &mut ReceiveEntityMap,
+        events: &mut ConnectionEvents,
+    ) -> Result<ComponentKind, ComponentError> {
+        let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
+        let kind = self
+            .kind_map
+            .kind(net_id)
+            .ok_or(ComponentError::NotRegistered)?;
+        let replication_metadata = self
+            .replication_map
+            .get(kind)
+            .ok_or(ComponentError::MissingReplicationFns)?;
+        (replication_metadata.write)(self, reader, tick, entity_world_mut, entity_map, events)?;
+        Ok(*kind)
+    }
+
+    /// Method that buffers a pointer to the component data that will be inserted
+    /// in the entity inside `self.raw_bytes`
+    pub fn buffer_insert<C: Component<Mutability = Mutable> + PartialEq>(
+        &mut self,
+        reader: &mut Reader,
+        tick: Tick,
+        entity_world_mut: &mut EntityWorldMut,
+        entity_map: &mut ReceiveEntityMap,
+        events: &mut ConnectionEvents,
+    ) -> Result<(), ComponentError> {
+        let kind = ComponentKind::of::<C>();
+        let component_id = self
+            .kind_to_component_id
+            .get(&kind)
+            .ok_or(ComponentError::NotRegistered)?;
+        let component = self.raw_deserialize::<C>(reader, entity_map)?;
+        let entity = entity_world_mut.id();
+        debug!("Insert component {} to entity", std::any::type_name::<C>());
+
+        // if the component is already on the entity, no need to insert
+        if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+            // TODO: when can we be in this situation? on authority change?
+            // only apply the update if the component is different, to not trigger change detection
+            if c.as_ref() != &component {
                 #[cfg(feature = "metrics")]
                 {
-                    metrics::counter!("replication::receive::component::insert").increment(1);
+                    metrics::counter!("replication::receive::component::update").increment(1);
                     metrics::counter!(format!(
-                        "replication::receive::component::{}::insert",
+                        "replication::receive::component::{}::update",
                         std::any::type_name::<C>()
                     ))
                     .increment(1);
                 }
-                events.push_insert_component(entity, kind, tick);
+                events.push_update_component(entity, kind, tick);
+                *c = component;
             }
-            Ok(())
-        }
-
-        pub fn write<C: Component<Mutability = Mutable> + PartialEq>(
-            &self,
-            reader: &mut Reader,
-            tick: Tick,
-            entity_world_mut: &mut EntityWorldMut,
-            entity_map: &mut ReceiveEntityMap,
-            events: &mut ConnectionEvents,
-        ) -> Result<(), ComponentError> {
-            debug!("Writing component {} to entity", std::any::type_name::<C>());
-            let kind = ComponentKind::of::<C>();
-            let component = self.raw_deserialize::<C>(reader, entity_map)?;
-            let entity = entity_world_mut.id();
+        } else {
+            // TODO: add safety comment
+            unsafe {
+                self.temp_write_buffer
+                    .buffer_insert_raw_ptrs::<C>(component, *component_id)
+            };
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
-            if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                // only apply the update if the component is different, to not trigger change detection
-                if c.as_ref() != &component {
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("replication::receive::component::update").increment(1);
-                        metrics::counter!(format!(
-                            "replication::receive::component::{}::update",
-                            std::any::type_name::<C>()
-                        ))
-                        .increment(1);
-                    }
-                    events.push_update_component(entity, kind, tick);
-                    *c = component;
-                }
-            } else {
-                #[cfg(feature = "metrics")]
-                {
-                    metrics::counter!("replication::receive::component::insert").increment(1);
-                    metrics::counter!(format!(
-                        "replication::receive::component::{}::insert",
-                        std::any::type_name::<C>()
-                    ))
-                    .increment(1);
-                }
-                events.push_insert_component(entity, kind, tick);
-                entity_world_mut.insert(component);
-            }
-            Ok(())
-        }
-
-        pub fn batch_remove(
-            &mut self,
-            net_ids: Vec<ComponentNetId>,
-            entity_world_mut: &mut EntityWorldMut,
-            tick: Tick,
-            events: &mut ConnectionEvents,
-        ) {
-            for net_id in net_ids {
-                let kind = self.kind_map.kind(net_id).expect("unknown component kind");
-                let replication_metadata = self
-                    .replication_map
-                    .get(kind)
-                    .expect("the component is not part of the protocol");
-                events.push_remove_component(entity_world_mut.id(), *kind, tick);
-                let remove_fn = replication_metadata
-                    .remove
-                    .expect("the component does not have a remove function");
-                remove_fn(self);
-            }
-
-            entity_world_mut.remove_by_ids(&self.temp_write_buffer.component_ids);
-            self.temp_write_buffer.component_ids.clear();
-        }
-
-        /// Prepare for a component being removed
-        /// We don't actually remove the component here, we just push the ComponentId to the `component_ids` vector
-        /// so that they can all be removed at the same time
-        pub fn buffer_remove<C: Component>(&mut self) {
-            let kind = ComponentKind::of::<C>();
-            let component_id = self.kind_to_component_id.get(&kind).unwrap();
-            self.temp_write_buffer.component_ids.push(*component_id);
             #[cfg(feature = "metrics")]
             {
-                metrics::counter!("replication::receive::component::remove").increment(1);
+                metrics::counter!("replication::receive::component::insert").increment(1);
                 metrics::counter!(format!(
-                    "replication::receive::component::{}::remove",
+                    "replication::receive::component::{}::insert",
                     std::any::type_name::<C>()
                 ))
                 .increment(1);
             }
+            events.push_insert_component(entity, kind, tick);
+        }
+        Ok(())
+    }
+
+    pub fn write<C: Component<Mutability = Mutable> + PartialEq>(
+        &self,
+        reader: &mut Reader,
+        tick: Tick,
+        entity_world_mut: &mut EntityWorldMut,
+        entity_map: &mut ReceiveEntityMap,
+        events: &mut ConnectionEvents,
+    ) -> Result<(), ComponentError> {
+        debug!("Writing component {} to entity", std::any::type_name::<C>());
+        let kind = ComponentKind::of::<C>();
+        let component = self.raw_deserialize::<C>(reader, entity_map)?;
+        let entity = entity_world_mut.id();
+        // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
+        if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+            // only apply the update if the component is different, to not trigger change detection
+            if c.as_ref() != &component {
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("replication::receive::component::update").increment(1);
+                    metrics::counter!(format!(
+                        "replication::receive::component::{}::update",
+                        std::any::type_name::<C>()
+                    ))
+                    .increment(1);
+                }
+                events.push_update_component(entity, kind, tick);
+                *c = component;
+            }
+        } else {
+            #[cfg(feature = "metrics")]
+            {
+                metrics::counter!("replication::receive::component::insert").increment(1);
+                metrics::counter!(format!(
+                    "replication::receive::component::{}::insert",
+                    std::any::type_name::<C>()
+                ))
+                .increment(1);
+            }
+            events.push_insert_component(entity, kind, tick);
+            entity_world_mut.insert(component);
+        }
+        Ok(())
+    }
+
+    pub fn batch_remove(
+        &mut self,
+        net_ids: Vec<ComponentNetId>,
+        entity_world_mut: &mut EntityWorldMut,
+        tick: Tick,
+        events: &mut ConnectionEvents,
+    ) {
+        for net_id in net_ids {
+            let kind = self.kind_map.kind(net_id).expect("unknown component kind");
+            let replication_metadata = self
+                .replication_map
+                .get(kind)
+                .expect("the component is not part of the protocol");
+            events.push_remove_component(entity_world_mut.id(), *kind, tick);
+            let remove_fn = replication_metadata
+                .remove
+                .expect("the component does not have a remove function");
+            remove_fn(self);
+        }
+
+        entity_world_mut.remove_by_ids(&self.temp_write_buffer.component_ids);
+        self.temp_write_buffer.component_ids.clear();
+    }
+
+    /// Prepare for a component being removed
+    /// We don't actually remove the component here, we just push the ComponentId to the `component_ids` vector
+    /// so that they can all be removed at the same time
+    pub fn buffer_remove<C: Component>(&mut self) {
+        let kind = ComponentKind::of::<C>();
+        let component_id = self.kind_to_component_id.get(&kind).unwrap();
+        self.temp_write_buffer.component_ids.push(*component_id);
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("replication::receive::component::remove").increment(1);
+            metrics::counter!(format!(
+                "replication::receive::component::{}::remove",
+                std::any::type_name::<C>()
+            ))
+            .increment(1);
         }
     }
+}
 
 pub fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirection) {
     let is_client = app.world().get_resource::<ClientConfig>().is_some();
@@ -403,7 +401,9 @@ pub fn register_component_send<C: Component>(app: &mut App, direction: ChannelDi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeOnce, ComponentSyncModeSimple};
+    use crate::tests::protocol::{
+        ComponentSyncModeFull, ComponentSyncModeOnce, ComponentSyncModeSimple,
+    };
 
     #[derive(Debug, Default, Clone, PartialEq, TypePath, Resource)]
     struct Buffer(TempWriteBuffer);

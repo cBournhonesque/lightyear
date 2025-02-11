@@ -17,7 +17,10 @@ use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, ConnectionError, ConnectionState, NetClient};
 use crate::connection::server::IoConfig;
 use crate::prelude::client::NetConfig;
-use crate::prelude::{is_host_server, server, ChannelRegistry, ComponentRegistry, MainSet, MessageRegistry, TickManager, TimeManager};
+use crate::prelude::{
+    is_host_server, server, ChannelRegistry, ComponentRegistry, MainSet, MessageRegistry,
+    TickManager, TimeManager,
+};
 use crate::server::clients::ControlledEntities;
 use crate::shared::replication::components::Replicated;
 use crate::shared::sets::{ClientMarker, InternalMainSet};

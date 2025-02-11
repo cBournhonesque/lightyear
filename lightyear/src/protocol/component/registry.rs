@@ -1,15 +1,21 @@
 use crate::channel::builder::ChannelDirection;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::config::ClientConfig;
-use crate::client::interpolation::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
-use crate::client::prediction::plugin::{add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems};
+use crate::client::interpolation::plugin::{
+    add_interpolation_systems, add_prepare_interpolation_systems,
+};
+use crate::client::prediction::plugin::{
+    add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
+};
 use crate::client::prediction::predicted_history::PredictionHistory;
 use crate::packet::message::Message;
 use crate::prelude::Linear;
 use crate::protocol::component::delta::ErasedDeltaFns;
 use crate::protocol::component::interpolation::InterpolationMetadata;
 use crate::protocol::component::prediction::{PredictionMetadata, ShouldRollbackFn};
-use crate::protocol::component::replication::{register_component_send, ReplicationMetadata, TempWriteBuffer};
+use crate::protocol::component::replication::{
+    register_component_send, ReplicationMetadata, TempWriteBuffer,
+};
 use crate::protocol::component::{ComponentError, ComponentKind, ComponentNetId};
 use crate::protocol::registry::{NetId, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
@@ -444,7 +450,10 @@ impl AppComponentExt for App {
     }
 
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {
-        let history_id = (prediction_mode == ComponentSyncMode::Full).then(|| self.world_mut().register_component::<PredictionHistory<C>>());
+        let history_id = (prediction_mode == ComponentSyncMode::Full).then(|| {
+            self.world_mut()
+                .register_component::<PredictionHistory<C>>()
+        });
         let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_prediction_mode::<C>(history_id, prediction_mode);
 
@@ -663,6 +672,4 @@ mod tests {
             .unwrap();
         assert_eq!(component, read);
     }
-
-
 }

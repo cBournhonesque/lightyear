@@ -199,7 +199,8 @@ pub mod prelude {
     pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
     pub use crate::protocol::component::{
         interpolation::Linear,
-        registry::{AppComponentExt, ComponentRegistry}};
+        registry::{AppComponentExt, ComponentRegistry},
+    };
     pub use crate::protocol::message::{
         registry::{AppMessageExt, MessageRegistry},
         resource::AppResourceExt,

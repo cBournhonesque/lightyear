@@ -3,7 +3,11 @@ use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
     handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
-use super::rollback::{increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback, Rollback, RollbackPlugin, RollbackState};
+use super::rollback::{
+    increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
+    prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback,
+    Rollback, RollbackPlugin, RollbackState,
+};
 use super::spawn::spawn_predicted_entity;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
@@ -438,7 +442,11 @@ impl Plugin for PredictionPlugin {
         .configure_sets(PostUpdate, PredictionSet::All.run_if(should_prediction_run));
 
         // PLUGINS
-        app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin, RollbackPlugin));
+        app.add_plugins((
+            PrePredictionPlugin,
+            PreSpawnedPlayerObjectPlugin,
+            RollbackPlugin,
+        ));
     }
 
     // We run this after `build` and `finish` to make sure that all components were registered before we create the observer
