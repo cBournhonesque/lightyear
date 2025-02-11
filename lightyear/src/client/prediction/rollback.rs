@@ -2,7 +2,8 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
 use bevy::app::FixedMain;
-use bevy::ecs::component::Mutable;
+use bevy::ecs::archetype::Archetypes;
+use bevy::ecs::component::{Components, Mutable};
 use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::reflect::ReflectResource;
@@ -20,6 +21,7 @@ use super::Predicted;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
+use crate::client::prediction::archetypes::PredictedArchetypes;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::resource::PredictionManager;
@@ -67,6 +69,9 @@ impl Plugin for RollbackPlugin {
                         });
                 });
             }),
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -171,12 +176,16 @@ fn check_rollback(
     tick_manager: Res<TickManager>,
     system_ticks: SystemChangeTick,
     rollback: ResMut<Rollback>,
+    archetypes: &Archetypes,
+    components: &Components,
+    mut predicted_archetypes: Local<PredictedArchetypes>
 ) {
     // TODO: maybe we can check if we receive any replication packets?
     // no need to check for rollback if we didn't receive any packet
     if !connection.received_new_server_tick() {
         return;
     }
+    predicted_archetypes.update(archetypes, components, component_registry.as_ref());
     let tick = tick_manager.tick();
 
     // TODO: iterate through each archetype in parallel? using rayon
@@ -223,12 +232,17 @@ fn check_rollback(
             );
             return;
         }
-        for (id, prediction_metadata) in component_registry.prediction_map
-            .iter()
-            .filter(|(_, m)| m.sync_mode == ComponentSyncMode::Full)
-            .map(|(kind, m)| (component_registry.kind_to_component_id[kind], m))
-            .take_while(|_| !rollback.is_rollback()) {
-            if (prediction_metadata.check_rollback)(&component_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
+        // NOTE: we pre-cache the archetypes to only iterate over the components of the current archetype
+        //  instead of all predicted components
+        for predicted_component in predicted_archetypes.archetypes.get(&predicted_mut.archetype().id()).unwrap() {
+            if !rollback.is_rollback() {
+                return
+            }
+            let metadata = component_registry.prediction_map.get(&predicted_component.kind).unwrap();
+            if metadata.sync_mode != ComponentSyncMode::Full {
+                return
+            }
+            if (metadata.check_rollback)(&component_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
                 rollback.set_rollback_tick(confirmed_tick + 1);
                 return;
             }
@@ -812,6 +826,9 @@ mod unit_tests {
                         });
                 });
             }),
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
