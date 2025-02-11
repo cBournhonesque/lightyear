@@ -51,20 +51,19 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
+
     use crate::prelude::server::AuthorityCommandExt;
     use crate::prelude::{
-        is_host_server, ClientId, ComponentRegistry, DeltaCompression, DisabledComponents,
-        NetworkRelevanceMode, ReplicateLike, ReplicateOnce, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, Tick, TickManager, TimeManager,
+        is_host_server, ChannelDirection, ClientId, ComponentRegistry, DeltaCompression,
+        DisabledComponents, NetworkRelevanceMode, ReplicateLike, ReplicateOnce, ReplicationGroup,
+        ShouldBePredicted, TargetEntity, Tick, TickManager, TimeManager,
     };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::prediction::handle_pre_predicted;
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
-    use crate::shared;
-    use crate::shared::replication::archetypes::{
-        get_erased_component, ServerReplicatedArchetypes,
-    };
+
+    use crate::shared::replication::archetypes::{ReplicatedComponent, ServerReplicatedArchetypes};
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
         Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId, ReplicationMarker,
@@ -72,8 +71,11 @@ pub(crate) mod send {
     };
     use crate::shared::replication::network_target::NetworkTarget;
     use crate::shared::replication::ReplicationSend;
-    use bevy::ecs::component::ComponentTicks;
-    use bevy::ecs::system::SystemChangeTick;
+    use bevy::ecs::archetype::Archetypes;
+    use bevy::ecs::component::{ComponentTicks, Components};
+
+    use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
+    use bevy::ecs::world::FilteredEntityRef;
     use bevy::ptr::Ptr;
 
     #[derive(Default)]
@@ -129,6 +131,75 @@ pub(crate) mod send {
             app.add_observer(replicate_entity_local_despawn);
             app.add_observer(add_has_authority_component);
             app.add_observer(handle_pre_predicted);
+        }
+
+        /// Wait until every component has been registered in the ComponentRegistry
+        fn finish(&self, app: &mut App) {
+            // temporarily remove component_registry from the app to enable split borrows
+            let component_registry = app
+                .world_mut()
+                .remove_resource::<ComponentRegistry>()
+                .unwrap();
+
+            let replicate = (
+                QueryParamBuilder::new(|builder| {
+                    // Or<(With<ReplicateLike>, (With<Replicating>, With<ReplicateToClient>))>
+                    builder.or(|b| {
+                        b.with::<ReplicateLike>();
+                        b.and(|b| {
+                            b.with::<Replicating>();
+                            b.with::<ReplicateToClient>();
+                        });
+                    });
+                    builder.optional(|b| {
+                        b.data::<(
+                            &ReplicateLike,
+                            &ReplicateToClient,
+                            &ReplicationGroup,
+                            &Cached<ReplicateToClient>,
+                            &CachedNetworkRelevance,
+                            &SyncTarget,
+                            &TargetEntity,
+                            &ControlledBy,
+                            &AuthorityPeer,
+                            &InitialReplicated,
+                            &DisabledComponents,
+                            &DeltaCompression,
+                            &ReplicateOnce,
+                            &OverrideTarget,
+                        )>();
+                        // include access to &C for all replication components with the right direction
+                        component_registry
+                            .replication_map
+                            .iter()
+                            .filter(|(_, m)| m.direction != ChannelDirection::ClientToServer)
+                            .for_each(|(kind, _)| {
+                                let id = component_registry.kind_to_component_id.get(kind).unwrap();
+                                b.ref_id(*id);
+                            });
+                    });
+                }),
+                ParamBuilder,
+                ParamBuilder,
+                ParamBuilder,
+                ParamBuilder,
+                ParamBuilder,
+                ParamBuilder,
+                ParamBuilder,
+            )
+                .build_state(app.world_mut())
+                .build_system(replicate);
+
+            app.add_systems(
+                PostUpdate,
+                // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
+                //  be careful that newly_connected_client is cleared every send_interval, not every frame.
+                replicate
+                    .in_set(InternalReplicationSet::<ServerMarker>::BufferEntityUpdates)
+                    .in_set(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates),
+            );
+
+            app.world_mut().insert_resource(component_registry);
         }
     }
 
@@ -424,269 +495,216 @@ pub(crate) mod send {
     }
 
     pub(crate) fn replicate(
+        // query for each &C + all replication components
+        query: Query<FilteredEntityRef>,
         tick_manager: Res<TickManager>,
         component_registry: Res<ComponentRegistry>,
-        mut replicated_archetypes: Local<ServerReplicatedArchetypes>,
         system_ticks: SystemChangeTick,
-        mut set: ParamSet<(&World, ResMut<ConnectionManager>)>,
+        mut sender: ResMut<ConnectionManager>,
+        archetypes: &Archetypes,
+        components: &Components,
+        mut replicated_archetypes: Local<ServerReplicatedArchetypes>,
     ) {
-        // 1. update the list of replicated archetypes
-        replicated_archetypes.update(set.p0(), &component_registry);
+        replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
-        let mut sender = std::mem::take(&mut *set.p1());
-        let world = set.p0();
-
-        // 2. go through all the archetypes that should be replicated
-        for replicated_archetype in replicated_archetypes.archetypes.iter() {
-            // SAFETY: update() makes sure that we have a valid archetype
-            let archetype = unsafe {
-                world
-                    .archetypes()
-                    .get(replicated_archetype.id)
-                    .unwrap_unchecked()
-            };
-            let table = unsafe {
-                world
-                    .storages()
-                    .tables
-                    .get(archetype.table_id())
-                    .unwrap_unchecked()
-            };
-
-            // a. add all entity despawns from entities that were despawned locally
-            // (done in a separate system)
-            // replicate_entity_local_despawn(&mut despawn_removed, &mut set.p1());
-
-            // 3. go through all entities of that archetype
-            for archetype_entity in archetype.entities() {
-                let entity = archetype_entity.id();
-                // If ReplicateLike is present, we will use the replication components from the parent entity
-                // (unless the replication component is also present on the entity itself, in which case we overwrite the value)
-                // TODO: where is disabled components used?
-                let (
+        // TODO: write and serialize in parallel (DashMap + pool of writers)
+        query.iter().for_each(|entity_ref| {
+            let entity = entity_ref.id();
+            // If ReplicateLike is present, we will use the replication components from the parent entity
+            // (unless the replication component is also present on the entity itself, in which case we overwrite the value)
+            // TODO: where is disabled components used?
+            let (
+                group_id,
+                priority,
+                group_ready,
+                cached_replication_target,
+                visibility,
+                sync_target,
+                target_entity,
+                controlled_by,
+                authority_peer,
+                initial_replicated,
+                disabled_components,
+                delta_compression,
+                replicate_once,
+                override_target,
+                replication_target,
+                is_replicate_like_added,
+            ) = if let Some(replicate_like) = entity_ref.get::<ReplicateLike>() {
+                // root entity does not exist
+                let Ok(root_entity_ref) = query.get(replicate_like.0) else {
+                    return;
+                };
+                if root_entity_ref.get::<ReplicateToClient>().is_none() {
+                    // ReplicateLike points to a parent entity that doesn't have ReplicationToClient, skip
+                    return;
+                };
+                let (group_id, priority, group_ready) =
+                    entity_ref.get::<ReplicationGroup>().map_or_else(
+                        // if ReplicationGroup is not present, we use the parent entity
+                        || {
+                            root_entity_ref
+                                .get::<ReplicationGroup>()
+                                .map(|g| {
+                                    (
+                                        g.group_id(Some(replicate_like.0)),
+                                        g.priority(),
+                                        g.should_send,
+                                    )
+                                })
+                                .unwrap()
+                        },
+                        // we use the entity itself if ReplicationGroup is present
+                        |g| (g.group_id(Some(entity)), g.priority(), g.should_send),
+                    );
+                (
                     group_id,
                     priority,
                     group_ready,
-                    cached_replication_target,
-                    visibility,
+                    entity_ref
+                        .get::<Cached<ReplicateToClient>>()
+                        .or_else(|| root_entity_ref.get::<Cached<ReplicateToClient>>()),
+                    entity_ref
+                        .get::<CachedNetworkRelevance>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get::<SyncTarget>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get::<TargetEntity>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get::<ControlledBy>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get::<AuthorityPeer>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get::<InitialReplicated>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get::<DisabledComponents>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get::<DeltaCompression>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get::<ReplicateOnce>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get::<OverrideTarget>()
+                        .or_else(|| root_entity_ref.get()),
+                    entity_ref
+                        .get_ref::<ReplicateToClient>()
+                        .unwrap_or_else(|| root_entity_ref.get_ref::<ReplicateToClient>().unwrap()),
+                    entity_ref.get_ref::<ReplicateLike>().unwrap().is_added(),
+                )
+            } else {
+                if entity_ref.get::<ReplicateToClient>().is_none() {
+                    // Skip entities with no ReplicateToClient
+                    return;
+                };
+                let (group_id, priority, group_ready) = entity_ref
+                    .get::<ReplicationGroup>()
+                    .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
+                    .unwrap();
+                (
+                    group_id,
+                    priority,
+                    group_ready,
+                    entity_ref.get::<Cached<ReplicateToClient>>(),
+                    entity_ref.get::<CachedNetworkRelevance>(),
+                    entity_ref.get::<SyncTarget>(),
+                    entity_ref.get::<TargetEntity>(),
+                    entity_ref.get::<ControlledBy>(),
+                    entity_ref.get::<AuthorityPeer>(),
+                    entity_ref.get::<InitialReplicated>(),
+                    entity_ref.get::<DisabledComponents>(),
+                    entity_ref.get::<DeltaCompression>(),
+                    entity_ref.get::<ReplicateOnce>(),
+                    entity_ref.get::<OverrideTarget>(),
+                    entity_ref.get_ref::<ReplicateToClient>().unwrap(),
+                    false,
+                )
+            };
+
+            // add entity despawns from visibility or target change
+            // (but not from entity despawn)
+            replicate_entity_despawn(
+                entity,
+                group_id,
+                &replication_target,
+                cached_replication_target,
+                authority_peer,
+                visibility,
+                &mut sender,
+            );
+
+            // add all entity spawns
+            replicate_entity_spawn(
+                &component_registry,
+                entity,
+                &replication_target,
+                is_replicate_like_added,
+                cached_replication_target,
+                initial_replicated,
+                group_id,
+                priority,
+                controlled_by,
+                sync_target,
+                target_entity,
+                authority_peer,
+                visibility,
+                &mut sender,
+                &system_ticks,
+            );
+
+            // If the group is not set to send, skip sending updates for this entity
+            if !group_ready {
+                return;
+            }
+
+            // NOTE: we pre-cache for each archetype the list of components that should be replicated
+            // d. all components that were added or changed and that are not disabled
+            for ReplicatedComponent { id, kind } in replicated_archetypes
+                .archetypes
+                .get(&entity_ref.archetype().id())
+                .unwrap()
+                .iter()
+                .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
+            {
+                let Some(data) = entity_ref.get_by_id(*id) else {
+                    // component not present on entity, skip
+                    return;
+                };
+                let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
+
+                let override_target = override_target.and_then(|o| o.get_kind(*kind));
+                // TODO: maybe the old method was faster because we had-precached the delta-compression data
+                //  for the archetype?
+                let delta_compression = delta_compression.is_some_and(|d| d.enabled_kind(*kind));
+                let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(*kind));
+
+                replicate_component_updates(
+                    tick_manager.tick(),
+                    &component_registry,
+                    entity,
+                    *kind,
+                    data,
+                    component_ticks,
+                    &replication_target,
                     sync_target,
-                    target_entity,
-                    controlled_by,
+                    group_id,
                     authority_peer,
-                    initial_replicated,
-                    disabled_components,
+                    visibility,
                     delta_compression,
                     replicate_once,
                     override_target,
-                    // SAFETY: we know that the entity has the ReplicationTarget component
-                    // because the archetype is in replicated_archetypes
-                    replication_target,
-                    is_replicate_like_added,
-                ) = if let Some(replicate_like) =
-                    world.entity(entity).get::<ReplicateLike>().copied()
-                {
-                    let [entity_ref, query_entity_ref] = world.entity(&[entity, replicate_like.0]);
-                    if query_entity_ref.get::<ReplicateToClient>().is_none() {
-                        // ReplicateLike points to a parent entity that doesn't have ReplicationTarget, skip
-                        continue;
-                    };
-                    let (group_id, priority, group_ready) =
-                        entity_ref.get::<ReplicationGroup>().map_or_else(
-                            // if ReplicationGroup is not present, we use the parent entity
-                            || {
-                                query_entity_ref
-                                    .get::<ReplicationGroup>()
-                                    .map(|g| {
-                                        (
-                                            g.group_id(Some(replicate_like.0)),
-                                            g.priority(),
-                                            g.should_send,
-                                        )
-                                    })
-                                    .unwrap()
-                            },
-                            // we use the entity itself if ReplicationGroup is present
-                            |g| (g.group_id(Some(entity)), g.priority(), g.should_send),
-                        );
-                    (
-                        group_id,
-                        priority,
-                        group_ready,
-                        entity_ref
-                            .get::<Cached<ReplicateToClient>>()
-                            .or_else(|| query_entity_ref.get::<Cached<ReplicateToClient>>()),
-                        entity_ref
-                            .get::<CachedNetworkRelevance>()
-                            .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<SyncTarget>()
-                            .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<TargetEntity>()
-                            .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<ControlledBy>()
-                            .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<AuthorityPeer>()
-                            .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<InitialReplicated>()
-                            .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<DisabledComponents>()
-                            .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<DeltaCompression>()
-                            .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<ReplicateOnce>()
-                            .or_else(|| query_entity_ref.get()),
-                        entity_ref
-                            .get::<OverrideTarget>()
-                            .or_else(|| query_entity_ref.get()),
-                        if entity_ref.get::<ReplicateToClient>().is_some() {
-                            // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
-                            // so create the ref manually
-                            shared::replication::utils::get_ref::<ReplicateToClient>(
-                                world,
-                                entity,
-                                system_ticks.last_run(),
-                                system_ticks.this_run(),
-                            )
-                        } else {
-                            shared::replication::utils::get_ref::<ReplicateToClient>(
-                                world,
-                                replicate_like.0,
-                                system_ticks.last_run(),
-                                system_ticks.this_run(),
-                            )
-                        },
-                        shared::replication::utils::get_ref::<ReplicateLike>(
-                            world,
-                            entity,
-                            system_ticks.last_run(),
-                            system_ticks.this_run(),
-                        )
-                        .is_added(),
-                    )
-                } else {
-                    let entity_ref = world.entity(entity);
-                    let (group_id, priority, group_ready) = entity_ref
-                        .get::<ReplicationGroup>()
-                        .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
-                        .unwrap();
-                    (
-                        group_id,
-                        priority,
-                        group_ready,
-                        entity_ref.get::<Cached<ReplicateToClient>>(),
-                        entity_ref.get::<CachedNetworkRelevance>(),
-                        entity_ref.get::<SyncTarget>(),
-                        entity_ref.get::<TargetEntity>(),
-                        entity_ref.get::<ControlledBy>(),
-                        entity_ref.get::<AuthorityPeer>(),
-                        entity_ref.get::<InitialReplicated>(),
-                        entity_ref.get::<DisabledComponents>(),
-                        entity_ref.get::<DeltaCompression>(),
-                        entity_ref.get::<ReplicateOnce>(),
-                        entity_ref.get::<OverrideTarget>(),
-                        // entity_ref::get_ref() does not do what we want (https://github.com/bevyengine/bevy/issues/13735)
-                        // so create the ref manually
-                        shared::replication::utils::get_ref::<ReplicateToClient>(
-                            world,
-                            entity,
-                            system_ticks.last_run(),
-                            system_ticks.this_run(),
-                        ),
-                        false,
-                    )
-                };
-
-                // b. add entity despawns from visibility or target change
-                replicate_entity_despawn(
-                    entity,
-                    group_id,
-                    &replication_target,
-                    cached_replication_target,
-                    authority_peer,
-                    visibility,
-                    &mut sender,
-                );
-
-                // c. add all entity spawns
-                replicate_entity_spawn(
-                    &component_registry,
-                    entity,
-                    &replication_target,
-                    is_replicate_like_added,
-                    cached_replication_target,
-                    initial_replicated,
-                    group_id,
-                    priority,
-                    controlled_by,
-                    sync_target,
-                    target_entity,
-                    authority_peer,
-                    visibility,
-                    &mut sender,
                     &system_ticks,
+                    &mut sender,
                 );
-
-                // If the group is not set to send, skip sending updates for this entity
-                if !group_ready {
-                    continue;
-                }
-
-                // d. all components that were added or changed and that are not disabled
-                for replicated_component in replicated_archetype
-                    .components
-                    .iter()
-                    .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
-                {
-                    let (data, component_ticks) = unsafe {
-                        get_erased_component(
-                            table,
-                            &world.storages().sparse_sets,
-                            archetype_entity,
-                            replicated_component.storage_type,
-                            replicated_component.id,
-                        )
-                    };
-                    let override_target =
-                        override_target.and_then(|o| o.get_kind(replicated_component.kind));
-                    // TODO: maybe the old method was faster because we had-precached the delta-compression data
-                    //  for the archetype?
-                    let delta_compression = delta_compression
-                        .is_some_and(|d| d.enabled_kind(replicated_component.kind));
-                    let replicate_once =
-                        replicate_once.is_some_and(|r| r.enabled_kind(replicated_component.kind));
-
-                    replicate_component_updates(
-                        tick_manager.tick(),
-                        &component_registry,
-                        entity,
-                        replicated_component.kind,
-                        data,
-                        component_ticks,
-                        &replication_target,
-                        sync_target,
-                        group_id,
-                        authority_peer,
-                        visibility,
-                        delta_compression,
-                        replicate_once,
-                        override_target,
-                        &system_ticks,
-                        &mut sender,
-                    );
-                }
-
-                // e. add all removed components
             }
-        }
-
-        *set.p1() = sender;
+        })
     }
 
     /// Send entity spawn replication messages to clients

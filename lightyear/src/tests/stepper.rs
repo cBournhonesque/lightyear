@@ -213,8 +213,8 @@ impl BevyStepper {
         self.server_app.cleanup();
     }
     pub(crate) fn init(&mut self) {
-        let _ = self.server_app.world_mut().start_server();
-        let _ = self.client_app.world_mut().connect_client();
+        self.server_app.world_mut().start_server();
+        self.client_app.world_mut().connect_client();
         self.wait_for_connection();
         self.wait_for_sync();
     }
@@ -251,8 +251,8 @@ impl BevyStepper {
     }
 
     pub(crate) fn start(&mut self) {
-        let _ = self.server_app.world_mut().start_server();
-        let _ = self.client_app.world_mut().connect_client();
+        self.server_app.world_mut().start_server();
+        self.client_app.world_mut().connect_client();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
@@ -269,8 +269,8 @@ impl BevyStepper {
     }
 
     pub(crate) fn stop(&mut self) {
-        let _ = self.server_app.world_mut().stop_server();
-        let _ = self.client_app.world_mut().disconnect_client();
+        self.server_app.world_mut().stop_server();
+        self.client_app.world_mut().disconnect_client();
 
         // Advance the world to let the disconnection process complete
         for _ in 0..100 {

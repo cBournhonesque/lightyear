@@ -6,10 +6,9 @@ use crate::prelude::{ChannelDirection, ComponentRegistry, ReplicateLike, Replica
 use crate::protocol::component::ComponentKind;
 use crate::server::replication::send::ReplicateToClient;
 use crate::shared::replication::authority::HasAuthority;
-use bevy::ecs::archetype::ArchetypeEntity;
-use bevy::ecs::component::{ComponentTicks, StorageType};
-use bevy::ecs::storage::{SparseSets, Table};
-use bevy::ptr::Ptr;
+use crate::utils::collections::HashMap;
+use bevy::ecs::archetype::Archetypes;
+use bevy::ecs::component::Components;
 use bevy::{
     ecs::{
         archetype::{ArchetypeGeneration, ArchetypeId},
@@ -48,7 +47,7 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     generation: ArchetypeGeneration,
 
     /// Archetypes marked as replicated.
-    pub(crate) archetypes: Vec<ReplicatedArchetype>,
+    pub(crate) archetypes: HashMap<ArchetypeId, Vec<ReplicatedComponent>>,
     marker: std::marker::PhantomData<C>,
 }
 
@@ -92,7 +91,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
             replicate_like_component_id: world.register_component::<ReplicateLike>(),
             has_authority_component_id: Some(world.register_component::<HasAuthority>()),
             generation: ArchetypeGeneration::initial(),
-            archetypes: Vec::new(),
+            archetypes: HashMap::default(),
             marker: Default::default(),
         }
     }
@@ -105,84 +104,44 @@ impl<C: Component> ReplicatedArchetypes<C> {
             replicate_like_component_id: world.register_component::<ReplicateLike>(),
             has_authority_component_id: None,
             generation: ArchetypeGeneration::initial(),
-            archetypes: Vec::new(),
+            archetypes: HashMap::default(),
             marker: Default::default(),
         }
     }
 }
 
-/// An archetype that should have some components replicated
-pub(crate) struct ReplicatedArchetype {
-    pub(crate) id: ArchetypeId,
-    pub(crate) components: Vec<ReplicatedComponent>,
-}
-
 pub(crate) struct ReplicatedComponent {
     pub(crate) id: ComponentId,
     pub(crate) kind: ComponentKind,
-    pub(crate) storage_type: StorageType,
-}
-
-/// Get the component data as a [`Ptr`] and its change ticks
-///
-/// # Safety
-///
-/// Component should be present in the Table or SparseSet
-pub(crate) unsafe fn get_erased_component<'w>(
-    table: &'w Table,
-    sparse_sets: &'w SparseSets,
-    entity: &ArchetypeEntity,
-    storage_type: StorageType,
-    component_id: ComponentId,
-) -> (Ptr<'w>, ComponentTicks) {
-    match storage_type {
-        StorageType::Table => {
-            let component = table
-                .get_component(component_id, entity.table_row())
-                .unwrap_unchecked();
-            let ticks = table
-                .get_ticks_unchecked(component_id, entity.table_row())
-                .unwrap_unchecked();
-            (component, ticks)
-        }
-        StorageType::SparseSet => {
-            let sparse_set = sparse_sets.get(component_id).unwrap_unchecked();
-            let component = sparse_set.get(entity.id()).unwrap_unchecked();
-            let ticks = sparse_set.get_ticks(entity.id()).unwrap_unchecked();
-
-            (component, ticks)
-        }
-    }
 }
 
 impl<C: Component> ReplicatedArchetypes<C> {
     /// Update the list of archetypes that should be replicated.
-    pub(crate) fn update(&mut self, world: &World, registry: &ComponentRegistry) {
-        let old_generation = mem::replace(&mut self.generation, world.archetypes().generation());
+    pub(crate) fn update(
+        &mut self,
+        archetypes: &Archetypes,
+        components: &Components,
+        registry: &ComponentRegistry,
+    ) {
+        let old_generation = mem::replace(&mut self.generation, archetypes.generation());
 
         // iterate through the newly added archetypes
-        for archetype in world.archetypes()[old_generation..]
-            .iter()
-            .filter(|archetype| {
-                archetype.contains(self.replicate_like_component_id)
-                    || (archetype.contains(self.replication_component_id)
+        for archetype in archetypes[old_generation..].iter().filter(|archetype| {
+            archetype.contains(self.replicate_like_component_id)
+                || (archetype.contains(self.replication_component_id)
                     && archetype.contains(self.replicating_component_id)
                     // on the client, we only replicate if we have authority
                     // (on the server, we need to replicate to other clients even if we don't have authority)
                     && self
                         .has_authority_component_id
                         .map_or(true, |id| archetype.contains(id)))
-            })
-        {
-            let mut replicated_archetype = ReplicatedArchetype {
-                id: archetype.id(),
-                components: Vec::new(),
-            };
+        }) {
+            let mut replicated_archetype = Vec::new();
             // add all components of the archetype that are present in the ComponentRegistry, and:
             // - ignore component if the component is disabled
             // - check if delta-compression is enabled
             archetype.components().for_each(|component| {
-                let info = unsafe { world.components().get_info(component).unwrap_unchecked() };
+                let info = unsafe { components.get_info(component).unwrap_unchecked() };
                 // if the component has a type_id (i.e. is a rust type)
                 if let Some(kind) = info.type_id().map(ComponentKind) {
                     // the component is not registered for replication in the ComponentProtocol
@@ -202,18 +161,13 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         return;
                     }
                     trace!("including {:?} in replicated components", info.name());
-
-                    // SAFETY: component ID obtained from this archetype.
-                    let storage_type =
-                        unsafe { archetype.get_storage_type(component).unwrap_unchecked() };
-                    replicated_archetype.components.push(ReplicatedComponent {
+                    replicated_archetype.push(ReplicatedComponent {
                         id: component,
                         kind,
-                        storage_type,
                     });
                 }
             });
-            self.archetypes.push(replicated_archetype);
+            self.archetypes.insert(archetype.id(), replicated_archetype);
         }
     }
 }

@@ -51,7 +51,8 @@ impl ComponentRegistry {
         );
     }
 
-    /// SAFETY: the Ptr must correspond to the correct ComponentKind
+    /// # Safety
+    /// the Ptr must correspond to the correct ComponentKind
     pub unsafe fn erased_clone(
         &self,
         data: Ptr,
@@ -64,7 +65,8 @@ impl ComponentRegistry {
         Ok((delta_fns.clone)(data))
     }
 
-    /// SAFETY: the data from the Ptr must correspond to the correct ComponentKind
+    /// # Safety
+    /// the data from the Ptr must correspond to the correct ComponentKind
     pub unsafe fn erased_drop(
         &self,
         data: NonNull<u8>,
@@ -78,7 +80,8 @@ impl ComponentRegistry {
         Ok(())
     }
 
-    /// SAFETY: The Ptrs must correspond to the correct ComponentKind
+    /// # Safety
+    /// The Ptrs must correspond to the correct ComponentKind
     pub unsafe fn serialize_diff(
         &self,
         start_tick: Tick,
@@ -101,7 +104,8 @@ impl ComponentRegistry {
         Ok(())
     }
 
-    /// SAFETY: The Ptrs must correspond to the correct ComponentKind
+    /// # Safety
+    /// The Ptrs must correspond to the correct ComponentKind
     pub unsafe fn serialize_diff_from_base_value(
         &self,
         component_data: Ptr,
