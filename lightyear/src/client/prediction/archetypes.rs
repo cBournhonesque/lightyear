@@ -48,7 +48,6 @@ impl PredictedArchetypes {
     pub(crate) fn update(&mut self, archetypes: &Archetypes, components: &Components, registry: &ComponentRegistry) {
         let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
 
-        let mut predicted_archetype = Vec::new();
         // iterate through the newly added archetypes
         for archetype in archetypes[old_generation..]
             .iter()
@@ -56,6 +55,7 @@ impl PredictedArchetypes {
                 archetype.contains(self.predicted_component_id)
             })
         {
+            let mut predicted_archetype = Vec::new();
             // add all components from the registry that are predicted
             archetype.components().for_each(|component| {
                 let info = unsafe { components.get_info(component).unwrap_unchecked() };
@@ -77,6 +77,7 @@ impl PredictedArchetypes {
                     });
                 }
             });
+            self.archetypes.insert(archetype.id(), predicted_archetype);
         }
     }
 }

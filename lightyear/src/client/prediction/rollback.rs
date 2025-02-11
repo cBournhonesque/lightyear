@@ -178,13 +178,14 @@ fn check_rollback(
     rollback: ResMut<Rollback>,
     archetypes: &Archetypes,
     components: &Components,
-    predicted_archetypes: Local<PredictedArchetypes>
+    mut predicted_archetypes: Local<PredictedArchetypes>
 ) {
     // TODO: maybe we can check if we receive any replication packets?
     // no need to check for rollback if we didn't receive any packet
     if !connection.received_new_server_tick() {
         return;
     }
+    predicted_archetypes.update(archetypes, components, component_registry.as_ref());
     let tick = tick_manager.tick();
 
     // TODO: iterate through each archetype in parallel? using rayon
