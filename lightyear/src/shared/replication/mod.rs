@@ -23,8 +23,8 @@ use crate::shared::events::connection::{
 };
 use crate::shared::replication::components::ReplicationGroupId;
 
-pub mod components;
 pub(crate) mod archetypes;
+pub mod components;
 
 pub(crate) mod authority;
 pub mod delta;

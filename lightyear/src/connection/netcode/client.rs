@@ -750,19 +750,18 @@ mod tests {
     fn test_client_disconnect_when_failing_handshake() {
         let mut stepper = BevyStepper::default_no_init();
 
-        let _ = stepper.server_app.world_mut().start_server();
-        let _ = stepper.client_app.world_mut().connect_client();
+        stepper.server_app.world_mut().start_server();
+        stepper.client_app.world_mut().connect_client();
 
         // Wait until the server sees a single client
         for _ in 0..100 {
-            if stepper
+            if !stepper
                 .server_app
                 .world_mut()
                 .resource_mut::<ServerConnections>()
                 .servers[0]
                 .connected_client_ids()
-                .len()
-                != 0
+                .is_empty()
             {
                 break;
             }
@@ -784,7 +783,7 @@ mod tests {
                 .get()
         );
         // Immediately disconnect the client
-        let _ = stepper.client_app.world_mut().disconnect_client();
+        stepper.client_app.world_mut().disconnect_client();
 
         // Wait for the client to time out
         for _ in 0..10000 {

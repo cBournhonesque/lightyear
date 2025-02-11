@@ -8,7 +8,6 @@ use crate::server::config::ServerConfig;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::entity_map::ReceiveEntityMap;
 
-use crate::client::components::ComponentSyncMode;
 use bevy::ecs::component::{Component, ComponentId, Mutable};
 use bevy::prelude::*;
 use bevy::ptr::OwningPtr;

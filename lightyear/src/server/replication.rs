@@ -51,15 +51,19 @@ pub(crate) mod receive {
 
 pub(crate) mod send {
     use super::*;
-    use crate::client::components::ComponentSyncMode;
+
     use crate::prelude::server::AuthorityCommandExt;
-    use crate::prelude::{is_host_server, ChannelDirection, ClientId, ComponentRegistry, DeltaCompression, DisabledComponents, NetworkRelevanceMode, ReplicateLike, ReplicateOnce, ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager, TimeManager};
+    use crate::prelude::{
+        is_host_server, ChannelDirection, ClientId, ComponentRegistry, DeltaCompression,
+        DisabledComponents, NetworkRelevanceMode, ReplicateLike, ReplicateOnce, ReplicationGroup,
+        ShouldBePredicted, TargetEntity, Tick, TickManager, TimeManager,
+    };
     use crate::protocol::component::ComponentKind;
     use crate::server::error::ServerError;
     use crate::server::prediction::handle_pre_predicted;
     use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
-    use crate::shared;
-    use crate::shared::replication::archetypes::{ClientReplicatedArchetypes, ReplicatedComponent, ServerReplicatedArchetypes};
+
+    use crate::shared::replication::archetypes::{ReplicatedComponent, ServerReplicatedArchetypes};
     use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
         Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId, ReplicationMarker,
@@ -69,7 +73,7 @@ pub(crate) mod send {
     use crate::shared::replication::ReplicationSend;
     use bevy::ecs::archetype::Archetypes;
     use bevy::ecs::component::{ComponentTicks, Components};
-    use bevy::ecs::entity_disabling::Disabled;
+
     use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
     use bevy::ecs::world::FilteredEntityRef;
     use bevy::ptr::Ptr;
@@ -165,7 +169,8 @@ pub(crate) mod send {
                             &OverrideTarget,
                         )>();
                         // include access to &C for all replication components with the right direction
-                        component_registry.replication_map
+                        component_registry
+                            .replication_map
                             .iter()
                             .filter(|(_, m)| m.direction != ChannelDirection::ClientToServer)
                             .for_each(|(kind, _)| {
@@ -528,11 +533,11 @@ pub(crate) mod send {
             ) = if let Some(replicate_like) = entity_ref.get::<ReplicateLike>() {
                 // root entity does not exist
                 let Ok(root_entity_ref) = query.get(replicate_like.0) else {
-                    return
+                    return;
                 };
                 if root_entity_ref.get::<ReplicateToClient>().is_none() {
                     // ReplicateLike points to a parent entity that doesn't have ReplicationToClient, skip
-                    return
+                    return;
                 };
                 let (group_id, priority, group_ready) =
                     entity_ref.get::<ReplicationGroup>().map_or_else(
@@ -589,15 +594,15 @@ pub(crate) mod send {
                     entity_ref
                         .get::<OverrideTarget>()
                         .or_else(|| root_entity_ref.get()),
-                    entity_ref.get_ref::<ReplicateToClient>().unwrap_or_else(
-                        || root_entity_ref.get_ref::<ReplicateToClient>().unwrap()
-                    ),
-                    entity_ref.get_ref::<ReplicateLike>().unwrap().is_added()
+                    entity_ref
+                        .get_ref::<ReplicateToClient>()
+                        .unwrap_or_else(|| root_entity_ref.get_ref::<ReplicateToClient>().unwrap()),
+                    entity_ref.get_ref::<ReplicateLike>().unwrap().is_added(),
                 )
             } else {
                 if entity_ref.get::<ReplicateToClient>().is_none() {
                     // Skip entities with no ReplicateToClient
-                    return
+                    return;
                 };
                 let (group_id, priority, group_ready) = entity_ref
                     .get::<ReplicationGroup>()
@@ -661,23 +666,24 @@ pub(crate) mod send {
 
             // NOTE: we pre-cache for each archetype the list of components that should be replicated
             // d. all components that were added or changed and that are not disabled
-            for ReplicatedComponent {id, kind} in replicated_archetypes.archetypes.get(&entity_ref.archetype().id()).unwrap()
-                .into_iter()
-                .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind))){
+            for ReplicatedComponent { id, kind } in replicated_archetypes
+                .archetypes
+                .get(&entity_ref.archetype().id())
+                .unwrap()
+                .iter()
+                .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
+            {
                 let Some(data) = entity_ref.get_by_id(*id) else {
                     // component not present on entity, skip
-                    return
+                    return;
                 };
                 let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
 
-                let override_target =
-                    override_target.and_then(|o| o.get_kind(*kind));
+                let override_target = override_target.and_then(|o| o.get_kind(*kind));
                 // TODO: maybe the old method was faster because we had-precached the delta-compression data
                 //  for the archetype?
-                let delta_compression = delta_compression
-                    .is_some_and(|d| d.enabled_kind(*kind));
-                let replicate_once =
-                    replicate_once.is_some_and(|r| r.enabled_kind(*kind));
+                let delta_compression = delta_compression.is_some_and(|d| d.enabled_kind(*kind));
+                let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(*kind));
 
                 replicate_component_updates(
                     tick_manager.tick(),

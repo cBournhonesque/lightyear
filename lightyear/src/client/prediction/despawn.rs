@@ -15,7 +15,7 @@ use crate::prelude::{AppIdentityExt, PreSpawned, ShouldBePredicted, TickManager}
 /// The general flow is:
 /// - we run predicted_despawn on the predicted entity
 /// - `PredictedDespawnDisable` is added on the entity. We use our own custom marker instead of Disable in case users want to genuinely just
-/// Disable a Predicted entity.
+///   disable a Predicted entity.
 /// - We can stop updating its PredictionHistory, or only update it with empty values (None)
 /// - if the Confirmed entity is also despawned in the next few ticks, then the Predicted entity also gets despawned
 /// - we still do rollback checks using the Confirmed updates against the `PredictedDespawn` entity! If there is a rollback,

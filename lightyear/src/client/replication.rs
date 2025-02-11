@@ -141,19 +141,23 @@ pub(crate) mod send {
 
     use crate::prelude::client::{ClientConfig, NetClient};
 
-    use crate::prelude::{client::{is_connected, is_synced}, is_host_server, ChannelDirection, ComponentRegistry, DeltaCompression, DisabledComponents, ReplicateLike, ReplicateOnce, Replicated, ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager};
+    use crate::prelude::{
+        client::{is_connected, is_synced},
+        is_host_server, ChannelDirection, ComponentRegistry, DeltaCompression, DisabledComponents,
+        ReplicateLike, ReplicateOnce, Replicated, ReplicationGroup, TargetEntity, Tick,
+        TickManager, TimeManager,
+    };
     use crate::protocol::component::ComponentKind;
 
-    use crate::shared::replication::components::{Cached, InitialReplicated, Replicating, ReplicationGroupId};
+    use crate::shared::replication::components::{
+        InitialReplicated, Replicating, ReplicationGroupId,
+    };
 
-    use crate::client::components::Confirmed;
-    use crate::prelude::server::{AuthorityPeer, ControlledBy, OverrideTarget, ReplicateToClient, SyncTarget};
-    use crate::server::relevance::immediate::CachedNetworkRelevance;
     use crate::shared::replication::archetypes::{ClientReplicatedArchetypes, ReplicatedComponent};
     use crate::shared::replication::authority::HasAuthority;
     use crate::shared::replication::components::ReplicationMarker;
     use crate::shared::replication::error::ReplicationError;
-    use crate::shared::sets::ServerMarker;
+
     use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
     use bevy::ecs::world::FilteredEntityRef;
     use bevy::ptr::Ptr;
@@ -238,7 +242,8 @@ pub(crate) mod send {
                             &ReplicateOnce,
                         )>();
                         // include access to &C for all replication components with the right direction
-                        component_registry.replication_map
+                        component_registry
+                            .replication_map
                             .iter()
                             .filter(|(_, m)| m.direction != ChannelDirection::ServerToClient)
                             .for_each(|(kind, _)| {
@@ -391,15 +396,14 @@ pub(crate) mod send {
                 replicate_once,
                 replication_target_ticks,
                 is_replicate_like_added,
-            ) = if let Some(replicate_like) =
-                entity_ref.get::<ReplicateLike>() {
+            ) = if let Some(replicate_like) = entity_ref.get::<ReplicateLike>() {
                 // root entity does not exist
                 let Ok(root_entity_ref) = query.get(replicate_like.0) else {
-                    return
+                    return;
                 };
                 if root_entity_ref.get::<ReplicateToServer>().is_none() {
                     // ReplicateLike points to a parent entity that doesn't have ReplicationToServer, skip
-                    return
+                    return;
                 };
                 let (group_id, priority, group_ready) =
                     entity_ref.get::<ReplicationGroup>().map_or_else(
@@ -440,9 +444,7 @@ pub(crate) mod send {
                     unsafe {
                         entity_ref
                             .get_change_ticks::<ReplicateToServer>()
-                            .or_else(|| {
-                                root_entity_ref.get_change_ticks::<ReplicateToServer>()
-                            })
+                            .or_else(|| root_entity_ref.get_change_ticks::<ReplicateToServer>())
                             .unwrap_unchecked()
                     },
                     unsafe {
@@ -478,7 +480,6 @@ pub(crate) mod send {
 
             dbg!(&disabled_components);
 
-
             // the update will be 'insert' instead of update if the ReplicateToServer component is new
             // or the HasAuthority component is new. That's because the remote cannot receive update
             // without receiving an action first (to populate the latest_tick on the replication-receiver)
@@ -513,23 +514,23 @@ pub(crate) mod send {
 
             // NOTE: we pre-cache the list of components for each archetype to not iterate through
             //  all replicated components every time
-            for ReplicatedComponent {id, kind} in replicated_archetypes.archetypes.get(&entity_ref.archetype().id())
+            for ReplicatedComponent { id, kind } in replicated_archetypes
+                .archetypes
+                .get(&entity_ref.archetype().id())
                 .unwrap()
-                .into_iter()
-                .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind))){
-
+                .iter()
+                .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
+            {
                 let Some(data) = entity_ref.get_by_id(*id) else {
                     // component not present on entity, skip
-                    return
+                    return;
                 };
                 let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
 
                 // TODO: maybe the old method was faster because we had-precached the delta-compression data
                 //  for the archetype?
-                let delta_compression = delta_compression
-                    .is_some_and(|d| d.enabled_kind(*kind));
-                let replicate_once =
-                    replicate_once.is_some_and(|r| r.enabled_kind(*kind));
+                let delta_compression = delta_compression.is_some_and(|d| d.enabled_kind(*kind));
+                let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(*kind));
                 let _ = replicate_component_update(
                     tick_manager.tick(),
                     &component_registry,
@@ -544,12 +545,12 @@ pub(crate) mod send {
                     &system_ticks,
                     &mut sender,
                 )
-                    .inspect_err(|e| {
-                        error!(
-                            "Error replicating component {:?} update for entity {:?}: {:?}",
-                            kind, entity, e
-                        )
-                    });
+                .inspect_err(|e| {
+                    error!(
+                        "Error replicating component {:?} update for entity {:?}: {:?}",
+                        kind, entity, e
+                    )
+                });
             }
         })
     }

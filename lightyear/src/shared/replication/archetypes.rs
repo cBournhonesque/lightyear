@@ -7,10 +7,8 @@ use crate::protocol::component::ComponentKind;
 use crate::server::replication::send::ReplicateToClient;
 use crate::shared::replication::authority::HasAuthority;
 use crate::utils::collections::HashMap;
-use bevy::ecs::archetype::{ArchetypeEntity, Archetypes};
-use bevy::ecs::component::{ComponentTicks, Components, StorageType};
-use bevy::ecs::storage::{SparseSets, Table};
-use bevy::ptr::Ptr;
+use bevy::ecs::archetype::Archetypes;
+use bevy::ecs::component::Components;
 use bevy::{
     ecs::{
         archetype::{ArchetypeGeneration, ArchetypeId},
@@ -112,32 +110,32 @@ impl<C: Component> ReplicatedArchetypes<C> {
     }
 }
 
-
 pub(crate) struct ReplicatedComponent {
     pub(crate) id: ComponentId,
     pub(crate) kind: ComponentKind,
 }
 
-
 impl<C: Component> ReplicatedArchetypes<C> {
     /// Update the list of archetypes that should be replicated.
-    pub(crate) fn update(&mut self, archetypes: &Archetypes, components: &Components, registry: &ComponentRegistry) {
+    pub(crate) fn update(
+        &mut self,
+        archetypes: &Archetypes,
+        components: &Components,
+        registry: &ComponentRegistry,
+    ) {
         let old_generation = mem::replace(&mut self.generation, archetypes.generation());
 
         // iterate through the newly added archetypes
-        for archetype in archetypes[old_generation..]
-            .iter()
-            .filter(|archetype| {
-                archetype.contains(self.replicate_like_component_id)
-                    || (archetype.contains(self.replication_component_id)
+        for archetype in archetypes[old_generation..].iter().filter(|archetype| {
+            archetype.contains(self.replicate_like_component_id)
+                || (archetype.contains(self.replication_component_id)
                     && archetype.contains(self.replicating_component_id)
                     // on the client, we only replicate if we have authority
                     // (on the server, we need to replicate to other clients even if we don't have authority)
                     && self
                         .has_authority_component_id
                         .map_or(true, |id| archetype.contains(id)))
-            })
-        {
+        }) {
             let mut replicated_archetype = Vec::new();
             // add all components of the archetype that are present in the ComponentRegistry, and:
             // - ignore component if the component is disabled
