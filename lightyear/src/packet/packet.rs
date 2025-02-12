@@ -14,7 +14,7 @@ cfg_if::cfg_if!(
         use crate::packet::header::PacketHeader;
         use crate::packet::packet_type::PacketType;
         use crate::packet::message::{SingleData, FragmentData};
-        use bevy::utils::HashMap;
+        use crate::utils::collections::HashMap;
     }
 );
 
@@ -76,7 +76,7 @@ impl Packet {
         self,
     ) -> Result<HashMap<ChannelId, Vec<Bytes>>, PacketError> {
         let mut cursor = self.payload.into();
-        let mut res: HashMap<ChannelId, Vec<Bytes>> = HashMap::new();
+        let mut res: HashMap<ChannelId, Vec<Bytes>> = HashMap::default();
         let header = PacketHeader::from_bytes(&mut cursor)?;
 
         if header.get_packet_type() == PacketType::DataFragment {

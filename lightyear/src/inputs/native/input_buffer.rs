@@ -142,10 +142,7 @@ impl<T: UserAction> InputBuffer<T> {
                     self.set(tick, self.get(tick - 1).cloned());
                 }
                 InputData::Input(input) => {
-                    if self
-                        .get(tick)
-                        .is_some_and(|existing_value| existing_value == input)
-                    {
+                    if self.get(tick).is_some_and(|v| v == input) {
                         continue;
                     }
                     self.set(tick, Some(input.clone()));

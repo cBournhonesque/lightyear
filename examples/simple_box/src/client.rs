@@ -10,7 +10,7 @@ use std::str::FromStr;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use lightyear::client::input::native::InputSystemSet;
 pub use lightyear::prelude::client::*;

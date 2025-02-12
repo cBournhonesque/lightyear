@@ -14,8 +14,8 @@ use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use bevy::app::App;
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::ComponentId;
+use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{Commands, Entity, Event, Events, FilteredResourcesMut, TypePath, World};
-use bevy::utils::HashMap;
 
 /// Metadata needed to receive/send messages
 ///

@@ -570,7 +570,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// ```
     /// # use std::net::SocketAddr;
     /// # use lightyear::connection::netcode::{ConnectToken, NetcodeClient, ClientConfig, ClientState, Server};
-    /// # use bevy::utils::{Instant, Duration};
+    /// # use core::time::Duration;
     /// # use std::thread;
     /// # use lightyear::connection::netcode::NetcodeServer;
     /// # use lightyear::prelude::client::{ClientTransport, IoConfig};
@@ -582,10 +582,9 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
     /// client.connect();
     ///
-    /// let start = Instant::now();
     /// let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
     /// loop {
-    ///     client.update(start.elapsed().as_secs_f64(), &mut io);
+    ///     client.update(tick_rate.as_secs_f64() / 1000.0, &mut io);
     ///     if let Some(packet) = client.recv() {
     ///         // ...
     ///     }
@@ -751,19 +750,18 @@ mod tests {
     fn test_client_disconnect_when_failing_handshake() {
         let mut stepper = BevyStepper::default_no_init();
 
-        let _ = stepper.server_app.world_mut().start_server();
-        let _ = stepper.client_app.world_mut().connect_client();
+        stepper.server_app.world_mut().start_server();
+        stepper.client_app.world_mut().connect_client();
 
         // Wait until the server sees a single client
         for _ in 0..100 {
-            if stepper
+            if !stepper
                 .server_app
                 .world_mut()
                 .resource_mut::<ServerConnections>()
                 .servers[0]
                 .connected_client_ids()
-                .len()
-                != 0
+                .is_empty()
             {
                 break;
             }
@@ -785,7 +783,7 @@ mod tests {
                 .get()
         );
         // Immediately disconnect the client
-        let _ = stepper.client_app.world_mut().disconnect_client();
+        stepper.client_app.world_mut().disconnect_client();
 
         // Wait for the client to time out
         for _ in 0..10000 {

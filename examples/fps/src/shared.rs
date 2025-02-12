@@ -4,14 +4,14 @@ use avian2d::PhysicsPlugins;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use server::ControlledBy;
 use std::ops::DerefMut;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::{Replicate, ReplicationTarget, SyncTarget};
+use lightyear::prelude::server::{Replicate, ReplicateToClient, SyncTarget};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
@@ -100,7 +100,7 @@ fn player_movement(
     tick_manager: Res<TickManager>,
     mut player_query: Query<
         (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
-        Or<(With<Predicted>, With<ReplicationTarget>)>,
+        Or<(With<Predicted>, With<ReplicateToClient>)>,
     >,
 ) {
     for (transform, action_state, player_id) in player_query.iter_mut() {
@@ -189,7 +189,7 @@ pub(crate) fn shoot_bullet(
             &ColorComponent,
             &mut ActionState<PlayerActions>,
         ),
-        Or<(With<Predicted>, With<ReplicationTarget>)>,
+        Or<(With<Predicted>, With<ReplicateToClient>)>,
     >,
 ) {
     let tick = tick_manager.tick();
@@ -228,7 +228,7 @@ pub(crate) fn shoot_bullet(
                         // between the two bullets, we add additional information to the hash.
                         // NOTE: if you don't add the salt, the 'left' bullet on the server might get matched with the
                         // 'right' bullet on the client, and vice versa. This is not critical, but it will cause a rollback
-                        PreSpawnedPlayerObject::default_with_salt(salt),
+                        PreSpawned::default_with_salt(salt),
                         Replicate {
                             sync: SyncTarget {
                                 // the bullet is predicted for the client who shot it
@@ -249,10 +249,7 @@ pub(crate) fn shoot_bullet(
                     // on the client, just spawn the ball
                     // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    commands.spawn((
-                        bullet_bundle,
-                        PreSpawnedPlayerObject::default_with_salt(salt),
-                    ));
+                    commands.spawn((bullet_bundle, PreSpawned::default_with_salt(salt)));
                 }
             }
         }

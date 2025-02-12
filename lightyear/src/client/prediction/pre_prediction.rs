@@ -9,10 +9,10 @@ use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::is_synced;
 use crate::prelude::{
-    is_host_server, HasAuthority, NetworkIdentityState, ReplicateHierarchy, Replicating,
-    ReplicationGroup, ShouldBePredicted, TickManager,
+    is_host_server, DisableReplicateHierarchy, HasAuthority, NetworkIdentityState, ReplicateLike,
+    Replicating, ReplicationGroup, ShouldBePredicted, TickManager,
 };
-use crate::server::replication::send::ReplicationTarget;
+use crate::server::replication::send::ReplicateToClient;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
@@ -65,10 +65,11 @@ impl PrePredictionPlugin {
             // remove Replicating first so that we don't replicate a despawn
             commands.entity(entity).remove::<Replicating>();
             commands.entity(entity).remove::<(
-                ReplicationTarget,
+                ReplicateToClient,
                 ReplicateToServer,
                 ReplicationGroup,
-                ReplicateHierarchy,
+                DisableReplicateHierarchy,
+                ReplicateLike,
                 HasAuthority,
             )>();
         }
@@ -93,8 +94,8 @@ impl PrePredictionPlugin {
         // PrePredicted was replicated from the server:
         // When we receive an update from the server that confirms a pre-predicted entity,
         // we will add the Predicted component
-        if let Some(&predicted) = predicted_map.confirmed_to_predicted.get(&trigger.entity()) {
-            let confirmed = trigger.entity();
+        if let Some(&predicted) = predicted_map.confirmed_to_predicted.get(&trigger.target()) {
+            let confirmed = trigger.target();
             debug!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
             commands.queue(move |world: &mut World| {
                 world
@@ -105,7 +106,7 @@ impl PrePredictionPlugin {
                     .remove::<ShouldBePredicted>();
             });
         } else {
-            let predicted_entity = trigger.entity();
+            let predicted_entity = trigger.target();
             if is_host_server(identity) {
                 // for host-server, we don't want to spawn a separate entity because
                 //  the confirmed/predicted/server entity are the same! Instead we just want
@@ -321,7 +322,7 @@ mod tests {
             stepper
                 .server_app
                 .world()
-                .get::<Parent>(server_child)
+                .get::<ChildOf>(server_child)
                 .unwrap()
                 .get(),
             server_parent

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
@@ -73,7 +73,7 @@ impl Default for InterpolationConfig {
     fn default() -> Self {
         Self {
             min_delay: Duration::from_millis(0),
-            send_interval_ratio: 2.0,
+            send_interval_ratio: 1.2,
         }
     }
 }

@@ -6,7 +6,7 @@ use crate::connection::server::{
 use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::LinkConditionerConfig;
 use crate::server::io::Io;
-use bevy::utils::HashMap;
+use crate::utils::collections::HashMap;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -110,7 +110,7 @@ impl Server {
             server,
             config,
             listen_socket: None,
-            connections: HashMap::new(),
+            connections: HashMap::default(),
             packet_queue: VecDeque::new(),
             new_connections: Vec::new(),
             new_disconnections: Vec::new(),

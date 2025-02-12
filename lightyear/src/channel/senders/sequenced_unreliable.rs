@@ -1,5 +1,5 @@
 use bevy::time::{Timer, TimerMode};
-use bevy::utils::Duration;
+use core::time::Duration;
 use std::collections::VecDeque;
 
 use bytes::Bytes;

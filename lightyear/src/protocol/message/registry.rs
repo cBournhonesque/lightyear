@@ -11,8 +11,8 @@ use crate::serialize::ToBytes;
 use crate::server::config::ServerConfig;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use bevy::ecs::entity::MapEntities;
+use bevy::platform_support::collections::HashMap;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -187,7 +187,7 @@ pub(crate) fn register_message<M: Message>(app: &mut App, direction: ChannelDire
 ///
 /// impl MapEntities for MyMessage {
 ///    fn map_entities<M: EntityMapper>(&mut self, entity_map: &mut M) {
-///        self.0 = entity_map.map_entity(self.0);
+///        self.0 = entity_map.get_mapped(self.0);
 ///    }
 /// }
 ///

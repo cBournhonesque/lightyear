@@ -19,8 +19,6 @@ pub(crate) mod component;
 /// Defines the various messages that can be sent over the network
 pub(crate) mod message;
 
-pub(crate) mod delta;
-pub(crate) mod event;
 /// Provides a mapping from a type to a unique identifier that can be serialized
 pub(crate) mod registry;
 pub(crate) mod serialize;

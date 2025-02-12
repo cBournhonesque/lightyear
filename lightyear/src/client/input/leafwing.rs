@@ -52,13 +52,15 @@ use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{
-    is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage, MessageRegistry, ReplicateOnceComponent, TickManager, TimeManager
+    is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage,
+    MessageRegistry, ReplicateOnce, ServerReceiveMessage, TickManager, TimeManager,
 };
 use crate::protocol::message::MessageKind;
 use crate::serialize::reader::Reader;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
+use crate::tests::protocol::ComponentSyncModeFull;
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Copy, Clone, Resource)]
@@ -322,13 +324,21 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
 
     for (entity, has_action_state) in player_entities.iter() {
         trace!(?entity, "adding actions state buffer");
-        commands.entity(entity).insert((
+        commands.entity(entity).insert(
             // input buffer needed to rollback to a previous ActionState
             InputBuffer::<A>::default(),
-            // make sure that the server entity has an ActionState component (if we use PrePrediction),
-            // but don't replicate any updates after we replicated the initial component spawn
-            ReplicateOnceComponent::<ActionState<A>>::default(),
-        ));
+        );
+        // make sure that the server entity has an ActionState component (if we use PrePrediction),
+        // but don't replicate any updates after we replicated the initial component spawn
+        //
+        // Be careful to not overwrite an existing ReplicateOnce if present
+        commands
+            .entity(entity)
+            .entry::<ReplicateOnce>()
+            .or_default()
+            .and_modify(|mut v| {
+                v.add_mut::<ActionState<A>>();
+            });
         if !has_action_state {
             commands.entity(entity).insert(ActionState::<A>::default());
         }
@@ -822,8 +832,9 @@ mod tests {
     use std::time::Duration;
 
     use crate::prelude::client::{InterpolationDelay, PredictionConfig};
-    use crate::prelude::server::Replicate;
-    use crate::prelude::{client, SharedConfig, TickConfig};
+    use crate::prelude::server::{Replicate, SyncTarget};
+    use crate::prelude::{client, NetworkTarget, ServerSendMessage, SharedConfig, TickConfig};
+    use crate::tests::multi_stepper::MultiBevyStepper;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
 
@@ -1091,5 +1102,87 @@ mod tests {
             .get_single(stepper.server_app.world())
             .unwrap();
         assert_eq!(delay.delay_ms, 20);
+    }
+
+    pub(crate) fn replicate_inputs(
+        mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<LeafwingInput1>>>>,
+        mut send_inputs: EventWriter<ServerSendMessage<InputMessage<LeafwingInput1>>>,
+    ) {
+        // rebroadcast the input to other clients
+        // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
+        // so that the server had the time to process the inputs
+        send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+            ServerSendMessage::new_with_target::<InputChannel>(
+                ev.message,
+                NetworkTarget::AllExceptSingle(ev.from),
+            )
+        }));
+    }
+    #[test]
+    fn test_receive_inputs_other_clients() {
+        let mut stepper = MultiBevyStepper::default();
+        // server propagate inputs to other clients
+        stepper.server_app.add_systems(
+            PreUpdate,
+            replicate_inputs.after(crate::server::input::leafwing::InputSystemSet::ReceiveInputs),
+        );
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                ActionState::<LeafwingInput1>::default(),
+                Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        interpolation: None,
+                    },
+                    ..default()
+                },
+            ))
+            .id();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let client_entity_2 = stepper
+            .client_app_2
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        let client_entity_1 = stepper
+            .client_app_1
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        stepper
+            .client_app_2
+            .world_mut()
+            .entity_mut(client_entity_2)
+            .insert(InputMap::<LeafwingInput1>::new([(
+                LeafwingInput1::Jump,
+                KeyCode::KeyA,
+            )]));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // client 1 should have received the InputMessage from client 2 which was broadcasted by the client
+        assert!(stepper
+            .client_app_1
+            .world()
+            .get::<ActionState<LeafwingInput1>>(client_entity_1)
+            .is_some());
+        assert!(stepper
+            .client_app_1
+            .world()
+            .get::<InputBuffer<LeafwingInput1>>(client_entity_1)
+            .unwrap()
+            .end_tick()
+            .is_some());
     }
 }

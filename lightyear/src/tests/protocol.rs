@@ -1,9 +1,9 @@
 use std::ops::{Add, Mul};
 
+use crate::utils::collections::HashSet;
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
-use bevy::utils::HashSet;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;
 use lightyear_macros::ChannelInternal;
@@ -33,7 +33,7 @@ pub struct EntityMessage(pub Entity);
 
 impl MapEntities for EntityMessage {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 
@@ -82,7 +82,7 @@ pub struct ComponentMapEntities(pub Entity);
 
 impl MapEntities for ComponentMapEntities {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 
@@ -134,7 +134,7 @@ impl Diffable for ComponentDeltaCompression2 {
     type Delta = (HashSet<usize>, HashSet<usize>);
 
     fn base_value() -> Self {
-        Self(HashSet::new())
+        Self(HashSet::default())
     }
 
     fn diff(&self, other: &Self) -> Self::Delta {

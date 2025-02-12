@@ -7,7 +7,7 @@ use crate::{
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use lightyear::prelude::server::ReplicationTarget;
+use lightyear::prelude::server::ReplicateToClient;
 use lightyear::{
     client::prediction::diagnostics::PredictionDiagnosticsPlugin,
     prelude::{client::*, *},
@@ -68,11 +68,11 @@ fn add_visual_interpolation_components(
     query: Query<Entity, (With<Predicted>, Without<FloorMarker>)>,
     mut commands: Commands,
 ) {
-    if !query.contains(trigger.entity()) {
+    if !query.contains(trigger.target()) {
         return;
     }
     commands
-        .entity(trigger.entity())
+        .entity(trigger.target())
         .insert(VisualInterpolateStatus::<Transform> {
             // We must trigger change detection on visual interpolation
             // to make sure that child entities (sprites, meshes, text)
@@ -89,7 +89,7 @@ fn add_character_cosmetics(
     character_query: Query<
         (Entity, &ColorComponent),
         (
-            Or<(Added<Predicted>, Added<ReplicationTarget>)>,
+            Or<(Added<Predicted>, Added<ReplicateToClient>)>,
             With<CharacterMarker>,
         ),
     >,
@@ -133,7 +133,7 @@ fn add_block_cosmetics(
     floor_query: Query<
         Entity,
         (
-            Or<(Added<Predicted>, Added<ReplicationTarget>)>,
+            Or<(Added<Predicted>, Added<ReplicateToClient>)>,
             With<BlockMarker>,
         ),
     >,

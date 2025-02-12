@@ -1,7 +1,7 @@
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
@@ -12,7 +12,7 @@ use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
 
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::{DespawnReplicationCommandExt, ReplicationTarget};
+use lightyear::prelude::server::{DespawnReplicationCommandExt, ReplicateToClient};
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
@@ -196,7 +196,7 @@ pub fn shared_player_firing(
             Has<Controlled>,
             &Player,
         ),
-        Or<(With<Predicted>, With<ReplicationTarget>)>,
+        Or<(With<Predicted>, With<ReplicateToClient>)>,
     >,
     mut commands: Commands,
     tick_manager: Res<TickManager>,
@@ -245,7 +245,7 @@ pub fn shared_player_firing(
 
         // the default hashing algorithm uses the tick and component list. in order to disambiguate
         // between two players spawning a bullet on the same tick, we add client_id to the mix.
-        let prespawned = PreSpawnedPlayerObject::default_with_salt(player.client_id.to_bits());
+        let prespawned = PreSpawned::default_with_salt(player.client_id.to_bits());
 
         let bullet_entity = commands
             .spawn((

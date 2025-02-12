@@ -13,11 +13,11 @@ use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
 use bevy::app::{App, RunFixedMainLoop, RunFixedMainLoopSystem};
+use bevy::platform_support::time::Instant;
 use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time};
 use bevy::time::Fixed;
-use bevy::utils::Duration;
-use bevy::utils::Instant;
 use chrono::Duration as ChronoDuration;
+use core::time::Duration;
 
 pub use wrapped_time::WrappedTime;
 

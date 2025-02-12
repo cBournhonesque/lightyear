@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::action_state::ActionData;
 use leafwing_input_manager::buttonlike::ButtonState::Pressed;
 use leafwing_input_manager::plugin::InputManagerSystem;
@@ -37,8 +37,8 @@ fn add_player_input_map(
     mut commands: Commands,
     query: Query<(), With<Predicted>>,
 ) {
-    if query.get(trigger.entity()).is_ok() {
-        commands.entity(trigger.entity()).insert(InputMap::new([
+    if query.get(trigger.target()).is_ok() {
+        commands.entity(trigger.target()).insert(InputMap::new([
             (PlayerActions::Up, KeyCode::KeyW),
             (PlayerActions::Down, KeyCode::KeyS),
             (PlayerActions::Left, KeyCode::KeyA),
