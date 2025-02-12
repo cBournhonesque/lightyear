@@ -252,6 +252,50 @@ pub(crate) fn remove_prediction_disable(
     });
 }
 
+/// In case there is a rollback, we start by resetting all predicted entities to their confirmed state.
+pub(crate) fn prepare_rollback(
+    // fetches Query<(Option<&C>, &Confirmed)>
+    confirmed_entities: Query<FilteredEntityRef>,
+    // fetches Query<(Option<&mut C>, &mut PredictionHistory<C>, Option<&mut Correction<C>>)>
+    mut predicted_entities: Query<FilteredEntityMut>,
+    mut commands: Commands,
+    component_registry: Res<ComponentRegistry>,
+    config: Res<ClientConfig>,
+    tick_manager: Res<TickManager>,
+    rollback: Res<Rollback>,
+    manager: Res<PredictionManager>,
+) {
+    let _span = trace_span!("client rollback prepare");
+    debug!("in prepare rollback");
+
+    let tick = tick_manager.tick();
+    // NOTE: remember to remove 1 because the rollback tick was set as confirmed_tick + 1
+    let rollback_tick = rollback.get_rollback_tick().unwrap() - 1;
+    predicted_entities.par_iter_mut().for_each(|mut predicted_mut| {
+        let predicted = predicted_mut.id();
+        let Some(confirmed) = predicted_mut.get::<Predicted>().and_then(|p| p.confirmed_entity) else {
+            // skip if the confirmed entity does not exist
+            return
+        };
+        let Ok(confirmed_ref) = confirmed_entities.get(confirmed) else {
+            // skip if the confirmed entity does not exist
+            return
+        };
+
+        for (id, prediction_metadata) in component_registry.prediction_map
+            .iter()
+            .filter(|(_, m)| m.sync_mode == ComponentSyncMode::Full)
+            .map(|(kind, m)| (component_registry.kind_to_component_id[kind], m)) {
+            if (prediction_metadata.check_rollback)(&component_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
+                rollback.set_rollback_tick(confirmed_tick + 1);
+                return;
+            }
+        }
+
+
+    })
+}
+
 /// If there is a mismatch, prepare rollback for all components
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]

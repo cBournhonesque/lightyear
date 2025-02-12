@@ -7,6 +7,7 @@ use crate::protocol::component::{ComponentError, ComponentKind};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy::prelude::*;
+use crate::prelude::client::Correction;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredictionMetadata {
@@ -20,11 +21,19 @@ pub struct PredictionMetadata {
     pub should_rollback: unsafe fn(),
     pub buffer_sync: SyncFn,
     pub check_rollback: CheckRollbackFn,
+    pub prepare_rollback: PrepareRollbackFn,
 }
 
 type SyncFn = fn(&mut ComponentRegistry, confirmed: Entity, predicted: Entity, &World);
 
 type CheckRollbackFn = fn(
+    &ComponentRegistry,
+    confirmed_tick: Tick,
+    confirmed_ref: &FilteredEntityRef,
+    predicted_mut: &mut FilteredEntityMut,
+) -> bool;
+
+type PrepareRollbackFn = fn(
     &ComponentRegistry,
     confirmed_tick: Tick,
     confirmed_ref: &FilteredEntityRef,
@@ -48,6 +57,7 @@ impl PredictionMetadata {
             },
             buffer_sync: ComponentRegistry::buffer_sync::<C>,
             check_rollback: ComponentRegistry::check_rollback::<C>,
+            prepare_rollback: ComponentRegistry::prepare_rollback::<C>,
         }
     }
 }
@@ -319,5 +329,93 @@ impl ComponentRegistry {
                 },
             ),
         }
+    }
+
+    /// Prepare rollback by resetting the predicted state to the confirmed state from confirmed_tick
+    pub fn prepare_rollback<C: SyncComponent>(
+        &self,
+        tick: Tick,
+        rollback_tick: Tick,
+        confirmed_ref: &FilteredEntityRef,
+        predicted_mut: &mut FilteredEntityMut,
+        commands: &mut Commands,
+        manager: &PredictionManager,
+    ) {
+        let predicted_component = predicted_mut.get_mut::<C>();
+        let mut predicted_history = predicted_mut.get_mut::<PredictionHistory<C>>().unwrap();
+        let mut correction = predicted_mut.get_mut::<Correction<C>>();
+        let confirmed_component = confirmed_ref.get::<C>();
+
+        // clear the prediction history so we that we can write a new one
+        predicted_history.clear();
+
+        // update the state to the Corrected state
+        // NOTE: visually, we will use the CorrectionFn to interpolate between the current Predicted state and the Corrected state
+        //  even though for other purposes (physics, etc.) we switch directly to the Corrected state
+        let mut predicted_commands = commands.entity(predicted_mut.id());
+        match confirmed_component {
+            // confirm does not exist, remove on predicted
+            None => {
+                predicted_history.add_remove(rollback_tick);
+                predicted_commands.remove::<C>();
+            }
+            // confirm exist, update or insert on predicted
+            Some(confirmed_component) => {
+                let mut rollbacked_predicted_component = confirmed_component.clone();
+                let _ = manager.map_entities(
+                    &mut rollbacked_predicted_component,
+                    self,
+                );
+                predicted_history.add_update(rollback_tick, rollbacked_predicted_component.clone());
+                match predicted_component {
+                    None => {
+                        debug!("Re-adding deleted Full component to predicted");
+                        predicted_commands.insert(rollbacked_predicted_component);
+                    }
+                    Some(mut predicted_component) => {
+                        // // no need to do a correction if the values are the same
+                        // if predicted_component.as_ref() == c {
+                        //     continue;
+                        // }
+
+                        // insert the Correction information only if the component exists on both confirmed and predicted
+                        let correction_ticks = ((tick - rollback_tick) as f32
+                            * config.prediction.correction_ticks_factor)
+                            .round() as i16;
+
+                        // no need to add the Correction if the correction is instant
+                        if correction_ticks != 0 && self.has_correction::<C>() {
+                            let final_correction_tick = tick + correction_ticks;
+                            if let Some(correction) = correction.as_mut() {
+                                debug!("updating existing correction");
+                                // if there is a correction, start the correction again from the previous
+                                // visual state to avoid glitches
+                                correction.original_prediction =
+                                    std::mem::take(&mut correction.current_visual)
+                                        .unwrap_or_else(|| predicted_component.clone());
+                                correction.original_tick = tick;
+                                correction.final_correction_tick = final_correction_tick;
+                                // TODO: can set this to None, shouldnt make any diff
+                                correction.current_correction =
+                                    Some(rollbacked_predicted_component.clone());
+                            } else {
+                                debug!("inserting new correction");
+                                predicted_commands.insert(Correction {
+                                    original_prediction: predicted_component.clone(),
+                                    original_tick: tick,
+                                    final_correction_tick,
+                                    current_visual: None,
+                                    current_correction: None,
+                                });
+                            }
+                        }
+
+                        // update the component to the corrected value
+                        *predicted_component = rollbacked_predicted_component;
+                    }
+                };
+            }
+        };
+
     }
 }
