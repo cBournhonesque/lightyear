@@ -358,6 +358,7 @@ impl Component for PreSpawned {
 
 #[cfg(test)]
 mod tests {
+    use crate::client::prediction::despawn::PredictionDisable;
     use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
     use crate::prelude::client::{is_in_rollback, PredictionDespawnCommandsExt, PredictionSet};
@@ -368,7 +369,6 @@ mod tests {
     use crate::tests::stepper::BevyStepper;
     use crate::utils::ready_buffer::ItemWithReadyKey;
     use bevy::app::PreUpdate;
-    use bevy::ecs::entity_disabling::Disabled;
     use bevy::prelude::{default, Entity, IntoSystemConfigs, With};
 
     #[test]
@@ -638,7 +638,7 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<Disabled>(client_prespawn)
+            .get::<PredictionDisable>(client_prespawn)
             .is_some());
 
         // if enough frames pass without match, the entity gets cleaned
@@ -711,7 +711,7 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<Disabled>(client_prespawn)
+            .get::<PredictionDisable>(client_prespawn)
             .is_some());
 
         // spawn the server prespawned entity
