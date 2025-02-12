@@ -690,7 +690,7 @@ impl Connection {
         entity: Entity,
         group_id: ReplicationGroupId,
         component_registry: &ComponentRegistry,
-        data: &mut C,
+        data: &C,
     ) -> Result<(), ServerError> {
         let net_id = component_registry
             .get_net_id::<C>()

@@ -249,7 +249,7 @@ impl ComponentRegistry {
 
     pub(crate) fn serialize<C: Message>(
         &self,
-        component: &mut C,
+        component: &C,
         writer: &mut Writer,
         entity_map: &mut SendEntityMap,
     ) -> Result<(), ComponentError> {

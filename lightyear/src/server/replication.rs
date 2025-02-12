@@ -814,8 +814,6 @@ pub(crate) mod send {
             return;
         }
         trace!(?entity, ?target, "Prepare entity spawn to client");
-        // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-        //  (i.e. before we received an ack?)
         let _ = crate::server::connection::connected_targets_mut(
             &mut connection_manager.connections,
             &target,
