@@ -2,8 +2,7 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
 use bevy::app::FixedMain;
-use bevy::ecs::archetype::Archetypes;
-use bevy::ecs::component::{Components, Mutable};
+use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::ecs::reflect::ReflectResource;
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
@@ -20,7 +19,6 @@ use super::Predicted;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::prediction::archetypes::PredictedArchetypes;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::despawn::PredictionDisable;
 use crate::client::prediction::diagnostics::PredictionMetrics;
