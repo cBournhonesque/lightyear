@@ -478,8 +478,6 @@ pub(crate) mod send {
                 )
             };
 
-            dbg!(&disabled_components);
-
             // the update will be 'insert' instead of update if the ReplicateToServer component is new
             // or the HasAuthority component is new. That's because the remote cannot receive update
             // without receiving an action first (to populate the latest_tick on the replication-receiver)

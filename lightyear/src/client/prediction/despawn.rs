@@ -1,4 +1,3 @@
-use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use tracing::{error, trace};
@@ -50,8 +49,7 @@ impl Command for PredictionDespawnCommand {
                 // add a PredictionDisable component to it to mark it as disabled until the confirmed
                 // entity catches up to it
                 trace!("inserting prediction disable marker");
-                // TODO: use our own PredictionDisabled when it is possible
-                entity.insert(Disabled);
+                entity.insert(PredictionDisable);
             } else if let Some(confirmed) = entity.get::<Confirmed>() {
                 // TODO: actually we should never despawn directly on the client a Confirmed entity
                 //  it should only get despawned when replicating!
@@ -88,13 +86,13 @@ pub(crate) fn despawn_confirmed(
 
 #[cfg(test)]
 mod tests {
+    use crate::client::prediction::despawn::PredictionDisable;
     use crate::client::prediction::resource::PredictionManager;
     use crate::prelude::client::{Confirmed, PredictionDespawnCommandsExt};
     use crate::prelude::server::SyncTarget;
     use crate::prelude::{client, server, NetworkTarget};
     use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeSimple};
     use crate::tests::stepper::BevyStepper;
-    use bevy::ecs::entity_disabling::Disabled;
     use bevy::prelude::{default, Component};
 
     #[derive(Component, Debug, PartialEq)]
@@ -180,7 +178,7 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<Disabled>(predicted_entity)
+            .get::<PredictionDisable>(predicted_entity)
             .is_some());
 
         // update the server entity to trigger a rollback where the predicted entity should be 're-spawned'
@@ -193,11 +191,11 @@ mod tests {
         stepper.frame_step();
         stepper.frame_step();
 
-        // Check that the entity was rolled back and the Disabled marker was removed
+        // Check that the entity was rolled back and the PredictionDisable marker was removed
         assert!(stepper
             .client_app
             .world()
-            .get::<Disabled>(predicted_entity)
+            .get::<PredictionDisable>(predicted_entity)
             .is_none());
         assert_eq!(
             stepper

@@ -26,6 +26,7 @@ use crate::prelude::client::is_connected;
 use crate::prelude::{is_host_server, PreSpawned};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use bevy::ecs::component::Mutable;
+use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
@@ -353,9 +354,14 @@ impl Plugin for PredictionPlugin {
             .register_type::<PredictionDisable>()
             .register_type::<PredictionConfig>();
 
+
         // RESOURCES
         app.init_resource::<PredictionManager>();
         app.insert_resource(Rollback::new(RollbackState::Default));
+
+        // Custom entity disabling
+        let prediction_disable_id = app.world_mut().register_component::<PredictionDisable>();
+        app.world_mut().resource_mut::<DefaultQueryFilters>().register_disabling_component(prediction_disable_id);
 
         // PreUpdate systems:
         // 1. Receive confirmed entities, add Confirmed and Predicted components

@@ -2,10 +2,8 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
 use bevy::app::FixedMain;
-use bevy::ecs::archetype::Archetypes;
-use bevy::ecs::component::{Components, Mutable};
+use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::hash_set::EntityHashSet;
-use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::reflect::ReflectResource;
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
@@ -21,8 +19,8 @@ use super::Predicted;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::prediction::archetypes::PredictedArchetypes;
 use crate::client::prediction::correction::Correction;
+use crate::client::prediction::despawn::PredictionDisable;
 use crate::client::prediction::diagnostics::PredictionMetrics;
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::client::PredictionSet;
@@ -57,8 +55,9 @@ impl Plugin for RollbackPlugin {
                 builder.data::<&Predicted>();
                 builder.without::<Confirmed>();
                 builder.optional(|b| {
-                    // include Disabled entities
-                    b.data::<&Disabled>();
+                    // include PredictionDisable entities (entities that are predicted and 'despawned'
+                    // but we keep them around for rollback check)
+                    b.data::<&PredictionDisable>();
                     // include access to &mut PredictionHistory<C> for all ComponentSyncMode=Full components
                     component_registry
                         .prediction_map
@@ -69,9 +68,6 @@ impl Plugin for RollbackPlugin {
                         });
                 });
             }),
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -176,16 +172,12 @@ fn check_rollback(
     tick_manager: Res<TickManager>,
     system_ticks: SystemChangeTick,
     rollback: ResMut<Rollback>,
-    archetypes: &Archetypes,
-    components: &Components,
-    mut predicted_archetypes: Local<PredictedArchetypes>
 ) {
     // TODO: maybe we can check if we receive any replication packets?
     // no need to check for rollback if we didn't receive any packet
     if !connection.received_new_server_tick() {
         return;
     }
-    predicted_archetypes.update(archetypes, components, component_registry.as_ref());
     let tick = tick_manager.tick();
 
     // TODO: iterate through each archetype in parallel? using rayon
@@ -232,33 +224,31 @@ fn check_rollback(
             );
             return;
         }
-        // NOTE: we pre-cache the archetypes to only iterate over the components of the current archetype
-        //  instead of all predicted components
-        for predicted_component in predicted_archetypes.archetypes.get(&predicted_mut.archetype().id()).unwrap() {
-            if !rollback.is_rollback() {
-                return
-            }
-            let metadata = component_registry.prediction_map.get(&predicted_component.kind).unwrap();
-            if metadata.sync_mode != ComponentSyncMode::Full {
-                return
-            }
-            if (metadata.check_rollback)(&component_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
+        // TODO: maybe pre-cache the components of the archetypes that we want to iterate over?
+        //  it's not straightforward because we also want to handle rollbacks for components
+        //  that were removed from the entity, which would not appear in the archetype
+        for (id, prediction_metadata) in component_registry.prediction_map
+            .iter()
+            .filter(|(_, m)| m.sync_mode == ComponentSyncMode::Full)
+            .map(|(kind, m)| (component_registry.kind_to_component_id[kind], m))
+            .take_while(|_| !rollback.is_rollback()) {
+            if (prediction_metadata.check_rollback)(&component_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
                 rollback.set_rollback_tick(confirmed_tick + 1);
                 return;
             }
         }
+
     })
 }
 
 // TODO: maybe restore only the ones for which the Confirmed entity is not disabled?
-/// Before we start preparing for rollback, restore any Disabled predicted entity
+/// Before we start preparing for rollback, restore any PredictionDisable predicted entity
 pub(crate) fn remove_prediction_disable(
     mut commands: Commands,
-    // TODO: use our own custom Disable marker when this is possible
-    query: Query<Entity, (With<Predicted>, With<Disabled>)>,
+    query: Query<Entity, (With<Predicted>, With<PredictionDisable>)>,
 ) {
     query.iter().for_each(|e| {
-        commands.entity(e).remove::<Disabled>();
+        commands.entity(e).remove::<PredictionDisable>();
     });
 }
 
@@ -814,8 +804,8 @@ mod unit_tests {
                 builder.data::<&Predicted>();
                 builder.without::<Confirmed>();
                 builder.optional(|b| {
-                    // include Disabled entities
-                    b.data::<&Disabled>();
+                    // include PredictionDisable entities
+                    b.data::<&PredictionDisable>();
                     // include access to &mut PredictionHistory<C> for all ComponentSyncMode=Full components
                     component_registry
                         .prediction_map
@@ -826,9 +816,6 @@ mod unit_tests {
                         });
                 });
             }),
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -897,6 +884,7 @@ mod unit_tests {
                 .get_rollback_tick(),
             Some(tick + 1)
         );
+        // the predicted history now has ComponentSyncModeFull(2.0)
 
         // 2. Confirmed component does not exist but predicted component exists
         // reset rollback state
@@ -921,6 +909,7 @@ mod unit_tests {
                 .get_rollback_tick(),
             Some(tick + 1)
         );
+        // the predicted history now has Absent
 
         // 3. Confirmed component exists but predicted component does not exist
         // reset rollback state
@@ -950,6 +939,7 @@ mod unit_tests {
                 .get_rollback_tick(),
             Some(tick + 1)
         );
+        // the predicted history now has ConfirmedSyncModeFull(2.0)
 
         // 4. If confirmed component is the same value as what we have in the history for predicted component, we do not rollback
         // reset rollback state
