@@ -201,12 +201,12 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         }
         if let Some(data) = self.buffer.get((tick - start_tick) as usize) {
             match data {
-                BufferItem::Absent => None,
+                BufferItem::Absent => return None,
                 BufferItem::SameAsPrecedent => {
                     // get the data from the preceding tick
-                    self.get(tick - 1)
+                    return self.get(tick - 1);
                 }
-                BufferItem::Data(data) => Some(data),
+                BufferItem::Data(data) => return Some(data),
             }
         }
         return None;
