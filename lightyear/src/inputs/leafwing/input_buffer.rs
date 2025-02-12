@@ -140,12 +140,12 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         }
 
         // safety: we are guaranteed that the tick is in the buffer
-        let entry = self.buffer.get_mut((tick - start_tick) as usize).unwrap();
-
-        if same_as_precedent {
-            *entry = BufferItem::SameAsPrecedent;
-        } else {
-            *entry = BufferItem::Data(value.clone());
+        if let Some(entry) = self.buffer.get_mut((tick - start_tick) as usize) {
+            if same_as_precedent {
+                *entry = BufferItem::SameAsPrecedent;
+            } else {
+                *entry = BufferItem::Data(value.clone());
+            }
         }
     }
 
