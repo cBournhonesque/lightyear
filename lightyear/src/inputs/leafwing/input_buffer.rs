@@ -199,15 +199,18 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
             return None;
         }
-        let data = self.buffer.get((tick - start_tick) as usize).unwrap();
-        match data {
-            BufferItem::Absent => None,
-            BufferItem::SameAsPrecedent => {
-                // get the data from the preceding tick
-                self.get(tick - 1)
+        if let Some(data) = self.buffer.get((tick - start_tick) as usize) {
+            match data {
+                BufferItem::Absent => None,
+                BufferItem::SameAsPrecedent => {
+                    // get the data from the preceding tick
+                    self.get(tick - 1)
+                }
+                BufferItem::Data(data) => Some(data),
             }
-            BufferItem::Data(data) => Some(data),
         }
+        return None;
+       
     }
 
     /// Get latest ActionState present in the buffer
