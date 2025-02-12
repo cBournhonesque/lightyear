@@ -1,13 +1,13 @@
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::prediction::predicted_history::PredictionHistory;
 use crate::client::prediction::resource::PredictionManager;
+use crate::prelude::client::Correction;
 use crate::prelude::{ComponentRegistry, HistoryState, Linear, Tick};
 use crate::protocol::component::registry::LerpFn;
 use crate::protocol::component::{ComponentError, ComponentKind};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy::prelude::*;
-use crate::prelude::client::Correction;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredictionMetadata {
