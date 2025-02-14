@@ -9,6 +9,7 @@ pub fn shared_config() -> SharedConfig {
     SharedConfig {
         // send replication updates every 100ms
         server_replication_send_interval: REPLICATION_INTERVAL,
+        client_replication_send_interval: REPLICATION_INTERVAL,
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
