@@ -16,10 +16,6 @@ use bevy::utils::Duration;
 pub struct ReplicationConfig {
     /// How do send component updates?
     pub send_updates_mode: SendUpdatesMode,
-    /// How often we send replication updates.
-    ///
-    /// Set to `Duration::default()` to send updates every frame.
-    pub send_interval: Duration,
 }
 
 #[derive(Clone, Copy, Debug, Reflect)]
@@ -46,7 +42,6 @@ impl Default for ReplicationConfig {
     fn default() -> Self {
         Self {
             send_updates_mode: SendUpdatesMode::SinceLastAck,
-            send_interval: Duration::default(),
         }
     }
 }

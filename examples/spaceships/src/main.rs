@@ -1,15 +1,10 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-use std::time::Duration;
 
 use crate::settings::get_settings;
 use bevy::prelude::*;
-use lightyear::client::config::ClientConfig;
-use lightyear::prelude::client::PredictionConfig;
-use lightyear::server::config::ServerConfig;
 use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::Settings;
 
 #[cfg(feature = "client")]
 mod client;
@@ -32,10 +27,7 @@ fn main() {
     lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.common.client);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut apps = Apps::new(settings.common, cli, env!("CARGO_PKG_NAME").to_string())
-        .with_server_replication_send_interval(Duration::from_millis(
-            settings.server_replication_send_interval,
-        ));
+    let mut apps = Apps::new(settings.common, cli, env!("CARGO_PKG_NAME").to_string());
     // use input delay and a correction function to smooth over rollback errors
     apps.update_lightyear_client_config(|config| {
         config

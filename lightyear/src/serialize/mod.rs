@@ -28,8 +28,6 @@ pub enum SerializationError {
     BincodeEncode(#[from] bincode::error::EncodeError),
     #[error(transparent)]
     BincodeDecode(#[from] bincode::error::DecodeError),
-    #[error("The message is too big ({0} bytes) to be sent. We can split a message only up to 256 fragments.")]
-    MessageTooBig(usize),
 }
 
 #[allow(clippy::len_without_is_empty)]

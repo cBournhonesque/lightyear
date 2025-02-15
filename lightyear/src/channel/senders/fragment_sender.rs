@@ -32,9 +32,6 @@ impl FragmentSender {
         }
         let chunks = fragment_bytes.chunks(self.fragment_size);
         let num_fragments = chunks.len();
-        if num_fragments > u8::MAX as usize {
-            return Err(SerializationError::MessageTooBig(fragment_bytes.len()));
-        }
         Ok(chunks
             .enumerate()
             // TODO: ideally we don't clone here but we take ownership of the output of writer
@@ -51,24 +48,12 @@ impl FragmentSender {
 
 #[cfg(test)]
 mod tests {
-
     use bytes::Bytes;
 
     use crate::packet::packet::FRAGMENT_SIZE;
 
     use super::*;
 
-    #[test]
-    fn test_message_too_big() {
-        let bytes = Bytes::from(vec![0; FRAGMENT_SIZE * 300]);
-        let sender = FragmentSender::new();
-
-        let fragments = sender.build_fragments(MessageId(0), None, bytes.clone());
-        assert!(matches!(
-            fragments,
-            Err(SerializationError::MessageTooBig(_))
-        ),);
-    }
 
     #[test]
     fn test_build_fragments() {

@@ -232,20 +232,6 @@ impl Apps {
         }
     }
 
-    /// Set the `server_replication_send_interval` on client and server apps.
-    /// Use to overwrite the default [`SharedConfig`] value in the settings file.
-    pub fn with_server_replication_send_interval(mut self, replication_interval: Duration) -> Self {
-        self.update_lightyear_client_config(|cc: &mut ClientConfig| {
-            cc.shared.server_replication_send_interval = replication_interval
-        });
-        self.update_lightyear_server_config(|sc: &mut ServerConfig| {
-            // the server replication currently needs to be overwritten in both places...
-            sc.shared.server_replication_send_interval = replication_interval;
-            sc.replication.send_interval = replication_interval;
-        });
-        self
-    }
-
     /// Add the lightyear [`ClientPlugins`] and [`ServerPlugins`] plugin groups to the app.
     ///
     /// This can be called after any modifications to the [`ClientConfig`] and [`ServerConfig`]
@@ -523,10 +509,6 @@ pub fn client_app(settings: Settings, net_config: client::NetConfig) -> (App, Cl
     let client_config = ClientConfig {
         shared: shared_config(),
         net: net_config,
-        replication: ReplicationConfig {
-            send_interval: REPLICATION_INTERVAL,
-            ..default()
-        },
         ..default()
     };
     (app, client_config)
@@ -557,10 +539,6 @@ pub fn server_app(
     let server_config = ServerConfig {
         shared: shared_config(),
         net: net_configs,
-        replication: ReplicationConfig {
-            send_interval: REPLICATION_INTERVAL,
-            ..default()
-        },
         ..default()
     };
     (app, server_config)
@@ -583,10 +561,6 @@ pub fn combined_app(
     let server_config = ServerConfig {
         shared: shared_config(),
         net: net_configs,
-        replication: ReplicationConfig {
-            send_interval: REPLICATION_INTERVAL,
-            ..default()
-        },
         ..default()
     };
 
