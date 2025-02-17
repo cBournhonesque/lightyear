@@ -326,7 +326,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         };
 
         // 2. we need to clear the history so we can write a new one
-        predicted_history.clear();
+        let original_predicted_value = predicted_history.pop_until_tick_and_clear(rollback_tick);
+
         // SAFETY: we know the predicted entity exists
         let mut entity_mut = commands.entity(predicted_entity);
 
@@ -346,17 +347,24 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     &mut rollbacked_predicted_component,
                     component_registry.as_ref(),
                 );
+                // TODO: do i need to add this to the history?
                 predicted_history.add_update(rollback_tick, rollbacked_predicted_component.clone());
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted Full component to predicted");
-                        entity_mut.insert(rollbacked_predicted_component.clone());
+                        entity_mut.insert(rollbacked_predicted_component);
                     }
                     Some(mut predicted_component) => {
-                        // // no need to do a correction if the values are the same
-                        // if predicted_component.as_ref() == c {
-                        //     continue;
-                        // }
+                        // no need to do a correction if the predicted value from the history
+                        // is the same as the newly received confirmed value
+                        // (this can happen if you predict 2 entities A and B.
+                        //  A needs a rollback, but B was predicted correctly. In that case you don't want
+                        //  to do a correction for B)
+                        if let Some(HistoryState::Updated(prev)) = original_predicted_value {
+                            if rollbacked_predicted_component == prev {
+                                continue;
+                            }
+                        }
 
                         // insert the Correction information only if the component exists on both confirmed and predicted
                         let correction_ticks = ((current_tick - rollback_tick) as f32
