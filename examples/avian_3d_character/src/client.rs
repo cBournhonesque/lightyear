@@ -1,5 +1,6 @@
 use avian3d::prelude::*;
 use bevy::app::PluginGroupBuilder;
+use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::prelude::*;
@@ -93,6 +94,7 @@ fn handle_new_character(
             commands.entity(entity).insert(
                 InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
                     .with(CharacterAction::Jump, GamepadButton::South)
+                    .with(CharacterAction::Shoot, KeyCode::KeyQ)
                     .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
                     .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
             );

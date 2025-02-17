@@ -31,9 +31,9 @@ pub(crate) fn get_settings() -> MySettings {
                 headless: false,
                 inspector: true,
                 conditioner: Some(Conditioner {
-                    latency_ms: 50,
+                    latency_ms: 100,
                     jitter_ms: 5,
-                    packet_loss: 0.03,
+                    packet_loss: 0.,
                 }),
                 transport: vec![
                     ServerTransports::WebTransport {
@@ -76,7 +76,7 @@ pub(crate) fn get_settings() -> MySettings {
                 compression: CompressionConfig::None,
             },
         },
-        input_delay_ticks: 8,
-        correction_ticks_factor: 0.0,
+        input_delay_ticks: 0,
+        correction_ticks_factor: 1.0,
     }
 }

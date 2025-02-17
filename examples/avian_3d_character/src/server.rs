@@ -36,13 +36,13 @@ pub struct ExampleServerPlugin;
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
-        app.add_systems(
-            PreUpdate,
-            // This system will replicate the inputs of a client to other
-            // clients so that a client can predict other clients.
-            replicate_inputs.after(InputSystemSet::ReceiveInputs),
-        );
-        app.add_systems(FixedUpdate, handle_character_actions);
+        // app.add_systems(
+        //     PreUpdate,
+        //     // This system will replicate the inputs of a client to other
+        //     // clients so that a client can predict other clients.
+        //     replicate_inputs.after(InputSystemSet::ReceiveInputs),
+        // );
+        app.add_systems(FixedUpdate, (handle_character_actions, player_shoot, despawn_system));
         app.add_systems(Update, handle_connections);
     }
 }
@@ -54,6 +54,70 @@ fn handle_character_actions(
 ) {
     for (action_state, mut character) in &mut query {
         apply_character_action(&time, &spatial_query, action_state, &mut character);
+    }
+}
+
+#[derive(Component)]
+pub struct DespawnAfter {
+    spawned_at: f32,
+    lifetime: Duration,
+}
+
+fn despawn_system(
+    mut commands: Commands,
+    query: Query<(Entity, &DespawnAfter)>,
+    time: Res<Time<Fixed>>,
+) {
+    for (entity, despawn) in &query {
+        if time.elapsed_secs() - despawn.spawned_at >= despawn.lifetime.as_secs_f32() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+fn player_shoot(
+    mut commands: Commands,
+    query: Query<(&ActionState<CharacterAction>, &ControlledBy, &Position)>,
+    tick_manager: Res<TickManager>,
+    time: Res<Time<Fixed>>,
+) {
+    for (action_state, controlled_by, position) in &query {
+        if action_state.just_pressed(&CharacterAction::Shoot) {
+            if let NetworkTarget::Single(player_id) = controlled_by.target {
+                commands.spawn((
+                    Name::new("Projectile"),
+                    ProjectileMarker,
+                    DespawnAfter {
+                        spawned_at: time.elapsed_secs(),
+                        lifetime: Duration::from_millis(10000),
+                    },
+                    RigidBody::Dynamic, 
+                    position.clone(),
+                    Rotation::default(),
+                    LinearVelocity(Vec3::Z * 10.),  // arbitrary direction since we are just testing rollbacks
+                    Replicate {
+                        group: ReplicationGroup::new_id(player_id.to_bits() + tick_manager.tick().0 as u64),
+                        controlled_by: ControlledBy {
+                            target: NetworkTarget::Single(player_id),
+                            lifetime: Lifetime::SessionBased,
+                        },
+                        sync: SyncTarget {
+                            prediction: NetworkTarget::All,
+                            interpolation: NetworkTarget::None,
+                        },
+                       ..default()
+                    },
+                    ReplicateOnceComponent::<Position>::default(),
+                    ReplicateOnceComponent::<Rotation>::default(),
+                    ReplicateOnceComponent::<LinearVelocity>::default(),
+                    ReplicateOnceComponent::<AngularVelocity>::default(),
+                    ReplicateOnceComponent::<ComputedMass>::default(),
+                    ReplicateOnceComponent::<ExternalForce>::default(),
+                    ReplicateOnceComponent::<ExternalImpulse>::default(),
+                ));
+            }
+
+        }
     }
 }
 
@@ -134,7 +198,8 @@ pub(crate) fn handle_connections(
         // Replicate newly connected clients to all players
         let replicate = Replicate {
             sync: SyncTarget {
-                prediction: NetworkTarget::All,
+                prediction: NetworkTarget::Single(connection.client_id),
+                interpolation: NetworkTarget::AllExceptSingle(connection.client_id),
                 ..default()
             },
             controlled_by: ControlledBy {

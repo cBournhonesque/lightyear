@@ -1,12 +1,12 @@
 use crate::{
-    protocol::{BlockMarker, CharacterMarker, ColorComponent, FloorMarker},
+    protocol::{BlockMarker, CharacterMarker, ColorComponent, FloorMarker, ProjectileMarker},
     shared::{
         BLOCK_HEIGHT, BLOCK_WIDTH, CHARACTER_CAPSULE_HEIGHT, CHARACTER_CAPSULE_RADIUS,
         FLOOR_HEIGHT, FLOOR_WIDTH,
     },
 };
-use avian3d::prelude::*;
-use bevy::prelude::*;
+use avian3d::{math::AsF32, prelude::*};
+use bevy::{color::palettes::css::MAGENTA, prelude::*};
 use lightyear::prelude::server::ReplicationTarget;
 use lightyear::{
     client::prediction::diagnostics::PredictionDiagnosticsPlugin,
@@ -25,9 +25,15 @@ impl Plugin for ExampleRendererPlugin {
                 add_character_cosmetics,
                 add_floor_cosmetics,
                 add_block_cosmetics,
+                add_projectile_cosmetics
             ),
         );
 
+        app.add_systems(
+            PostUpdate,
+            position_to_transform_for_interpolated.before(TransformSystem::TransformPropagate),
+        );
+        
         // Set up visual interp plugins for Transform. Transform is updated in FixedUpdate
         // by the physics plugin so we make sure that in PostUpdate we interpolate it
         app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
@@ -52,6 +58,51 @@ fn init(mut commands: Commands) {
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
 }
+
+type ParentComponents = (
+    &'static GlobalTransform,
+    Option<&'static Position>,
+    Option<&'static Rotation>,
+);
+
+type PosToTransformComponents = (
+    &'static mut Transform,
+    &'static Position,
+    &'static Rotation,
+    Option<&'static Parent>,
+);
+
+
+pub fn position_to_transform_for_interpolated(
+    mut query: Query<PosToTransformComponents, With<Interpolated>>,
+    parents: Query<ParentComponents, With<Children>>,
+) {
+    for (mut transform, pos, rot, parent) in &mut query {
+        if let Some(parent) = parent {
+            if let Ok((parent_transform, parent_pos, parent_rot)) = parents.get(**parent) {
+                let parent_transform = parent_transform.compute_transform();
+                let parent_pos = parent_pos.map_or(parent_transform.translation, |pos| pos.f32());
+                let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| rot.f32());
+                let parent_scale = parent_transform.scale;
+                let parent_transform = Transform::from_translation(parent_pos)
+                    .with_rotation(parent_rot)
+                    .with_scale(parent_scale);
+
+                let new_transform = GlobalTransform::from(
+                    Transform::from_translation(pos.f32()).with_rotation(rot.f32()),
+                )
+                .reparented_to(&GlobalTransform::from(parent_transform));
+
+                transform.translation = new_transform.translation;
+                transform.rotation = new_transform.rotation;
+            }
+        } else {
+            transform.translation = pos.f32();
+            transform.rotation = rot.f32();
+        }
+    }
+}
+
 
 /// Add the VisualInterpolateStatus::<Transform> component to non-floor entities with
 /// component `Position`. Floors don't need to be visually interpolated because we
@@ -89,7 +140,7 @@ fn add_character_cosmetics(
     character_query: Query<
         (Entity, &ColorComponent),
         (
-            Or<(Added<Predicted>, Added<ReplicationTarget>)>,
+            Or<(Added<Predicted>, Added<ReplicationTarget>, Added<Interpolated>)>,
             With<CharacterMarker>,
         ),
     >,
@@ -104,6 +155,30 @@ fn add_character_cosmetics(
                 CHARACTER_CAPSULE_HEIGHT,
             ))),
             MeshMaterial3d(materials.add(color.0)),
+        ));
+    }
+}
+
+fn add_projectile_cosmetics(
+    mut commands: Commands,
+    character_query: Query<
+        (Entity),
+        (
+            Or<(Added<Predicted>, Added<ReplicationTarget>)>,
+            With<ProjectileMarker>,
+        ),
+    >,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity) in &character_query {
+        info!(?entity, "Adding cosmetics to character {:?}", entity);
+        commands.entity(entity).insert((
+            Mesh3d(meshes.add(Sphere::new(
+                1.,
+            ))),
+            MeshMaterial3d(materials.add(Color::from(MAGENTA))),
+            RigidBody::Dynamic,  // needed to add this somewhere, lol
         ));
     }
 }

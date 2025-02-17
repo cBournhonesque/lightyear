@@ -143,6 +143,10 @@ pub(crate) fn after_physics_log(
     });
     // info!(?tick, ?collisions, "collisions");
     let is_rollback = rollback.map_or(false, |r| r.is_rollback());
+
+    if is_rollback {
+        println!("rollback tick {}", tick.0);
+    }
     for (entity, position, rotation, lv, av) in blocks.iter() {
         debug!(
             ?is_rollback,
