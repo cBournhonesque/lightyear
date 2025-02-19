@@ -36,7 +36,7 @@ impl Plugin for Avian3dPlugin {
                 InterpolationSet::UpdateVisualInterpolationState,
             )
                 .chain()
-                .after(avian2d::prelude::PhysicsSet::Sync),
+                .after(PhysicsSet::Sync),
         );
         app.configure_sets(
             RunFixedMainLoop,
