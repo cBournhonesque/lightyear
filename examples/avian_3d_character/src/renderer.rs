@@ -7,7 +7,7 @@ use crate::{
 };
 use avian3d::{math::AsF32, prelude::*};
 use bevy::{color::palettes::css::MAGENTA, prelude::*};
-use lightyear::prelude::server::ReplicationTarget;
+use lightyear::{client::prediction::rollback::DisableRollback, prelude::server::ReplicationTarget};
 use lightyear::{
     client::prediction::diagnostics::PredictionDiagnosticsPlugin,
     prelude::{client::*, *},
@@ -41,6 +41,8 @@ impl Plugin for ExampleRendererPlugin {
         // Observers that add VisualInterpolationStatus components to entities
         // which receive a Position and are predicted
         app.add_observer(add_visual_interpolation_components);
+
+        app.add_systems(Last, disable_projectile_rollback);
     }
 }
 
@@ -221,5 +223,22 @@ fn add_block_cosmetics(
             Mesh3d(meshes.add(Cuboid::new(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_WIDTH))),
             MeshMaterial3d(materials.add(Color::srgb(1.0, 0.0, 1.0))),
         ));
+    }
+}
+
+
+fn disable_projectile_rollback(
+    mut commands: Commands,
+    q_projectile: Query<
+        Entity,
+        (
+            With<Predicted>,
+            With<ProjectileMarker>,
+            Without<DisableRollback>,
+        ),
+    >,
+) {
+    for proj in &q_projectile {
+        commands.entity(proj).insert(DisableRollback);
     }
 }
