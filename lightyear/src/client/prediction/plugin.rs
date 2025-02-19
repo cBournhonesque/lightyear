@@ -436,9 +436,7 @@ impl Plugin for PredictionPlugin {
         );
         app.add_systems(
             FixedPostUpdate,
-            (
-                remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
-            ),
+            (remove_despawn_marker.in_set(PredictionSet::EntityDespawn),),
         );
 
         // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
@@ -461,7 +459,7 @@ impl Plugin for PredictionPlugin {
         // );
         app.add_systems(
             FixedLast,
-                increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
+            increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
         );
         app.configure_sets(
             FixedLast,

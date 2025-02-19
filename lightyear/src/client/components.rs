@@ -26,7 +26,7 @@ pub struct Confirmed {
     pub tick: Tick,
 }
 
-pub trait SyncComponent: Component + Clone + PartialEq + Message  {}
+pub trait SyncComponent: Component + Clone + PartialEq + Message {}
 impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message {}
 
 /// Function that will interpolate between two values

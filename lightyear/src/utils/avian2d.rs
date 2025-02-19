@@ -37,7 +37,7 @@ impl Plugin for Avian2dPlugin {
                 // save the values for visual interpolation
                 InterpolationSet::UpdateVisualInterpolationState,
             )
-                .chain()
+                .chain(),
         );
         app.configure_sets(
             RunFixedMainLoop,
