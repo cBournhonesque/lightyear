@@ -462,13 +462,14 @@ impl Plugin for PredictionPlugin {
         // );
         app.configure_sets(
             FixedLast,
-            PredictionSet::IncrementRollbackTick.run_if(is_in_rollback)
-                .in_set(PredictionSet::All)
+            PredictionSet::IncrementRollbackTick
+                .run_if(is_in_rollback)
+                .in_set(PredictionSet::All),
         )
-            .configure_sets(
-                FixedLast,
-                PredictionSet::All.run_if(should_prediction_run.clone()),
-            );
+        .configure_sets(
+            FixedLast,
+            PredictionSet::All.run_if(should_prediction_run.clone()),
+        );
 
         // PLUGINS
         app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));
