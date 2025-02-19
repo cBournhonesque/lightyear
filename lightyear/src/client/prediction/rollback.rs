@@ -326,7 +326,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         };
 
         // 2. we need to clear the history so we can write a new one
-        predicted_history.clear();
+        let original_predicted_value = predicted_history.pop_until_tick_and_clear(rollback_tick);
+
         // SAFETY: we know the predicted entity exists
         let mut entity_mut = commands.entity(predicted_entity);
 
@@ -346,28 +347,37 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     &mut rollbacked_predicted_component,
                     component_registry.as_ref(),
                 );
+                // TODO: do i need to add this to the history?
                 predicted_history.add_update(rollback_tick, rollbacked_predicted_component.clone());
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted Full component to predicted");
-                        entity_mut.insert(rollbacked_predicted_component.clone());
+                        entity_mut.insert(rollbacked_predicted_component);
                     }
                     Some(mut predicted_component) => {
-                        // // no need to do a correction if the values are the same
-                        // if predicted_component.as_ref() == c {
-                        //     continue;
-                        // }
+                        // no need to do a correction if the predicted value from the history
+                        // is the same as the newly received confirmed value
+                        // (this can happen if you predict 2 entities A and B.
+                        //  A needs a rollback, but B was predicted correctly. In that case you don't want
+                        //  to do a correction for B)
+                        if let Some(HistoryState::Updated(prev)) = original_predicted_value {
+                            // TODO: use should_rollback function?
+                            if rollbacked_predicted_component == prev {
+                                // instead we just rollback the component value without correction
+                                *predicted_component = rollbacked_predicted_component.clone();
+                                continue;
+                            }
+                        }
 
                         // insert the Correction information only if the component exists on both confirmed and predicted
                         let correction_ticks = ((current_tick - rollback_tick) as f32
                             * config.prediction.correction_ticks_factor)
                             .round() as i16;
-
                         // no need to add the Correction if the correction is instant
                         if correction_ticks != 0 && component_registry.has_correction::<C>() {
                             let final_correction_tick = current_tick + correction_ticks;
                             if let Some(correction) = correction.as_mut() {
-                                debug!("updating existing correction");
+                                trace!("updating existing correction");
                                 // if there is a correction, start the correction again from the previous
                                 // visual state to avoid glitches
                                 correction.original_prediction =
@@ -375,11 +385,9 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                         .unwrap_or_else(|| predicted_component.clone());
                                 correction.original_tick = current_tick;
                                 correction.final_correction_tick = final_correction_tick;
-                                // TODO: can set this to None, shouldnt make any diff
-                                correction.current_correction =
-                                    Some(rollbacked_predicted_component.clone());
+                                correction.current_correction = None;
                             } else {
-                                debug!("inserting new correction");
+                                trace!("inserting new correction");
                                 entity_mut.insert(Correction {
                                     original_prediction: predicted_component.clone(),
                                     original_tick: current_tick,
@@ -391,7 +399,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                         }
 
                         // update the component to the corrected value
-                        *predicted_component = rollbacked_predicted_component.clone();
+                        *predicted_component = rollbacked_predicted_component;
                     }
                 };
             }
@@ -751,7 +759,7 @@ pub(crate) fn increment_rollback_tick(rollback: Res<Rollback>) {
 }
 
 #[cfg(test)]
-pub(super) mod test_utils {
+pub(crate) mod test_utils {
     use crate::client::components::Confirmed;
     use crate::client::connection::ConnectionManager;
     use crate::prelude::Tick;
@@ -760,7 +768,7 @@ pub(super) mod test_utils {
     use std::time::Duration;
 
     /// Helper function to simulate that we received a server message
-    pub(super) fn received_confirmed_update(
+    pub(crate) fn received_confirmed_update(
         stepper: &mut BevyStepper,
         confirmed: Entity,
         tick: Tick,
