@@ -1,7 +1,5 @@
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::prediction::correction::{
-    get_corrected_state, restore_corrected_state,
-};
+use crate::client::prediction::correction::{get_corrected_state, restore_corrected_state};
 use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
@@ -452,7 +450,7 @@ impl Plugin for PredictionPlugin {
                 .before(InterpolationSet::UpdateVisualInterpolationState)
                 // no need to update the visual state during rollbacks
                 .run_if(not(is_in_rollback))
-                .in_set(PredictionSet::All)
+                .in_set(PredictionSet::All),
         )
         .configure_sets(FixedLast, PredictionSet::All.run_if(should_prediction_run));
 

@@ -54,7 +54,6 @@ mod tests {
 
     use super::*;
 
-
     #[test]
     fn test_build_fragments() {
         let message_id = MessageId(0);

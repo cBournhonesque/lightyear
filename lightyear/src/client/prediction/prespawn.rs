@@ -80,7 +80,6 @@ impl PreSpawnedPlayerObjectPlugin {
                 .or_default()
                 .push(entity);
 
-
             if prediction_manager
                 .prespawn_hash_to_entities
                 .get(&hash)
