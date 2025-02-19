@@ -361,6 +361,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                         //  A needs a rollback, but B was predicted correctly. In that case you don't want
                         //  to do a correction for B)
                         if let Some(HistoryState::Updated(prev)) = original_predicted_value {
+                            // TODO: use should_rollback function?
                             if rollbacked_predicted_component == prev {
                                 // instead we just rollback the component value without correction
                                 *predicted_component = rollbacked_predicted_component.clone();
