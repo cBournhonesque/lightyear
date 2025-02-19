@@ -63,13 +63,13 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
         // TODO: make the easing configurable
         //  let t = ease_out_quad(t);
         if t == 1.0 || &correction.original_prediction == component.as_ref() {
-            warn!(
+            debug!(
                 ?t,
                 "Correction is over. Removing Correction for: {:?}", kind
             );
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            warn!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
+            debug!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
             // store the current corrected value so that we can restore it at the start of the next frame
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones

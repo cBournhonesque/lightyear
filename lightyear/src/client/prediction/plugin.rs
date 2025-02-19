@@ -216,7 +216,7 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 /// Enable rollbacking a component even if the component is not networked
-pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone + Debug>(app: &mut App) {
+pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app: &mut App) {
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
     app.add_systems(
