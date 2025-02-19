@@ -194,17 +194,17 @@ pub enum PredictionSet {
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
 
     // FixedPostUpdate Sets
-    /// Increment the rollback tick after the main fixed-update physics loop has run
-    IncrementRollbackTick,
     /// Set to deal with predicted/confirmed entities getting despawned
     /// In practice, the entities aren't despawned but all their components are removed
     EntityDespawn,
     /// Update the client's predicted history; runs after each physics step in the FixedUpdate Schedule
     UpdateHistory,
-
-    // FixedLast Sets
     /// Visually interpolate the predicted components to the corrected state
     VisualCorrection,
+
+    // FixedLast Sets
+    /// Increment the rollback tick after the main fixed-update physics loop has run
+    IncrementRollbackTick,
 
     /// General set encompassing all other system sets
     All,
@@ -424,7 +424,8 @@ impl Plugin for PredictionPlugin {
                 // right away to avoid rollbacks
                 PredictionSet::Sync,
                 PredictionSet::UpdateHistory,
-                PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
+                // no need to update the visual state during rollbacks
+                PredictionSet::VisualCorrection.run_if(not(is_in_rollback)),
             )
                 .in_set(PredictionSet::All)
                 .chain(),
@@ -441,18 +442,33 @@ impl Plugin for PredictionPlugin {
             ),
         );
 
-        // FixedLast systems
+        // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
+        // - Physics update
+        // - UpdateHistory
+        // - Correction: update Position
+        // - Sync: update Transform
+        // - VisualInterpolation::UpdateVisualInterpolationState
+
+        // FixedPostUpdate systems
         // 1. Interpolate between the confirmed state and the incorrect predicted state
+        // app.configure_sets(
+        //     FixedPostUpdate,
+        //     PredictionSet::VisualCorrection
+        //         // we want visual interpolation to use the corrected state
+        //         .before(InterpolationSet::UpdateVisualInterpolationState)
+        //         // no need to update the visual state during rollbacks
+        //         .run_if(not(is_in_rollback))
+        //         .in_set(PredictionSet::All),
+        // );
         app.configure_sets(
             FixedLast,
-            PredictionSet::VisualCorrection
-                // we want visual interpolation to use the corrected state
-                .before(InterpolationSet::UpdateVisualInterpolationState)
-                // no need to update the visual state during rollbacks
-                .run_if(not(is_in_rollback))
-                .in_set(PredictionSet::All),
+            PredictionSet::IncrementRollbackTick.run_if(is_in_rollback)
+                .in_set(PredictionSet::All)
         )
-        .configure_sets(FixedLast, PredictionSet::All.run_if(should_prediction_run));
+            .configure_sets(
+                FixedLast,
+                PredictionSet::All.run_if(should_prediction_run.clone()),
+            );
 
         // PLUGINS
         app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));

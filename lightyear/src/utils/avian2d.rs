@@ -22,15 +22,22 @@ impl Plugin for Avian2dPlugin {
         app.configure_sets(
             FixedPostUpdate,
             (
-                // run physics before spawning the prediction history for prespawned entities
+                // update physics
+                PhysicsSet::StepSimulation,
+                // run physics before spawning the prediction history for prespawned entities that are spawned in FixedUpdate
                 // we want all avian-added components (Rotation, etc.) to be inserted before we try
                 // to spawn the history, so that the history is spawned at the correct time for all components
                 PredictionSet::Sync,
-                // run physics before updating the prediction history
+                // save the new values in the history
                 PredictionSet::UpdateHistory,
-                PredictionSet::IncrementRollbackTick,
+                // update the component value with visual correction
+                PredictionSet::VisualCorrection,
+                // sync any Position correction to Transform
+                PhysicsSet::Sync,
+                // save the values for visual interpolation
+                InterpolationSet::UpdateVisualInterpolationState,
             )
-                .after(PhysicsSet::StepSimulation)
+                .chain()
                 .after(PhysicsSet::Sync),
         );
         app.configure_sets(
