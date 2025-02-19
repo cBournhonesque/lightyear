@@ -105,6 +105,7 @@ pub struct Conditioner {
     /// One way jitter in milliseconds
     pub jitter_ms: u16,
     /// Percentage of packet loss
+    /// Represented as a value between 0 and 1
     pub packet_loss: f32,
 }
 
