@@ -1306,7 +1306,7 @@ pub trait AppComponentExt {
     ) -> ComponentRegistration<'_, C>;
 
     /// Enable rollbacks for a component even if the component is not networked
-    fn add_rollback<C: Component + PartialEq + Clone>(&mut self);
+    fn add_rollback<C: Component + PartialEq + Clone + Debug>(&mut self);
 
     /// Enable rollbacks for a resource.
     fn add_resource_rollback<R: Resource + Clone>(&mut self);
@@ -1495,7 +1495,7 @@ impl AppComponentExt for App {
 
     // TODO: move this away from protocol? since it doesn't even use the registry at all
     //  maybe put this in the PredictionPlugin?
-    fn add_rollback<C: Component + PartialEq + Clone>(&mut self) {
+    fn add_rollback<C: Component + PartialEq + Clone + Debug>(&mut self) {
         let is_client = self.world().get_resource::<ClientConfig>().is_some();
         if is_client {
             add_non_networked_rollback_systems::<C>(self);
