@@ -372,12 +372,11 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                         let correction_ticks = ((current_tick - rollback_tick) as f32
                             * config.prediction.correction_ticks_factor)
                             .round() as i16;
-
                         // no need to add the Correction if the correction is instant
                         if correction_ticks != 0 && component_registry.has_correction::<C>() {
                             let final_correction_tick = current_tick + correction_ticks;
                             if let Some(correction) = correction.as_mut() {
-                                debug!("updating existing correction");
+                                trace!("updating existing correction");
                                 // if there is a correction, start the correction again from the previous
                                 // visual state to avoid glitches
                                 correction.original_prediction =
@@ -385,11 +384,9 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                         .unwrap_or_else(|| predicted_component.clone());
                                 correction.original_tick = current_tick;
                                 correction.final_correction_tick = final_correction_tick;
-                                // TODO: can set this to None, shouldnt make any diff
-                                correction.current_correction =
-                                    Some(rollbacked_predicted_component.clone());
+                                correction.current_correction = None;
                             } else {
-                                debug!("inserting new correction");
+                                trace!("inserting new correction");
                                 entity_mut.insert(Correction {
                                     original_prediction: predicted_component.clone(),
                                     original_tick: current_tick,
@@ -401,7 +398,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                         }
 
                         // update the component to the corrected value
-                        *predicted_component = rollbacked_predicted_component.clone();
+                        *predicted_component = rollbacked_predicted_component;
                     }
                 };
             }
@@ -761,7 +758,7 @@ pub(crate) fn increment_rollback_tick(rollback: Res<Rollback>) {
 }
 
 #[cfg(test)]
-pub(super) mod test_utils {
+pub(crate) mod test_utils {
     use crate::client::components::Confirmed;
     use crate::client::connection::ConnectionManager;
     use crate::prelude::Tick;
@@ -770,7 +767,7 @@ pub(super) mod test_utils {
     use std::time::Duration;
 
     /// Helper function to simulate that we received a server message
-    pub(super) fn received_confirmed_update(
+    pub(crate) fn received_confirmed_update(
         stepper: &mut BevyStepper,
         confirmed: Entity,
         tick: Tick,

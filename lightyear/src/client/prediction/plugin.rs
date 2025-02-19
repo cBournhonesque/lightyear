@@ -1,6 +1,6 @@
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
-    get_visually_corrected_state, restore_corrected_state,
+    get_corrected_state, restore_corrected_state,
 };
 use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
@@ -18,7 +18,6 @@ use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
-use bevy::transform::TransformSystem;
 use bevy::utils::Duration;
 use std::fmt::Debug;
 
@@ -33,7 +32,7 @@ use super::rollback::{
 };
 use super::spawn::spawn_predicted_entity;
 
-use crate::prelude::client::is_connected;
+use crate::prelude::client::{is_connected, InterpolationSet};
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Reflect)]
@@ -205,7 +204,7 @@ pub enum PredictionSet {
     /// Update the client's predicted history; runs after each physics step in the FixedUpdate Schedule
     UpdateHistory,
 
-    // PostUpdate Sets
+    // FixedLast Sets
     /// Visually interpolate the predicted components to the corrected state
     VisualCorrection,
 
@@ -311,8 +310,8 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                 ),
             );
             app.add_systems(
-                PostUpdate,
-                get_visually_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
+                FixedLast,
+                get_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
             );
         }
         ComponentSyncMode::Simple => {
@@ -444,15 +443,18 @@ impl Plugin for PredictionPlugin {
             ),
         );
 
-        // PostUpdate systems
-        // 1. Visually interpolate the prediction to the corrected state
+        // FixedLast systems
+        // 1. Interpolate between the confirmed state and the incorrect predicted state
         app.configure_sets(
-            PostUpdate,
+            FixedLast,
             PredictionSet::VisualCorrection
+                // we want visual interpolation to use the corrected state
+                .before(InterpolationSet::UpdateVisualInterpolationState)
+                // no need to update the visual state during rollbacks
+                .run_if(not(is_in_rollback))
                 .in_set(PredictionSet::All)
-                .before(TransformSystem::TransformPropagate),
         )
-        .configure_sets(PostUpdate, PredictionSet::All.run_if(should_prediction_run));
+        .configure_sets(FixedLast, PredictionSet::All.run_if(should_prediction_run));
 
         // PLUGINS
         app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));
