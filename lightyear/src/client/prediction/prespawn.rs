@@ -244,6 +244,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 .iter()
                 .flatten()
                 .for_each(|entity| {
+                    dbg!(entity);
                     if let Some(entity_commands) = commands.get_entity(*entity) {
                         trace!(
                             ?tick,
@@ -656,11 +657,9 @@ mod tests {
             .is_none());
 
         // if enough frames pass without match, the entity gets cleaned
-        stepper.frame_step();
-        stepper.frame_step();
-        stepper.frame_step();
-        stepper.frame_step();
-        stepper.frame_step();
+        for _ in 0..10 {
+            stepper.frame_step();
+        }
         assert!(stepper
             .client_app
             .world()

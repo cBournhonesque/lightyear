@@ -191,6 +191,27 @@ impl<R: Clone> HistoryBuffer<R> {
         };
         res
     }
+
+    /// Return the value at the specified tick and then clear the history
+    ///
+    /// We create this separate function to avoid cloning the value.
+    pub fn pop_until_tick_and_clear(&mut self, tick: Tick) -> Option<HistoryState<R>> {
+        // self.buffer[partition] is the first element where the buffer_tick > tick
+        let partition = self
+            .buffer
+            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+        // all elements are strictly more recent than the tick
+        if partition == 0 {
+            return None;
+        }
+        // remove all elements strictly older than the tick. We need to keep the element at index `partition-1`
+        // because that is the value at tick `tick`
+        self.buffer.drain(0..(partition - 1));
+        let res = self.buffer.pop_front().map(|(_, state)| state);
+
+        self.buffer.clear();
+        res
+    }
 }
 
 #[cfg(test)]

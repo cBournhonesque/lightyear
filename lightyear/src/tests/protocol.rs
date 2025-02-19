@@ -87,16 +87,16 @@ impl MapEntities for ComponentMapEntities {
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-pub struct ComponentSyncModeFull2(pub f32);
+pub struct ComponentCorrection(pub f32);
 
-impl Mul<f32> for &ComponentSyncModeFull2 {
-    type Output = ComponentSyncModeFull2;
+impl Mul<f32> for &ComponentCorrection {
+    type Output = ComponentCorrection;
     fn mul(self, rhs: f32) -> Self::Output {
-        ComponentSyncModeFull2(self.0 * rhs)
+        ComponentCorrection(self.0 * rhs)
     }
 }
 
-impl Add<Self> for ComponentSyncModeFull2 {
+impl Add<Self> for ComponentCorrection {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -240,8 +240,9 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Simple)
             .add_map_entities();
 
-        app.register_component::<ComponentSyncModeFull2>(ChannelDirection::ServerToClient)
+        app.register_component::<ComponentCorrection>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full)
+            .add_linear_correction_fn()
             .add_interpolation(ComponentSyncMode::Full)
             .add_linear_interpolation_fn();
 
