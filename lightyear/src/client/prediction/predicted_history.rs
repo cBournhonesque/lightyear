@@ -378,7 +378,7 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .insert(ComponentSyncModeFull2(2.0));
+            .insert(ComponentCorrection(2.0));
         stepper.frame_step();
         let tick = stepper.client_tick();
         assert_eq!(
@@ -386,10 +386,10 @@ mod tests {
                 .client_app
                 .world_mut()
                 .entity_mut(predicted)
-                .get_mut::<PredictionHistory<ComponentSyncModeFull2>>()
+                .get_mut::<PredictionHistory<ComponentCorrection>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(HistoryState::Updated(ComponentSyncModeFull2(2.0))),
+            Some(HistoryState::Updated(ComponentCorrection(2.0))),
             "Expected component value to be added to prediction history"
         );
         assert_eq!(
@@ -397,9 +397,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<ComponentSyncModeFull2>()
+                .get::<ComponentCorrection>()
                 .expect("Expected component to be added to predicted entity"),
-            &ComponentSyncModeFull2(2.0),
+            &ComponentCorrection(2.0),
             "Expected component to be added to predicted entity"
         );
 
