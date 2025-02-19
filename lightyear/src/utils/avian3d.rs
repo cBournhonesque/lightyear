@@ -21,7 +21,7 @@ impl Plugin for Avian3dPlugin {
             FixedPostUpdate,
             (
                 // update physics
-                avian2d::prelude::PhysicsSet::StepSimulation,
+                PhysicsSet::StepSimulation,
                 // run physics before spawning the prediction history for prespawned entities that are spawned in FixedUpdate
                 // we want all avian-added components (Rotation, etc.) to be inserted before we try
                 // to spawn the history, so that the history is spawned at the correct time for all components
@@ -31,12 +31,12 @@ impl Plugin for Avian3dPlugin {
                 // update the component value with visual correction
                 PredictionSet::VisualCorrection,
                 // sync any Position correction to Transform
-                avian2d::prelude::PhysicsSet::Sync,
+                PhysicsSet::Sync,
                 // save the values for visual interpolation
                 InterpolationSet::UpdateVisualInterpolationState,
             )
                 .chain()
-                .after(avian2d::prelude::PhysicsSet::Sync),
+                .after(PhysicsSet::Sync),
         );
         app.configure_sets(
             RunFixedMainLoop,
