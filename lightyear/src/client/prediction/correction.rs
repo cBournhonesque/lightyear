@@ -102,12 +102,12 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::client::components::Confirmed;
     use crate::client::config::ClientConfig;
+    use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::rollback::test_utils::received_confirmed_update;
     use crate::client::prediction::Predicted;
     use crate::prelude::client::PredictionConfig;
@@ -119,9 +119,7 @@ mod tests {
     use bevy::prelude::default;
     use std::time::Duration;
 
-    fn increment_component_system(
-        mut query: Query<(Entity, &mut ComponentCorrection)>,
-    ) {
+    fn increment_component_system(mut query: Query<(Entity, &mut ComponentCorrection)>) {
         for (entity, mut component) in query.iter_mut() {
             component.0 += 1.0;
         }
@@ -145,15 +143,12 @@ mod tests {
             },
             ..default()
         };
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            client_config,
-            frame_duration
-        );
-        stepper.client_app.add_systems(FixedUpdate, increment_component_system);
+        let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
+        stepper
+            .client_app
+            .add_systems(FixedUpdate, increment_component_system);
         stepper.build();
         stepper.init();
-
 
         // add predicted/confirmed entities
         let tick = stepper.client_tick();
@@ -161,12 +156,13 @@ mod tests {
             .client_app
             .world_mut()
             .spawn((
-                       Confirmed {
-                           tick,
-                           ..Default::default()
-                       }, ComponentCorrection(2.0)
+                Confirmed {
+                    tick,
+                    ..Default::default()
+                },
+                ComponentCorrection(2.0),
             ))
-           .id();
+            .id();
         let predicted = stepper
             .client_app
             .world_mut()
@@ -184,18 +180,26 @@ mod tests {
         stepper.frame_step();
 
         // we insert the component at a different frame to not trigger an early rollback
-        stepper.client_app.world_mut().entity_mut(predicted).insert(ComponentCorrection(1.0));
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted)
+            .insert(ComponentCorrection(1.0));
         stepper.frame_step();
 
         // trigger a rollback (the predicted value doesn't exist in the prediction history)
         let original_tick = stepper.client_tick();
-        let rollback_tick = original_tick-5;
+        let rollback_tick = original_tick - 5;
         received_confirmed_update(&mut stepper, confirmed, rollback_tick);
 
         stepper.frame_step();
         // check that a correction is applied
         assert_eq!(
-            stepper.client_app.world().get::<Correction<ComponentCorrection>>(predicted).unwrap(),
+            stepper
+                .client_app
+                .world()
+                .get::<Correction<ComponentCorrection>>(predicted)
+                .unwrap(),
             &Correction::<ComponentCorrection> {
                 original_prediction: ComponentCorrection(2.0),
                 original_tick,
@@ -208,31 +212,178 @@ mod tests {
 
         // check that the correction value has been incremented and that the visual value has been updated correctly
         stepper.frame_step();
-        let correction = stepper.client_app.world().get::<Correction<ComponentCorrection>>(predicted).unwrap();
+        let correction = stepper
+            .client_app
+            .world()
+            .get::<Correction<ComponentCorrection>>(predicted)
+            .unwrap();
         assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, 5.6);
         assert_eq!(correction.current_correction.as_ref().unwrap().0, 11.0);
 
         // trigger a new rollback while the correction is under way
         let original_tick = stepper.client_tick();
-        let rollback_tick = original_tick-5;
+        let rollback_tick = original_tick - 5;
         received_confirmed_update(&mut stepper, confirmed, rollback_tick);
         stepper.frame_step();
 
         // check that the correction has been updated
-        let correction = stepper.client_app.world().get::<Correction<ComponentCorrection>>(predicted).unwrap();
+        let correction = stepper
+            .client_app
+            .world()
+            .get::<Correction<ComponentCorrection>>(predicted)
+            .unwrap();
         // the new correction starts from the previous visual value
         assert_relative_eq!(correction.original_prediction.0, 5.6);
         assert_eq!(correction.original_tick, original_tick);
-        assert_eq!(correction.final_correction_tick, original_tick + (original_tick - rollback_tick));
+        assert_eq!(
+            correction.final_correction_tick,
+            original_tick + (original_tick - rollback_tick)
+        );
         // interpolate 20% of the way
         assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, 7.88);
         assert_eq!(correction.current_correction.as_ref().unwrap().0, 17.0);
         stepper.frame_step();
         stepper.frame_step();
         stepper.frame_step();
-        let correction = stepper.client_app.world().get::<Correction<ComponentCorrection>>(predicted).unwrap();
+        let correction = stepper
+            .client_app
+            .world()
+            .get::<Correction<ComponentCorrection>>(predicted)
+            .unwrap();
         // interpolate 80% of the way
         assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, 17.12);
         assert_eq!(correction.current_correction.as_ref().unwrap().0, 20.0);
+    }
+
+    /// Test that if:
+    /// - entity A gets mispredicted
+    /// - entity B is correctly predicted
+    /// then:
+    /// - a rollback happens, but we only add correction for entity A
+    #[test]
+    fn test_no_correction_if_no_misprediction() {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let client_config = ClientConfig {
+            prediction: PredictionConfig {
+                correction_ticks_factor: 1.0,
+                ..default()
+            },
+            ..default()
+        };
+        let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
+        stepper
+            .client_app
+            .add_systems(FixedUpdate, increment_component_system);
+        stepper.build();
+        stepper.init();
+
+        // add predicted/confirmed entities
+        let tick = stepper.client_tick();
+        let confirmed_a = stepper
+            .client_app
+            .world_mut()
+            .spawn((
+                Confirmed {
+                    tick,
+                    ..Default::default()
+                },
+                ComponentCorrection(2.0),
+            ))
+            .id();
+        let predicted_a = stepper
+            .client_app
+            .world_mut()
+            .spawn(Predicted {
+                confirmed_entity: Some(confirmed_a),
+            })
+            .id();
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed_a)
+            .get_mut::<Confirmed>()
+            .unwrap()
+            .predicted = Some(predicted_a);
+        let confirmed_b = stepper
+            .client_app
+            .world_mut()
+            .spawn((
+                Confirmed {
+                    tick,
+                    ..Default::default()
+                },
+                ComponentCorrection(2.0),
+            ))
+            .id();
+        let predicted_b = stepper
+            .client_app
+            .world_mut()
+            .spawn(Predicted {
+                confirmed_entity: Some(confirmed_a),
+            })
+            .id();
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed_b)
+            .get_mut::<Confirmed>()
+            .unwrap()
+            .predicted = Some(predicted_b);
+        stepper.frame_step();
+
+        // we insert the component at a different frame to not trigger an early rollback
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted_a)
+            .insert(ComponentCorrection(1.0));
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted_b)
+            .insert(ComponentCorrection(1.0));
+        stepper.frame_step();
+
+        // trigger a rollback (the predicted value doesn't exist in the prediction history)
+        let original_tick = stepper.client_tick();
+        let rollback_tick = original_tick - 5;
+        // add a history with the correct value for entity b to make sure that it is correctly predicted
+        let mut history = PredictionHistory::<ComponentCorrection>::default();
+        history.add_update(rollback_tick, ComponentCorrection(4.0));
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted_b)
+            .insert(history);
+        received_confirmed_update(&mut stepper, confirmed_a, rollback_tick);
+
+        stepper.frame_step();
+        // check that a correction is applied
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Correction<ComponentCorrection>>(predicted_a)
+                .unwrap(),
+            &Correction::<ComponentCorrection> {
+                original_prediction: ComponentCorrection(2.0),
+                original_tick,
+                final_correction_tick: original_tick + (original_tick - rollback_tick),
+                // interpolate 20% of the way
+                current_visual: Some(ComponentCorrection(3.6)),
+                current_correction: Some(ComponentCorrection(10.0)),
+            }
+        );
+        // check that no correction is applied for entities that are correctly predicted
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<Correction<ComponentCorrection>>(predicted_b)
+            .is_none());
     }
 }

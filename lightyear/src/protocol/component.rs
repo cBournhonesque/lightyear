@@ -621,7 +621,6 @@ mod prediction {
             if let Ok(mut entity_world_mut) = world.get_entity_mut(predicted) {
                 self.temp_write_buffer.batch_insert(&mut entity_world_mut);
             };
-            
         }
 
         /// Sync a component value from the confirmed entity to the predicted entity
@@ -675,7 +674,6 @@ mod prediction {
                         .buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
                 };
             }
-           
         }
     }
 }
