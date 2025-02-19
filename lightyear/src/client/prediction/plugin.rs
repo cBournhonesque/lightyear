@@ -216,7 +216,7 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 /// Enable rollbacking a component even if the component is not networked
-pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app: &mut App) {
+pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone + Debug>(app: &mut App) {
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
     app.add_systems(
@@ -438,7 +438,6 @@ impl Plugin for PredictionPlugin {
             FixedPostUpdate,
             (
                 remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
-                increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
             ),
         );
 
@@ -460,6 +459,10 @@ impl Plugin for PredictionPlugin {
         //         .run_if(not(is_in_rollback))
         //         .in_set(PredictionSet::All),
         // );
+        app.add_systems(
+            FixedLast,
+                increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
+        );
         app.configure_sets(
             FixedLast,
             PredictionSet::IncrementRollbackTick

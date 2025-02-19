@@ -23,7 +23,7 @@
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
 use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::client::components::SyncComponent;
 use crate::prelude::{ComponentRegistry, Tick, TickManager};
@@ -63,13 +63,13 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
         // TODO: make the easing configurable
         //  let t = ease_out_quad(t);
         if t == 1.0 || &correction.original_prediction == component.as_ref() {
-            debug!(
+            warn!(
                 ?t,
                 "Correction is over. Removing Correction for: {:?}", kind
             );
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            debug!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
+            warn!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
             // store the current corrected value so that we can restore it at the start of the next frame
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones

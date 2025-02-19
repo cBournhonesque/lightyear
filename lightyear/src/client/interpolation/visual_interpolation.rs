@@ -36,7 +36,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystem::TransformPropagate;
 
 use crate::client::components::SyncComponent;
-use crate::prelude::client::{InterpolationSet, PredictionSet};
+use crate::prelude::client::{Correction, InterpolationSet, PredictionSet};
 use crate::prelude::{ComponentRegistry, MainSet, TickManager, TimeManager};
 
 pub struct VisualInterpolationPlugin<C: SyncComponent> {
@@ -59,6 +59,8 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
             // make sure that we restore the actual component value before we perform a rollback check
             (
                 InterpolationSet::RestoreVisualInterpolation,
+                // the correct value to avoid rollbacks is the corrected value
+                PredictionSet::RestoreVisualCorrection,
                 PredictionSet::CheckRollback,
             )
                 .chain(),
@@ -179,7 +181,8 @@ pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
 
 /// Restore the component value to the non-interpolated value
 pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
-    mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>)>,
+    // if correction is enabled, we will restore the value from the Correction component
+    mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>), Without<Correction<C>>>,
 ) {
     let kind = std::any::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {

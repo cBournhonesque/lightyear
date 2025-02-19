@@ -96,7 +96,7 @@ fn player_shoot(
                     Rotation::default(),
                     LinearVelocity(Vec3::Z * 10.),  // arbitrary direction since we are just testing rollbacks
                     Replicate {
-                        group: ReplicationGroup::new_id(player_id.to_bits() + tick_manager.tick().0 as u64),
+                        group: REPLICATION_GROUP,
                         controlled_by: ControlledBy {
                             target: NetworkTarget::Single(player_id),
                             lifetime: Lifetime::SessionBased,

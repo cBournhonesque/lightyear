@@ -11,7 +11,7 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
-use tracing::{debug, error, trace, trace_span};
+use tracing::{debug, error, trace, trace_span, warn};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
@@ -258,7 +258,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 ),
             };
             if should_rollback {
-                debug!(
+                warn!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted {:?} and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    p, confirmed_entity, tick, kind, current_tick
@@ -345,6 +345,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 
         // if rollback is disabled, we will restore the component to its past value from the prediction history
         let correct_value = if disable_rollback {
+            warn!(?predicted_entity, "Get correct value from PredictionHistory");
             original_predicted_value.as_ref().and_then(|v| match v {
                 HistoryState::Updated(v) => Some(v),
                 _ => None,

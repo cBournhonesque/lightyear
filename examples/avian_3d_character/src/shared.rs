@@ -127,15 +127,13 @@ pub(crate) fn after_physics_log(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
     // collisions: Option<Res<Collisions>>,
-    blocks: Query<
+    query: Query<
         (
             Entity,
             &Position,
             &Rotation,
-            &LinearVelocity,
-            &AngularVelocity,
         ),
-        (Without<Confirmed>, With<BlockMarker>),
+        (Without<Confirmed>, With<CharacterMarker>),
     >,
 ) {
     let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
@@ -144,18 +142,16 @@ pub(crate) fn after_physics_log(
     // info!(?tick, ?collisions, "collisions");
     let is_rollback = rollback.map_or(false, |r| r.is_rollback());
 
-    if is_rollback {
-        println!("rollback tick {}", tick.0);
-    }
-    for (entity, position, rotation, lv, av) in blocks.iter() {
-        debug!(
+    // if is_rollback {
+    //     println!("rollback tick {}", tick.0);
+    // }
+    for (entity, position, rotation) in query.iter() {
+        warn!(
             ?is_rollback,
             ?tick,
             ?entity,
             ?position,
             ?rotation,
-            ?lv,
-            ?av,
             "Block after physics update"
         );
     }
