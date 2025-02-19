@@ -4,7 +4,10 @@ use std::ops::{Deref, DerefMut};
 use bevy::app::FixedMain;
 use bevy::ecs::entity::EntityHashSet;
 use bevy::ecs::reflect::ReflectResource;
-use bevy::prelude::{Commands, Component, DespawnRecursiveExt, DetectChanges, Entity, Has, Query, Ref, Res, ResMut, Resource, With, Without, World};
+use bevy::prelude::{
+    Commands, Component, DespawnRecursiveExt, DetectChanges, Entity, Has, Query, Ref, Res, ResMut,
+    Resource, With, Without, World,
+};
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
@@ -21,7 +24,6 @@ use crate::prelude::{ComponentRegistry, HistoryState, PreSpawnedPlayerObject, Ti
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::Predicted;
-
 
 #[derive(Component)]
 /// Marker component used to indicate that an entity:
@@ -113,7 +115,14 @@ pub(crate) fn check_rollback<C: SyncComponent>(
     tick_manager: Res<TickManager>,
     connection: Res<ConnectionManager>,
     // We also snap the value of the component to the server state if we are in rollback
-    mut predicted_query: Query<&mut PredictionHistory<C>, (With<Predicted>, Without<Confirmed>, Without<DisableRollback>)>,
+    mut predicted_query: Query<
+        &mut PredictionHistory<C>,
+        (
+            With<Predicted>,
+            Without<Confirmed>,
+            Without<DisableRollback>,
+        ),
+    >,
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     rollback: Res<Rollback>,
@@ -358,7 +367,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             }
             // confirm exist, update or insert on predicted
             Some(confirmed_component) => {
-                
                 let mut rollbacked_predicted_component = confirmed_component.clone();
                 // when rollback is disabled, the correct value is taken from the prediction history
                 // so no need to map entities
@@ -427,7 +435,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         };
     }
 }
- 
+
 // TODO: handle disable rollback, by combining all prepare_rollback systems into one
 /// For prespawned predicted entities, we do not have a Confirmed component,
 /// we just rollback the entity to the previous state
@@ -971,8 +979,6 @@ mod unit_tests {
             .resource::<Rollback>()
             .is_rollback());
     }
-    
-
 }
 
 /// More general integration tests for rollback
@@ -1507,17 +1513,23 @@ mod integration_tests {
         let confirmed_a = stepper
             .client_app
             .world_mut()
-            .spawn((Confirmed {
-                tick,
-                ..Default::default()
-            }, ComponentSyncModeFull(1.0)))
+            .spawn((
+                Confirmed {
+                    tick,
+                    ..Default::default()
+                },
+                ComponentSyncModeFull(1.0),
+            ))
             .id();
         let predicted_a = stepper
             .client_app
             .world_mut()
-            .spawn((Predicted {
-                confirmed_entity: Some(confirmed_a),
-            }, DisableRollback))
+            .spawn((
+                Predicted {
+                    confirmed_entity: Some(confirmed_a),
+                },
+                DisableRollback,
+            ))
             .id();
         stepper
             .client_app
@@ -1529,10 +1541,13 @@ mod integration_tests {
         let confirmed_b = stepper
             .client_app
             .world_mut()
-            .spawn((Confirmed {
-                tick,
-                ..Default::default()
-            }, ComponentSyncModeFull(1.0)))
+            .spawn((
+                Confirmed {
+                    tick,
+                    ..Default::default()
+                },
+                ComponentSyncModeFull(1.0),
+            ))
             .id();
         let predicted_b = stepper
             .client_app
@@ -1550,8 +1565,16 @@ mod integration_tests {
             .predicted = Some(predicted_b);
         stepper.frame_step();
 
-        stepper.client_app.world_mut().entity_mut(predicted_a).insert(ComponentSyncModeFull(1000.0));
-        stepper.client_app.world_mut().entity_mut(predicted_b).insert(ComponentSyncModeFull(1000.0));
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted_a)
+            .insert(ComponentSyncModeFull(1000.0));
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted_b)
+            .insert(ComponentSyncModeFull(1000.0));
 
         // 1. check rollback doesn't trigger on disable-rollback entities
         let tick = stepper.client_tick();
@@ -1600,13 +1623,23 @@ mod integration_tests {
         stepper.frame_step();
 
         // the DisableRollback entity was rolledback to the past PredictionHistory value
-        assert_eq!(stepper
-            .client_app
-            .world()
-            .get::<ComponentSyncModeFull>(predicted_a).unwrap().0, 10.0);
-        assert_eq!(stepper
-            .client_app
-            .world()
-            .get::<ComponentSyncModeFull>(predicted_b).unwrap().0, 2.0);
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentSyncModeFull>(predicted_a)
+                .unwrap()
+                .0,
+            10.0
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentSyncModeFull>(predicted_b)
+                .unwrap()
+                .0,
+            2.0
+        );
     }
 }
