@@ -111,7 +111,10 @@ impl PreSpawnedPlayerObjectPlugin {
             &PreSpawnedPlayerObject,
             // only trigger this when the entity is received on the client via server-replication
             // (this is valid because Replicated is added before the components are inserted
-            Added<Replicated>,
+            // NOTE: we cannot use Added<Replicated> because Added only checks components added
+            //  since the last time the observer has run, and if multiple entities are in the same
+            //  ReplicationGroup then the observer could run several times in a row
+            With<Replicated>,
         >,
     ) {
         let confirmed_entity = trigger.entity();
@@ -244,7 +247,6 @@ impl PreSpawnedPlayerObjectPlugin {
                 .iter()
                 .flatten()
                 .for_each(|entity| {
-                    dbg!(entity);
                     if let Some(entity_commands) = commands.get_entity(*entity) {
                         trace!(
                             ?tick,
@@ -439,6 +441,9 @@ mod tests {
 
 
     /// Prespawning multiple entities with the same hash
+    /// https://github.com/cBournhonesque/lightyear/issues/906
+    ///
+    /// This errors only if the server entities were part of the same replication group
     #[test]
     fn test_multiple_prespawn() {
         // tracing_subscriber::FmtSubscriber::builder()
@@ -475,6 +480,7 @@ mod tests {
                         prediction: NetworkTarget::All,
                         ..default()
                     },
+                    group: ReplicationGroup::new_id(1),
                     ..default()
                 },
             ))
@@ -489,6 +495,7 @@ mod tests {
                         prediction: NetworkTarget::All,
                         ..default()
                     },
+                    group: ReplicationGroup::new_id(1),
                     ..default()
                 },
             ))
@@ -523,7 +530,7 @@ mod tests {
         let predicted_b = stepper
             .client_app
             .world()
-            .get::<Predicted>(client_prespawn_a)
+            .get::<Predicted>(client_prespawn_b)
             .unwrap();
         let confirmed_b = predicted_b.confirmed_entity.unwrap();
         assert_eq!(
@@ -534,13 +541,13 @@ mod tests {
                 .unwrap()
                 .predicted
                 .unwrap(),
-            client_prespawn_a
+            client_prespawn_b
         );
         // The PreSpawnPlayerObject component has been removed on the client
         assert!(stepper
             .client_app
             .world()
-            .get::<PreSpawnedPlayerObject>(client_prespawn_a)
+            .get::<PreSpawnedPlayerObject>(client_prespawn_b)
             .is_none());
     }
 
