@@ -43,9 +43,7 @@ pub struct ServerPlugins {
 
 impl ServerPlugins {
     pub fn new(config: ServerConfig) -> Self {
-        Self {
-            config
-        }
+        Self { config }
     }
 }
 
