@@ -324,6 +324,8 @@ impl ReplicationReceiver {
                 // (max_readable_tick is the only one we want to actually apply to the world, because the other
                 //  older updates are redundant. The older ticks are included so that we can have a comprehensive
                 //  confirmed history, for example to have a better interpolation)
+                // Any tick more recent than `max_readable_tick` cannot be applied yet, because they have a 'last_action_tick'
+                //  that hasn't been applied to the receiver's world
                 let Some(max_applicable_idx) = channel
                     .buffered_updates
                     .max_index_to_apply(channel.latest_tick)
@@ -335,6 +337,14 @@ impl ReplicationReceiver {
                 while channel.buffered_updates.len() > max_applicable_idx {
                     let (remote_tick, message) = channel.buffered_updates.pop_oldest().unwrap();
                     let is_history = channel.buffered_updates.len() != max_applicable_idx;
+                    // most recent tick.
+                    if !is_history {
+                        // TODO: maybe instead of relying on this we could update the Confirmed.tick via event
+                        //  after PredictionSet::Spawn?
+                        // it is important to update the `latest_tick` because it is used to populate
+                        // the Confirmed.tick when the Confirmed entity is just spawned
+                        channel.latest_tick = Some(remote_tick);
+                    }
                     channel.apply_updates_message(
                         world,
                         remote,
@@ -465,7 +475,8 @@ impl UpdatesBuffer {
     }
 
     /// Get the index of the most recent element in the buffer which has a last_action_tick <= latest_tick,
-    /// i.e. which can be applied that has the highest tick that is less than or equal to the latest_tick
+    /// i.e. the latest_tick that has already been applied to the entity is more recent than the
+    /// 'last_action_tick' for that update
     ///
     /// or None if there are None
     fn max_index_to_apply(&self, latest_tick: Option<Tick>) -> Option<usize> {
@@ -577,6 +588,7 @@ impl GroupChannel {
         events: &mut ConnectionEvents,
     ) {
         let group_id = message.group_id;
+        warn!(?remote_tick, "Replication action");
         debug!(
             ?remote_tick,
             ?message,
@@ -785,6 +797,7 @@ impl GroupChannel {
         if is_history {
             return;
         }
+        warn!(?remote_tick, "Receive replication update");
         debug!(
             ?remote_tick,
             ?message,
@@ -845,7 +858,8 @@ impl GroupChannel {
         //     grou.remote_entities
         //
         // }
-        trace!(
+        warn!(
+            ?remote_tick,
             "Updating confirmed tick for entities {:?} in group: {:?}",
             self.local_entities,
             group_id
@@ -858,6 +872,7 @@ impl GroupChannel {
                     "updating confirmed tick for entity"
                 );
                 if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                    warn!("UPDATE TICK for {:?}", *local_entity);
                     confirmed.tick = remote_tick;
                 }
             }
