@@ -265,7 +265,7 @@ pub(crate) fn sync_update(
         {
             metrics::counter!("sync::resync_event").increment(1);
         }
-        debug!("Triggering TickSync event: {tick_event:?}");
+        warn!("Triggering TickSync event: {tick_event:?}");
         commands.trigger(tick_event);
     }
 
@@ -276,7 +276,7 @@ pub(crate) fn sync_update(
             &connection.ping_manager,
             &config.prediction,
         ) {
-            debug!("Triggering TickSync event: {tick_event:?}");
+            warn!("Triggering TickSync event: {tick_event:?}");
             commands.trigger(tick_event);
         }
         let relative_speed = time_manager.get_relative_speed();

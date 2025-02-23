@@ -1,3 +1,35 @@
+# Avian issues
+
+- I thought it could be a lack of PositionToTransform sync in PostUpdate after PrepareRollback, but it didn't seem to help
+
+- there might be too many TickEvents at the beginning? Does that mess anything up?
+
+
+
+- GOOD: all components are reset to same tick value
+- GOOD: with no gravity, there is no rollback
+
+
+- BAD: with no gravity, we keep getting replication updates. Is it because the sync-plugin keeps triggering change detection?
+- CRITICAL! it seems like when we rollback at tick T, we rollback to a server state that is not the state at tick T, but at some other tick T'
+    - GOOD: this doesn't seem to happen all the time, sometimes we reset to the correct tick T!
+    - the next tick T+1 during rollback does not correspond to server tick T'+1
+    - could it be due to TickSync events?
+    - !!! Seems to happen when we receive Actions at tick T, and updates at tick T'. The values are for tick T' but the confirmed_tick is for tick T. Is the confirmed.tick not updated correctly?
+    - It might be because the order is:
+      - receive for tick T
+      - update tick for Confirmed for tick T
+      - spawn Predicted/add Confirmed
+      - for that spawn, we use the Channel's `latest_tick`, which should point to the correct value?
+      I.e. on the first tick that spawns the entity, the Confirmed value is incorrect?
+      - 
+- VERY BAD: Even if we reset to the correct tick in prepare_rollback, the next tick's value is incorrect
+  - using resource_rollback on Collisions doesn't seem to help
+  - using warm_start_coefficient = 0 doesn't seem to help
+  - do we need to rollback Time<Physics>?
+
+
+
 # PrePrediction
 
 - Current situation:

@@ -1,11 +1,12 @@
 //! Implement lightyear traits for some common bevy types
-use crate::prelude::client::{InterpolationSet, PredictionSet};
+
+use crate::prelude::client::{is_in_rollback, InterpolationSet, PredictionSet};
+use crate::prelude::AppComponentExt;
 use crate::shared::replication::delta::Diffable;
 use avian3d::math::Scalar;
 use avian3d::prelude::*;
-use bevy::app::{App, FixedPostUpdate, Plugin};
 use bevy::prelude::TransformSystem::TransformPropagate;
-use bevy::prelude::{IntoSystemSetConfigs, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem};
+use bevy::prelude::*;
 use tracing::trace;
 
 pub(crate) struct Avian3dPlugin;
@@ -54,8 +55,18 @@ impl Plugin for Avian3dPlugin {
                 .chain(),
         );
         // Add rollback for some non-replicated resources
-        // app.add_resource_rollback::<Collisions>();
-        // app.add_rollback::<CollidingEntities>();
+        app.add_resource_rollback::<Collisions>();
+        // app.add_resource_rollback::<ContactConstraints>();
+        app.add_rollback::<CollidingEntities>();
+
+        // NOTE: THIS DOES NOT HELP!
+        // in case of a rollback, we reset the Position and Rotation, and we need
+        // to propagate those to Transform
+        app.add_systems(PreUpdate, avian3d::sync::position_to_transform
+            .after(PredictionSet::PrepareRollback)
+            .before(PredictionSet::Rollback)
+            .run_if(is_in_rollback)
+        );
     }
 }
 

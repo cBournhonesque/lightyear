@@ -1,8 +1,10 @@
 //! Managed the history buffer, which is a buffer of the past predicted component states,
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
+
 use bevy::app::App;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::*;
+use std::fmt::Debug;
 use std::ops::Deref;
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
@@ -42,7 +44,7 @@ pub(crate) fn update_prediction_history<T: Component + PartialEq + Clone>(
 ///
 /// The history buffer ticks are only relevant relative to the current client tick.
 /// (i.e. X ticks in the past compared to the current tick)
-pub(crate) fn handle_tick_event_prediction_history<C: Component>(
+pub(crate) fn handle_tick_event_prediction_history<C: Component + Debug>(
     trigger: Trigger<TickEvent>,
     mut query: Query<&mut PredictionHistory<C>>,
 ) {
@@ -50,6 +52,7 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
         TickEvent::TickSnap { old_tick, new_tick } => {
             for mut history in query.iter_mut() {
                 history.update_ticks(new_tick - old_tick);
+                warn!("After handling tick event: {:?}", history);
             }
         }
     }

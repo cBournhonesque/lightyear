@@ -258,7 +258,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 ),
             };
             if should_rollback {
-                debug!(
+                warn!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted {:?} and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    p, confirmed_entity, tick, kind, current_tick
@@ -429,6 +429,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 
                         // update the component to the corrected value
                         *predicted_component = rollbacked_predicted_component;
+                        warn!(?predicted_component, "Prepare rollback");
                     }
                 };
             }
