@@ -1,6 +1,6 @@
 //! Logic to handle spawning Predicted entities
 use bevy::prelude::{Added, Commands, Entity, Query, Res};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
@@ -72,6 +72,7 @@ pub(crate) fn spawn_predicted_entity(
                 interpolated: None,
                 tick: confirmed_tick,
             });
+            warn!(?confirmed_tick, "Spawn confirmed");
         }
     }
 }

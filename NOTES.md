@@ -5,12 +5,13 @@
 - there might be too many TickEvents at the beginning? Does that mess anything up?
 
 
-
 - GOOD: all components are reset to same tick value
-- GOOD: with no gravity, there is no rollback
-
+- GOOD: with no gravity, there is no rollback. So it must be something related to contacts/forces/collisions
 
 - BAD: with no gravity, we keep getting replication updates. Is it because the sync-plugin keeps triggering change detection?
+ 
+- BAD: in some cases, we don't check rollback immediately after spawning the new predicted entity. That shouldn't be the case, we should always have a rollback immediately after spawning to fill the predicted histories! Or maybe we don't need to? since we know that at the spawning time the component values match, there's no need to do an initial rollback!!!!!
+- 
 - CRITICAL! it seems like when we rollback at tick T, we rollback to a server state that is not the state at tick T, but at some other tick T'
     - GOOD: this doesn't seem to happen all the time, sometimes we reset to the correct tick T!
     - the next tick T+1 during rollback does not correspond to server tick T'+1
@@ -22,7 +23,9 @@
       - spawn Predicted/add Confirmed
       - for that spawn, we use the Channel's `latest_tick`, which should point to the correct value?
       I.e. on the first tick that spawns the entity, the Confirmed value is incorrect?
-      - 
+    - SOLVED! I think the `channel.latest_tick` was not set correctly in Update, which was causing invalid values to be used if we had an Action and then Update for a newly spawned Confirmed entity.
+       - in general it's a shame because we update `channel.latest_tick` for Update, but the only use is the edge-case described above. Maybe we can find another solution,
+     
 - VERY BAD: Even if we reset to the correct tick in prepare_rollback, the next tick's value is incorrect
   - using resource_rollback on Collisions doesn't seem to help
   - using warm_start_coefficient = 0 doesn't seem to help
