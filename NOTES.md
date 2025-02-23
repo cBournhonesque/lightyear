@@ -4,9 +4,17 @@
 
 - there might be too many TickEvents at the beginning? Does that mess anything up?
 
+- THEORY:
+  - systems that have `Changed<C>` filters might not work properly during rollbacks! The problem is that they will find all entities where C was changed since the last time the system ran. But
+    - 1) Before rollback we might change C because we reset C to the original value, which might trigger `Changed<C>` systems during rollback even though it shouldn't have been the case in the original run
+    - 2) Maybe the opposite could be true, that during prepare_rollback we don't modify the value of C so C is considered as not Changed, but during the rollback we would like `Changed<C>` to trigger if it originally triggered the first time we ran the system?
+    - 3) Maybe we could reset keep track of the ChangeTicks in the component history, and on reset we also reset the ChangeTicks (and we have to add the difference in SystemTickNow-SystemTickThen)
+  - TODO: add logs in avian `update_aabb` to see if it runs on the same entities on the server and during rollback
+    
 
 - GOOD: all components are reset to same tick value
-- GOOD: with no gravity, there is no rollback. So it must be something related to contacts/forces/collisions
+- GOOD: with no gravity, there is no rollback. So it must be something related to contacts/forces/collisions.
+  - TODO: try avian_physics (where there is no gravity, but there are collisions) and see if we can get 0 rollbacks even with wall collisions (especially if there is only one point of contact between the wall and the ball). This will help us determine if the problem is collisions or gravity.
 
 - BAD: with no gravity, we keep getting replication updates. Is it because the sync-plugin keeps triggering change detection?
  
