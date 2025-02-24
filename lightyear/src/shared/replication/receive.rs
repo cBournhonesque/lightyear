@@ -1306,13 +1306,18 @@ mod tests {
             ]
         );
 
-
         let mut world = World::new();
         let mut component_registry = ComponentRegistry::default();
         let mut events = ConnectionEvents::default();
 
         // apply messages: only read the first action and update
-        manager.apply_world(&mut world, None, &mut component_registry, Tick(10), &mut events);
+        manager.apply_world(
+            &mut world,
+            None,
+            &mut component_registry,
+            Tick(10),
+            &mut events,
+        );
         assert!(manager
             .group_channels
             .get(&group_id)
@@ -1326,19 +1331,25 @@ mod tests {
                 .unwrap()
                 .buffered_updates
                 .0,
-            vec![
-                (
-                    Tick(5),
-                    EntityUpdatesMessage {
-                        group_id: ReplicationGroupId(0),
-                        last_action_tick: Some(Tick(3)),
-                        updates: Default::default(),
-                    }
-                ),
-            ]
+            vec![(
+                Tick(5),
+                EntityUpdatesMessage {
+                    group_id: ReplicationGroupId(0),
+                    last_action_tick: Some(Tick(3)),
+                    updates: Default::default(),
+                }
+            ),]
         );
         // latest_tick has been updated properly even for Update
-        assert_eq!(manager.group_channels.get(&group_id).unwrap().latest_tick.unwrap(), Tick(1));
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .latest_tick
+                .unwrap(),
+            Tick(1)
+        );
 
         // recv actions-3: should be buffered, we are still waiting for actions-2
         manager.recv_actions(
@@ -1350,8 +1361,22 @@ mod tests {
             Tick(3),
         );
         // apply messages: we get nothing because we are still waiting for actions-2
-        manager.apply_world(&mut world, None, &mut component_registry, Tick(10), &mut events);
-        assert_eq!(manager.group_channels.get(&group_id).unwrap().latest_tick.unwrap(), Tick(1));
+        manager.apply_world(
+            &mut world,
+            None,
+            &mut component_registry,
+            Tick(10),
+            &mut events,
+        );
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .latest_tick
+                .unwrap(),
+            Tick(1)
+        );
 
         // recv actions-2: we should now be able to read actions-2, actions-3, updates-4
         manager.recv_actions(
@@ -1363,8 +1388,22 @@ mod tests {
             Tick(2),
         );
 
-        manager.apply_world(&mut world, None, &mut component_registry, Tick(10), &mut events);
-        assert_eq!(manager.group_channels.get(&group_id).unwrap().latest_tick.unwrap(), Tick(5));
+        manager.apply_world(
+            &mut world,
+            None,
+            &mut component_registry,
+            Tick(10),
+            &mut events,
+        );
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .latest_tick
+                .unwrap(),
+            Tick(5)
+        );
     }
 
     /// Test applying to the world an EntityActionsMessage that uses SpawnReuse

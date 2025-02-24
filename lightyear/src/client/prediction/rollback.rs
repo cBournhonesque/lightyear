@@ -141,20 +141,11 @@ pub(crate) fn check_rollback<C: SyncComponent>(
 
     let current_tick = tick_manager.tick();
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
-        // NOTE: it is not enough to check if we received any ComponentRemoveEvent<C>, ComponentUpdateEvent<C> and ComponentInsertEvent<C>
-        //  because we could have entity A and B in the same ReplicationGroup.
-        //  We receive a message with entity B updates, but no entity A updates, **which means that entity A is still in the same state as before**
-        //  on the confirmed tick! This means that we received an update for entity A, and we still need to check for rollback.
-
-        // TODO: using `!confirmed.is_changed` is a potential bug! we only want a rollback check to trigger when the confirmed tick is updated!
-        //  but not when the confirmed entity is first spawned, no? when the entity is first spawn, currently
-        //  we still do a rollback check immediately
-        //  instead use `!confirmed.is_changed() || confirmed.is_added() { continue; }`?
-        //  but figure out how to adapt tests
-
         // 0. only check rollback when any entity in the replication group has been updated
         // (i.e. the confirmed tick has been updated)
-        if !confirmed.is_changed() {
+        // NOTE: there is no need to check for rollbacks when Confirmed is added, because at spawn time
+        //  we know that all components match!
+        if !confirmed.is_changed() || confirmed.is_added() {
             continue;
         }
 
@@ -819,175 +810,14 @@ pub(crate) mod test_utils {
     }
 }
 
-#[cfg(test)]
-mod unit_tests {
-    use super::test_utils::*;
-    use super::*;
-
-    use crate::tests::protocol::ComponentSyncModeFull;
-    use crate::tests::stepper::BevyStepper;
-    use bevy::ecs::system::RunSystemOnce;
-
-    // TODO: check that if A is updated but B is not, and A and B are in the same replication group,
-    //  then we need to check the rollback for B as well!
-    /// Check that we enter a rollback state when confirmed entity is updated at tick T and:
-    /// 1. Predicted component and Confirmed component are different
-    /// 2. Confirmed component does not exist and predicted component exists
-    /// 3. Confirmed component exists but predicted component does not exist
-    /// 4. If confirmed component is the same value as what we have in the history for predicted component, we do not rollback
-    #[test]
-    fn test_check_rollback() {
-        let mut stepper = BevyStepper::default();
-
-        // add predicted/confirmed entities
-        let tick = stepper.client_tick();
-        let confirmed = stepper
-            .client_app
-            .world_mut()
-            .spawn(Confirmed {
-                tick,
-                ..Default::default()
-            })
-            .id();
-        let predicted = stepper
-            .client_app
-            .world_mut()
-            .spawn(Predicted {
-                confirmed_entity: Some(confirmed),
-            })
-            .id();
-        stepper
-            .client_app
-            .world_mut()
-            .entity_mut(confirmed)
-            .get_mut::<Confirmed>()
-            .unwrap()
-            .predicted = Some(predicted);
-        stepper
-            .client_app
-            .world_mut()
-            .entity_mut(confirmed)
-            .insert(ComponentSyncModeFull(1.0));
-        stepper.frame_step();
-
-        // 1. Predicted component and confirmed component are different
-        let tick = stepper.client_tick();
-        stepper
-            .client_app
-            .world_mut()
-            .entity_mut(confirmed)
-            .get_mut::<ComponentSyncModeFull>()
-            .unwrap()
-            .0 = 2.0;
-        // simulate that we received a server message for the confirmed entity on tick `tick`
-        received_confirmed_update(&mut stepper, confirmed, tick);
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .run_system_once(check_rollback::<ComponentSyncModeFull>);
-        assert_eq!(
-            stepper
-                .client_app
-                .world()
-                .resource::<Rollback>()
-                .get_rollback_tick(),
-            Some(tick + 1)
-        );
-
-        // 2. Confirmed component does not exist but predicted component exists
-        // reset rollback state
-        stepper
-            .client_app
-            .world()
-            .resource::<Rollback>()
-            .set_non_rollback();
-        stepper
-            .client_app
-            .world_mut()
-            .entity_mut(confirmed)
-            .remove::<ComponentSyncModeFull>();
-        // simulate that we received a server message for the confirmed entity on tick `tick`
-        received_confirmed_update(&mut stepper, confirmed, tick);
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .run_system_once(check_rollback::<ComponentSyncModeFull>);
-        assert_eq!(
-            stepper
-                .client_app
-                .world()
-                .resource::<Rollback>()
-                .get_rollback_tick(),
-            Some(tick + 1)
-        );
-
-        // 3. Confirmed component exists but predicted component does not exist
-        // reset rollback state
-        stepper
-            .client_app
-            .world()
-            .resource::<Rollback>()
-            .set_non_rollback();
-        stepper
-            .client_app
-            .world_mut()
-            .entity_mut(predicted)
-            .remove::<ComponentSyncModeFull>();
-        stepper
-            .client_app
-            .world_mut()
-            .entity_mut(confirmed)
-            .insert(ComponentSyncModeFull(2.0));
-        // simulate that we received a server message for the confirmed entity on tick `tick`
-        received_confirmed_update(&mut stepper, confirmed, tick);
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .run_system_once(check_rollback::<ComponentSyncModeFull>);
-        assert_eq!(
-            stepper
-                .client_app
-                .world()
-                .resource::<Rollback>()
-                .get_rollback_tick(),
-            Some(tick + 1)
-        );
-
-        // 4. If confirmed component is the same value as what we have in the history for predicted component, we do not rollback
-        // reset rollback state
-        stepper
-            .client_app
-            .world_mut()
-            .resource::<Rollback>()
-            .set_non_rollback();
-        stepper
-            .client_app
-            .world_mut()
-            .entity_mut(predicted)
-            .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
-            .unwrap()
-            .add_update(tick, ComponentSyncModeFull(2.0));
-        // simulate that we received a server message for the confirmed entity on tick `tick`
-        received_confirmed_update(&mut stepper, confirmed, tick);
-        let _ = stepper
-            .client_app
-            .world_mut()
-            .run_system_once(check_rollback::<ComponentSyncModeFull>);
-        assert!(!stepper
-            .client_app
-            .world()
-            .resource::<Rollback>()
-            .is_rollback());
-    }
-}
-
 /// More general integration tests for rollback
 #[cfg(test)]
-mod integration_tests {
+mod tests {
     use std::time::Duration;
 
     use super::test_utils::*;
 
+    use crate::client::prediction::diagnostics::PredictionMetrics;
     use crate::client::prediction::predicted_history::PredictionHistory;
     use crate::client::prediction::resource::PredictionManager;
     use crate::client::prediction::rollback::{check_rollback, DisableRollback};
@@ -1047,6 +877,144 @@ mod integration_tests {
             .predicted = Some(predicted);
         stepper.frame_step();
         (stepper, confirmed, predicted)
+    }
+
+    struct RollbackCounter(pub usize);
+
+    // TODO: check that if A is updated but B is not, and A and B are in the same replication group,
+    //  then we need to check the rollback for B as well!
+    /// Check that we enter a rollback state when confirmed entity is updated at tick T and:
+    /// 1. Predicted component and Confirmed component are different
+    /// 2. Confirmed component does not exist and predicted component exists
+    /// 3. Confirmed component exists but predicted component does not exist
+    /// 4. If confirmed component is the same value as what we have in the history for predicted component, we do not rollback
+    #[test]
+    fn test_check_rollback() {
+        let mut stepper = BevyStepper::default();
+
+        // add predicted/confirmed entities
+        let tick = stepper.client_tick();
+        let confirmed = stepper
+            .client_app
+            .world_mut()
+            .spawn(Confirmed {
+                tick,
+                ..Default::default()
+            })
+            .id();
+        let predicted = stepper
+            .client_app
+            .world_mut()
+            .spawn(Predicted {
+                confirmed_entity: Some(confirmed),
+            })
+            .id();
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .get_mut::<Confirmed>()
+            .unwrap()
+            .predicted = Some(predicted);
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .insert(ComponentSyncModeFull(1.0));
+        stepper.frame_step();
+        // 0. No rollback when the Confirmed component is just added, even though the PredictionHistory
+        //    does not have the value for the Confirmed.tick
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .resource::<PredictionMetrics>()
+                .rollbacks,
+            0
+        );
+
+        // 1. Predicted component and confirmed component are different
+        let tick = stepper.client_tick();
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .get_mut::<ComponentSyncModeFull>()
+            .unwrap()
+            .0 = 2.0;
+        // simulate that we received a server message for the confirmed entity on tick `tick`
+        received_confirmed_update(&mut stepper, confirmed, tick);
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .resource::<PredictionMetrics>()
+                .rollbacks,
+            1
+        );
+
+        // 2. Confirmed component does not exist but predicted component exists
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .remove::<ComponentSyncModeFull>();
+        // simulate that we received a server message for the confirmed entity on tick `tick`
+        received_confirmed_update(&mut stepper, confirmed, tick);
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .resource::<PredictionMetrics>()
+                .rollbacks,
+            2
+        );
+
+        // 3. Confirmed component exists but predicted component does not exist
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted)
+            .remove::<ComponentSyncModeFull>();
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .insert(ComponentSyncModeFull(2.0));
+        // simulate that we received a server message for the confirmed entity on tick `tick`
+        received_confirmed_update(&mut stepper, confirmed, tick);
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .resource::<PredictionMetrics>()
+                .rollbacks,
+            3
+        );
+
+        // 4. If confirmed component is the same value as what we have in the history for predicted component, we do not rollback
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted)
+            .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
+            .unwrap()
+            .add_update(tick, ComponentSyncModeFull(2.0));
+        // simulate that we received a server message for the confirmed entity on tick `tick`
+        received_confirmed_update(&mut stepper, confirmed, tick);
+        stepper.frame_step();
+        // no rollback
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .resource::<PredictionMetrics>()
+                .rollbacks,
+            3
+        );
     }
 
     /// Test that the entities within a predicted component marked as to be
