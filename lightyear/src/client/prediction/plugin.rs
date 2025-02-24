@@ -303,13 +303,10 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             app.add_systems(
                 FixedPostUpdate,
                 (
+                    get_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
                     // we need to run this during fixed update to know accurately the history for each tick
                     update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
                 ),
-            );
-            app.add_systems(
-                FixedLast,
-                get_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
             );
         }
         ComponentSyncMode::Simple => {
@@ -434,10 +431,7 @@ impl Plugin for PredictionPlugin {
             FixedPostUpdate,
             PredictionSet::All.run_if(should_prediction_run.clone()),
         );
-        app.add_systems(
-            FixedPostUpdate,
-            (remove_despawn_marker.in_set(PredictionSet::EntityDespawn),),
-        );
+        app.add_systems(FixedPostUpdate, remove_despawn_marker.in_set(PredictionSet::EntityDespawn));
 
         // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
         // - Physics update
