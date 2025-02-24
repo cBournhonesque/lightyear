@@ -276,41 +276,43 @@ impl ReplicationReceiver {
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
-                let Some((remote_tick, _)) = channel
-                    .actions_recv_message_buffer
-                    .get(&channel.actions_pending_recv_message_id)
-                else {
-                    return;
-                };
-                // if the message is from the future, keep it there
-                if *remote_tick > current_tick {
-                    debug!(
-                        "message tick {:?} is from the future compared to our current tick {:?}",
-                        remote_tick, current_tick
+                loop {
+                    let Some((remote_tick, _)) = channel
+                        .actions_recv_message_buffer
+                        .get(&channel.actions_pending_recv_message_id)
+                    else {
+                        return;
+                    };
+                    // if the message is from the future, keep it there
+                    if *remote_tick > current_tick {
+                        debug!(
+                            "message tick {:?} is from the future compared to our current tick {:?}",
+                            remote_tick, current_tick
+                        );
+                        return;
+                    }
+
+                    // We have received the message we are waiting for
+                    let (remote_tick, message) = channel
+                        .actions_recv_message_buffer
+                        .remove(&channel.actions_pending_recv_message_id)
+                        .unwrap();
+
+                    channel.actions_pending_recv_message_id += 1;
+                    // Update the latest server tick that we have processed
+                    channel.latest_tick = Some(remote_tick);
+
+                    channel.apply_actions_message(
+                        world,
+                        remote,
+                        component_registry,
+                        remote_tick,
+                        message,
+                        &mut self.remote_entity_map,
+                        &mut self.local_entity_to_group,
+                        events,
                     );
-                    return;
                 }
-
-                // We have received the message we are waiting for
-                let (remote_tick, message) = channel
-                    .actions_recv_message_buffer
-                    .remove(&channel.actions_pending_recv_message_id)
-                    .unwrap();
-
-                channel.actions_pending_recv_message_id += 1;
-                // Update the latest server tick that we have processed
-                channel.latest_tick = Some(remote_tick);
-
-                channel.apply_actions_message(
-                    world,
-                    remote,
-                    component_registry,
-                    remote_tick,
-                    message,
-                    &mut self.remote_entity_map,
-                    &mut self.local_entity_to_group,
-                    events,
-                );
             });
 
         trace!(?self.group_channels, "applying replication updates messages");
@@ -539,10 +541,18 @@ impl Iterator for UpdatesIterator<'_> {
 
         // pop the oldest until we reach the max applicable index
         let (remote_tick, message) = self.channel.buffered_updates.pop_oldest().unwrap();
+        let is_history = self.channel.buffered_updates.len() != max_applicable_idx;
+        if !is_history {
+            // TODO: maybe instead of relying on this we could update the Confirmed.tick via event
+            //  after PredictionSet::Spawn?
+            // it is important to update the `latest_tick` because it is used to populate
+            // the Confirmed.tick when the Confirmed entity is just spawned
+            self.channel.latest_tick = Some(remote_tick);
+        }
         Some(Update {
             remote_tick,
             message,
-            is_history: self.channel.buffered_updates.len() != max_applicable_idx,
+            is_history,
         })
     }
 }
@@ -588,7 +598,6 @@ impl GroupChannel {
         events: &mut ConnectionEvents,
     ) {
         let group_id = message.group_id;
-        warn!(?remote_tick, "Replication action");
         debug!(
             ?remote_tick,
             ?message,
@@ -797,7 +806,6 @@ impl GroupChannel {
         if is_history {
             return;
         }
-        warn!(?remote_tick, "Receive replication update");
         debug!(
             ?remote_tick,
             ?message,
@@ -858,7 +866,7 @@ impl GroupChannel {
         //     grou.remote_entities
         //
         // }
-        warn!(
+        trace!(
             ?remote_tick,
             "Updating confirmed tick for entities {:?} in group: {:?}",
             self.local_entities,
@@ -872,7 +880,6 @@ impl GroupChannel {
                     "updating confirmed tick for entity"
                 );
                 if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
-                    warn!("UPDATE TICK for {:?}", *local_entity);
                     confirmed.tick = remote_tick;
                 }
             }
@@ -1187,6 +1194,177 @@ mod tests {
         assert_eq!(update.remote_tick, Tick(5));
         assert!(!update.is_history);
         assert!(updates.next().is_none());
+    }
+
+    /// Recv messages: buffer them
+    /// Apply messages: apply them to the world
+    #[allow(clippy::get_first)]
+    #[test]
+    fn test_recv_and_apply() {
+        let mut manager = ReplicationReceiver::new();
+
+        let group_id = ReplicationGroupId(0);
+        // recv an actions message that is too old: should be ignored
+        manager.recv_actions(
+            EntityActionsMessage {
+                group_id,
+                sequence_id: MessageId(0) - 1,
+                actions: Default::default(),
+            },
+            Tick(0),
+        );
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .actions_pending_recv_message_id,
+            MessageId(0)
+        );
+        assert!(manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .actions_recv_message_buffer
+            .is_empty());
+
+        // recv an actions message: in order, should be buffered
+        manager.recv_actions(
+            EntityActionsMessage {
+                group_id: ReplicationGroupId(0),
+                sequence_id: MessageId(0),
+                actions: Default::default(),
+            },
+            Tick(0),
+        );
+        assert!(manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .actions_recv_message_buffer
+            .contains_key(&MessageId(0)));
+
+        // add an updates message
+        manager.recv_updates(
+            EntityUpdatesMessage {
+                group_id: ReplicationGroupId(0),
+                last_action_tick: Some(Tick(0)),
+                updates: Default::default(),
+            },
+            Tick(1),
+        );
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .buffered_updates
+                .0,
+            vec![(
+                Tick(1),
+                EntityUpdatesMessage {
+                    group_id: ReplicationGroupId(0),
+                    last_action_tick: Some(Tick(0)),
+                    updates: Default::default(),
+                }
+            )]
+        );
+
+        // add updates before actions (last_action_tick is 3)
+        manager.recv_updates(
+            EntityUpdatesMessage {
+                group_id: ReplicationGroupId(0),
+                last_action_tick: Some(Tick(3)),
+                updates: Default::default(),
+            },
+            Tick(5),
+        );
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .buffered_updates
+                .0,
+            vec![
+                (
+                    Tick(5),
+                    EntityUpdatesMessage {
+                        group_id: ReplicationGroupId(0),
+                        last_action_tick: Some(Tick(3)),
+                        updates: Default::default(),
+                    }
+                ),
+                (
+                    Tick(1),
+                    EntityUpdatesMessage {
+                        group_id: ReplicationGroupId(0),
+                        last_action_tick: Some(Tick(0)),
+                        updates: Default::default(),
+                    }
+                )
+            ]
+        );
+
+
+        let mut world = World::new();
+        let mut component_registry = ComponentRegistry::default();
+        let mut events = ConnectionEvents::default();
+
+        // apply messages: only read the first action and update
+        manager.apply_world(&mut world, None, &mut component_registry, Tick(10), &mut events);
+        assert!(manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .actions_recv_message_buffer
+            .is_empty());
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .buffered_updates
+                .0,
+            vec![
+                (
+                    Tick(5),
+                    EntityUpdatesMessage {
+                        group_id: ReplicationGroupId(0),
+                        last_action_tick: Some(Tick(3)),
+                        updates: Default::default(),
+                    }
+                ),
+            ]
+        );
+        // latest_tick has been updated properly even for Update
+        assert_eq!(manager.group_channels.get(&group_id).unwrap().latest_tick.unwrap(), Tick(1));
+
+        // recv actions-3: should be buffered, we are still waiting for actions-2
+        manager.recv_actions(
+            EntityActionsMessage {
+                group_id: ReplicationGroupId(0),
+                sequence_id: MessageId(2),
+                actions: Default::default(),
+            },
+            Tick(3),
+        );
+        // apply messages: we get nothing because we are still waiting for actions-2
+        manager.apply_world(&mut world, None, &mut component_registry, Tick(10), &mut events);
+        assert_eq!(manager.group_channels.get(&group_id).unwrap().latest_tick.unwrap(), Tick(1));
+
+        // recv actions-2: we should now be able to read actions-2, actions-3, updates-4
+        manager.recv_actions(
+            EntityActionsMessage {
+                group_id: ReplicationGroupId(0),
+                sequence_id: MessageId(1),
+                actions: Default::default(),
+            },
+            Tick(2),
+        );
+
+        manager.apply_world(&mut world, None, &mut component_registry, Tick(10), &mut events);
+        assert_eq!(manager.group_channels.get(&group_id).unwrap().latest_tick.unwrap(), Tick(5));
     }
 
     /// Test applying to the world an EntityActionsMessage that uses SpawnReuse

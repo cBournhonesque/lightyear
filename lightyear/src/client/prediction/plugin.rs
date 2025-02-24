@@ -30,7 +30,7 @@ use super::rollback::{
 };
 use super::spawn::spawn_predicted_entity;
 
-use crate::prelude::client::{is_connected, InterpolationSet};
+use crate::prelude::client::is_connected;
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Reflect)]
