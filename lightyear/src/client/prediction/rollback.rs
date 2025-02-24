@@ -332,7 +332,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         };
 
         // 2. we need to clear the history so we can write a new one
-        let original_predicted_value = predicted_history.pop_until_tick_and_clear(rollback_tick);
+        let original_predicted_value = predicted_history.pop_until_tick(rollback_tick);
+        predicted_history.clear();
 
         // if rollback is disabled, we will restore the component to its past value from the prediction history
         let correct_value = if disable_rollback {
