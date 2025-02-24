@@ -439,7 +439,6 @@ mod tests {
         );
     }
 
-
     /// Prespawning multiple entities with the same hash
     /// https://github.com/cBournhonesque/lightyear/issues/906
     ///

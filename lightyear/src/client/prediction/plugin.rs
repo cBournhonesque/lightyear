@@ -431,7 +431,10 @@ impl Plugin for PredictionPlugin {
             FixedPostUpdate,
             PredictionSet::All.run_if(should_prediction_run.clone()),
         );
-        app.add_systems(FixedPostUpdate, remove_despawn_marker.in_set(PredictionSet::EntityDespawn));
+        app.add_systems(
+            FixedPostUpdate,
+            remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
+        );
 
         // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
         // - Physics update
