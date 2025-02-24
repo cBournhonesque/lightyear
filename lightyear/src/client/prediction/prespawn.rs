@@ -111,7 +111,10 @@ impl PreSpawnedPlayerObjectPlugin {
             &PreSpawnedPlayerObject,
             // only trigger this when the entity is received on the client via server-replication
             // (this is valid because Replicated is added before the components are inserted
-            Added<Replicated>,
+            // NOTE: we cannot use Added<Replicated> because Added only checks components added
+            //  since the last time the observer has run, and if multiple entities are in the same
+            //  ReplicationGroup then the observer could run several times in a row
+            With<Replicated>,
         >,
     ) {
         let confirmed_entity = trigger.entity();
@@ -244,7 +247,6 @@ impl PreSpawnedPlayerObjectPlugin {
                 .iter()
                 .flatten()
                 .for_each(|entity| {
-                    dbg!(entity);
                     if let Some(entity_commands) = commands.get_entity(*entity) {
                         trace!(
                             ?tick,
@@ -435,6 +437,117 @@ mod tests {
                 HistoryState::Updated(ComponentSyncModeFull(1.0)),
             ))
         );
+    }
+
+    /// Prespawning multiple entities with the same hash
+    /// https://github.com/cBournhonesque/lightyear/issues/906
+    ///
+    /// This errors only if the server entities were part of the same replication group
+    #[test]
+    fn test_multiple_prespawn() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::ERROR)
+        //     .init();
+        let mut stepper = BevyStepper::default();
+
+        let client_tick = stepper.client_tick().0 as usize;
+        let server_tick = stepper.server_tick().0 as usize;
+        let client_prespawn_a = stepper
+            .client_app
+            .world_mut()
+            .spawn(PreSpawnedPlayerObject::new(1))
+            .id();
+        let client_prespawn_b = stepper
+            .client_app
+            .world_mut()
+            .spawn(PreSpawnedPlayerObject::new(1))
+            .id();
+        // we want to advance by the tick difference, so that the server prespawned is spawned on the same
+        // tick as the client prespawned
+        // (i.e. entity is spawned on tick client_tick = X on client, and spawned on tick server_tick = X on server, so that
+        // the Histories match)
+        for tick in server_tick + 1..client_tick {
+            stepper.frame_step();
+        }
+        let server_prespawn_a = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                PreSpawnedPlayerObject::new(1),
+                Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        ..default()
+                    },
+                    group: ReplicationGroup::new_id(1),
+                    ..default()
+                },
+            ))
+            .id();
+        let server_prespawn_b = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                PreSpawnedPlayerObject::new(1),
+                Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        ..default()
+                    },
+                    group: ReplicationGroup::new_id(1),
+                    ..default()
+                },
+            ))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that both prespawn entities have been replaced with predicted entities
+        let predicted_a = stepper
+            .client_app
+            .world()
+            .get::<Predicted>(client_prespawn_a)
+            .unwrap();
+        let confirmed_a = predicted_a.confirmed_entity.unwrap();
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Confirmed>(confirmed_a)
+                .unwrap()
+                .predicted
+                .unwrap(),
+            client_prespawn_a
+        );
+        // The PreSpawnPlayerObject component has been removed on the client
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<PreSpawnedPlayerObject>(client_prespawn_a)
+            .is_none());
+
+        let predicted_b = stepper
+            .client_app
+            .world()
+            .get::<Predicted>(client_prespawn_b)
+            .unwrap();
+        let confirmed_b = predicted_b.confirmed_entity.unwrap();
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Confirmed>(confirmed_b)
+                .unwrap()
+                .predicted
+                .unwrap(),
+            client_prespawn_b
+        );
+        // The PreSpawnPlayerObject component has been removed on the client
+        assert!(stepper
+            .client_app
+            .world()
+            .get::<PreSpawnedPlayerObject>(client_prespawn_b)
+            .is_none());
     }
 
     /// Client and server run the same system to prespawn an entity

@@ -30,7 +30,7 @@ use super::rollback::{
 };
 use super::spawn::spawn_predicted_entity;
 
-use crate::prelude::client::{is_connected, InterpolationSet};
+use crate::prelude::client::is_connected;
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Reflect)]
@@ -303,13 +303,10 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             app.add_systems(
                 FixedPostUpdate,
                 (
+                    get_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
                     // we need to run this during fixed update to know accurately the history for each tick
                     update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
                 ),
-            );
-            app.add_systems(
-                FixedLast,
-                get_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
             );
         }
         ComponentSyncMode::Simple => {
@@ -436,9 +433,7 @@ impl Plugin for PredictionPlugin {
         );
         app.add_systems(
             FixedPostUpdate,
-            (
-                remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
-            ),
+            remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
         );
 
         // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
@@ -461,7 +456,7 @@ impl Plugin for PredictionPlugin {
         // );
         app.add_systems(
             FixedLast,
-                increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
+            increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
         );
         app.configure_sets(
             FixedLast,
