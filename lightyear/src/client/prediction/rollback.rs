@@ -11,7 +11,7 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
-use tracing::{debug, error, trace, trace_span, warn};
+use tracing::{debug, error, trace, trace_span};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
