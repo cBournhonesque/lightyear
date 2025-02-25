@@ -35,13 +35,13 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
     pub(crate) fn update_from_message(
         &mut self,
         end_tick: Tick,
-        start_value: ActionState<T>,
+        start_value: &ActionState<T>,
         diffs: &[Vec<ActionDiff<T>>],
     ) {
         let start_tick = end_tick - diffs.len() as u16;
         self.set(start_tick, start_value.clone());
 
-        let mut value = start_value;
+        let mut value = start_value.clone();
         for (delta, diffs_for_tick) in diffs.iter().enumerate() {
             // TODO: there's an issue; we use the diffs to set future ticks after the start value, but those values
             //  have not been ticked correctly! As a workaround, we tick them manually so that JustPressed becomes Pressed,
