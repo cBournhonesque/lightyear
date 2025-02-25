@@ -60,6 +60,7 @@ use crate::client::sync::SyncSet;
 use crate::connection::client::NetClient;
 use crate::connection::client::NetClientDispatch;
 use crate::inputs::native::input_buffer::InputBuffer;
+use crate::inputs::native::input_message::InputMessage;
 use crate::inputs::native::UserAction;
 use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, Tick, TickManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
@@ -104,7 +105,7 @@ impl<A: UserAction> InputManager<A> {
 
     /// Buffer a user action for the given tick
     pub fn add_input(&mut self, input: A, tick: Tick) {
-        self.input_buffer.set(tick, Some(input));
+        self.input_buffer.set(tick, input);
     }
 }
 
@@ -304,9 +305,7 @@ fn prepare_input_message<A: UserAction>(
     //  - buffer an input every frame; and require some redundancy (number of tick per frame)
     //  - or buffer an input only when we are sending, and require more redundancy
     // let message_len = 20 as u16;
-    let message = input_manager
-        .input_buffer
-        .create_message(tick_manager.tick(), message_len);
+    let message = InputMessage::<A>::create_message(&input_manager.input_buffer, tick_manager.tick(), message_len);
     // all inputs are absent
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error

@@ -24,10 +24,10 @@ use std::fmt::Debug;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-pub use input_buffer::InputMessage;
 
 /// Defines an [`InputBuffer`](input_buffer::InputBuffer) buffer to store the inputs of a player for each tick
 pub mod input_buffer;
+pub(crate) mod input_message;
 
 // TODO: should we request that a user input is a message?
 // TODO: the bound should be `BitSerializable`, not `Serialize + DeserializeOwned`

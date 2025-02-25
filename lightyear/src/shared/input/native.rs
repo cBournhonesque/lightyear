@@ -3,7 +3,7 @@
 use bevy::app::{App, Plugin};
 
 use crate::client::config::ClientConfig;
-use crate::inputs::native::InputMessage;
+use crate::inputs::native::input_message::InputMessage;
 use crate::prelude::{ChannelDirection, UserAction};
 use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;

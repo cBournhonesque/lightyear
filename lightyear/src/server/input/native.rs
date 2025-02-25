@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy::utils::HashMap;
 
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::InputMessage;
+use crate::inputs::native::input_message::InputMessage;
 use crate::prelude::server::DisconnectEvent;
 use crate::prelude::{
     server::is_started, ClientId, MessageRegistry, ServerReceiveMessage, TickManager, UserAction,
@@ -104,12 +104,13 @@ fn receive_input_message<A: UserAction>(
     received_messages.read().for_each(|event| {
         trace!("Received input message: {:?}", event);
         let client = event.from;
-        input_buffers
-            .buffers
-            .entry(event.from)
-            .or_default()
-            .1
-            .update_from_message(&event.message);
+        event.message.update_buffer(
+            &mut input_buffers
+                .buffers
+                .entry(event.from)
+                .or_default()
+                .1
+        );
         // TODO: allow automatic rebroadcast?
     });
 }
