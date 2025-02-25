@@ -55,8 +55,6 @@ use crate::prelude::{
     is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage,
     MessageRegistry, ReplicateOnceComponent, TickManager, TimeManager,
 };
-use crate::protocol::message::MessageKind;
-use crate::serialize::reader::Reader;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;

@@ -8,14 +8,10 @@
 //!   Therefore, we will store the computed ActionState at tick t + delay, but then we load the ActionState at tick t
 //!   from the buffer
 use bevy::utils::Instant;
-use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
 
 use crate::inputs::leafwing::action_diff::ActionDiff;
 use crate::shared::tick_manager::Tick;
-use bevy::prelude::{Component, Resource};
 use leafwing_input_manager::prelude::ActionState;
-use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use super::LeafwingUserAction;
@@ -23,7 +19,7 @@ use super::LeafwingUserAction;
 
 /// The InputBuffer contains a history of the ActionState for each tick between
 /// `start_tick` and `end_tick`. All ticks between `start_tick` and `end_tick` must be included in the buffer.
-pub type InputBuffer<A: LeafwingUserAction> = crate::inputs::native::input_buffer::InputBuffer<ActionState<A>>;
+pub type InputBuffer<A> = crate::inputs::native::input_buffer::InputBuffer<ActionState<A>>;
 
 
 impl<T: LeafwingUserAction> InputBuffer<T> {

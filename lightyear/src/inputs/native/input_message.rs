@@ -1,8 +1,7 @@
 use crate::inputs::native::input_buffer::{InputBuffer, InputData};
 use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Entity, EntityMapper, Reflect};
-use std::fmt::{Formatter, Write};
+use bevy::prelude::Reflect;
+use std::fmt::Write;
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
