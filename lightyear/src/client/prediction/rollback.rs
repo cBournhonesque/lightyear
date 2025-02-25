@@ -143,9 +143,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
         // 0. only check rollback when any entity in the replication group has been updated
         // (i.e. the confirmed tick has been updated)
-        // NOTE: there is no need to check for rollbacks when Confirmed is added, because at spawn time
-        //  we know that all components match!
-        if !confirmed.is_changed() || confirmed.is_added() {
+        if !confirmed.is_changed() {
             continue;
         }
 
@@ -923,15 +921,14 @@ mod tests {
             .entity_mut(confirmed)
             .insert(ComponentSyncModeFull(1.0));
         stepper.frame_step();
-        // 0. No rollback when the Confirmed component is just added, even though the PredictionHistory
-        //    does not have the value for the Confirmed.tick
+        // 0. Rollback when the Confirmed component is just added
         assert_eq!(
             stepper
                 .client_app
                 .world()
                 .resource::<PredictionMetrics>()
                 .rollbacks,
-            0
+            1
         );
 
         // 1. Predicted component and confirmed component are different
@@ -952,7 +949,7 @@ mod tests {
                 .world()
                 .resource::<PredictionMetrics>()
                 .rollbacks,
-            1
+            2
         );
 
         // 2. Confirmed component does not exist but predicted component exists
@@ -970,7 +967,7 @@ mod tests {
                 .world()
                 .resource::<PredictionMetrics>()
                 .rollbacks,
-            2
+            3
         );
 
         // 3. Confirmed component exists but predicted component does not exist
@@ -993,7 +990,7 @@ mod tests {
                 .world()
                 .resource::<PredictionMetrics>()
                 .rollbacks,
-            3
+            4
         );
 
         // 4. If confirmed component is the same value as what we have in the history for predicted component, we do not rollback
@@ -1014,7 +1011,7 @@ mod tests {
                 .world()
                 .resource::<PredictionMetrics>()
                 .rollbacks,
-            3
+            4
         );
     }
 
