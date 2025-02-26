@@ -42,6 +42,7 @@ use crate::channel::builder::InputChannel;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
+use crate::client::input::{is_input_delay, InputSystemSet};
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
@@ -129,12 +130,6 @@ impl<A> Default for LeafwingInputPlugin<A> {
     }
 }
 
-/// Returns true if there is input delay present
-fn is_input_delay(config: Res<ClientConfig>) -> bool {
-    config.prediction.minimum_input_delay_ticks > 0
-        || config.prediction.maximum_input_delay_before_prediction > 0
-        || config.prediction.maximum_predicted_ticks < 30
-}
 
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
 // FLOW WITH INPUT DELAY
@@ -161,9 +156,6 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
         let should_run = not(is_host_server);
-
-        app.init_resource::<InputBuffer<A>>();
-        app.init_resource::<MessageBuffer<A>>();
 
         // SETS
         app.configure_sets(
@@ -263,31 +255,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
     }
 }
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum InputSystemSet {
-    // PRE UPDATE
-    /// Add any buffer (InputBuffer, ActionDiffBuffer) to newly spawned entities
-    AddBuffers,
-    /// Receive the InputMessage from other clients
-    ReceiveInputMessages,
-    // FIXED PRE UPDATE
-    /// System Set where we update the ActionState and the InputBuffers
-    /// - no rollback: we write the ActionState to the InputBuffers
-    /// - rollback: we fetch the ActionState value from the InputBuffers
-    BufferClientInputs,
 
-    // FIXED POST UPDATE
-    /// Prepare a message for the server with the current tick's inputs.
-    /// (we do this in the FixedUpdate schedule because if the simulation is slow (e.g. 10Hz)
-    /// we don't want to send an InputMessage every frame)
-    PrepareInputMessage,
-
-    // POST UPDATE
-    /// System Set to prepare the input message
-    SendInputMessage,
-    /// Clean up old values to prevent the buffers from growing indefinitely
-    CleanUp,
-}
 
 /// For each entity that has an action-state, insert an input buffer.
 /// that will store the value of the action-state for the last few ticks
