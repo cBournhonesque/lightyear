@@ -145,16 +145,16 @@ pub(crate) fn after_physics_log(
     // if is_rollback {
     //     println!("rollback tick {}", tick.0);
     // }
-    for (entity, position, rotation) in query.iter() {
-        warn!(
-            ?is_rollback,
-            ?tick,
-            ?entity,
-            ?position,
-            ?rotation,
-            "Block after physics update"
-        );
-    }
+    // for (entity, position, rotation) in query.iter() {
+    //     warn!(
+    //         ?is_rollback,
+    //         ?tick,
+    //         ?entity,
+    //         ?position,
+    //         ?rotation,
+    //         "Block after physics update"
+    //     );
+    // }
 }
 
 /// Generate pseudo-random color based on `client_id`.

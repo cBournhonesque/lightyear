@@ -77,6 +77,6 @@ pub(crate) fn get_settings() -> MySettings {
             },
         },
         input_delay_ticks: 0,
-        correction_ticks_factor: 0.0,
+        correction_ticks_factor: 2.0,
     }
 }
