@@ -58,7 +58,7 @@ use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
-use crate::client::input::{is_input_delay, BaseInputPlugin, InputSystemSet};
+use crate::client::input::{is_input_delay, BaseInputPlugin, InputConfig, InputSystemSet};
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
@@ -67,33 +67,14 @@ use crate::client::run_conditions::is_synced;
 use crate::client::sync::SyncSet;
 use crate::connection::client::NetClient;
 use crate::connection::client::NetClientDispatch;
-use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::input_message::InputMessage;
-use crate::inputs::native::UserAction;
-use crate::prelude::client::{LeafwingInputConfig, PredictionSet};
+use crate::inputs::native::input_message::{InputMessage, InputTarget};
+use crate::inputs::native::{ActionState, UserAction, UserActionState};
+use crate::prelude::client::PredictionSet;
 use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, Deserialize, LeafwingUserAction, MessageRegistry, PrePredicted, ReplicateOnceComponent, Replicated, Serialize, Tick, TickManager, TimeManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
-
-#[derive(Debug, Clone, Copy, Reflect, Resource)]
-pub struct InputConfig<A> {
-    /// If enabled, the client will send the interpolation_delay to the server so that the server
-    /// can apply lag compensation when the predicted client is shooting at interpolated enemies.
-    ///
-    /// See: <https://developer.valvesoftware.com/wiki/Lag_Compensation>
-    pub lag_compensation: bool,
-    /// How many consecutive packets losses do we want to handle?
-    /// This is used to compute the redundancy of the input messages.
-    /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
-    ///  for the 3 last packets.
-    pub packet_redundancy: u16,
-    /// How often do we send input messages to the server?
-    /// Duration::default() means that we will send input messages every frame.
-    pub send_interval: Duration,
-    marker: PhantomData<A>,
-}
 
 
 /// FLOW leafwing
@@ -106,23 +87,13 @@ pub struct InputConfig<A> {
 /// - A gets read from Buffer using current tick
 
 
-impl<A> Default for InputConfig<A> {
-    fn default() -> Self {
-        InputConfig {
-            lag_compensation: false,
-            packet_redundancy: 10,
-            send_interval: Duration::default(),
-            marker: PhantomData,
-        }
-    }
-}
 
 pub struct InputPlugin<A> {
     config: InputConfig<A>,
 }
 
 impl<A: UserAction> InputPlugin<A> {
-    fn new(config: InputConfig<A>) -> Self {
+    pub(crate) fn new(config: InputConfig<A>) -> Self {
         Self {
             config,
         }
@@ -145,13 +116,15 @@ impl<A: UserAction> Default for InputPlugin<A> {
 /// - we write the InputMessages during FixedPostUpdate
 /// - we apply the TickUpdateEvents (from doing sync) during PostUpdate, which might affect the ticks from the InputMessages.
 ///   During this phase, we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
-#[derive(Debug, Resource)]
-struct MessageBuffer<A: UserAction>(Vec<InputMessage<A>>);
+#[derive(Debug, Default, Resource)]
+struct MessageBuffer<A>(Vec<InputMessage<A>>);
 
-#[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
-struct ActionState<A> {
-    value: Option<A>
+impl<A> Default for MessageBuffer<A> {
+    fn default() -> Self {
+        Self(vec![])
+    }
 }
+
 
 impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
@@ -160,9 +133,6 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         let should_run = not(is_host_server);
 
         app.add_plugins(BaseInputPlugin::<ActionState<A>, ()>::default());
-
-        // REGISTRATION
-        app.register_type::<InputConfig<A>>();
 
         // RESOURCES
         app.insert_resource(self.config.clone());
@@ -187,6 +157,8 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             PostUpdate,
                 send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
         );
+        // if the client tick is updated because of a desync, update the ticks in the input buffers
+        app.add_observer(receive_tick_events::<A>);
     }
 }
 
@@ -295,7 +267,7 @@ fn prepare_input_message<A: UserAction>(
     trace!(
         ?tick,
         ?num_tick,
-        "sending input message for {:?}: {}",
+        "sending input message for {:?}: {:?}",
         std::any::type_name::<A>(),
         message
     );
@@ -321,7 +293,7 @@ fn receive_remote_player_input_messages<A: UserAction>(
     // TODO: currently we do not handle entities that are controlled by multiple clients
     confirmed_query: Query<&Confirmed>,
     mut predicted_query: Query<
-        Option<&mut InputBuffer<A>>,
+        Option<&mut InputBuffer<ActionState<A>>>,
         With<Predicted>,
     >,
 ) {
@@ -373,7 +345,7 @@ fn receive_remote_player_input_messages<A: UserAction>(
                                 }
                             } else {
                                 // add the ActionState or InputBuffer if they are missing
-                                let mut input_buffer = InputBuffer::<A>::default();
+                                let mut input_buffer = InputBuffer::<ActionState<A>>::default();
                                 input_buffer.update_from_message(
                                     message.end_tick,
                                     &target_data.states,
@@ -426,6 +398,31 @@ fn send_input_messages<A: UserAction>(
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             });
+    }
+}
+
+/// In case the client tick changes suddenly, we also update the InputBuffer accordingly
+fn receive_tick_events<A: UserAction>(
+    trigger: Trigger<TickEvent>,
+    mut message_buffer: ResMut<MessageBuffer<A>>,
+    mut input_buffer_query: Query<&mut InputBuffer<ActionState<A>>>,
+) {
+    match *trigger.event() {
+        TickEvent::TickSnap { old_tick, new_tick } => {
+            for mut input_buffer in input_buffer_query.iter_mut() {
+                if let Some(start_tick) = input_buffer.start_tick {
+                    input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
+                    debug!(
+                        "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
+                        trigger.event(),
+                        input_buffer.start_tick
+                    );
+                }
+            }
+            for message in message_buffer.0.iter_mut() {
+                message.end_tick = message.end_tick + (new_tick - old_tick);
+            }
+        }
     }
 }
 

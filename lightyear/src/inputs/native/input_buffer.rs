@@ -8,7 +8,7 @@ use std::time::Instant;
 use steamworks::Input;
 use tracing::trace;
 
-#[derive(Resource, Component, Debug)]
+#[derive(Component, Debug)]
 pub struct InputBuffer<T> {
     pub(crate) start_tick: Option<Tick>,
     pub(crate) buffer: VecDeque<InputData<T>>,
@@ -68,7 +68,7 @@ impl<T> Default for InputBuffer<T> {
     }
 }
 
-impl<T: UserAction> InputBuffer<T> {
+impl<T: UserAction> InputBuffer<ActionState<T>> {
         /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs
     /// included in the message.
     /// TODO: disallow overwriting inputs for ticks we've already received inputs for?
@@ -79,34 +79,48 @@ impl<T: UserAction> InputBuffer<T> {
         values: &Vec<InputData<T>>,
     ) {
         let start_tick = end_tick - values.len() as u16;
-            for (delta, input) in values.iter().enumerate() {
-                let tick = start_tick + Tick(delta as u16);
-                match input {
-                    InputData::Absent => {
-                        self.set_empty(tick);
-                    }
-                    InputData::SameAsPrecedent => {
-                        if let Some(v) = self.get(tick - 1) {
-                            self.set(tick, v.clone());
-                        } else {
-                            self.set_empty(tick);
-                        }
-                    }
-                    InputData::Input(input) => {
+        let mut precedent = ActionState::<T>::default();
+        // the first value is guaranteed to not be SameAsPrecedent
+        for (delta, input) in values.iter().enumerate() {
+            let tick = start_tick + Tick(delta as u16);
+            match input {
+                InputData::Absent => {
+                    self.set_empty(tick);
+                    precedent = ActionState::<T>::default();
+                }
+                InputData::SameAsPrecedent => {
+                    // TODO: we can directly write 'SameAsPrecedent' in the buffer!
+
+                    if let Some(input) = &precedent.value {
+                         // do not set the value if it's equal to what's already in the buffer
                         if self
                             .get(tick)
-                            .is_some_and(|existing_value| existing_value == input)
+                            .is_some_and(|existing_value| existing_value.value.as_ref().is_some_and(|v| v == input))
                         {
                             continue;
                         }
                         self.set(tick, input.clone());
+                    } else {
+                        self.set_empty(tick);
                     }
                 }
+                InputData::Input(input) => {
+                    precedent = input.clone();
+                    // do not set the value if it's equal to what's already in the buffer
+                    if self
+                        .get(tick)
+                        .is_some_and(|existing_value| existing_value.value.as_ref().is_some_and(|v| v == input))
+                    {
+                        continue;
+                    }
+                    self.set(tick, input.clone());
+                }
             }
+        }
     }
 }
 
-impl<T: UserAction> InputBuffer<T> {
+impl<T: Clone + PartialEq> InputBuffer<T> {
     /// Number of elements in the buffer
     pub(crate) fn len(&self) -> usize {
         self.buffer.len()

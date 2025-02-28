@@ -5,9 +5,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{
-    server::is_started, InputMessage, MessageRegistry, ServerReceiveMessage, TickManager,
-};
+use crate::prelude::{is_host_server, server::is_started, InputMessage, MessageRegistry, ServerReceiveMessage, TickManager};
 use crate::server::connection::ConnectionManager;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
@@ -35,34 +33,16 @@ pub enum InputSystemSet {
 
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
-        // RESOURCES
-        // app.init_resource::<GlobalActions<A>>();
-        // TODO: (global action states) add a resource tracking the action-state of all clients
-        // SETS
-        app.configure_sets(
-            PreUpdate,
-            (
-                InternalMainSet::<ServerMarker>::Receive,
-                InputSystemSet::AddBuffers,
-                InputSystemSet::ReceiveInputs,
-            )
-                .chain()
-                .run_if(is_started),
-        );
-        app.configure_sets(FixedPreUpdate, InputSystemSet::Update.run_if(is_started));
+        app.add_plugins(super::BaseInputPlugin::<ActionState<A>>::default());
+
+
         // SYSTEMS
         app.add_systems(
             PreUpdate,
             (
-                // TODO: ideally we have a Flush between add_action_diff_buffer and Tick?
-                add_action_diff_buffer::<A>.in_set(InputSystemSet::AddBuffers),
-                // TODO: can disable this in host-server mode!
-                receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs),
+                receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs)
+                    .run_if(not(is_host_server)),
             ),
-        );
-        app.add_systems(
-            FixedPreUpdate,
-            update_action_state::<A>.in_set(InputSystemSet::Update),
         );
     }
 
@@ -74,16 +54,6 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     }
 }
 
-/// For each entity that has an action-state, insert an InputBuffer, to store
-/// the values of the ActionState for the ticks of the message
-fn add_action_diff_buffer<A: LeafwingUserAction>(
-    mut commands: Commands,
-    action_state: Query<Entity, (Added<ActionState<A>>, Without<InputMap<A>>)>,
-) {
-    for entity in action_state.iter() {
-        commands.entity(entity).insert(InputBuffer::<A>::default());
-    }
-}
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: LeafwingUserAction>(
@@ -144,52 +114,9 @@ fn receive_input_message<A: LeafwingUserAction>(
                         debug!(?entity, ?data.diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                     }
                 }
-                InputTarget::Global => {
-                    // TODO: handle global diffs for each client! How? create one entity per client?
-                    //  or have a resource containing the global ActionState for each client?
-                    // if let Some(ref mut buffer) = global {
-                    //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
-                    // }
-                }
             }
         }
     });
-}
-
-/// Read the InputState for the current tick from the buffer, and use them to update the ActionState
-fn update_action_state<A: LeafwingUserAction>(
-    tick_manager: Res<TickManager>,
-    // global_input_buffer: Res<InputBuffer<A>>,
-    // global_action_state: Option<ResMut<ActionState<A>>>,
-    mut action_state_query: Query<(Entity, &mut ActionState<A>, &mut InputBuffer<A>)>,
-) {
-    let tick = tick_manager.tick();
-
-    for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
-        // We only apply the ActionState from the buffer if we have one.
-        // If we don't (because the input packet is late or lost), we won't do anything.
-        // This is equivalent to considering that the player will keep playing the last action they played.
-        if let Some(action) = input_buffer.get(tick) {
-            *action_state = action.clone();
-            trace!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
-            // remove all the previous values
-            // we keep the current value in the InputBuffer so that if future messages are lost, we can still
-            // fallback on the last known value
-            input_buffer.pop(tick - 1);
-
-            #[cfg(feature = "metrics")]
-            {
-                // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
-                // so that we can handle lost messages
-                metrics::gauge!(format!(
-                    "inputs::{}::{}::buffer_size",
-                    std::any::type_name::<A>(),
-                    entity
-                ))
-                .set(input_buffer.len() as f64);
-            }
-        }
-    }
 }
 
 #[cfg(test)]

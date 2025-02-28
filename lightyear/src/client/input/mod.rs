@@ -39,6 +39,7 @@ pub enum InputSystemSet {
 }
 
 
+use bevy::ecs::query::{QueryFilter, WorldQuery};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
@@ -63,8 +64,8 @@ use crate::connection::client::NetClientDispatch;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::InputMessage;
-use crate::inputs::native::UserAction;
-use crate::prelude::client::{LeafwingInputConfig, PredictionSet};
+use crate::inputs::native::{UserAction, UserActionState};
+use crate::prelude::client::PredictionSet;
 use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, LeafwingUserAction, MessageRegistry, PrePredicted, ReplicateOnceComponent, Replicated, Tick, TickManager, TimeManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
@@ -115,7 +116,7 @@ pub(crate) struct BaseInputPlugin<A, F> {
     _marker: PhantomData<F>,
 }
 
-impl<A: UserAction, F> BaseInputPlugin<A, F> {
+impl<A, F> BaseInputPlugin<A, F> {
     fn new(config: InputConfig<A>) -> Self {
         Self {
             config,
@@ -124,7 +125,7 @@ impl<A: UserAction, F> BaseInputPlugin<A, F> {
     }
 }
 
-impl<A: UserAction, F> Default for BaseInputPlugin<A, F> {
+impl<A, F> Default for BaseInputPlugin<A, F> {
     fn default() -> Self {
         Self::new(InputConfig::default())
     }
@@ -141,10 +142,10 @@ impl<A: UserAction, F> Default for BaseInputPlugin<A, F> {
 /// - we apply the TickUpdateEvents (from doing sync) during PostUpdate, which might affect the ticks from the InputMessages.
 ///   During this phase, we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
 #[derive(Debug, Resource)]
-struct MessageBuffer<A: UserAction>(Vec<InputMessage<A>>);
+struct MessageBuffer<A>(Vec<InputMessage<A>>);
 
 
-impl<A: UserAction, F> Plugin for BaseInputPlugin<A, F> {
+impl<A: UserActionState, F: QueryFilter + 'static> Plugin for BaseInputPlugin<A, F> {
     fn build(&self, app: &mut App) {
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
@@ -193,7 +194,7 @@ impl<A: UserAction, F> Plugin for BaseInputPlugin<A, F> {
             (
                 (
                     // update_action_state_remote_players::<A>,
-                    buffer_action_state::<A>,
+                    buffer_action_state::<A, F>,
                     // If InputDelay is enabled, we get the ActionState for the current tick
                     // from the InputBuffer (which was added to the InputBuffer input_delay ticks ago)
                     get_non_rollback_action_state::<A>.run_if(is_input_delay),
@@ -221,8 +222,7 @@ impl<A: UserAction, F> Plugin for BaseInputPlugin<A, F> {
                     .before(InputManagerSystem::Tick),
             ),
         );
-        // if the client tick is updated because of a desync, update the ticks in the input buffers
-        app.add_observer(receive_tick_events::<A>);
+
         app.add_systems(
             PostUpdate,
             (
@@ -238,7 +238,7 @@ impl<A: UserAction, F> Plugin for BaseInputPlugin<A, F> {
 
 
 /// For each entity that has the Action component, insert an input buffer.
-fn add_action_state_buffer<A: UserAction>(
+fn add_action_state_buffer<A: UserActionState>(
     trigger: Trigger<OnAdd, A>,
     mut commands: Commands,
     query: Query<(), Without<InputBuffer<A>>>,
@@ -259,7 +259,7 @@ fn add_action_state_buffer<A: UserAction>(
 /// and we will pull ActionStates from the buffer instead of just using the ActionState component directly.
 ///
 /// We do not need to buffer inputs during rollback, as they have already been buffered
-fn buffer_action_state<A: UserAction, F>(
+fn buffer_action_state<A: UserActionState, F: QueryFilter + 'static>(
     config: Res<ClientConfig>,
     connection_manager: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
@@ -292,7 +292,7 @@ fn buffer_action_state<A: UserAction, F>(
 ///
 /// If we have input-delay, we need to set the ActionState for the current tick
 /// using the value stored in the buffer (since the local ActionState is for the delayed tick)
-fn get_non_rollback_action_state<A: UserAction>(
+fn get_non_rollback_action_state<A: UserActionState>(
     tick_manager: Res<TickManager>,
     // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
     // - local player: we need to get the input from the InputBuffer because of input delay
@@ -312,8 +312,9 @@ fn get_non_rollback_action_state<A: UserAction>(
             trace!(
                 ?entity,
                 ?tick,
-                "fetched action state {:?} from input buffer: {}",
-                action_state.get_pressed(),
+                "fetched action state {:?} from input buffer: {:?}",
+                action_state,
+                // action_state.get_pressed(),
                 input_buffer
             );
         }
@@ -338,7 +339,7 @@ fn get_non_rollback_action_state<A: UserAction>(
 /// This is better than just using the ActionState from the rollback tick, because we have additional information (tick)
 /// for the remote inputs that we can use to have a higher precision rollback.
 /// TODO: implement some decay for the rollback ActionState of other players?
-fn get_rollback_action_state<A: UserAction>(
+fn get_rollback_action_state<A: UserActionState>(
     mut player_action_state_query: Query<
         (Entity, &mut A, &InputBuffer<A>),
     >,
@@ -361,14 +362,14 @@ fn get_rollback_action_state<A: UserAction>(
 
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
-fn get_delayed_action_state<A: UserAction, F>(
+fn get_delayed_action_state<A: UserActionState, F: QueryFilter + 'static>(
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     connection_manager: Res<ConnectionManager>,
     mut action_state_query: Query<
         (Entity, &mut A, &InputBuffer<A>),
         // Filter so that this is only for directly controlled players, not remote players
-        With<F>,
+        F
     >,
 ) {
     let input_delay_ticks = config.prediction.input_delay_ticks(
@@ -384,8 +385,9 @@ fn get_delayed_action_state<A: UserAction, F>(
             trace!(
                 ?entity,
                 ?delayed_tick,
-                "fetched delayed action state {:?} from input buffer: {}",
-                action_state.get_pressed(),
+                "fetched delayed action state {:?} from input buffer: {:?}",
+                action_state,
+                // action_state.get_pressed(),
                 input_buffer
             );
         }
@@ -393,30 +395,7 @@ fn get_delayed_action_state<A: UserAction, F>(
     }
 }
 
-/// In case the client tick changes suddenly, we also update the InputBuffer accordingly
-fn receive_tick_events<A: UserAction>(
-    trigger: Trigger<TickEvent>,
-    mut message_buffer: ResMut<MessageBuffer<A>>,
-    mut input_buffer_query: Query<&mut InputBuffer<A>>,
-) {
-    match *trigger.event() {
-        TickEvent::TickSnap { old_tick, new_tick } => {
-            for mut input_buffer in input_buffer_query.iter_mut() {
-                if let Some(start_tick) = input_buffer.start_tick {
-                    input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
-                    debug!(
-                        "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
-                        trigger.event(),
-                        input_buffer.start_tick
-                    );
-                }
-            }
-            for message in message_buffer.0.iter_mut() {
-                message.end_tick = message.end_tick + (new_tick - old_tick);
-            }
-        }
-    }
-}
+
 
 
 /// System that removes old entries from the InputBuffer

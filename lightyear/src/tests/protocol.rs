@@ -179,8 +179,13 @@ pub(crate) fn deserialize_resource2(reader: &mut Reader) -> Result<Resource2, Se
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, VisitEntities, VisitEntitiesMut, Reflect)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
 pub struct MyInput(pub i16);
+
+impl MapEntities for MyInput {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+    }
+}
 
 // Protocol
 cfg_if! {

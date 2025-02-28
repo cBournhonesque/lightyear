@@ -42,7 +42,7 @@ use crate::channel::builder::InputChannel;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::input::{is_input_delay, BaseInputPlugin, InputSystemSet};
+use crate::client::input::{is_input_delay, BaseInputPlugin, InputConfig, InputSystemSet};
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
@@ -52,47 +52,12 @@ use crate::client::sync::SyncSet;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{
-    is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage,
-    MessageRegistry, ReplicateOnceComponent, TickManager, TimeManager,
-};
+use crate::inputs::native::UserActionState;
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage, MessageRegistry, ReplicateOnceComponent, TickManager, TimeManager, UserAction};
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
-// TODO: the resource should have a generic param, but not the user-facing config struct
-#[derive(Debug, Copy, Clone, Resource)]
-pub struct LeafwingInputConfig<A> {
-    /// If enabled, the client will send the interpolation_delay to the server so that the server
-    /// can apply lag compensation when the predicted client is shooting at interpolated enemies.
-    ///
-    /// See: <https://developer.valvesoftware.com/wiki/Lag_Compensation>
-    pub lag_compensation: bool,
-    // TODO: right now the input-delay causes the client timeline to be more in the past than it should be
-    //  I'm not sure if we can have different input_delay_ticks per ActionType
-    // /// The amount of ticks that the player's inputs will be delayed by.
-    // /// This can be useful to mitigate the amount of client-prediction
-    // pub input_delay_ticks: u16,
-    /// How many consecutive packets losses do we want to handle?
-    /// This is used to compute the redundancy of the input messages.
-    /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
-    ///  for the 3 last packets.
-    // TODO: this seems unused now
-    pub packet_redundancy: u16,
-
-    // TODO: add an option where we send all diffs vs send only just-pressed diffs
-    pub marker: PhantomData<A>,
-}
-
-impl<A> Default for LeafwingInputConfig<A> {
-    fn default() -> Self {
-        LeafwingInputConfig {
-            lag_compensation: false,
-            packet_redundancy: 4,
-            marker: PhantomData,
-        }
-    }
-}
 
 // TODO: is this actually necessary? The sync happens in PostUpdate,
 //  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
@@ -115,18 +80,18 @@ impl<A: LeafwingUserAction> Default for MessageBuffer<A> {
 
 /// Adds a plugin to handle inputs using the LeafwingInputManager
 pub struct LeafwingInputPlugin<A> {
-    config: LeafwingInputConfig<A>,
+    config: InputConfig<A>,
 }
 
 impl<A> LeafwingInputPlugin<A> {
-    pub fn new(config: LeafwingInputConfig<A>) -> Self {
+    pub fn new(config: InputConfig<A>) -> Self {
         Self { config }
     }
 }
 
 impl<A> Default for LeafwingInputPlugin<A> {
     fn default() -> Self {
-        Self::new(LeafwingInputConfig::default())
+        Self::new(InputConfig::default())
     }
 }
 
@@ -179,6 +144,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             PostUpdate,
                 send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
         );
+        // if the client tick is updated because of a desync, update the ticks in the input buffers
+        app.add_observer(receive_tick_events::<A>);
     }
 }
 
@@ -204,7 +171,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     mut message_buffer: ResMut<MessageBuffer<A>>,
     channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,
-    input_config: Res<LeafwingInputConfig<A>>,
+    input_config: Res<InputConfig<A>>,
     tick_manager: Res<TickManager>,
     input_buffer_query: Query<
         (
@@ -314,7 +281,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
 /// Drain the messages from the buffer and send them to the server
 fn send_input_messages<A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager>,
-    input_config: Res<LeafwingInputConfig<A>>,
+    input_config: Res<InputConfig<A>>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
     time_manager: Res<TimeManager>,
     tick_manager: Res<TickManager>,
@@ -382,7 +349,6 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                         .get_local(entity)
                 }
                 InputTarget::PrePredictedEntity(entity) => Some(entity),
-                InputTarget::Global => continue,
             };
             if let Some(entity) = entity {
                 debug!(
@@ -439,6 +405,31 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
             }
         }
     });
+}
+
+/// In case the client tick changes suddenly, we also update the InputBuffer accordingly
+fn receive_tick_events<A: LeafwingUserAction>(
+    trigger: Trigger<TickEvent>,
+    mut message_buffer: ResMut<MessageBuffer<A>>,
+    mut input_buffer_query: Query<&mut InputBuffer<A>>,
+) {
+    match *trigger.event() {
+        TickEvent::TickSnap { old_tick, new_tick } => {
+            for mut input_buffer in input_buffer_query.iter_mut() {
+                if let Some(start_tick) = input_buffer.start_tick {
+                    input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
+                    debug!(
+                        "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
+                        trigger.event(),
+                        input_buffer.start_tick
+                    );
+                }
+            }
+            for message in message_buffer.0.iter_mut() {
+                message.end_tick = message.end_tick + (new_tick - old_tick);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -19,6 +19,7 @@ There are several steps to use the `InputPlugin`:
 
 */
 
+use crate::inputs::native::input_buffer::InputData;
 use crate::prelude::Deserialize;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Component, Reflect};
@@ -30,20 +31,37 @@ use std::fmt::Debug;
 pub mod input_buffer;
 pub(crate) mod input_message;
 
-#[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
+#[derive(Component, Clone, Debug, Default, PartialEq, Serialize, Deserialize, Reflect)]
 pub struct ActionState<A> {
     value: Option<A>
 }
 
-// TODO: should we request that a user input is a message?
-// TODO: the bound should be `BitSerializable`, not `Serialize + DeserializeOwned`
-//  but it causes the derive macro for InputMessage to fail
+impl<A: Clone> From<&ActionState<A>> for InputData<A> {
+    fn from(value: &ActionState<A>) -> Self {
+        value.value.as_ref().map_or(InputData::Absent, |v| InputData::Input(v.clone()))
+    }
+}
+
+impl<A> Default for ActionState<A> {
+    fn default() -> Self {
+        Self { value: None }
+    }
+}
+
 pub trait UserAction:
-    Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + MapEntities + 'static
+    Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static
 {
 }
 
-impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + MapEntities + 'static> UserAction
+impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static> UserAction
     for A
 {
+}
+
+pub trait UserActionState: UserAction + Component + Default {
+    type UserAction: UserAction;
+}
+
+impl<A: UserAction> UserActionState for ActionState<A> {
+    type UserAction = A;
 }

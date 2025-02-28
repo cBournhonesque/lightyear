@@ -31,24 +31,26 @@ pub enum InputTarget {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
-pub(crate) struct PerTargetData<A: Actionlike> {
+pub(crate) struct PerTargetData<A> {
     pub(crate) target: InputTarget,
     // ActionState<A> from ticks `end_ticks-N` to `end_tick` (included)
     pub(crate) states: Vec<InputData<A>>,
 }
 
-impl<T: UserAction> InputMessage<T> {
-    pub fn is_empty(&self) -> bool {
-        if self.inputs.len() == 0 {
-            return true;
+impl<T: Clone + PartialEq> InputMessage<T> {
+    pub fn new(end_tick: Tick) -> Self {
+        Self {
+            interpolation_delay: None,
+            end_tick,
+            inputs: vec![],
         }
-        let mut iter = self.inputs.iter();
-        if iter.next().unwrap() == &InputData::Absent {
-            return iter.all(|x| x == &InputData::SameAsPrecedent);
-        }
-        false
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.inputs.iter().all(|data| {
+            data.states.is_empty() || data.states.iter().all(|s| matches!(s, InputData::Absent | InputData::SameAsPrecedent) )
+        })
+    }
 
     /// Add the inputs for the `num_ticks` ticks starting from `self.end_tick - num_ticks + 1` up to `self.end_tick`
     ///
@@ -58,7 +60,7 @@ impl<T: UserAction> InputMessage<T> {
             &mut self,
             num_ticks: u16,
             target: InputTarget,
-            input_buffer: &InputBuffer<T>,
+            input_buffer: &InputBuffer<ActionState<T>>,
     ) {
         let Some(buffer_start_tick) = input_buffer.start_tick else {
             return
@@ -66,16 +68,25 @@ impl<T: UserAction> InputMessage<T> {
         // find the first tick for which we have an `ActionState` buffered
         let mut start_tick = max(self.end_tick - num_ticks + 1, buffer_start_tick);
 
-        // find the initial state
+        // find the initial state, (which we convert out of SameAsPrecedent)
         let start_state = input_buffer.get(start_tick).map_or(
             InputData::Absent,
-            |input| InputData::Input(input.clone()),
+            |input| input.into()
         );
         let mut states = vec![start_state];
+
         // append the other states until the end tick
         let buffer_start = (start_tick + 1 - buffer_start_tick) as usize;
         let buffer_end = (self.end_tick + 1 - buffer_start_tick) as usize;
-        states.extend_from_slice(&input_buffer.buffer[buffer_start..buffer_end]);
+        for idx in buffer_start..buffer_end {
+            let state = input_buffer.buffer.get(idx)
+                .map_or(InputData::Absent, |input| match input {
+                    InputData::Absent => InputData::Absent,
+                    InputData::SameAsPrecedent => InputData::SameAsPrecedent,
+                    InputData::Input(v) => {v.into()}
+                });
+            states.push(state);
+        }
         self.inputs.push(PerTargetData::<T> {
             target,
             states
@@ -88,6 +99,7 @@ impl<T: UserAction> InputMessage<T> {
 mod tests {
     use crate::inputs::native::input_buffer::{InputBuffer, InputData};
     use crate::inputs::native::input_message::{InputMessage, InputTarget, PerTargetData};
+    use crate::inputs::native::ActionState;
     use crate::prelude::Tick;
     use bevy::prelude::Entity;
 
@@ -95,9 +107,9 @@ mod tests {
     fn test_create_message() {
         let mut input_buffer = InputBuffer::default();
 
-        input_buffer.set(Tick(4), 0);
-        input_buffer.set(Tick(6), 1);
-        input_buffer.set(Tick(7), 1);
+        input_buffer.set(Tick(4), ActionState{value: Some(0)});
+        input_buffer.set(Tick(6), ActionState{value: Some(1)});
+        input_buffer.set(Tick(7), ActionState{value: Some(1)});
 
         let mut message = InputMessage::<u8> {
             interpolation_delay: None,
@@ -146,10 +158,10 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(20)), None);
         assert_eq!(input_buffer.get(Tick(19)), None);
         assert_eq!(input_buffer.get(Tick(18)), None);
-        assert_eq!(input_buffer.get(Tick(17)), Some(&1));
-        assert_eq!(input_buffer.get(Tick(16)), Some(&1));
-        assert_eq!(input_buffer.get(Tick(15)), Some(&0));
-        assert_eq!(input_buffer.get(Tick(14)), Some(&0));
+        assert_eq!(input_buffer.get(Tick(17)), Some(&ActionState::<i32> { value: Some(1)}));
+        assert_eq!(input_buffer.get(Tick(16)), Some(&ActionState::<i32> { value: Some(1)}));
+        assert_eq!(input_buffer.get(Tick(15)), Some(&ActionState::<i32> { value: Some(0)}));
+        assert_eq!(input_buffer.get(Tick(14)), Some(&ActionState::<i32> { value: Some(0)}));
         assert_eq!(input_buffer.get(Tick(13)), None);
     }
 }

@@ -3,19 +3,20 @@
 use bevy::app::{App, Plugin};
 
 use crate::client::config::ClientConfig;
+use crate::client::input::InputConfig;
 use crate::inputs::native::input_message::InputMessage;
 use crate::prelude::{ChannelDirection, UserAction};
 use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;
 
 pub struct InputPlugin<A: UserAction> {
-    _marker: std::marker::PhantomData<A>,
+    pub config: InputConfig<A>,
 }
 
 impl<A: UserAction> Default for InputPlugin<A> {
     fn default() -> Self {
         Self {
-            _marker: std::marker::PhantomData,
+            config: Default::default(),
         }
     }
 }
@@ -29,7 +30,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         let is_server = app.world().get_resource::<ServerConfig>().is_some();
         assert!(is_client || is_server, "Either ClientConfig or ServerConfig must be present! Make sure that your SharedPlugin is registered after the ClientPlugins/ServerPlugins");
         if is_client {
-            app.add_plugins(crate::client::input::native::InputPlugin::<A>::default());
+            app.add_plugins(crate::client::input::native::InputPlugin::<A>::new(self.config.clone()));
         }
         if is_server {
             app.add_plugins(crate::server::input::native::InputPlugin::<A>::default());

@@ -1,164 +1,96 @@
 //! Handles client-generated inputs
-use bevy::prelude::*;
-use bevy::utils::HashMap;
-
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::input_message::InputMessage;
-use crate::prelude::server::DisconnectEvent;
-use crate::prelude::{
-    server::is_started, ClientId, MessageRegistry, ServerReceiveMessage, TickManager, UserAction,
-};
-use crate::server::events::InputEvent;
+use crate::inputs::native::input_message::{InputMessage, InputTarget};
+use crate::inputs::native::{ActionState, UserActionState};
+use crate::prelude::{is_host_server, server::is_started, MessageRegistry, ServerReceiveMessage, TickManager, UserAction};
+use crate::server::connection::ConnectionManager;
+use crate::server::input::InputSystemSet;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
+use bevy::prelude::*;
 
-pub struct InputPlugin<A: UserAction> {
-    _marker: std::marker::PhantomData<A>,
+pub struct InputPlugin<A> {
+    marker: std::marker::PhantomData<A>,
 }
 
-#[derive(Resource, Debug)]
-pub struct InputBuffers<A> {
-    /// The first element stores the last input we have received from the client.
-    /// In case we are missing the client input for a tick, we will fallback to using this.
-    pub(crate) buffers: HashMap<ClientId, (Option<A>, InputBuffer<A>)>,
-}
-
-impl<A> Default for InputBuffers<A> {
+impl<A> Default for InputPlugin<A> {
     fn default() -> Self {
         Self {
-            buffers: HashMap::default(),
+            marker: std::marker::PhantomData,
         }
     }
 }
 
-impl<A: UserAction> Default for InputPlugin<A> {
-    fn default() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
-
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum InputSystemSet {
-    /// PreUpdate system where we receive and deserialize the InputMessage
-    ReceiveInputMessage,
-    /// FixedUpdate system to get any inputs from the client. This should be run before the game/physics logic
-    WriteInputEvents,
-    /// System Set to clear the input events (otherwise bevy clears events every frame, not every tick)
-    ClearInputEvents,
-}
 
 impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
-        // RESOURCES
-        app.init_resource::<InputBuffers<A>>();
-        // EVENTS
-        app.add_event::<InputEvent<A>>();
-        // SETS
-        app.configure_sets(
-            PreUpdate,
-            InputSystemSet::ReceiveInputMessage
-                .in_set(InternalMainSet::<ServerMarker>::ReceiveEvents)
-                .run_if(is_started),
-        );
-        app.configure_sets(
-            FixedPreUpdate,
-            InputSystemSet::WriteInputEvents.run_if(is_started),
-        );
-        app.configure_sets(
-            FixedPostUpdate,
-            InputSystemSet::ClearInputEvents.run_if(is_started),
-        );
-
+        app.add_plugins(super::BaseInputPlugin::<ActionState<A>>::default());
+        // SYSTEMS
         app.add_systems(
             PreUpdate,
-            receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputMessage),
+            (
+                receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs)
+                    .run_if(not(is_host_server)),
+            ),
         );
-        app.add_systems(
-            FixedPreUpdate,
-            write_input_event::<A>.in_set(InputSystemSet::WriteInputEvents),
-        );
-        app.add_systems(
-            FixedPostUpdate,
-            clear_input_events::<A>.in_set(InputSystemSet::ClearInputEvents),
-        );
-        app.add_observer(handle_client_disconnect::<A>);
     }
 }
 
-/// Remove the client if the client disconnects
-fn handle_client_disconnect<A: UserAction>(
-    trigger: Trigger<DisconnectEvent>,
-    mut input_buffers: ResMut<InputBuffers<A>>,
-) {
-    input_buffers.buffers.remove(&trigger.event().client_id);
-}
 
-/// Read the message received from the client and emit the MessageEvent event
+/// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: UserAction>(
     message_registry: Res<MessageRegistry>,
-    // we use an EventReader in case the user wants to read the inputs in another system
-    mut received_messages: EventReader<ServerReceiveMessage<InputMessage<A>>>,
-    mut input_buffers: ResMut<InputBuffers<A>>,
+    // we use an EventReader and not an event because the user might want to re-broadcast the inputs
+    mut received_inputs: EventReader<ServerReceiveMessage<InputMessage<A>>>,
+    connection_manager: Res<ConnectionManager>,
+    // TODO: currently we do not handle entities that are controlled by multiple clients
+    mut query: Query<Option<&mut InputBuffer<ActionState<A>>>>,
+    mut commands: Commands,
 ) {
-    received_messages.read().for_each(|event| {
-        trace!("Received input message: {:?}", event);
-        let client = event.from;
-        event.message.update_buffer(
-            &mut input_buffers
-                .buffers
-                .entry(event.from)
-                .or_default()
-                .1
-        );
-        // TODO: allow automatic rebroadcast?
-    });
-}
+    received_inputs.read().for_each(|event| {
+        let message = &event.message;
+        let client_id = event.from;
+        trace!(?client_id, action = ?std::any::type_name::<A>(), ?message.end_tick, ?message.inputs, "received input message");
 
-// Create a system that reads from the input buffer and returns the inputs of all clients for the current tick.
-// The only tricky part is that events are cleared every frame, but we want to clear every tick instead
-// Do it in this system because we want an input for every tick
-fn write_input_event<A: UserAction>(
-    tick_manager: Res<TickManager>,
-    mut input_buffers: ResMut<InputBuffers<A>>,
-    mut input_events: EventWriter<InputEvent<A>>,
-) {
-    let tick = tick_manager.tick();
-    input_buffers
-        .buffers
-        .iter_mut()
-        .for_each(move |(client_id, (last_input, input_buffer))| {
-            trace!(?input_buffer, ?tick, ?client_id, "input buffer for client");
-            let received_input = input_buffer.pop(tick);
-            let fallback = received_input.is_none();
-
-            // NOTE: if there is no input for this tick, we should use the last input that we have
-            //  as a best-effort fallback.
-            let input = match received_input {
-                None => last_input.clone(),
-                Some(i) => {
-                    *last_input = Some(i.clone());
-                    Some(i)
-                }
-            };
-            if fallback {
-                // TODO: do not log this while clients are syncing..
-                trace!(
-                ?client_id,
-                ?tick,
-                fallback_input = ?&input,
-                "Missed client input!"
-                )
+        // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
+        //  that the message was intended for?
+        if let Some(interpolation_delay) = message.interpolation_delay {
+            // update the interpolation delay estimate for the client
+            if let Ok(client_entity) = connection_manager.client_entity(client_id) {
+                commands.entity(client_entity).insert(interpolation_delay);
             }
-            // TODO: We should also let the user know that it needs to send inputs a bit earlier so that
-            //  we have more of a buffer. Send a SyncMessage to tell the user to speed up?
-            //  See Overwatch GDC video
-            input_events.send(InputEvent::new(input, *client_id));
-        });
-}
+        }
 
-/// System that clears the input events.
-/// It is necessary because events are cleared every frame, but we want to clear every tick instead
-fn clear_input_events<A: UserAction>(mut input_events: EventReader<InputEvent<A>>) {
-    input_events.clear();
+        for data in &message.inputs {
+            match data.target {
+                // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
+                // (which is possible because the server received the entity)
+                // - for non-pre predicted entities, the mapping was already done on client side
+                // (client converted from their local entity to the remote server entity)
+                InputTarget::Entity(entity)
+                | InputTarget::PrePredictedEntity(entity) => {
+                    // TODO Don't update input buffer if inputs arrived too late?
+                    trace!("received input for entity: {:?}", entity);
+
+                    if let Ok(buffer) = query.get_mut(entity) {
+                        if let Some(mut buffer) = buffer {
+                            trace!(
+                                "Update InputBuffer: {} using InputMessage: {:?}",
+                                buffer.as_ref(),
+                                message
+                            );
+                            buffer.update_from_message(message.end_tick, &data.states);
+                        } else {
+                            debug!("Adding InputBuffer and ActionState which are missing on the entity");
+                            commands.entity(entity).insert((
+                                InputBuffer::<ActionState<A>>::default(),
+                                ActionState::<A>::default(),
+                            ));
+                        }
+                    } else {
+                        debug!(?entity, ?data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                    }
+                }
+            }
+        }
+    });
 }

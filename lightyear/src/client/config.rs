@@ -118,7 +118,6 @@ pub struct ClientConfig {
     pub shared: SharedConfig,
     pub packet: PacketConfig,
     pub net: NetConfig,
-    pub input: InputConfig,
     pub ping: PingConfig,
     pub sync: SyncConfig,
     pub replication: ReplicationConfig,
