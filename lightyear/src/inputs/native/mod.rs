@@ -43,7 +43,7 @@ pub trait UserAction:
 {
 }
 
-impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static> UserAction
+impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + MapEntities + 'static> UserAction
     for A
 {
 }

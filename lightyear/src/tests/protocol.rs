@@ -1,7 +1,7 @@
 use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
-use bevy::ecs::entity::MapEntities;
+use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
 use bevy::utils::HashSet;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -179,7 +179,7 @@ pub(crate) fn deserialize_resource2(reader: &mut Reader) -> Result<Resource2, Se
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect, VisitEntities, VisitEntitiesMut)]
 pub struct MyInput(pub i16);
 
 // Protocol
