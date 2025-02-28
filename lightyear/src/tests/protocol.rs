@@ -179,7 +179,7 @@ pub(crate) fn deserialize_resource2(reader: &mut Reader) -> Result<Resource2, Se
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect, VisitEntities, VisitEntitiesMut)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, VisitEntities, VisitEntitiesMut, Reflect)]
 pub struct MyInput(pub i16);
 
 // Protocol
